@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import styles from './web.module.css';
@@ -53,6 +53,13 @@ type ReserveDraft = {
   companies: string[];
 };
 
+type PlanPin = {
+  reserve: any;
+  number: number;
+  x: number;
+  y: number;
+};
+
 type VisitDraft = {
   title: string;
   chantierId: string;
@@ -87,6 +94,8 @@ const EMPTY_DATA: WebState = {
   oprs: [],
   notificationPreferences: [],
 };
+
+const PDFJS_VERSION = '5.7.284';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: '▦' },
@@ -203,6 +212,16 @@ function getChantierId(item: any) {
 
 function assetUrl(item: any) {
   return item?.uri ?? item?.url ?? item?.file_url ?? item?.public_url ?? item?.signed_url ?? item?.photo_uri ?? '';
+}
+
+function clampPercent(value: number, min = 0, max = 100) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function planCoordinateToPercent(value: any, ratioMode = false) {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return clampPercent(ratioMode ? num * 100 : num, 2, 98);
 }
 
 function toBase64Download(pdfBase64: string, filename: string) {
@@ -548,8 +567,8 @@ export default function BuildTrackWebPage() {
     if (!canEdit(profile)) return;
     const payload = {
       plan_id: planId,
-      plan_x: Math.max(0, Math.min(1, x)),
-      plan_y: Math.max(0, Math.min(1, y)),
+      plan_x: clampPercent(x),
+      plan_y: clampPercent(y),
     };
     setData(prev => ({
       ...prev,
@@ -1384,6 +1403,155 @@ function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
   );
 }
 
+function WebPdfPlan({
+  uri,
+  name,
+  pins,
+  pinModeReserveId,
+  onAssignPin,
+  onPinClick,
+}: {
+  uri: string;
+  name: string;
+  pins: PlanPin[];
+  pinModeReserveId?: string | null;
+  onAssignPin: (x: number, y: number) => void;
+  onPinClick: (reserveId: string) => void;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const renderTaskRef = useRef<any>(null);
+  const [scale, setScale] = useState(0);
+  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setScale(0);
+    setPageSize({ width: 0, height: 0 });
+    setError('');
+  }, [uri]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let loadingTask: any = null;
+
+    async function renderPdfPage() {
+      setLoading(true);
+      setError('');
+      try {
+        const pdfjs: any = await import('pdfjs-dist');
+        pdfjs.GlobalWorkerOptions.workerSrc ||= `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+        loadingTask = pdfjs.getDocument({ url: uri });
+        const pdf = await loadingTask.promise;
+        const page = await pdf.getPage(1);
+        const baseViewport = page.getViewport({ scale: 1 });
+        if (!scale) {
+          const availableWidth = Math.max((viewportRef.current?.clientWidth ?? 900) - 24, 320);
+          const fitScale = Math.min(1, Math.max(0.08, availableWidth / baseViewport.width));
+          setScale(Number(fitScale.toFixed(2)));
+          return;
+        }
+
+        const viewport = page.getViewport({ scale });
+        if (cancelled || !canvasRef.current) return;
+
+        const canvas = canvasRef.current;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('Canvas PDF indisponible');
+
+        const outputScale = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.floor(viewport.width * outputScale);
+        canvas.height = Math.floor(viewport.height * outputScale);
+        canvas.style.width = `${viewport.width}px`;
+        canvas.style.height = `${viewport.height}px`;
+        setPageSize({ width: viewport.width, height: viewport.height });
+
+        renderTaskRef.current?.cancel?.();
+        const renderContext: any = {
+          canvasContext: context,
+          viewport,
+        };
+        if (outputScale !== 1) {
+          renderContext.transform = [outputScale, 0, 0, outputScale, 0, 0];
+        }
+        const renderTask = page.render(renderContext);
+        renderTaskRef.current = renderTask;
+        await renderTask.promise;
+        if (!cancelled) setLoading(false);
+      } catch (pdfError: any) {
+        if (cancelled || pdfError?.name === 'RenderingCancelledException') return;
+        setError(pdfError?.message ?? 'Impossible de charger le PDF');
+        setLoading(false);
+      }
+    }
+
+    renderPdfPage();
+
+    return () => {
+      cancelled = true;
+      renderTaskRef.current?.cancel?.();
+      loadingTask?.destroy?.();
+    };
+  }, [uri, scale]);
+
+  function handlePageClick(event: MouseEvent<HTMLDivElement>) {
+    if (!pinModeReserveId) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    onAssignPin(
+      clampPercent(((event.clientX - rect.left) / rect.width) * 100),
+      clampPercent(((event.clientY - rect.top) / rect.height) * 100),
+    );
+  }
+
+  return (
+    <div className={styles.webPdfShell}>
+      <div className={styles.webPdfToolbar}>
+        <button type="button" onClick={() => setScale(value => Math.max(0.08, Number(((value || 1) - 0.1).toFixed(2))))}>−</button>
+        <strong>{scale ? Math.round(scale * 100) : '…'}%</strong>
+        <button type="button" onClick={() => setScale(value => Math.min(3, Number(((value || 1) + 0.1).toFixed(2))))}>+</button>
+        <a href={uri} target="_blank" rel="noreferrer">Ouvrir</a>
+      </div>
+      <div ref={viewportRef} className={styles.webPdfViewport}>
+        <div
+          className={styles.webPdfPage}
+          style={pageSize.width && pageSize.height ? { width: pageSize.width, height: pageSize.height } : undefined}
+          onClick={handlePageClick}
+          aria-label={name}
+        >
+          <canvas ref={canvasRef} className={styles.webPdfCanvas} />
+          {loading && <div className={styles.webPdfLoading}>Chargement du plan…</div>}
+          {error && (
+            <div className={styles.webPdfError}>
+              <strong>Plan PDF indisponible</strong>
+              <span>{error}</span>
+            </div>
+          )}
+          {pinModeReserveId && (
+            <div className={styles.pdfPinHint}>
+              Cliquez sur le PDF pour placer l’épingle
+            </div>
+          )}
+          {pins.map((pin) => (
+            <button
+              key={pin.reserve.id}
+              className={styles.pin}
+              style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
+              title={pin.reserve.title}
+              onClick={event => {
+                event.stopPropagation();
+                onPinClick(pin.reserve.id);
+              }}
+            >
+              {pin.number}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PlansView({
   plans,
   reserves,
@@ -1399,10 +1567,24 @@ function PlansView({
 }: any) {
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
   const pinTarget = reserves.find((reserve: any) => reserve.id === pinModeReserveId);
+  const planPins = planReserves
+    .map((reserve: any, idx: number) => {
+      const rawX = Number(reserve.plan_x);
+      const rawY = Number(reserve.plan_y);
+      // Historical web pins could be saved as 0..1. Mobile pins are 0..100.
+      const ratioMode = Number.isFinite(rawX) && Number.isFinite(rawY) && Math.abs(rawX) <= 1 && Math.abs(rawY) <= 1;
+      return {
+        reserve,
+        number: idx + 1,
+        x: planCoordinateToPercent(reserve.plan_x, ratioMode),
+        y: planCoordinateToPercent(reserve.plan_y, ratioMode),
+      };
+    })
+    .filter((pin: any) => pin.x != null && pin.y != null) as PlanPin[];
   return (
-    <div className={styles.twoCols}>
-      <section className={styles.panel}>
-        <div className={styles.list}>
+    <div className={`${styles.twoCols} ${styles.plansLayout}`}>
+      <section className={`${styles.panel} ${styles.plansListPanel}`}>
+        <div className={`${styles.list} ${styles.plansList}`}>
           {plans.map((plan: any) => (
             <button key={plan.id} className={`${styles.listRow} ${selectedPlan?.id === plan.id ? styles.selectedRow : ''}`} onClick={() => setSelectedPlanId(plan.id)}>
               <span>▤</span>
@@ -1416,7 +1598,7 @@ function PlansView({
           {!plans.length && <p className={styles.empty}>Aucun plan dans ce périmètre.</p>}
         </div>
       </section>
-      <section className={styles.panel}>
+      <section className={`${styles.panel} ${styles.plansPreviewPanel}`}>
         {selectedPlan ? (
           <>
             <div className={styles.sectionHeader}>
@@ -1448,11 +1630,21 @@ function PlansView({
               {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
                 <img src={selectedPlan.uri} alt={selectedPlan.name} />
               ) : selectedPlan.uri && selectedPlan.file_type === 'pdf' ? (
-                <iframe src={selectedPlan.uri} title={selectedPlan.name} />
+                <WebPdfPlan
+                  uri={selectedPlan.uri}
+                  name={selectedPlan.name}
+                  pins={planPins}
+                  pinModeReserveId={pinModeReserveId}
+                  onAssignPin={(x, y) => onAssignPin(pinModeReserveId, selectedPlan.id, x, y)}
+                  onPinClick={(reserveId) => {
+                    setSelectedReserveId(reserveId);
+                    setTab('reserves');
+                  }}
+                />
               ) : (
                 <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
               )}
-              {pinModeReserveId && (
+              {selectedPlan.file_type !== 'pdf' && pinModeReserveId && (
                 <button
                   type="button"
                   className={styles.pinClickLayer}
@@ -1461,29 +1653,29 @@ function PlansView({
                     onAssignPin(
                       pinModeReserveId,
                       selectedPlan.id,
-                      (event.clientX - rect.left) / rect.width,
-                      (event.clientY - rect.top) / rect.height,
+                      ((event.clientX - rect.left) / rect.width) * 100,
+                      ((event.clientY - rect.top) / rect.height) * 100,
                     );
                   }}
                 >
                   <span>Cliquer pour placer l’épingle</span>
                 </button>
               )}
-              {planReserves.filter((r: any) => r.plan_x != null && r.plan_y != null).map((reserve: any, idx: number) => (
-                <button
-                  key={reserve.id}
-                  className={styles.pin}
-                  style={{ left: `${Math.max(2, Math.min(98, Number(reserve.plan_x) * 100))}%`, top: `${Math.max(2, Math.min(98, Number(reserve.plan_y) * 100))}%` }}
-                  title={reserve.title}
-                  onClick={event => {
-                    event.stopPropagation();
-                    setSelectedReserveId(reserve.id);
-                    setTab('reserves');
-                  }}
-                >
-                  {idx + 1}
-                </button>
-              ))}
+              {selectedPlan.file_type !== 'pdf' && planPins.map((pin) => (
+                  <button
+                    key={pin.reserve.id}
+                    className={styles.pin}
+                    style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
+                    title={pin.reserve.title}
+                    onClick={event => {
+                      event.stopPropagation();
+                      setSelectedReserveId(pin.reserve.id);
+                      setTab('reserves');
+                    }}
+                  >
+                    {pin.number}
+                  </button>
+                ))}
             </div>
             <h3>Réserves sur ce plan</h3>
             <div className={styles.compactList}>
