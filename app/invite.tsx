@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { supabase } from '@/lib/supabase';
 
@@ -14,6 +15,7 @@ type LookupState =
   | { status: 'ok'; email: string; organizationName: string; invitedByName: string };
 
 export default function InviteLandingScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ token?: string }>();
@@ -26,7 +28,7 @@ export default function InviteLandingScreen() {
 
     async function lookup() {
       if (!token) {
-        setState({ status: 'invalid', reason: 'Lien d\'invitation incomplet (aucun code).' });
+        setState({ status: 'invalid', reason: t('invite.invalidMissingToken') });
         return;
       }
 
@@ -36,13 +38,13 @@ export default function InviteLandingScreen() {
 
         if (error) {
           console.warn('[invite] get_invitation_by_token error:', error.message);
-          setState({ status: 'invalid', reason: "Impossible de vérifier l'invitation. Vérifiez votre connexion." });
+          setState({ status: 'invalid', reason: t('invite.verifyError') });
           return;
         }
 
         const row = Array.isArray(data) ? data[0] : data;
         if (!row || !row.email) {
-          setState({ status: 'invalid', reason: 'Cette invitation est introuvable ou a été annulée.' });
+          setState({ status: 'invalid', reason: t('invite.notFound') });
           return;
         }
 
@@ -79,13 +81,13 @@ export default function InviteLandingScreen() {
       } catch (err: any) {
         if (cancelled) return;
         console.warn('[invite] exception:', err?.message);
-        setState({ status: 'invalid', reason: 'Une erreur est survenue.' });
+        setState({ status: 'invalid', reason: t('app.unexpectedError') });
       }
     }
 
     lookup();
     return () => { cancelled = true; };
-  }, [token, router]);
+  }, [token, router, t]);
 
   function goLogin() {
     router.replace('/login');
@@ -102,14 +104,14 @@ export default function InviteLandingScreen() {
           </View>
         </View>
         <View style={styles.heroDivider} />
-        <Text style={styles.heroTitle}>Invitation BuildTrack</Text>
+        <Text style={styles.heroTitle}>{t('invite.heroTitle')}</Text>
       </View>
 
       <View style={styles.body}>
         {state.status === 'loading' && (
           <View style={styles.center}>
             <ActivityIndicator size="large" color={C.primary} />
-            <Text style={styles.statusText}>Vérification de votre invitation...</Text>
+            <Text style={styles.statusText}>{t('invite.checking')}</Text>
           </View>
         )}
 
@@ -118,19 +120,19 @@ export default function InviteLandingScreen() {
             <View style={styles.iconCircle}>
               <Ionicons name="mail-open-outline" size={36} color={C.primary} />
             </View>
-            <Text style={styles.welcomeTitle}>Bienvenue !</Text>
+            <Text style={styles.welcomeTitle}>{t('invite.welcomeTitle')}</Text>
             {state.invitedByName ? (
               <Text style={styles.welcomeText}>
-                <Text style={styles.bold}>{state.invitedByName}</Text> vous invite à rejoindre
+                {t('invite.invitedByPrefix')} <Text style={styles.bold}>{state.invitedByName}</Text> {t('invite.invitedByMiddle')}
                 {state.organizationName ? <Text> <Text style={styles.bold}>{state.organizationName}</Text></Text> : null}.
               </Text>
             ) : (
               <Text style={styles.welcomeText}>
-                Vous avez été invité à rejoindre
-                {state.organizationName ? <Text> <Text style={styles.bold}>{state.organizationName}</Text></Text> : ' une organisation'}.
+                {t('invite.invitedGeneric')}
+                {state.organizationName ? <Text> <Text style={styles.bold}>{state.organizationName}</Text></Text> : ` ${t('invite.anOrganization')}`}.
               </Text>
             )}
-            <Text style={styles.subtle}>Redirection vers la création de compte...</Text>
+            <Text style={styles.subtle}>{t('invite.redirecting')}</Text>
             <ActivityIndicator size="small" color={C.primary} style={{ marginTop: 16 }} />
           </View>
         )}
@@ -140,12 +142,12 @@ export default function InviteLandingScreen() {
             <View style={[styles.iconCircle, { backgroundColor: C.openBg }]}>
               <Ionicons name="time-outline" size={36} color={C.open} />
             </View>
-            <Text style={styles.welcomeTitle}>Invitation expirée</Text>
+            <Text style={styles.welcomeTitle}>{t('invite.expiredTitle')}</Text>
             <Text style={styles.welcomeText}>
-              Cette invitation n'est plus valide. Demandez à votre administrateur de vous en envoyer une nouvelle.
+              {t('invite.expiredText')}
             </Text>
             <TouchableOpacity style={styles.btn} onPress={goLogin} activeOpacity={0.85}>
-              <Text style={styles.btnText}>Aller à la connexion</Text>
+              <Text style={styles.btnText}>{t('invite.goLogin')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -155,12 +157,12 @@ export default function InviteLandingScreen() {
             <View style={[styles.iconCircle, { backgroundColor: C.closedBg }]}>
               <Ionicons name="checkmark-circle-outline" size={36} color={C.closed} />
             </View>
-            <Text style={styles.welcomeTitle}>Invitation déjà utilisée</Text>
+            <Text style={styles.welcomeTitle}>{t('invite.usedTitle')}</Text>
             <Text style={styles.welcomeText}>
-              Vous avez déjà accepté cette invitation. Connectez-vous avec votre email.
+              {t('invite.usedText')}
             </Text>
             <TouchableOpacity style={styles.btn} onPress={goLogin} activeOpacity={0.85}>
-              <Text style={styles.btnText}>Se connecter</Text>
+              <Text style={styles.btnText}>{t('invite.signIn')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -170,10 +172,10 @@ export default function InviteLandingScreen() {
             <View style={[styles.iconCircle, { backgroundColor: C.openBg }]}>
               <Ionicons name="alert-circle-outline" size={36} color={C.open} />
             </View>
-            <Text style={styles.welcomeTitle}>Lien invalide</Text>
+            <Text style={styles.welcomeTitle}>{t('invite.invalidTitle')}</Text>
             <Text style={styles.welcomeText}>{state.reason}</Text>
             <TouchableOpacity style={styles.btn} onPress={goLogin} activeOpacity={0.85}>
-              <Text style={styles.btnText}>Aller à la connexion</Text>
+              <Text style={styles.btnText}>{t('invite.goLogin')}</Text>
             </TouchableOpacity>
           </View>
         )}

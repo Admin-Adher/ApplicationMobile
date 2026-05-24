@@ -14,6 +14,7 @@ import {
 } from '@/lib/pdfBase';
 import { buildPdfFilename } from '@/lib/pdfFilename';
 import { router } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -26,34 +27,39 @@ import { isValidDateFR } from '@/lib/dateUtils';
 
 const JOURNAL_KEY = 'buildtrack_journal_v2';
 
-const WEATHER_OPTIONS = [
-  '☀️ Ensoleillé',
-  '⛅ Nuageux',
-  '🌤️ Partiellement nuageux',
-  '🌧️ Pluie',
-  '🌩️ Orage',
-  '❄️ Neige',
-  '🌫️ Brouillard',
-  '💨 Vent fort',
-  '🌨️ Averses de neige',
-  '🌦️ Averses',
-];
+const WEATHER_OPTIONS = ['sunny', 'cloudy', 'partlyCloudy', 'rain', 'storm', 'snow', 'fog', 'wind', 'snowShowers', 'showers'] as const;
+const WEATHER_ICON_BY_KEY: Record<(typeof WEATHER_OPTIONS)[number], string> = {
+  sunny: '☀️',
+  cloudy: '⛅',
+  partlyCloudy: '🌤️',
+  rain: '🌧️',
+  storm: '🌩️',
+  snow: '❄️',
+  fog: '🌫️',
+  wind: '💨',
+  snowShowers: '🌨️',
+  showers: '🌦️',
+};
 
-function wmoCodesToLabel(wmo: number): string {
-  if (wmo === 0) return '☀️ Ensoleillé';
-  if (wmo <= 2) return '🌤️ Partiellement nuageux';
-  if (wmo === 3) return '⛅ Nuageux';
-  if (wmo <= 49) return '🌫️ Brouillard';
-  if (wmo <= 59) return '🌦️ Averses';
-  if (wmo <= 69) return '🌧️ Pluie';
-  if (wmo <= 79) return '❄️ Neige';
-  if (wmo <= 84) return '🌦️ Averses';
-  if (wmo <= 86) return '🌨️ Averses de neige';
-  if (wmo <= 99) return '🌩️ Orage';
-  return '⛅ Nuageux';
+function getWeatherLabel(t: (key: string, options?: any) => string, key: (typeof WEATHER_OPTIONS)[number]): string {
+  return `${WEATHER_ICON_BY_KEY[key]} ${t(`journal.weather.${key}`)}`;
 }
 
-async function fetchAutoWeather(): Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null> {
+function wmoCodesToLabel(wmo: number, t: (key: string, options?: any) => string): string {
+  if (wmo === 0) return getWeatherLabel(t, 'sunny');
+  if (wmo <= 2) return getWeatherLabel(t, 'partlyCloudy');
+  if (wmo === 3) return getWeatherLabel(t, 'cloudy');
+  if (wmo <= 49) return getWeatherLabel(t, 'fog');
+  if (wmo <= 59) return getWeatherLabel(t, 'showers');
+  if (wmo <= 69) return getWeatherLabel(t, 'rain');
+  if (wmo <= 79) return getWeatherLabel(t, 'snow');
+  if (wmo <= 84) return getWeatherLabel(t, 'showers');
+  if (wmo <= 86) return getWeatherLabel(t, 'snowShowers');
+  if (wmo <= 99) return getWeatherLabel(t, 'storm');
+  return getWeatherLabel(t, 'cloudy');
+}
+
+async function fetchAutoWeather(t: (key: string, options?: any) => string): Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;
@@ -66,7 +72,7 @@ async function fetchAutoWeather(): Promise<{ label: string; temp: number | null;
     const wmo: number = data.current?.weather_code ?? 0;
     const temp: number | null = data.current?.temperature_2m ?? null;
     const wind: number | null = data.current?.wind_speed_10m ?? null;
-    return { label: wmoCodesToLabel(wmo), temp, wind, code: wmo };
+    return { label: wmoCodesToLabel(wmo, t), temp, wind, code: wmo };
   } catch {
     return null;
   }
@@ -78,7 +84,7 @@ function frToISO(frDate: string): string {
   return `${parts[2]}-${parts[1]}-${parts[0]}`;
 }
 
-function buildJournalHTML(entries: JournalEntry[], projectName: string): string {
+function buildJournalHTML(entries: JournalEntry[], projectName: string, t: (key: string, options?: any) => string): string {
   const exportDate = formatDateFR(new Date());
   const docRef = `JC-${formatDateFR(new Date()).replace(/\//g, '')}`;
 
@@ -106,7 +112,7 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string): string 
           <div>${escapeHtml(e.workDone)}</div>
           ${hasMaterials ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📦 ${escapeHtml(e.materials)}</div>` : ''}
           ${hasObservations ? `<div style="color:#6B7280;margin-top:4px;font-size:10px">📝 ${escapeHtml(e.observations)}</div>` : ''}
-          ${hasVisitors ? `<div style="color:#3B82F6;margin-top:4px;font-size:10px">👤 Visiteurs : ${escapeHtml(e.visitors)}</div>` : ''}
+          ${hasVisitors ? `<div style="color:#3B82F6;margin-top:4px;font-size:10px">👤 ${escapeHtml(t('journal.pdf.visitors'))} : ${escapeHtml(e.visitors)}</div>` : ''}
         </td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">
           ${hasIncident
@@ -120,49 +126,50 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string): string 
   }).join('');
 
   const body = `
-    ${buildLetterhead('Journal de chantier officiel', dateRange, docRef, exportDate, projectName)}
+    ${buildLetterhead(t('journal.pdf.title'), dateRange, docRef, exportDate, projectName)}
     ${buildKpiRow([
-      { val: entries.length, label: 'Entrées journal', color: '#003082' },
-      { val: totalWorkers, label: 'Effectif cumulé', color: '#003082' },
-      { val: avgWorkers, label: 'Moy. journalière', color: '#1A2742' },
-      { val: entriesWithIncidents, label: 'Jours avec incidents', color: entriesWithIncidents > 0 ? '#DC2626' : '#059669' },
+      { val: entries.length, label: t('journal.pdf.entries'), color: '#003082' },
+      { val: totalWorkers, label: t('journal.pdf.totalWorkers'), color: '#003082' },
+      { val: avgWorkers, label: t('journal.pdf.dailyAverage'), color: '#1A2742' },
+      { val: entriesWithIncidents, label: t('journal.pdf.incidentDays'), color: entriesWithIncidents > 0 ? '#DC2626' : '#059669' },
     ])}
-    <div class="section-header">Registre des journées (${entries.length} entrée${entries.length !== 1 ? 's' : ''})</div>
+    <div class="section-header">${escapeHtml(t('journal.pdf.register', { count: entries.length }))}</div>
     <table>
       <thead>
         <tr>
-          <th>Date</th><th>Météo</th><th style="text-align:center">Effectif</th>
-          <th>Travaux réalisés / Matériaux / Observations</th>
-          <th>Incidents</th><th>Rédacteur</th>
+          <th>${escapeHtml(t('journal.pdf.date'))}</th><th>${escapeHtml(t('journal.pdf.weather'))}</th><th style="text-align:center">${escapeHtml(t('journal.pdf.workers'))}</th>
+          <th>${escapeHtml(t('journal.pdf.workMaterialsObservations'))}</th>
+          <th>${escapeHtml(t('journal.pdf.incidents'))}</th><th>${escapeHtml(t('journal.pdf.author'))}</th>
         </tr>
       </thead>
       <tbody>
-        ${rows || '<tr><td colspan="6" style="padding:20px;text-align:center;color:#6B7280">Aucune entrée dans le journal</td></tr>'}
+        ${rows || `<tr><td colspan="6" style="padding:20px;text-align:center;color:#6B7280">${escapeHtml(t('journal.pdf.noEntries'))}</td></tr>`}
       </tbody>
     </table>
     <div class="sig-row" style="margin-top:32px;padding-top:20px;border-top:2px solid #EEF3FA">
       <div class="sig-block">
-        <div class="sig-label">Conducteur de travaux</div>
+        <div class="sig-label">${escapeHtml(t('journal.pdf.conductor'))}</div>
         <div class="sig-line"></div>
-        <div style="font-size:11px;color:#6B7280">Signature et cachet</div>
+        <div style="font-size:11px;color:#6B7280">${escapeHtml(t('journal.pdf.signatureStamp'))}</div>
       </div>
       <div class="sig-block">
-        <div class="sig-label">Maître d'œuvre</div>
+        <div class="sig-label">${escapeHtml(t('journal.pdf.projectManager'))}</div>
         <div class="sig-line"></div>
-        <div style="font-size:11px;color:#6B7280">Signature et cachet</div>
+        <div style="font-size:11px;color:#6B7280">${escapeHtml(t('journal.pdf.signatureStamp'))}</div>
       </div>
       <div class="sig-block">
-        <div class="sig-label">Certification</div>
-        <div style="font-size:11px;color:#1A2742;line-height:1.5">Je soussigné(e) certifie l'exactitude des informations contenues dans ce journal de chantier.</div>
+        <div class="sig-label">${escapeHtml(t('journal.pdf.certification'))}</div>
+        <div style="font-size:11px;color:#1A2742;line-height:1.5">${escapeHtml(t('journal.pdf.certificationText'))}</div>
       </div>
     </div>
     ${buildDocFooter(projectName)}
   `;
 
-  return wrapHTML(body, `Journal de chantier — ${projectName}`);
+  return wrapHTML(body, t('journal.pdf.documentTitle', { project: projectName }));
 }
 
 export default function JournalScreen() {
+  const { t } = useTranslation();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const { getEntriesForDate } = usePointage();
@@ -228,22 +235,22 @@ export default function JournalScreen() {
 
   const handleAutoWeather = useCallback(async () => {
     if (Platform.OS === 'web') {
-      Alert.alert('Non disponible', 'La géolocalisation météo n\'est pas disponible sur web. Sélectionnez manuellement.');
+      Alert.alert(t('journal.unavailableTitle'), t('journal.weatherWebUnavailable'));
       return;
     }
     setFetchingWeather(true);
     try {
-      const result = await fetchAutoWeather();
+      const result = await fetchAutoWeather(t);
       if (result) {
         setWeather(result.label);
         setWeatherDetail({ temp: result.temp, wind: result.wind, code: result.code });
       } else {
-        Alert.alert('Météo indisponible', 'Impossible de récupérer la météo automatiquement. Vérifiez les autorisations de localisation.');
+        Alert.alert(t('journal.weatherUnavailableTitle'), t('journal.weatherUnavailableText'));
       }
     } finally {
       setFetchingWeather(false);
     }
-  }, []);
+  }, [t]);
 
   const handleWorkerCountChange = (val: string) => {
     const digits = val.replace(/[^0-9]/g, '');
@@ -254,12 +261,12 @@ export default function JournalScreen() {
     setSubmitAttempted(true);
 
     if (!date || !isValidDateFR(date)) {
-      Alert.alert('Date invalide', 'Veuillez saisir une date valide au format JJ/MM/AAAA.');
+      Alert.alert(t('journal.invalidDateTitle'), t('journal.invalidDateText'));
       return;
     }
 
     if (!workDone.trim()) {
-      Alert.alert('Champ requis', 'Veuillez décrire les travaux réalisés.');
+      Alert.alert(t('pointage.requiredField'), t('journal.workRequired'));
       return;
     }
 
@@ -276,7 +283,7 @@ export default function JournalScreen() {
         incidents: incidents.trim(),
         observations: observations.trim(),
         visitors: visitors.trim(),
-        author: user?.name ?? 'Équipe',
+        author: user?.name ?? t('journal.teamFallback'),
         createdAt: nowTimestampFR(),
         weatherTemp: weatherDetail?.temp ?? undefined,
         weatherWind: weatherDetail?.wind ?? undefined,
@@ -295,29 +302,29 @@ export default function JournalScreen() {
     const duplicateEntry = entries.find(e => e.date === date);
     if (duplicateEntry) {
       Alert.alert(
-        'Entrée existante',
-        `Une entrée existe déjà pour le ${date}. Voulez-vous quand même créer une nouvelle entrée pour cette date ?`,
+        t('journal.duplicateTitle'),
+        t('journal.duplicateText', { date }),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Créer quand même', style: 'destructive', onPress: save },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('journal.createAnyway'), style: 'destructive', onPress: save },
         ]
       );
       return;
     }
 
     save();
-  }, [date, weather, workerCount, workDone, materials, incidents, observations, visitors, weatherDetail, user, entries]);
+  }, [date, weather, workerCount, workDone, materials, incidents, observations, visitors, weatherDetail, user, entries, t]);
 
   async function handleExportPDF() {
     if (!permissions.canExport) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter.");
+      Alert.alert(t('documentsScreen.accessDenied'), t('journal.exportDenied'));
       return;
     }
     try {
-      const html = buildJournalHTML(entries, projectName);
-      await exportPDFHelper(html, buildPdfFilename('Journal_Chantier', [projectName]));
+      const html = buildJournalHTML(entries, projectName, t);
+      await exportPDFHelper(html, buildPdfFilename(t('journal.pdf.filename'), [projectName]));
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
+      Alert.alert(t('common.error'), e?.message ?? t('journal.pdfError'));
     }
   }
 
@@ -329,16 +336,16 @@ export default function JournalScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>
-          Accès restreint
+          {t('common.restrictedAccess')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-          Le journal de chantier n'est pas accessible aux sous-traitants.
+          {t('journal.restrictedText')}
         </Text>
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('pointage.backToDashboard')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -347,10 +354,10 @@ export default function JournalScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
-        title="Journal de chantier"
-        subtitle={`${entries.length} entrées — ${projectName}`}
+        title={t('journal.title')}
+        subtitle={t('journal.subtitle', { count: entries.length, project: projectName })}
         showBack
-        rightLabel={permissions.canCreate ? (showNew ? 'Annuler' : 'Ajouter') : undefined}
+        rightLabel={permissions.canCreate ? (showNew ? t('common.cancel') : t('common.add')) : undefined}
         onRightPress={permissions.canCreate ? () => { resetForm(); setShowNew(s => !s); } : undefined}
       />
 
@@ -367,8 +374,8 @@ export default function JournalScreen() {
                 <Ionicons name="journal" size={20} color="#fff" />
               </View>
               <View>
-                <Text style={styles.todayCTATitle}>Saisir l'entrée du jour</Text>
-                <Text style={styles.todayCTASub}>{todayFR} — aucune saisie ce jour</Text>
+                <Text style={styles.todayCTATitle}>{t('journal.todayCtaTitle')}</Text>
+                <Text style={styles.todayCTASub}>{t('journal.todayCtaSub', { date: todayFR })}</Text>
               </View>
             </View>
             <Ionicons name="chevron-forward" size={18} color={C.primary} />
@@ -379,17 +386,17 @@ export default function JournalScreen() {
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
               <Text style={styles.statVal}>{entries.length}</Text>
-              <Text style={styles.statLabel}>Entrées</Text>
+              <Text style={styles.statLabel}>{t('journal.entriesStat')}</Text>
             </View>
             <View style={styles.statCard}>
               <Text style={styles.statVal}>{totalWorkers}</Text>
-              <Text style={styles.statLabel}>Effectif cumulé</Text>
+              <Text style={styles.statLabel}>{t('journal.totalWorkersStat')}</Text>
             </View>
             <View style={styles.statCard}>
               <Text style={[styles.statVal, entries.filter(e => e.incidents).length > 0 ? { color: C.open } : {}]}>
                 {entries.filter(e => e.incidents).length}
               </Text>
-              <Text style={styles.statLabel}>Incidents notés</Text>
+              <Text style={styles.statLabel}>{t('journal.incidentsStat')}</Text>
             </View>
             {permissions.canExport && (
               <TouchableOpacity style={styles.exportBtn} onPress={handleExportPDF}>
@@ -402,12 +409,12 @@ export default function JournalScreen() {
 
         {showNew && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Nouvelle entrée journal</Text>
+            <Text style={styles.sectionTitle}>{t('journal.newEntry')}</Text>
 
-            <DateInput label="Date" value={date} onChange={setDate} />
+            <DateInput label={t('journal.date')} value={date} onChange={setDate} />
 
             <View style={styles.weatherHeader}>
-              <Text style={styles.label}>Météo</Text>
+              <Text style={styles.label}>{t('journal.weatherLabel')}</Text>
               <TouchableOpacity
                 style={[styles.autoWeatherBtn, fetchingWeather && styles.autoWeatherBtnLoading]}
                 onPress={handleAutoWeather}
@@ -419,7 +426,7 @@ export default function JournalScreen() {
                   <Ionicons name="locate-outline" size={14} color={C.primary} />
                 )}
                 <Text style={styles.autoWeatherText}>
-                  {fetchingWeather ? 'Localisation…' : 'Météo auto'}
+                  {fetchingWeather ? t('journal.locating') : t('journal.autoWeather')}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -431,32 +438,35 @@ export default function JournalScreen() {
                   {weatherDetail.temp !== null ? `${Math.round(weatherDetail.temp)}°C` : ''}
                   {weatherDetail.temp !== null && weatherDetail.wind !== null ? ' · ' : ''}
                   {weatherDetail.wind !== null ? `${Math.round(weatherDetail.wind)} km/h` : ''}
-                  {' '}— détectée automatiquement via GPS
+                  {' '}{t('journal.detectedByGps')}
                 </Text>
               </View>
             )}
 
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                {WEATHER_OPTIONS.map(w => (
+                {WEATHER_OPTIONS.map(w => {
+                  const label = getWeatherLabel(t, w);
+                  return (
                   <TouchableOpacity
                     key={w}
-                    style={[styles.chip, weather === w && styles.chipSelected]}
-                    onPress={() => { setWeather(w); setWeatherDetail(null); }}
+                    style={[styles.chip, weather === label && styles.chipSelected]}
+                    onPress={() => { setWeather(label); setWeatherDetail(null); }}
                   >
-                    <Text style={[styles.chipText, weather === w && styles.chipTextSelected]}>{w}</Text>
+                    <Text style={[styles.chipText, weather === label && styles.chipTextSelected]}>{label}</Text>
                   </TouchableOpacity>
-                ))}
+                  );
+                })}
               </View>
             </ScrollView>
 
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <Text style={styles.label}>Effectif sur site</Text>
+              <Text style={styles.label}>{t('journal.workerCountLabel')}</Text>
               {workerCountFromPointage > 0 && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: C.closedBg, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
                   <Ionicons name="checkmark-circle" size={12} color={C.closed} />
                   <Text style={{ fontSize: 11, fontFamily: 'Inter_500Medium', color: C.closed }}>
-                    Depuis le pointage ({date})
+                    {t('journal.fromAttendance', { date })}
                   </Text>
                 </View>
               )}
@@ -465,8 +475,8 @@ export default function JournalScreen() {
               style={styles.input}
               placeholder={
                 workerCountFromPointage > 0
-                  ? `${workerCountFromPointage} (depuis le pointage)`
-                  : 'Nombre de personnes'
+                  ? t('journal.workerCountFromAttendancePlaceholder', { count: workerCountFromPointage })
+                  : t('journal.workerCountPlaceholder')
               }
               placeholderTextColor={C.textMuted}
               value={workerCount}
@@ -476,15 +486,15 @@ export default function JournalScreen() {
 
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, marginTop: 4 }}>
               <Text style={styles.label}>
-                Travaux réalisés <Text style={styles.required}>*</Text>
+                {t('journal.workDoneLabel')} <Text style={styles.required}>*</Text>
               </Text>
               {workDoneError && (
-                <Text style={styles.fieldError}>Champ obligatoire</Text>
+                <Text style={styles.fieldError}>{t('journal.requiredInline')}</Text>
               )}
             </View>
             <TextInput
               style={[styles.input, styles.multiline, workDoneError && styles.inputError]}
-              placeholder="Description détaillée des travaux effectués aujourd'hui..."
+              placeholder={t('journal.workDonePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={workDone}
               onChangeText={setWorkDone}
@@ -494,22 +504,22 @@ export default function JournalScreen() {
               maxLength={2000}
             />
 
-            <Text style={styles.label}>Matériaux / Livraisons</Text>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Livraisons reçues, matériaux consommés..." placeholderTextColor={C.textMuted} value={materials} onChangeText={setMaterials} multiline numberOfLines={2} />
+            <Text style={styles.label}>{t('journal.materialsLabel')}</Text>
+            <TextInput style={[styles.input, styles.multiline]} placeholder={t('journal.materialsPlaceholder')} placeholderTextColor={C.textMuted} value={materials} onChangeText={setMaterials} multiline numberOfLines={2} />
 
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, marginTop: 4 }}>
-              <Text style={styles.label}>Incidents / Problèmes</Text>
+              <Text style={styles.label}>{t('journal.incidentsLabel')}</Text>
               {incidents.trim().length > 0 && (
                 <TouchableOpacity
                   style={styles.escalateBtn}
                   onPress={() => {
                     Alert.alert(
-                      'Créer un incident formel ?',
-                      'Vous allez quitter ce formulaire pour accéder au module Incidents. Votre description sera pré-remplie mais l\'entrée journal en cours ne sera pas sauvegardée.',
+                      t('journal.createIncidentTitle'),
+                      t('journal.createIncidentText'),
                       [
-                        { text: 'Rester', style: 'cancel' },
+                        { text: t('pointage.stay'), style: 'cancel' },
                         {
-                          text: 'Continuer',
+                          text: t('common.continue'),
                           onPress: () => router.navigate({
                             pathname: '/(tabs)/incidents',
                             params: { openCreate: '1', prefillDescription: incidents.trim() },
@@ -520,29 +530,29 @@ export default function JournalScreen() {
                   }}
                 >
                   <Ionicons name="warning-outline" size={12} color={C.waiting} />
-                  <Text style={styles.escalateBtnText}>Créer un incident formel</Text>
+                  <Text style={styles.escalateBtnText}>{t('journal.createIncidentButton')}</Text>
                 </TouchableOpacity>
               )}
             </View>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Signalement d'incidents ou difficultés rencontrées..." placeholderTextColor={C.textMuted} value={incidents} onChangeText={setIncidents} multiline numberOfLines={2} />
+            <TextInput style={[styles.input, styles.multiline]} placeholder={t('journal.incidentsPlaceholder')} placeholderTextColor={C.textMuted} value={incidents} onChangeText={setIncidents} multiline numberOfLines={2} />
             {incidents.trim().length > 0 && (
               <View style={styles.incidentHint}>
                 <Ionicons name="information-circle-outline" size={13} color={C.waiting} />
                 <Text style={styles.incidentHintText}>
-                  Pour un incident grave, utilisez le module Incidents pour un suivi formel complet.
+                  {t('journal.incidentHint')}
                 </Text>
               </View>
             )}
 
-            <Text style={styles.label}>Visiteurs</Text>
-            <TextInput style={styles.input} placeholder="Ex: MOA, Bureau de contrôle, Architecte..." placeholderTextColor={C.textMuted} value={visitors} onChangeText={setVisitors} />
+            <Text style={styles.label}>{t('journal.visitorsLabel')}</Text>
+            <TextInput style={styles.input} placeholder={t('journal.visitorsPlaceholder')} placeholderTextColor={C.textMuted} value={visitors} onChangeText={setVisitors} />
 
-            <Text style={styles.label}>Observations générales</Text>
-            <TextInput style={[styles.input, styles.multiline]} placeholder="Notes complémentaires..." placeholderTextColor={C.textMuted} value={observations} onChangeText={setObservations} multiline numberOfLines={2} />
+            <Text style={styles.label}>{t('journal.observationsLabel')}</Text>
+            <TextInput style={[styles.input, styles.multiline]} placeholder={t('journal.observationsPlaceholder')} placeholderTextColor={C.textMuted} value={observations} onChangeText={setObservations} multiline numberOfLines={2} />
 
             <TouchableOpacity style={styles.createBtn} onPress={handleCreate}>
               <Ionicons name="journal" size={18} color="#fff" />
-              <Text style={styles.createBtnText}>Enregistrer l'entrée</Text>
+              <Text style={styles.createBtnText}>{t('journal.saveEntry')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -550,12 +560,12 @@ export default function JournalScreen() {
         {entries.length === 0 && !showNew && (
           <View style={styles.emptyBox}>
             <Ionicons name="journal-outline" size={52} color={C.border} />
-            <Text style={styles.emptyTitle}>Journal vide</Text>
-            <Text style={styles.emptyText}>Le journal de chantier est un document officiel retraçant l'avancement quotidien des travaux.</Text>
+            <Text style={styles.emptyTitle}>{t('journal.emptyTitle')}</Text>
+            <Text style={styles.emptyText}>{t('journal.emptyText')}</Text>
             {permissions.canCreate && (
               <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowNew(true)}>
                 <Ionicons name="add-circle" size={18} color={C.primary} />
-                <Text style={styles.emptyBtnText}>Première entrée</Text>
+                <Text style={styles.emptyBtnText}>{t('journal.firstEntry')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -577,7 +587,7 @@ export default function JournalScreen() {
               )}
               <View style={styles.entryWorkers}>
                 <Ionicons name="people" size={14} color={C.textSub} />
-                <Text style={styles.entryWorkersText}>{entry.workerCount} pers.</Text>
+              <Text style={styles.entryWorkersText}>{t('pointage.peopleShort', { count: entry.workerCount })}</Text>
               </View>
               <Text style={styles.entryAuthor}>{entry.author}</Text>
             </View>
@@ -595,7 +605,7 @@ export default function JournalScreen() {
               </View>
             ) : null}
             {entry.visitors ? (
-              <Text style={styles.entryVisitor}>Visiteurs : {entry.visitors}</Text>
+              <Text style={styles.entryVisitor}>{t('journal.visitorsPrefix', { visitors: entry.visitors })}</Text>
             ) : null}
             {entry.observations ? (
               <Text style={styles.entryObs}>{entry.observations}</Text>

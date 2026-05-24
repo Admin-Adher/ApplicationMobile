@@ -2,10 +2,12 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 
 export default function PendingInviteScreen() {
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, logout } = useAuth();
@@ -20,13 +22,13 @@ export default function PendingInviteScreen() {
           <Ionicons name="mail-unread-outline" size={52} color={C.primary} />
         </View>
 
-        <Text style={styles.title}>En attente d'invitation</Text>
+        <Text style={styles.title}>{t('pendingInvite.title')}</Text>
 
         <Text style={styles.body}>
-          Votre compte a bien été créé, mais vous n'êtes encore associé à aucune organisation.
+          {t('pendingInvite.body1')}
         </Text>
         <Text style={styles.body}>
-          Demandez à un administrateur de vous inviter en utilisant votre adresse e-mail :
+          {t('pendingInvite.body2')}
         </Text>
 
         <View style={styles.emailBox}>
@@ -40,7 +42,7 @@ export default function PendingInviteScreen() {
               <Text style={styles.stepNum}>1</Text>
             </View>
             <Text style={styles.stepText}>
-              L'administrateur de l'organisation vous envoie une invitation depuis l'écran Administration.
+              {t('pendingInvite.step1')}
             </Text>
           </View>
           <View style={styles.step}>
@@ -48,7 +50,7 @@ export default function PendingInviteScreen() {
               <Text style={styles.stepNum}>2</Text>
             </View>
             <Text style={styles.stepText}>
-              Déconnectez-vous puis reconnectez-vous : votre accès sera automatiquement activé.
+              {t('pendingInvite.step2')}
             </Text>
           </View>
         </View>
@@ -59,11 +61,11 @@ export default function PendingInviteScreen() {
           activeOpacity={0.8}
         >
           <Ionicons name="refresh-outline" size={17} color="#fff" />
-          <Text style={styles.refreshBtnText}>Me reconnecter</Text>
+          <Text style={styles.refreshBtnText}>{t('pendingInvite.reconnect')}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.logoutLink} onPress={logout} activeOpacity={0.7}>
-          <Text style={styles.logoutLinkText}>Se déconnecter</Text>
+          <Text style={styles.logoutLinkText}>{t('pendingInvite.logout')}</Text>
         </TouchableOpacity>
       </View>
     </View>

@@ -14,6 +14,7 @@ import {
   Text,
   useWindowDimensions,
 } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 
 export interface SignaturePadRef {
@@ -50,6 +51,7 @@ function buildSVGString(strokes: Point[][], padWidth: number): string {
 }
 
 const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
+  const { t } = useTranslation();
   const [strokes, setStrokes] = useState<Point[][]>([]);
   const currentStrokeRef = useRef<Point[]>([]);
   const isDrawingRef = useRef(false);
@@ -205,7 +207,7 @@ const SignaturePad = forwardRef<SignaturePadRef>((_, ref) => {
         ))}
         {strokes.length === 0 && (
           <View style={styles.placeholder}>
-            <Text style={styles.placeholderText}>Signez ici</Text>
+            <Text style={styles.placeholderText}>{t('signaturePad.placeholder')}</Text>
           </View>
         )}
       </View>

@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { Animated, TouchableOpacity, Text, View, StyleSheet, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '@/context/AppContext';
 import { C } from '@/constants/colors';
@@ -14,6 +15,7 @@ function getAvatarColor(name: string): string {
 }
 
 export default function NotificationBanner() {
+  const { t } = useTranslation();
   const { notification, dismissNotification, channels } = useApp();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -82,7 +84,7 @@ export default function NotificationBanner() {
   }
 
   const previewText = msg.attachmentUri
-    ? '📷 Photo'
+    ? t('notificationBanner.photo')
     : msg.content.length > 60
     ? msg.content.slice(0, 60) + '…'
     : msg.content;

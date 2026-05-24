@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
@@ -12,22 +13,22 @@ import Header from '@/components/Header';
 import { RegulatoryDoc, RegDocType, RegDocStatus } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 
-const DOC_TYPES: { value: RegDocType; label: string; desc: string; icon: string; color: string }[] = [
-  { value: 'ppsps', label: 'PPSPS', desc: 'Plan Particulier de Sécurité et de Protection de la Santé', icon: 'shield-checkmark', color: '#DC2626' },
-  { value: 'dict', label: 'DICT', desc: 'Déclaration d\'Intention de Commencement de Travaux', icon: 'document-text', color: '#2563EB' },
-  { value: 'doe', label: 'DOE', desc: 'Dossier des Ouvrages Exécutés', icon: 'folder-open', color: '#7C3AED' },
-  { value: 'plan_prevention', label: 'Plan de prévention', desc: 'Plan de Prévention des risques', icon: 'warning', color: '#D97706' },
-  { value: 'declaration_prealable', label: 'Déclaration préalable', desc: 'Déclaration préalable de travaux', icon: 'document', color: '#059669' },
-  { value: 'dpae', label: 'DPAE', desc: 'Déclaration Préalable À l\'Embauche', icon: 'people', color: '#DB2777' },
-  { value: 'autre', label: 'Autre', desc: 'Autre document réglementaire', icon: 'attach', color: '#6B7280' },
+const DOC_TYPES: { value: RegDocType; labelKey: string; descKey: string; icon: string; color: string }[] = [
+  { value: 'ppsps', labelKey: 'regulatory.docTypes.ppsps.label', descKey: 'regulatory.docTypes.ppsps.desc', icon: 'shield-checkmark', color: '#DC2626' },
+  { value: 'dict', labelKey: 'regulatory.docTypes.dict.label', descKey: 'regulatory.docTypes.dict.desc', icon: 'document-text', color: '#2563EB' },
+  { value: 'doe', labelKey: 'regulatory.docTypes.doe.label', descKey: 'regulatory.docTypes.doe.desc', icon: 'folder-open', color: '#7C3AED' },
+  { value: 'plan_prevention', labelKey: 'regulatory.docTypes.plan_prevention.label', descKey: 'regulatory.docTypes.plan_prevention.desc', icon: 'warning', color: '#D97706' },
+  { value: 'declaration_prealable', labelKey: 'regulatory.docTypes.declaration_prealable.label', descKey: 'regulatory.docTypes.declaration_prealable.desc', icon: 'document', color: '#059669' },
+  { value: 'dpae', labelKey: 'regulatory.docTypes.dpae.label', descKey: 'regulatory.docTypes.dpae.desc', icon: 'people', color: '#DB2777' },
+  { value: 'autre', labelKey: 'regulatory.docTypes.autre.label', descKey: 'regulatory.docTypes.autre.desc', icon: 'attach', color: '#6B7280' },
 ];
 
-const STATUS_CONFIG: Record<RegDocStatus, { label: string; color: string; bg: string; icon: string }> = {
-  valid: { label: 'Valide', color: C.closed, bg: C.closedBg, icon: 'checkmark-circle' },
-  expiring: { label: 'Expire bientôt', color: C.medium, bg: C.mediumBg, icon: 'time' },
-  expired: { label: 'Expiré', color: C.open, bg: C.openBg, icon: 'close-circle' },
-  missing: { label: 'Manquant', color: C.open, bg: C.openBg, icon: 'alert-circle' },
-  in_progress: { label: 'En cours', color: C.inProgress, bg: C.inProgressBg, icon: 'hourglass' },
+const STATUS_CONFIG: Record<RegDocStatus, { labelKey: string; color: string; bg: string; icon: string }> = {
+  valid: { labelKey: 'regulatory.status.valid', color: C.closed, bg: C.closedBg, icon: 'checkmark-circle' },
+  expiring: { labelKey: 'regulatory.status.expiring', color: C.medium, bg: C.mediumBg, icon: 'time' },
+  expired: { labelKey: 'regulatory.status.expired', color: C.open, bg: C.openBg, icon: 'close-circle' },
+  missing: { labelKey: 'regulatory.status.missing', color: C.open, bg: C.openBg, icon: 'alert-circle' },
+  in_progress: { labelKey: 'regulatory.status.in_progress', color: C.inProgress, bg: C.inProgressBg, icon: 'hourglass' },
 };
 
 const STATUSES: RegDocStatus[] = ['valid', 'in_progress', 'expiring', 'expired', 'missing'];
@@ -37,6 +38,7 @@ function getTypeInfo(type: RegDocType) {
 }
 
 export default function ReglementaireScreen() {
+  const { t } = useTranslation();
   const { user, permissions } = useAuth();
   const { docs, addDoc, updateDoc, deleteDoc } = useReglementaire();
 
@@ -57,12 +59,12 @@ export default function ReglementaireScreen() {
     const filtered = docs.filter(d => !filterStatus || d.status === filterStatus);
     const map: Record<string, RegulatoryDoc[]> = {};
     filtered.forEach(d => {
-      const label = getTypeInfo(d.type).label;
+      const label = t(getTypeInfo(d.type).labelKey);
       if (!map[label]) map[label] = [];
       map[label].push(d);
     });
     return Object.entries(map).map(([title, data]) => ({ title, data }));
-  }, [docs, filterStatus]);
+  }, [docs, filterStatus, t]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { valid: 0, expiring: 0, expired: 0, missing: 0, in_progress: 0 };
@@ -103,7 +105,7 @@ export default function ReglementaireScreen() {
 
   async function handleSave() {
     if (!title.trim()) {
-      Alert.alert('Champ requis', 'Le titre du document est obligatoire.');
+      Alert.alert(t('regulatory.requiredTitle'), t('regulatory.titleRequired'));
       return;
     }
     const payload = {
@@ -115,7 +117,7 @@ export default function ReglementaireScreen() {
       expiryDate: expiryDate.trim() || undefined,
       status,
       notes: notes.trim() || undefined,
-      createdBy: user?.name ?? 'Système',
+      createdBy: user?.name ?? t('settings.systemUser'),
     };
     if (editTarget) {
       await updateDoc(editTarget.id, payload);
@@ -126,9 +128,9 @@ export default function ReglementaireScreen() {
   }
 
   function handleDelete(doc: RegulatoryDoc) {
-    Alert.alert('Supprimer', `Supprimer "${doc.title}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deleteDoc(doc.id) },
+    Alert.alert(t('regulatory.deleteTitle'), t('regulatory.deleteText', { title: doc.title }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => deleteDoc(doc.id) },
     ]);
   }
 
@@ -136,11 +138,11 @@ export default function ReglementaireScreen() {
     const idx = STATUSES.indexOf(doc.status);
     const next = STATUSES[(idx + 1) % STATUSES.length];
     Alert.alert(
-      'Changer le statut',
-      `Passer "${doc.title}" au statut "${STATUS_CONFIG[next].label}" ?`,
+      t('regulatory.changeStatusTitle'),
+      t('regulatory.changeStatusText', { title: doc.title, status: t(STATUS_CONFIG[next].labelKey) }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Confirmer', onPress: () => updateDoc(doc.id, { status: next }) },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('regulatory.confirm'), onPress: () => updateDoc(doc.id, { status: next }) },
       ]
     );
   }
@@ -150,8 +152,8 @@ export default function ReglementaireScreen() {
   return (
     <View style={styles.container}>
       <Header
-        title="Documents réglementaires"
-        subtitle="PPSPS · DICT · DOE · Prévention"
+        title={t('regulatory.headerTitle')}
+        subtitle={t('regulatory.headerSubtitle')}
         showBack
         rightIcon={permissions.canCreate ? 'add-outline' : undefined}
         onRightPress={permissions.canCreate ? openAdd : undefined}
@@ -167,7 +169,7 @@ export default function ReglementaireScreen() {
               onPress={() => setFilterStatus(prev => prev === key ? '' : key as RegDocStatus)}
             >
               <Ionicons name={cfg.icon as any} size={13} color={cfg.color} />
-              <Text style={[styles.statusChipText, { color: cfg.color }]}>{val} {cfg.label}</Text>
+              <Text style={[styles.statusChipText, { color: cfg.color }]}>{val} {t(cfg.labelKey)}</Text>
             </TouchableOpacity>
           );
         })}
@@ -176,19 +178,19 @@ export default function ReglementaireScreen() {
       {alertCount > 0 && (
         <View style={styles.alertBanner}>
           <Ionicons name="alert-circle" size={18} color={C.open} />
-          <Text style={styles.alertText}>{alertCount} document{alertCount > 1 ? 's' : ''} expiré{alertCount > 1 ? 's' : ''} ou manquant{alertCount > 1 ? 's' : ''}</Text>
+          <Text style={styles.alertText}>{t('regulatory.alertCount', { count: alertCount })}</Text>
         </View>
       )}
 
       {docs.length === 0 ? (
         <View style={styles.empty}>
           <Ionicons name="document-lock-outline" size={56} color={C.textMuted} />
-          <Text style={styles.emptyTitle}>Aucun document réglementaire</Text>
-          <Text style={styles.emptyHint}>Ajoutez vos PPSPS, DICT, DOE et autres documents obligatoires</Text>
+          <Text style={styles.emptyTitle}>{t('regulatory.emptyTitle')}</Text>
+          <Text style={styles.emptyHint}>{t('regulatory.emptyHint')}</Text>
           {permissions.canCreate && (
             <TouchableOpacity style={styles.emptyBtn} onPress={openAdd}>
               <Ionicons name="add" size={18} color="#fff" />
-              <Text style={styles.emptyBtnText}>Ajouter un document</Text>
+              <Text style={styles.emptyBtnText}>{t('regulatory.addDocument')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -199,7 +201,7 @@ export default function ReglementaireScreen() {
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           renderSectionHeader={({ section }) => {
-            const typeInfo = DOC_TYPES.find(t => t.label === section.title);
+            const typeInfo = DOC_TYPES.find(docType => t(docType.labelKey) === section.title);
             return (
               <View style={styles.sectionHeader}>
                 {typeInfo && (
@@ -228,22 +230,22 @@ export default function ReglementaireScreen() {
                       onPress={() => handleStatusChange(item)}
                     >
                       <Ionicons name={statusCfg.icon as any} size={11} color={statusCfg.color} />
-                      <Text style={[styles.statusText, { color: statusCfg.color }]}>{statusCfg.label}</Text>
+                      <Text style={[styles.statusText, { color: statusCfg.color }]}>{t(statusCfg.labelKey)}</Text>
                     </TouchableOpacity>
                   </View>
                   {item.company && (
                     <Text style={styles.docMeta}><Ionicons name="business-outline" size={11} /> {item.company}</Text>
                   )}
                   {item.reference && (
-                    <Text style={styles.docMeta}>Réf: {item.reference}</Text>
+                    <Text style={styles.docMeta}>{t('regulatory.referenceShort', { reference: item.reference })}</Text>
                   )}
                   <View style={styles.datesRow}>
                     {item.issueDate && (
-                      <Text style={styles.dateText}>Émis: {item.issueDate}</Text>
+                      <Text style={styles.dateText}>{t('regulatory.issuedOn', { date: item.issueDate })}</Text>
                     )}
                     {item.expiryDate && (
                       <Text style={[styles.dateText, item.status === 'expired' && { color: C.open }]}>
-                        Expire: {item.expiryDate}
+                        {t('regulatory.expiresOn', { date: item.expiryDate })}
                       </Text>
                     )}
                   </View>
@@ -254,7 +256,7 @@ export default function ReglementaireScreen() {
                     {permissions.canEdit && (
                       <TouchableOpacity style={styles.actionBtn} onPress={() => openEdit(item)}>
                         <Ionicons name="pencil-outline" size={14} color={C.primary} />
-                        <Text style={styles.actionBtnText}>Modifier</Text>
+                        <Text style={styles.actionBtnText}>{t('common.edit')}</Text>
                       </TouchableOpacity>
                     )}
                     {permissions.canDelete && (
@@ -270,7 +272,7 @@ export default function ReglementaireScreen() {
           ListEmptyComponent={() => (
             <View style={[styles.empty, { paddingTop: 40 }]}>
               <Ionicons name="filter-outline" size={40} color={C.textMuted} />
-              <Text style={styles.emptyHint}>Aucun document avec ce filtre</Text>
+              <Text style={styles.emptyHint}>{t('regulatory.emptyFilter')}</Text>
             </View>
           )}
         />
@@ -283,55 +285,55 @@ export default function ReglementaireScreen() {
           </TouchableWithoutFeedback>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>{editTarget ? 'Modifier le document' : 'Nouveau document réglementaire'}</Text>
+              <Text style={styles.modalTitle}>{editTarget ? t('regulatory.editDocument') : t('regulatory.newDocument')}</Text>
               <TouchableOpacity onPress={closeModal}>
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false}>
-              <Text style={styles.fieldLabel}>Type de document *</Text>
+              <Text style={styles.fieldLabel}>{t('regulatory.documentType')}</Text>
               <View style={styles.typeGrid}>
-                {DOC_TYPES.map(t => (
+                {DOC_TYPES.map(docType => (
                   <TouchableOpacity
-                    key={t.value}
-                    style={[styles.typeChip, selectedType === t.value && { backgroundColor: t.color, borderColor: t.color }]}
+                    key={docType.value}
+                    style={[styles.typeChip, selectedType === docType.value && { backgroundColor: docType.color, borderColor: docType.color }]}
                     onPress={() => {
-                      setSelectedType(t.value);
-                      if (!title) setTitle(t.label);
+                      setSelectedType(docType.value);
+                      if (!title) setTitle(t(docType.labelKey));
                     }}
                   >
-                    <Ionicons name={t.icon as any} size={14} color={selectedType === t.value ? '#fff' : t.color} />
-                    <Text style={[styles.typeChipText, selectedType === t.value && { color: '#fff' }]}>{t.label}</Text>
+                    <Ionicons name={docType.icon as any} size={14} color={selectedType === docType.value ? '#fff' : docType.color} />
+                    <Text style={[styles.typeChipText, selectedType === docType.value && { color: '#fff' }]}>{t(docType.labelKey)}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
               {selectedType && (
-                <Text style={styles.typeDesc}>{getTypeInfo(selectedType).desc}</Text>
+                <Text style={styles.typeDesc}>{t(getTypeInfo(selectedType).descKey)}</Text>
               )}
 
-              <Text style={styles.fieldLabel}>Titre *</Text>
+              <Text style={styles.fieldLabel}>{t('regulatory.titleLabel')}</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ex: PPSPS Lot Gros-Oeuvre VINCI"
+                placeholder={t('regulatory.titlePlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={title}
                 onChangeText={setTitle}
               />
 
-              <Text style={styles.fieldLabel}>Entreprise concernée</Text>
+              <Text style={styles.fieldLabel}>{t('regulatory.company')}</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ex: VINCI Construction"
+                placeholder={t('regulatory.companyPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={company}
                 onChangeText={setCompany}
               />
 
-              <Text style={styles.fieldLabel}>Référence / N° de document</Text>
+              <Text style={styles.fieldLabel}>{t('regulatory.reference')}</Text>
               <TextInput
                 style={styles.input}
-                placeholder="Ex: PPSPS-2024-001"
+                placeholder={t('regulatory.referencePlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={reference}
                 onChangeText={setReference}
@@ -339,15 +341,15 @@ export default function ReglementaireScreen() {
 
               <View style={styles.twoCol}>
                 <View style={{ flex: 1 }}>
-                  <DateInput label="Date d'émission" value={issueDate} onChange={setIssueDate} optional />
+                  <DateInput label={t('regulatory.issueDate')} value={issueDate} onChange={setIssueDate} optional />
                 </View>
                 <View style={{ width: 12 }} />
                 <View style={{ flex: 1 }}>
-                  <DateInput label="Date d'expiration" value={expiryDate} onChange={setExpiryDate} optional />
+                  <DateInput label={t('regulatory.expiryDate')} value={expiryDate} onChange={setExpiryDate} optional />
                 </View>
               </View>
 
-              <Text style={styles.fieldLabel}>Statut *</Text>
+              <Text style={styles.fieldLabel}>{t('regulatory.statusLabel')}</Text>
               <View style={styles.statusGrid}>
                 {STATUSES.map(s => {
                   const cfg = STATUS_CONFIG[s];
@@ -358,16 +360,16 @@ export default function ReglementaireScreen() {
                       onPress={() => setStatus(s)}
                     >
                       <Ionicons name={cfg.icon as any} size={14} color={status === s ? cfg.color : C.textMuted} />
-                      <Text style={[styles.statusOptionText, status === s && { color: cfg.color, fontFamily: 'Inter_600SemiBold' }]}>{cfg.label}</Text>
+                      <Text style={[styles.statusOptionText, status === s && { color: cfg.color, fontFamily: 'Inter_600SemiBold' }]}>{t(cfg.labelKey)}</Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
 
-              <Text style={styles.fieldLabel}>Notes / Observations</Text>
+              <Text style={styles.fieldLabel}>{t('regulatory.notes')}</Text>
               <TextInput
                 style={[styles.input, { minHeight: 70 }]}
-                placeholder="Informations complémentaires..."
+                placeholder={t('regulatory.notesPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={notes}
                 onChangeText={setNotes}
@@ -379,7 +381,7 @@ export default function ReglementaireScreen() {
                 onPress={handleSave}
                 disabled={!title.trim()}
               >
-                <Text style={styles.saveBtnText}>{editTarget ? 'Enregistrer les modifications' : 'Ajouter le document'}</Text>
+                <Text style={styles.saveBtnText}>{editTarget ? t('regulatory.saveChanges') : t('regulatory.addDocument')}</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>

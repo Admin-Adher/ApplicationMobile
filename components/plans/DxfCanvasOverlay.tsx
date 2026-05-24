@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { Platform, View, Text } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { DxfParseResult } from '@/lib/dxfParser';
 import { C } from '@/constants/colors';
 
@@ -98,6 +99,7 @@ entities.forEach(function(e){
 }
 
 export default function DxfCanvasOverlay({ dxf, visibleLayers = [], planW, planH }: Props) {
+  const { t } = useTranslation();
   const html = useMemo(
     () => buildDxfHtml(dxf, visibleLayers, Math.round(planW), Math.round(planH)),
     [dxf, visibleLayers, planW, planH]
@@ -113,12 +115,12 @@ export default function DxfCanvasOverlay({ dxf, visibleLayers = [], planW, planH
           srcDoc={html}
           style={{ width: planW, height: planH, border: 'none', background: 'transparent', pointerEvents: 'none' }}
           sandbox="allow-scripts"
-          title="DXF overlay"
+          title={t('dxfOverlay.title')}
         />
         {dxf.entities.length > 25000 && (
           <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: '#78350F', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3 }}>
             <Text style={{ fontSize: 9, color: '#FDE68A', textAlign: 'center' }}>
-              Plan tronqué — 25 000 entités max ({dxf.entities.length} au total)
+              {t('dxfOverlay.truncated', { count: dxf.entities.length })}
             </Text>
           </View>
         )}
@@ -142,7 +144,7 @@ export default function DxfCanvasOverlay({ dxf, visibleLayers = [], planW, planH
       {dxf.entities.length > 25000 && (
         <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: '#78350F', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 3 }}>
           <Text style={{ fontSize: 9, color: '#FDE68A', textAlign: 'center' }}>
-            Plan tronqué — 25 000 entités max ({dxf.entities.length} au total)
+            {t('dxfOverlay.truncated', { count: dxf.entities.length })}
           </Text>
         </View>
       )}

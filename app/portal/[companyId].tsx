@@ -4,6 +4,7 @@ import {
   TouchableOpacity, Linking, Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
@@ -22,15 +23,16 @@ interface PortalReserve {
   lotId?: string;
 }
 
-const STATUS_LABEL: Record<string, { label: string; color: string }> = {
-  open: { label: 'Ouvert', color: '#EF4444' },
-  in_progress: { label: 'En cours', color: '#F59E0B' },
-  waiting: { label: 'Attente', color: '#6B7280' },
-  verification: { label: 'Vérification', color: '#8B5CF6' },
-  closed: { label: 'Clôturé', color: '#10B981' },
+const STATUS_COLOR: Record<string, string> = {
+  open: '#EF4444',
+  in_progress: '#F59E0B',
+  waiting: '#6B7280',
+  verification: '#8B5CF6',
+  closed: '#10B981',
 };
 
 export default function PortalScreen() {
+  const { t } = useTranslation();
   const { companyId } = useLocalSearchParams<{ companyId: string }>();
   const { isAuthenticated, user } = useAuth();
   const { reserves, companies } = useApp();
@@ -74,7 +76,7 @@ export default function PortalScreen() {
           const { data: companyData, error: companyError } = await (supabase as any)
             .from('companies').select('name').eq('id', companyId).single();
           if (companyError || !companyData?.name) {
-            setError("Impossible de charger les données de l'entreprise. Vérifiez votre connexion.");
+            setError(t('portal.loadCompanyError'));
             return;
           }
           const name = companyData.name;
@@ -84,7 +86,7 @@ export default function PortalScreen() {
             .select('id,title,status,priority,building,level,deadline,description,lot_id')
             .or(`company.eq.${name},companies.cs.["${name}"]`);
           if (reservesError) {
-            setError("Impossible de charger les réserves. Vérifiez votre connexion.");
+            setError(t('portal.loadReservesError'));
             return;
           }
           if (Array.isArray(reservesData)) {
@@ -96,13 +98,13 @@ export default function PortalScreen() {
             })));
           }
         } catch {
-          setError("Impossible de charger les données. Vérifiez votre connexion.");
+          setError(t('portal.loadDataError'));
         } finally {
           setLoading(false);
         }
       })();
     }
-  }, [companyId, isAuthenticated]);
+  }, [companyId, isAuthenticated, t]);
 
   const displayReserves = remoteReserves;
   const filtered = statusFilter === 'all' ? displayReserves : displayReserves.filter(r => r.status === statusFilter);
@@ -113,10 +115,10 @@ export default function PortalScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={styles.lockedTitle}>Accès restreint</Text>
-        <Text style={styles.lockedSub}>Vous n'avez accès qu'au portail de votre propre entreprise.</Text>
+        <Text style={styles.lockedTitle}>{t('common.restrictedAccess')}</Text>
+        <Text style={styles.lockedSub}>{t('portal.restrictedOwnCompany')}</Text>
         <TouchableOpacity style={styles.loginBtn} onPress={() => router.canGoBack() ? router.back() : router.replace('/(tabs)/' as any)}>
-          <Text style={styles.loginBtnText}>Retour</Text>
+          <Text style={styles.loginBtnText}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -126,10 +128,10 @@ export default function PortalScreen() {
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={styles.lockedTitle}>Portail sous-traitant</Text>
-        <Text style={styles.lockedSub}>Ce portail nécessite une connexion Supabase configurée. Contactez l'administrateur du projet.</Text>
+        <Text style={styles.lockedTitle}>{t('portal.title')}</Text>
+        <Text style={styles.lockedSub}>{t('portal.supabaseRequired')}</Text>
         <TouchableOpacity style={styles.loginBtn} onPress={() => router.replace('/login')}>
-          <Text style={styles.loginBtnText}>Se connecter</Text>
+          <Text style={styles.loginBtnText}>{t('auth.signIn')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -142,15 +144,15 @@ export default function PortalScreen() {
           <Ionicons name="arrow-back" size={20} color={C.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={styles.headerTitle}>Portail sous-traitant</Text>
+          <Text style={styles.headerTitle}>{t('portal.title')}</Text>
           {companyName ? <Text style={styles.headerSub}>{companyName}</Text> : null}
         </View>
         <View style={styles.badgeRow}>
           <View style={[styles.badge, { backgroundColor: '#FEF2F2' }]}>
-            <Text style={[styles.badgeText, { color: '#EF4444' }]}>{openCount} ouvert{openCount !== 1 ? 's' : ''}</Text>
+            <Text style={[styles.badgeText, { color: '#EF4444' }]}>{t('portal.openCount', { count: openCount })}</Text>
           </View>
           <View style={[styles.badge, { backgroundColor: '#ECFDF5' }]}>
-            <Text style={[styles.badgeText, { color: '#10B981' }]}>{closedCount} clôt.</Text>
+            <Text style={[styles.badgeText, { color: '#10B981' }]}>{t('portal.closedShort', { count: closedCount })}</Text>
           </View>
         </View>
       </View>
@@ -158,7 +160,7 @@ export default function PortalScreen() {
       {loading && (
         <View style={styles.loadingRow}>
           <ActivityIndicator color={C.primary} />
-          <Text style={styles.loadingText}>Chargement des réserves...</Text>
+          <Text style={styles.loadingText}>{t('portal.loadingReserves')}</Text>
         </View>
       )}
 
@@ -171,10 +173,10 @@ export default function PortalScreen() {
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterBar} contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 8 }}>
         {[
-          { key: 'all', label: 'Toutes' },
-          { key: 'open', label: 'Ouvert' },
-          { key: 'in_progress', label: 'En cours' },
-          { key: 'closed', label: 'Clôturé' },
+          { key: 'all', label: t('portal.filters.all') },
+          { key: 'open', label: t('reserveLabels.status.open') },
+          { key: 'in_progress', label: t('reserveLabels.status.in_progress') },
+          { key: 'closed', label: t('reserveLabels.status.closed') },
         ].map(f => (
           <TouchableOpacity
             key={f.key}
@@ -190,18 +192,19 @@ export default function PortalScreen() {
         {filtered.length === 0 && !loading && (
           <View style={styles.emptyState}>
             <Ionicons name="checkmark-circle-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyText}>Aucune réserve {statusFilter !== 'all' ? 'avec ce statut' : ''}</Text>
+            <Text style={styles.emptyText}>{statusFilter !== 'all' ? t('portal.emptyWithStatus') : t('portal.empty')}</Text>
           </View>
         )}
         {filtered.map(r => {
-          const sc = STATUS_LABEL[r.status] ?? { label: r.status, color: C.textMuted };
+          const statusColor = STATUS_COLOR[r.status] ?? C.textMuted;
+          const statusLabel = t(`reserveLabels.status.${r.status}`, { defaultValue: r.status });
           return (
             <View key={r.id} style={styles.reserveCard}>
               <View style={styles.reserveTop}>
-                <View style={[styles.statusDot, { backgroundColor: sc.color }]} />
+                <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
                 <Text style={styles.reserveTitle} numberOfLines={2}>{r.title}</Text>
-                <View style={[styles.statusBadge, { backgroundColor: sc.color + '20', borderColor: sc.color + '40' }]}>
-                  <Text style={[styles.statusBadgeText, { color: sc.color }]}>{sc.label}</Text>
+                <View style={[styles.statusBadge, { backgroundColor: statusColor + '20', borderColor: statusColor + '40' }]}>
+                  <Text style={[styles.statusBadgeText, { color: statusColor }]}>{statusLabel}</Text>
                 </View>
               </View>
               {(r.building || r.level) && (
@@ -213,7 +216,7 @@ export default function PortalScreen() {
               {r.deadline && (
                 <View style={styles.reserveMeta}>
                   <Ionicons name="calendar-outline" size={11} color={C.textMuted} />
-                  <Text style={styles.reserveMetaText}>Échéance : {r.deadline}</Text>
+                  <Text style={styles.reserveMetaText}>{t('portal.deadline', { date: r.deadline })}</Text>
                 </View>
               )}
               {r.description && (
@@ -225,10 +228,10 @@ export default function PortalScreen() {
       </ScrollView>
 
       <View style={styles.footer}>
-        <Text style={styles.footerText}>Portail BuildTrack — Lecture seule</Text>
+        <Text style={styles.footerText}>{t('portal.readOnlyFooter')}</Text>
         {!isAuthenticated && (
           <TouchableOpacity onPress={() => router.replace('/login')}>
-            <Text style={styles.footerLink}>Connexion complète →</Text>
+            <Text style={styles.footerLink}>{t('portal.fullLogin')}</Text>
           </TouchableOpacity>
         )}
       </View>

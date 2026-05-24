@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
@@ -136,7 +137,30 @@ const CATEGORY_COLORS: Record<string, string> = {
   'RH & Paie': '#F59E0B',
 };
 
+const CATEGORY_LABEL_KEYS: Record<string, string> = {
+  'Gestion de projet': 'integrationsScreen.categories.project',
+  'BIM/CAO': 'integrationsScreen.categories.bim',
+  'Documents réglementaires': 'integrationsScreen.categories.regulatory',
+  'Géolocalisation': 'integrationsScreen.categories.geolocation',
+  'Formulaires terrain': 'integrationsScreen.categories.forms',
+  GED: 'integrationsScreen.categories.dms',
+  'Signature électronique': 'integrationsScreen.categories.signature',
+  Météo: 'integrationsScreen.categories.weather',
+  'RH & Paie': 'integrationsScreen.categories.hr',
+};
+
+const INTEGRATION_TEXT_KEYS = Object.fromEntries(
+  INTEGRATIONS_CATALOG.map(integration => [
+    integration.id,
+    {
+      description: `integrationsScreen.integrations.${integration.id}.description`,
+      features: integration.features.map((_, index) => `integrationsScreen.integrations.${integration.id}.features.${index}`),
+    },
+  ]),
+) as Record<string, { description: string; features: string[] }>;
+
 export default function IntegrationsScreen() {
+  const { t } = useTranslation();
   const { user } = useAuth();
   const router = useRouter();
 
@@ -154,16 +178,16 @@ export default function IntegrationsScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>
-          Accès réservé aux administrateurs
+          {t('integrationsScreen.restrictedTitle')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 8, textAlign: 'center' }}>
-          La configuration des intégrations BTP requiert les droits administrateur.
+          {t('integrationsScreen.restrictedText')}
         </Text>
         <TouchableOpacity
           onPress={() => router.back()}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -187,7 +211,7 @@ export default function IntegrationsScreen() {
     if (!configModal) return;
     setApiKeysStored(prev => ({ ...prev, [configModal]: apiKeyInput }));
     setConfigModal(null);
-    Alert.alert('Configuration sauvegardée', 'La clé API a été enregistrée. L\'intégration sera active au prochain démarrage.', [{ text: 'OK' }]);
+    Alert.alert(t('integrationsScreen.configSavedTitle'), t('integrationsScreen.configSavedText'), [{ text: 'OK' }]);
   }
 
   function toggleIntegration(id: string, value: boolean) {
@@ -197,15 +221,15 @@ export default function IntegrationsScreen() {
     }
     setEnabledMap(prev => ({ ...prev, [id]: value }));
     if (value) {
-      Alert.alert('Intégration activée', 'La synchronisation démarrera dans quelques secondes.', [{ text: 'OK' }]);
+      Alert.alert(t('integrationsScreen.enabledTitle'), t('integrationsScreen.enabledText'), [{ text: 'OK' }]);
     }
   }
 
   return (
     <View style={styles.container}>
       <Header
-        title="Intégrations BTP"
-        subtitle={`${enabledCount} active${enabledCount !== 1 ? 's' : ''} sur ${INTEGRATIONS_CATALOG.length}`}
+        title={t('integrationsScreen.title')}
+        subtitle={t('integrationsScreen.subtitle', { enabled: enabledCount, total: INTEGRATIONS_CATALOG.length })}
         showBack
       />
 
@@ -215,8 +239,8 @@ export default function IntegrationsScreen() {
         <View style={styles.banner}>
           <Ionicons name="git-network-outline" size={28} color={C.primary} />
           <View style={{ flex: 1 }}>
-            <Text style={styles.bannerTitle}>Connectez votre écosystème BTP</Text>
-            <Text style={styles.bannerSub}>Synchronisez votre application avec vos logiciels métier, BIM, et outils réglementaires</Text>
+            <Text style={styles.bannerTitle}>{t('integrationsScreen.bannerTitle')}</Text>
+            <Text style={styles.bannerSub}>{t('integrationsScreen.bannerText')}</Text>
           </View>
         </View>
 
@@ -226,7 +250,7 @@ export default function IntegrationsScreen() {
             style={[styles.catChip, !selectedCategory && styles.catChipActive]}
             onPress={() => setSelectedCategory(null)}
           >
-            <Text style={[styles.catChipText, !selectedCategory && styles.catChipTextActive]}>Tous</Text>
+            <Text style={[styles.catChipText, !selectedCategory && styles.catChipTextActive]}>{t('common.all')}</Text>
           </TouchableOpacity>
           {categories.map(cat => (
             <TouchableOpacity
@@ -234,7 +258,7 @@ export default function IntegrationsScreen() {
               style={[styles.catChip, selectedCategory === cat && { backgroundColor: (CATEGORY_COLORS[cat] ?? C.primary) + '20', borderColor: CATEGORY_COLORS[cat] ?? C.primary }]}
               onPress={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
             >
-              <Text style={[styles.catChipText, selectedCategory === cat && { color: CATEGORY_COLORS[cat] ?? C.primary }]}>{cat}</Text>
+              <Text style={[styles.catChipText, selectedCategory === cat && { color: CATEGORY_COLORS[cat] ?? C.primary }]}>{t(CATEGORY_LABEL_KEYS[cat] ?? cat)}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -255,7 +279,7 @@ export default function IntegrationsScreen() {
                   <View style={styles.nameRow}>
                     <Text style={styles.integName}>{integration.name}</Text>
                     <View style={[styles.catBadge, { backgroundColor: catColor + '20' }]}>
-                      <Text style={[styles.catBadgeText, { color: catColor }]}>{integration.category}</Text>
+                      <Text style={[styles.catBadgeText, { color: catColor }]}>{t(CATEGORY_LABEL_KEYS[integration.category] ?? integration.category)}</Text>
                     </View>
                   </View>
                   <Text style={styles.integProvider}>{integration.provider}</Text>
@@ -268,13 +292,13 @@ export default function IntegrationsScreen() {
                 />
               </View>
 
-              <Text style={styles.integDesc}>{integration.description}</Text>
+              <Text style={styles.integDesc}>{t(INTEGRATION_TEXT_KEYS[integration.id]?.description ?? integration.description)}</Text>
 
               <View style={styles.featuresRow}>
                 {integration.features.slice(0, 3).map((f, fi) => (
                   <View key={fi} style={styles.featureChip}>
                     <Ionicons name="checkmark" size={10} color={catColor} />
-                    <Text style={[styles.featureText, { color: catColor }]}>{f}</Text>
+                    <Text style={[styles.featureText, { color: catColor }]}>{t(INTEGRATION_TEXT_KEYS[integration.id]?.features[fi] ?? f)}</Text>
                   </View>
                 ))}
                 {integration.features.length > 3 && (
@@ -291,7 +315,7 @@ export default function IntegrationsScreen() {
                 >
                   <Ionicons name={hasKey ? 'key' : 'key-outline'} size={14} color={hasKey ? catColor : C.textSub} />
                   <Text style={[styles.configBtnText, hasKey && { color: catColor }]}>
-                    {hasKey ? 'Reconfigurer' : 'Configurer'}
+                    {hasKey ? t('integrationsScreen.reconfigure') : t('integrationsScreen.configure')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
@@ -305,12 +329,12 @@ export default function IntegrationsScreen() {
                   }}
                 >
                   <Ionicons name="open-outline" size={14} color={C.textSub} />
-                  <Text style={styles.docsBtnText}>Documentation</Text>
+                  <Text style={styles.docsBtnText}>{t('integrationsScreen.documentation')}</Text>
                 </TouchableOpacity>
                 {isEnabled && (
                   <View style={styles.syncBadge}>
                     <View style={styles.syncDot} />
-                    <Text style={styles.syncText}>Actif</Text>
+                    <Text style={styles.syncText}>{t('integrationsScreen.active')}</Text>
                   </View>
                 )}
               </View>
@@ -322,8 +346,7 @@ export default function IntegrationsScreen() {
         <View style={styles.infoCard}>
           <Ionicons name="information-circle-outline" size={20} color={C.primary} />
           <Text style={styles.infoText}>
-            Les intégrations BTP nécessitent un abonnement actif auprès de chaque fournisseur.
-            Contactez votre administrateur pour obtenir les clés API correspondantes.
+            {t('integrationsScreen.infoText')}
           </Text>
         </View>
 
@@ -340,14 +363,14 @@ export default function IntegrationsScreen() {
               return (
                 <>
                   <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>Configurer {integ.name}</Text>
+                    <Text style={styles.modalTitle}>{t('integrationsScreen.configureTitle', { name: integ.name })}</Text>
                     <TouchableOpacity onPress={() => setConfigModal(null)}>
                       <Ionicons name="close" size={24} color={C.text} />
                     </TouchableOpacity>
                   </View>
                   <Text style={styles.modalSub}>{integ.provider}</Text>
 
-                  <Text style={styles.fieldLabel}>Clé API *</Text>
+                  <Text style={styles.fieldLabel}>{t('integrationsScreen.apiKey')}</Text>
                   <TextInput
                     style={styles.fieldInput}
                     value={apiKeyInput}
@@ -359,7 +382,7 @@ export default function IntegrationsScreen() {
                     autoCorrect={false}
                   />
 
-                  <Text style={styles.fieldLabel}>URL Webhook (optionnel)</Text>
+                  <Text style={styles.fieldLabel}>{t('integrationsScreen.webhookUrl')}</Text>
                   <TextInput
                     style={styles.fieldInput}
                     value={webhookInput}
@@ -371,7 +394,7 @@ export default function IntegrationsScreen() {
                   />
 
                   <Text style={styles.docsLink}>
-                    📚 Consultez{' '}
+                    {t('integrationsScreen.docsPrefix')}{' '}
                     <Text
                       style={{ color: C.primary, textDecorationLine: 'underline' }}
                       onPress={() => {
@@ -379,21 +402,21 @@ export default function IntegrationsScreen() {
                         else window.open(integ.docsUrl, '_blank');
                       }}
                     >
-                      la documentation {integ.name}
+                      {t('integrationsScreen.docsLink', { name: integ.name })}
                     </Text>
-                    {' '}pour obtenir votre clé API
+                    {' '}{t('integrationsScreen.docsSuffix')}
                   </Text>
 
                   <View style={styles.modalActions}>
                     <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfigModal(null)}>
-                      <Text style={styles.cancelBtnText}>Annuler</Text>
+                      <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.saveBtn, !apiKeyInput.trim() && styles.saveBtnDisabled]}
                       onPress={saveConfig}
                       disabled={!apiKeyInput.trim()}
                     >
-                      <Text style={styles.saveBtnText}>Sauvegarder</Text>
+                      <Text style={styles.saveBtnText}>{t('common.save')}</Text>
                     </TouchableOpacity>
                   </View>
                 </>

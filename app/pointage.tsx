@@ -7,6 +7,7 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -30,8 +31,7 @@ function formatDateShort(iso: string) {
   return `${d}/${m}`;
 }
 
-function getDayLabel(iso: string): string {
-  const days = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+function getDayLabel(iso: string, days: string[]): string {
   const d = new Date(iso + 'T12:00:00');
   return days[d.getDay()];
 }
@@ -95,6 +95,7 @@ function sanitizeDefaultArrivalTime(t: string): string {
 type ViewMode = 'list' | 'grid';
 
 export default function PointageScreen() {
+  const { t } = useTranslation();
   const { companies, tasks } = useApp();
   const { user, permissions } = useAuth();
   const { entries, addEntry, updateEntry, deleteEntry } = usePointage();
@@ -127,6 +128,7 @@ export default function PointageScreen() {
 
   const [depTime, setDepTime] = useState('17:00');
   const [filterCompany, setFilterCompany] = useState('');
+  const dayLabels = useMemo(() => t('pointage.daysShort', { returnObjects: true }) as string[], [t]);
 
   const workerSuggestions = useMemo(() => {
     const allNames = Array.from(new Set(entries.map(e => e.workerName)));
@@ -150,12 +152,12 @@ export default function PointageScreen() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>Accès restreint</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>{t('common.restrictedAccess')}</Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
-          Le pointage du personnel n'est pas accessible aux sous-traitants.
+          {t('pointage.restrictedTextLong')}
         </Text>
         <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -266,12 +268,12 @@ export default function PointageScreen() {
   function closeModal() {
     if (hasFormChanges()) {
       Alert.alert(
-        'Modifications non sauvegardées',
-        'Des modifications seront perdues. Quitter quand même ?',
+        t('pointage.unsavedTitle'),
+        t('pointage.unsavedText'),
         [
-          { text: 'Rester', style: 'cancel' },
+          { text: t('pointage.stay'), style: 'cancel' },
           {
-            text: 'Quitter', style: 'destructive',
+            text: t('pointage.leave'), style: 'destructive',
             onPress: () => { setModalVisible(false); setEditTarget(null); setShowSuggestions(false); },
           },
         ]
@@ -292,25 +294,25 @@ export default function PointageScreen() {
   async function handleSave() {
     const trimmedName = workerName.trim();
     if (!trimmedName) {
-      Alert.alert('Champ requis', "Le nom de l'ouvrier est obligatoire.");
+      Alert.alert(t('pointage.requiredField'), t('pointage.workerRequired'));
       return;
     }
     if (!selectedCompanyId) {
-      Alert.alert('Champ requis', 'Veuillez sélectionner une entreprise.');
+      Alert.alert(t('pointage.requiredField'), t('pointage.companyRequired'));
       return;
     }
     if (!validateTime(arrivalTime)) {
-      Alert.alert('Heure invalide', "L'heure d'arrivée doit être au format HH:MM avec des valeurs valides (ex: 07:30).");
+      Alert.alert(t('pointage.invalidTimeTitle'), t('pointage.invalidArrivalTime'));
       return;
     }
     const effDeparture = showDeparture ? departureTime.trim() : '';
     if (effDeparture && !validateTime(effDeparture)) {
-      Alert.alert('Heure invalide', "L'heure de départ doit être au format HH:MM avec des valeurs valides (ex: 17:00).");
+      Alert.alert(t('pointage.invalidTimeTitle'), t('pointage.invalidDepartureTime'));
       return;
     }
     if (effDeparture && validateTime(effDeparture)) {
       if (timeToMinutes(effDeparture) <= timeToMinutes(arrivalTime)) {
-        Alert.alert('Incohérence horaire', "L'heure de départ doit être strictement postérieure à l'heure d'arrivée.");
+        Alert.alert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrivalStrict'));
         return;
       }
     }
@@ -327,11 +329,11 @@ export default function PointageScreen() {
     if (duplicate) {
       const confirmed = await new Promise<boolean>(resolve => {
         Alert.alert(
-          'Doublon détecté',
-          `"${trimmedName}" est déjà pointé pour ce jour chez "${company.name}". Continuer quand même ?`,
+          t('pointage.duplicateTitle'),
+          t('pointage.duplicateText', { worker: trimmedName, company: company.name }),
           [
-            { text: 'Annuler', style: 'cancel', onPress: () => resolve(false) },
-            { text: 'Continuer', onPress: () => resolve(true) },
+            { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+            { text: t('common.continue'), onPress: () => resolve(true) },
           ]
         );
       });
@@ -353,14 +355,14 @@ export default function PointageScreen() {
     if (editTarget) {
       await updateEntry(editTarget.id, {
         ...base,
-        updatedBy: user?.name ?? 'Système',
+        updatedBy: user?.name ?? t('common.system'),
         updatedAt: nowISOTimestamp(),
       });
     } else {
       await addEntry({
         ...base,
         date: selectedDate,
-        recordedBy: user?.name ?? 'Système',
+        recordedBy: user?.name ?? t('common.system'),
       });
     }
     setModalVisible(false);
@@ -372,11 +374,11 @@ export default function PointageScreen() {
   async function handleSetDeparture() {
     if (!departureModal) return;
     if (!validateTime(depTime)) {
-      Alert.alert('Format invalide', "L'heure de départ doit être au format HH:MM (ex: 17:00).");
+      Alert.alert(t('pointage.invalidFormatTitle'), t('pointage.invalidDepartureFormat'));
       return;
     }
     if (timeToMinutes(depTime) <= timeToMinutes(departureModal.arrivalTime)) {
-      Alert.alert('Incohérence horaire', `L'heure de départ doit être postérieure à l'arrivée (${departureModal.arrivalTime}).`);
+      Alert.alert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrival', { arrival: departureModal.arrivalTime }));
       return;
     }
     await updateEntry(departureModal.id, { departureTime: depTime });
@@ -385,15 +387,15 @@ export default function PointageScreen() {
 
   async function handleBulkDeparture() {
     if (!validateTime(depTime)) {
-      Alert.alert('Format invalide', "L'heure de départ doit être au format HH:MM (ex: 17:00).");
+      Alert.alert(t('pointage.invalidFormatTitle'), t('pointage.invalidDepartureFormat'));
       return;
     }
     const activeEntries = allDateEntries.filter(e => !e.departureTime);
     const conflicting = activeEntries.filter(e => timeToMinutes(depTime) <= timeToMinutes(e.arrivalTime));
     if (conflicting.length > 0) {
       Alert.alert(
-        'Incohérence horaire',
-        `${conflicting.length} ouvrier${conflicting.length > 1 ? 's arrivent' : ' arrive'} après ${depTime}. Choisissez une heure plus tardive.`
+        t('pointage.timeConflictTitle'),
+        t('pointage.bulkConflictText', { count: conflicting.length, time: depTime })
       );
       return;
     }
@@ -402,9 +404,9 @@ export default function PointageScreen() {
   }
 
   function handleDelete(entry: TimeEntry) {
-    Alert.alert('Supprimer', `Supprimer le pointage de "${entry.workerName}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deleteEntry(entry.id) },
+    Alert.alert(t('common.delete'), t('pointage.deleteText', { worker: entry.workerName }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => deleteEntry(entry.id) },
     ]);
   }
 
@@ -428,10 +430,10 @@ export default function PointageScreen() {
     const weekEntries = entries.filter(e => weekDates.includes(e.date))
       .sort((a, b) => a.date.localeCompare(b.date) || a.arrivalTime.localeCompare(b.arrivalTime));
     if (weekEntries.length === 0) {
-      Alert.alert('Aucune donnée', 'Aucun pointage sur cette semaine pour exporter.');
+      Alert.alert(t('pointage.noDataTitle'), t('pointage.noWeeklyData'));
       return;
     }
-    const header = 'Date,Ouvrier,Entreprise,Arrivée,Départ,Heures,Tâche,Saisi par,Notes';
+    const header = t('pointage.csvHeader');
     const rows = weekEntries.map(e => {
       const h = calcHours(e.arrivalTime, e.departureTime);
       const cols = [
@@ -449,7 +451,7 @@ export default function PointageScreen() {
     });
     const csv = [header, ...rows].join('\n');
     const weekLabel = `${formatDate(weekDates[0])}_${formatDate(weekDates[6])}`.replace(/\//g, '-');
-    const filename = `Pointage_${weekLabel}.csv`;
+    const filename = `${t('pointage.csvFilename')}_${weekLabel}.csv`;
     if (Platform.OS === 'web') {
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
@@ -462,12 +464,12 @@ export default function PointageScreen() {
         await FileSystem.writeAsStringAsync(uri, csv, { encoding: FileSystem.EncodingType.UTF8 });
         const canShare = await Sharing.isAvailableAsync();
         if (canShare) {
-          await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: 'Exporter le pointage hebdomadaire' });
+          await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: t('pointage.exportWeeklyDialog') });
         } else {
-          Alert.alert('Export', `Fichier enregistré : ${uri}`);
+          Alert.alert(t('pointage.exportTitle'), t('pointage.fileSaved', { uri }));
         }
       } catch {
-        Alert.alert('Erreur', "Impossible d'exporter le CSV.");
+        Alert.alert(t('common.error'), t('pointage.csvExportError'));
       }
     }
   }
@@ -479,16 +481,16 @@ export default function PointageScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>
-          Accès restreint
+          {t('common.restrictedAccess')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-          Le pointage n'est pas accessible aux sous-traitants.
+          {t('pointage.restrictedText')}
         </Text>
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('pointage.backToDashboard')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -497,8 +499,8 @@ export default function PointageScreen() {
   return (
     <View style={styles.container}>
       <Header
-        title="Présence sur site"
-        subtitle="Pointage & suivi des équipes"
+        title={t('pointage.title')}
+        subtitle={t('pointage.subtitle')}
         showBack
         rightIcon={canEdit ? 'add-outline' : undefined}
         onRightPress={canEdit ? openAdd : undefined}
@@ -512,11 +514,11 @@ export default function PointageScreen() {
         <View style={styles.dateLabelWrap}>
           <Text style={styles.dateLabel}>{formatDate(selectedDate)}</Text>
           {selectedDate === todayISO()
-            ? <Text style={styles.todayTag}>Aujourd'hui</Text>
+            ? <Text style={styles.todayTag}>{t('pointage.today')}</Text>
             : (
               <TouchableOpacity onPress={() => setSelectedDate(todayISO())} style={styles.todayJumpBtn}>
                 <Ionicons name="today-outline" size={11} color={C.primary} />
-                <Text style={styles.todayJumpText}>Retour à aujourd'hui</Text>
+                <Text style={styles.todayJumpText}>{t('pointage.backToToday')}</Text>
               </TouchableOpacity>
             )
           }
@@ -558,7 +560,7 @@ export default function PointageScreen() {
                 isSelected && { color: C.primary, fontFamily: 'Inter_600SemiBold' },
                 isFuture && { color: C.border },
               ]}>
-                {getDayLabel(date)}
+                {getDayLabel(date, dayLabels)}
               </Text>
               <Text style={[
                 styles.weekDayDate,
@@ -577,19 +579,19 @@ export default function PointageScreen() {
         <View style={styles.kpiCard}>
           <View style={styles.kpiDot} />
           <Text style={[styles.kpiVal, { color: C.closed }]}>{actifs}</Text>
-          <Text style={styles.kpiLabel}>Sur site</Text>
+          <Text style={styles.kpiLabel}>{t('pointage.onSite')}</Text>
         </View>
         <View style={styles.kpiDivider} />
         <View style={styles.kpiCard}>
           <Text style={[styles.kpiVal, { color: C.textSub }]}>{departed}</Text>
-          <Text style={styles.kpiLabel}>Partis</Text>
+          <Text style={styles.kpiLabel}>{t('pointage.left')}</Text>
         </View>
         <View style={styles.kpiDivider} />
         <View style={styles.kpiCard}>
           <Text style={[styles.kpiVal, { color: C.medium }]}>
             {totalHours > 0 ? `${Math.round(totalHours * 10) / 10}h` : '—'}
           </Text>
-          <Text style={styles.kpiLabel}>Total heures</Text>
+          <Text style={styles.kpiLabel}>{t('pointage.totalHours')}</Text>
         </View>
         <View style={styles.kpiDivider} />
         <TouchableOpacity style={styles.kpiExportBtn} onPress={handleExportCSV}>
@@ -614,9 +616,14 @@ export default function PointageScreen() {
                 <Ionicons name="journal" size={16} color="#fff" />
               </View>
               <View>
-                <Text style={styles.journalBannerTitle}>Compléter le journal du jour</Text>
+                <Text style={styles.journalBannerTitle}>{t('pointage.completeDailyLog')}</Text>
                 <Text style={styles.journalBannerSub}>
-                  {allDateEntries.length} présent{allDateEntries.length > 1 ? 's' : ''} · {totalHours > 0 ? `${Math.round(totalHours * 10) / 10}h pointées` : 'heures en cours'}
+                  {t('pointage.dailyLogSub', {
+                    count: allDateEntries.length,
+                    hours: totalHours > 0
+                      ? t('pointage.hoursRecorded', { hours: `${Math.round(totalHours * 10) / 10}h` })
+                      : t('pointage.hoursInProgress'),
+                  })}
                 </Text>
               </View>
             </View>
@@ -633,7 +640,7 @@ export default function PointageScreen() {
           >
             <Ionicons name="log-out-outline" size={16} color={C.open} />
             <Text style={styles.bulkDepText}>
-              Pointer le départ des {actifs} actif{actifs > 1 ? 's' : ''}
+              {t('pointage.bulkDepartureCta', { count: actifs })}
             </Text>
           </TouchableOpacity>
         )}
@@ -651,7 +658,7 @@ export default function PointageScreen() {
                 style={[styles.companyChip, !filterCompany && styles.companyChipActive]}
                 onPress={() => setFilterCompany('')}
               >
-                <Text style={[styles.companyChipText, !filterCompany && styles.companyChipTextActive]}>Tous</Text>
+                <Text style={[styles.companyChipText, !filterCompany && styles.companyChipTextActive]}>{t('common.all')}</Text>
               </TouchableOpacity>
               {byCompany.map(co => (
                 <TouchableOpacity
@@ -689,11 +696,11 @@ export default function PointageScreen() {
         {dateEntries.length === 0 && (
           <View style={styles.empty}>
             <Ionicons name="people-outline" size={52} color={C.border} />
-            <Text style={styles.emptyText}>Aucun pointage pour cette journée</Text>
+            <Text style={styles.emptyText}>{t('pointage.emptyDay')}</Text>
             {canEdit && (
               <TouchableOpacity style={styles.emptyAddBtn} onPress={openAdd}>
                 <Ionicons name="add-circle" size={18} color={C.primary} />
-                <Text style={styles.emptyAddText}>Ajouter une arrivée</Text>
+                <Text style={styles.emptyAddText}>{t('pointage.addArrival')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -737,7 +744,7 @@ export default function PointageScreen() {
                             hitSlop={8}
                           >
                             <Ionicons name="log-out-outline" size={13} color={C.open} />
-                            <Text style={styles.depBtnText}>Départ</Text>
+                            <Text style={styles.depBtnText}>{t('pointage.departureShort')}</Text>
                           </TouchableOpacity>
                         )}
                         {canEdit && (
@@ -757,7 +764,7 @@ export default function PointageScreen() {
                       <View style={styles.statusDot}>
                         <View style={[styles.statusDotInner, { backgroundColor: isActive ? C.closed : C.textMuted }]} />
                         <Text style={[styles.statusLabel, { color: isActive ? C.closed : C.textMuted }]}>
-                          {isActive ? 'Sur site' : 'Parti'}
+                          {isActive ? t('pointage.onSite') : t('pointage.leftOne')}
                         </Text>
                       </View>
                       <View style={styles.timePill}>
@@ -768,7 +775,7 @@ export default function PointageScreen() {
                       <View style={[styles.timePill, entry.departureTime ? { backgroundColor: C.closedBg } : { backgroundColor: C.surface2 }]}>
                         <Ionicons name="log-out-outline" size={12} color={entry.departureTime ? C.closed : C.textMuted} />
                         <Text style={[styles.timeText, { color: entry.departureTime ? C.closed : C.textMuted }]}>
-                          {entry.departureTime ?? 'En cours'}
+                          {entry.departureTime ?? t('pointage.inProgress')}
                         </Text>
                       </View>
                       {hours !== null && (
@@ -830,7 +837,7 @@ export default function PointageScreen() {
                       onPress={() => { setDepartureModal(entry); setDepTime('17:00'); }}
                     >
                       <Ionicons name="log-out-outline" size={12} color={C.open} />
-                      <Text style={styles.gridDepText}>Départ</Text>
+                      <Text style={styles.gridDepText}>{t('pointage.departureShort')}</Text>
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>
@@ -842,12 +849,12 @@ export default function PointageScreen() {
         {/* Company summary */}
         {byCompany.length > 1 && allDateEntries.length > 0 && (
           <View style={styles.companySummary}>
-            <Text style={styles.companySummaryTitle}>Répartition par entreprise</Text>
+            <Text style={styles.companySummaryTitle}>{t('pointage.byCompany')}</Text>
             {byCompany.map(co => (
               <View key={co.id} style={styles.companySummaryRow}>
                 <View style={[styles.companySummaryDot, { backgroundColor: co.color }]} />
                 <Text style={styles.companySummaryName}>{co.name}</Text>
-                <Text style={styles.companySummaryCount}>{co.count} pers.</Text>
+                <Text style={styles.companySummaryCount}>{t('pointage.peopleShort', { count: co.count })}</Text>
                 {co.hours > 0 && (
                   <Text style={styles.companySummaryHours}>{Math.round(co.hours * 10) / 10}h</Text>
                 )}
@@ -878,21 +885,21 @@ export default function PointageScreen() {
             {/* Header */}
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalTitle}>{editTarget ? 'Modifier le pointage' : 'Nouveau pointage'}</Text>
+                <Text style={styles.modalTitle}>{editTarget ? t('pointage.editEntry') : t('pointage.newEntry')}</Text>
                 <Text style={styles.modalDateSub}>
                   {editTarget
-                    ? `${formatDate(editTarget.date)} · modif. par ${editTarget.updatedBy ?? editTarget.recordedBy}`
+                    ? t('pointage.editedBy', { date: formatDate(editTarget.date), name: editTarget.updatedBy ?? editTarget.recordedBy ?? t('common.system') })
                     : formatDate(selectedDate)}
                 </Text>
               </View>
-              <TouchableOpacity onPress={closeModal} hitSlop={10} accessibilityLabel="Fermer le modal" accessibilityRole="button">
+              <TouchableOpacity onPress={closeModal} hitSlop={10} accessibilityLabel={t('pointage.closeModal')} accessibilityRole="button">
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
             </View>
 
             {/* Nom de l'ouvrier */}
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-              <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Nom de l'ouvrier *</Text>
+              <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>{t('pointage.workerNameLabel')}</Text>
               <Text style={[styles.charCount, { marginTop: 0, marginBottom: 0, color: workerName.length > 70 ? C.open : C.textMuted }]}>
                 {workerName.length}/80
               </Text>
@@ -901,7 +908,7 @@ export default function PointageScreen() {
               <TextInput
                 ref={workerNameRef}
                 style={styles.input}
-                placeholder="Prénom Nom"
+                placeholder={t('pointage.workerPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={workerName}
                 onChangeText={v => { setWorkerName(v); setShowSuggestions(true); }}
@@ -912,8 +919,8 @@ export default function PointageScreen() {
                 maxLength={80}
                 returnKeyType="next"
                 onSubmitEditing={() => arrivalRef.current?.focus()}
-                accessibilityLabel="Nom de l'ouvrier"
-                accessibilityHint="Saisissez le prénom et le nom de l'ouvrier"
+                accessibilityLabel={t('pointage.workerNameA11y')}
+                accessibilityHint={t('pointage.workerNameHint')}
               />
               {showSuggestions && workerSuggestions.length > 0 && (
                 <View style={styles.suggestionBox}>
@@ -932,11 +939,11 @@ export default function PointageScreen() {
             </View>
 
             {/* Entreprise */}
-            <Text style={styles.fieldLabel}>Entreprise *</Text>
+            <Text style={styles.fieldLabel}>{t('pointage.companyLabel')}</Text>
             {companies.length === 0 ? (
               <View style={styles.emptyCompany}>
                 <Ionicons name="business-outline" size={18} color={C.textMuted} />
-                <Text style={styles.emptyCompanyText}>Aucune entreprise configurée dans les paramètres.</Text>
+                <Text style={styles.emptyCompanyText}>{t('pointage.noCompanyConfigured')}</Text>
               </View>
             ) : (
               <ScrollView
@@ -961,16 +968,16 @@ export default function PointageScreen() {
             )}
 
             {/* Heure d'arrivée */}
-            <Text style={styles.fieldLabel}>Heure d'arrivée *</Text>
+            <Text style={styles.fieldLabel}>{t('pointage.arrivalLabel')}</Text>
             <View style={styles.presetRow}>
-              {ARRIVAL_PRESETS.map(t => (
+              {ARRIVAL_PRESETS.map(preset => (
                 <TouchableOpacity
-                  key={t}
-                  style={[styles.presetChip, arrivalTime === t && styles.presetChipActive]}
-                  onPress={() => setArrivalTime(t)}
-                  accessibilityLabel={`Arrivée à ${t}`}
+                  key={preset}
+                  style={[styles.presetChip, arrivalTime === preset && styles.presetChipActive]}
+                  onPress={() => setArrivalTime(preset)}
+                  accessibilityLabel={t('pointage.arrivalAt', { time: preset })}
                 >
-                  <Text style={[styles.presetChipText, arrivalTime === t && styles.presetChipTextActive]}>{t}</Text>
+                  <Text style={[styles.presetChipText, arrivalTime === preset && styles.presetChipTextActive]}>{preset}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -984,11 +991,11 @@ export default function PointageScreen() {
               keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
               returnKeyType={showDeparture ? 'next' : 'done'}
               onSubmitEditing={() => { if (showDeparture) departureRef.current?.focus(); }}
-              accessibilityLabel="Heure d'arrivée"
-              accessibilityHint="Format HH:MM, par exemple 07:30"
+              accessibilityLabel={t('pointage.arrivalA11y')}
+              accessibilityHint={t('pointage.timeHintArrival')}
             />
             {arrivalTime.length >= 4 && !validateTime(arrivalTime) && (
-              <Text style={styles.fieldError}>Heure invalide — format HH:MM attendu (ex : 07:30)</Text>
+              <Text style={styles.fieldError}>{t('pointage.arrivalInlineError')}</Text>
             )}
 
             {/* Heure de départ */}
@@ -996,11 +1003,11 @@ export default function PointageScreen() {
               <TouchableOpacity
                 style={[styles.addDepBtn, { marginTop: arrivalTime.length >= 4 && !validateTime(arrivalTime) ? 8 : 0 }]}
                 onPress={() => { setShowDeparture(true); if (!departureTime) setDepartureTime('17:00'); }}
-                accessibilityLabel="Définir une heure de départ"
+                accessibilityLabel={t('pointage.setDepartureA11y')}
                 accessibilityRole="button"
               >
                 <Ionicons name="log-out-outline" size={15} color={C.primary} />
-                <Text style={styles.addDepBtnText}>Définir une heure de départ (optionnel)</Text>
+                <Text style={styles.addDepBtnText}>{t('pointage.setDepartureOptional')}</Text>
               </TouchableOpacity>
             ) : (
               <>
@@ -1014,7 +1021,7 @@ export default function PointageScreen() {
                   return (
                     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, marginTop: arrivalTime.length >= 4 && !validateTime(arrivalTime) ? 8 : 0 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>Heure de départ</Text>
+                        <Text style={[styles.fieldLabel, { marginBottom: 0 }]}>{t('pointage.departureLabel')}</Text>
                         {depDuration && (
                           <View style={styles.hoursBadgeInline}>
                             <Ionicons name="time-outline" size={11} color={C.primary} />
@@ -1025,23 +1032,23 @@ export default function PointageScreen() {
                       <TouchableOpacity
                         onPress={() => { setDepartureTime(''); setShowDeparture(false); }}
                         style={styles.clearDepBtn}
-                        accessibilityLabel="Effacer l'heure de départ"
+                        accessibilityLabel={t('pointage.clearDepartureA11y')}
                       >
                         <Ionicons name="close-circle" size={16} color={C.textMuted} />
-                        <Text style={styles.clearDepBtnText}>Effacer</Text>
+                        <Text style={styles.clearDepBtnText}>{t('common.clear')}</Text>
                       </TouchableOpacity>
                     </View>
                   );
                 })()}
                 <View style={styles.presetRow}>
-                  {DEPARTURE_PRESETS.map(t => (
+                  {DEPARTURE_PRESETS.map(preset => (
                     <TouchableOpacity
-                      key={t}
-                      style={[styles.presetChip, departureTime === t && styles.presetChipActive]}
-                      onPress={() => setDepartureTime(t)}
-                      accessibilityLabel={`Départ à ${t}`}
+                      key={preset}
+                      style={[styles.presetChip, departureTime === preset && styles.presetChipActive]}
+                      onPress={() => setDepartureTime(preset)}
+                      accessibilityLabel={t('pointage.departureAt', { time: preset })}
                     >
-                      <Text style={[styles.presetChipText, departureTime === t && styles.presetChipTextActive]}>{t}</Text>
+                      <Text style={[styles.presetChipText, departureTime === preset && styles.presetChipTextActive]}>{preset}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -1054,14 +1061,14 @@ export default function PointageScreen() {
                   onChangeText={v => setDepartureTime(formatTimeInput(v))}
                   keyboardType={Platform.OS === 'ios' ? 'numbers-and-punctuation' : 'numeric'}
                   returnKeyType="done"
-                  accessibilityLabel="Heure de départ"
-                  accessibilityHint="Format HH:MM, doit être postérieure à l'heure d'arrivée"
+                  accessibilityLabel={t('pointage.departureA11y')}
+                  accessibilityHint={t('pointage.timeHintDeparture')}
                 />
                 {departureTime.length >= 4 && !validateTime(departureTime) && (
-                  <Text style={styles.fieldError}>Heure invalide — format HH:MM attendu (ex : 17:00)</Text>
+                  <Text style={styles.fieldError}>{t('pointage.departureInlineError')}</Text>
                 )}
                 {validateTime(departureTime) && validateTime(arrivalTime) && timeToMinutes(departureTime) <= timeToMinutes(arrivalTime) && (
-                  <Text style={styles.fieldError}>Le départ doit être postérieur à l'arrivée ({arrivalTime})</Text>
+                  <Text style={styles.fieldError}>{t('pointage.departureAfterArrival', { arrival: arrivalTime })}</Text>
                 )}
               </>
             )}
@@ -1069,16 +1076,16 @@ export default function PointageScreen() {
             {/* Tâche liée */}
             {(tasks.length > 0 || selectedTaskId) && (
               <>
-                <Text style={[styles.fieldLabel, { marginTop: 4 }]}>Tâche liée (optionnel)</Text>
+                <Text style={[styles.fieldLabel, { marginTop: 4 }]}>{t('pointage.linkedTaskLabel')}</Text>
                 {selectedTaskId && !activeTasks.find(t => t.id === selectedTaskId) && (
                   <View style={styles.linkedTaskBanner}>
                     <Ionicons name="construct-outline" size={13} color={C.inProgress} />
                     <Text style={styles.linkedTaskBannerText} numberOfLines={1} ellipsizeMode="tail">
-                      {selectedTaskTitle} (tâche terminée ou archivée)
+                      {t('pointage.archivedTaskText', { title: selectedTaskTitle })}
                     </Text>
                     <TouchableOpacity
                       onPress={() => { setSelectedTaskId(''); setSelectedTaskTitle(''); }}
-                      accessibilityLabel="Retirer la tâche liée"
+                      accessibilityLabel={t('pointage.removeLinkedTask')}
                       accessibilityRole="button"
                     >
                       <Ionicons name="close-circle-outline" size={15} color={C.textMuted} />
@@ -1088,22 +1095,22 @@ export default function PointageScreen() {
                 {activeTasks.length > 0 && (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
                     <View style={{ flexDirection: 'row', gap: 8 }}>
-                      {activeTasks.map(t => (
+                      {activeTasks.map(task => (
                         <TouchableOpacity
-                          key={t.id}
-                          style={[styles.taskPill, selectedTaskId === t.id && styles.taskPillActive]}
-                          onPress={() => selectTask(t.id, t.title)}
-                          accessibilityLabel={t.title}
+                          key={task.id}
+                          style={[styles.taskPill, selectedTaskId === task.id && styles.taskPillActive]}
+                          onPress={() => selectTask(task.id, task.title)}
+                          accessibilityLabel={task.title}
                           accessibilityRole="radio"
-                          accessibilityState={{ checked: selectedTaskId === t.id }}
-                          accessibilityHint={selectedTaskId === t.id ? 'Appuyer pour désélectionner' : 'Appuyer pour sélectionner cette tâche'}
+                          accessibilityState={{ checked: selectedTaskId === task.id }}
+                          accessibilityHint={selectedTaskId === task.id ? t('pointage.tapToUnselectTask') : t('pointage.tapToSelectTask')}
                         >
                           <Text
-                            style={[styles.taskPillText, selectedTaskId === t.id && styles.taskPillTextActive]}
+                            style={[styles.taskPillText, selectedTaskId === task.id && styles.taskPillTextActive]}
                             numberOfLines={1}
                             ellipsizeMode="tail"
                           >
-                            {t.title}
+                            {task.title}
                           </Text>
                         </TouchableOpacity>
                       ))}
@@ -1112,25 +1119,25 @@ export default function PointageScreen() {
                 )}
                 {tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').length > 20 && (
                   <Text style={styles.moreTasksHint}>
-                    {tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').length - 20} tâche(s) supplémentaire(s) non affichée(s)
+                    {t('pointage.moreTasksHidden', { count: tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').length - 20 })}
                   </Text>
                 )}
               </>
             )}
 
             {/* Notes */}
-            <Text style={[styles.fieldLabel, { marginTop: 4 }]}>Notes</Text>
+            <Text style={[styles.fieldLabel, { marginTop: 4 }]}>{t('pointage.notesLabel')}</Text>
             <TextInput
               style={[styles.input, { minHeight: 72, maxHeight: 160, textAlignVertical: 'top' }]}
-              placeholder="Observations, remarques..."
+              placeholder={t('pointage.notesPlaceholder')}
               placeholderTextColor={C.textMuted}
               value={notes}
               onChangeText={setNotes}
               multiline
               numberOfLines={3}
               maxLength={500}
-              accessibilityLabel="Notes"
-              accessibilityHint="Observations ou remarques libres, 500 caractères maximum"
+              accessibilityLabel={t('pointage.notesLabel')}
+              accessibilityHint={t('pointage.notesHint')}
             />
             <Text style={[styles.charCount, { color: notes.length >= 450 ? C.open : notes.length >= 400 ? C.medium : C.textMuted }]}>
               {notes.length}/500
@@ -1143,11 +1150,11 @@ export default function PointageScreen() {
                   style={[styles.saveBtn, saveDisabled && styles.saveBtnDisabled]}
                   onPress={handleSave}
                   disabled={saveDisabled}
-                  accessibilityLabel={editTarget ? 'Enregistrer les modifications' : 'Enregistrer le pointage'}
+                  accessibilityLabel={editTarget ? t('pointage.saveChanges') : t('pointage.saveEntry')}
                   accessibilityRole="button"
                   accessibilityState={{ disabled: saveDisabled }}
                 >
-                  <Text style={styles.saveBtnText}>{editTarget ? 'Enregistrer les modifications' : 'Enregistrer le pointage'}</Text>
+                  <Text style={styles.saveBtnText}>{editTarget ? t('pointage.saveChanges') : t('pointage.saveEntry')}</Text>
                 </TouchableOpacity>
               );
             })()}
@@ -1163,7 +1170,7 @@ export default function PointageScreen() {
           </TouchableWithoutFeedback>
           <View style={[styles.modalCard, { maxHeight: 280 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Heure de départ</Text>
+              <Text style={styles.modalTitle}>{t('pointage.departureTimeTitle')}</Text>
               <TouchableOpacity onPress={() => setDepartureModal(null)}>
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
@@ -1190,11 +1197,11 @@ export default function PointageScreen() {
               onChangeText={v => setDepTime(formatTimeInput(v))}
               keyboardType="numbers-and-punctuation"
               autoFocus
-              accessibilityLabel="Heure de départ"
-              accessibilityHint="Format HH:MM, par exemple 17:00"
+              accessibilityLabel={t('pointage.departureA11y')}
+              accessibilityHint={t('pointage.timeHintDepartureExample')}
             />
             <TouchableOpacity style={styles.saveBtn} onPress={handleSetDeparture}>
-              <Text style={styles.saveBtnText}>Enregistrer le départ</Text>
+              <Text style={styles.saveBtnText}>{t('pointage.saveDeparture')}</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -1208,15 +1215,15 @@ export default function PointageScreen() {
           </TouchableWithoutFeedback>
           <View style={[styles.modalCard, { maxHeight: 320 }]}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Départ groupé</Text>
+              <Text style={styles.modalTitle}>{t('pointage.bulkDepartureTitle')}</Text>
               <TouchableOpacity onPress={() => setBulkDepModal(false)}>
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
             </View>
             <Text style={styles.modalSub}>
-              Enregistrer le départ des {actifs} ouvrier{actifs > 1 ? 's' : ''} encore sur site.
+              {t('pointage.bulkDepartureText', { count: actifs })}
             </Text>
-            <Text style={styles.fieldLabel}>Heure de départ</Text>
+            <Text style={styles.fieldLabel}>{t('pointage.departureLabel')}</Text>
             <View style={styles.presetRow}>
               {DEPARTURE_PRESETS.map(t => (
                 <TouchableOpacity
@@ -1236,12 +1243,12 @@ export default function PointageScreen() {
               onChangeText={v => setDepTime(formatTimeInput(v))}
               keyboardType="numbers-and-punctuation"
               autoFocus
-              accessibilityLabel="Heure de départ groupé"
-              accessibilityHint="Format HH:MM, par exemple 17:00"
+              accessibilityLabel={t('pointage.bulkDepartureA11y')}
+              accessibilityHint={t('pointage.timeHintDepartureExample')}
             />
             <TouchableOpacity style={[styles.saveBtn, { backgroundColor: C.open }]} onPress={handleBulkDeparture}>
               <Ionicons name="log-out-outline" size={16} color="#fff" />
-              <Text style={styles.saveBtnText}>Pointer {actifs} départ{actifs > 1 ? 's' : ''}</Text>
+              <Text style={styles.saveBtnText}>{t('pointage.bulkSaveDeparture', { count: actifs })}</Text>
             </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
@@ -1251,7 +1258,7 @@ export default function PointageScreen() {
       {toastVisible && (
         <View style={[styles.toast, { pointerEvents: 'none' } as any]}>
           <Ionicons name="checkmark-circle" size={16} color="#fff" />
-          <Text style={styles.toastText}>Pointage enregistré</Text>
+          <Text style={styles.toastText}>{t('pointage.savedToast')}</Text>
         </View>
       )}
 
