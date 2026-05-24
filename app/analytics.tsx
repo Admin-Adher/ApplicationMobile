@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert }
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import {
   exportPDF as exportPDFHelper,
@@ -92,6 +93,7 @@ function buildAnalyticsPDF(
 }
 
 export default function AnalyticsScreen() {
+  const { t } = useTranslation();
   const { reserves, companies, lots } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
@@ -138,16 +140,16 @@ export default function AnalyticsScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>
-          Accès restreint
+          {t('analyticsScreen.restrictedTitle')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-          Les statistiques globales ne sont pas accessibles aux sous-traitants.
+          {t('analyticsScreen.restrictedText')}
         </Text>
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('analyticsScreen.backDashboard')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -165,22 +167,22 @@ export default function AnalyticsScreen() {
 
   async function handleExportPDF() {
     if (!permissions.canExport) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'exporter.");
+      Alert.alert(t('analyticsScreen.exportDeniedTitle'), t('analyticsScreen.exportDeniedText'));
       return;
     }
     try {
       const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName);
       await exportPDFHelper(html, buildPdfFilename('Tableau_Bord_Analytique', [projectName]));
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
+      Alert.alert(t('common.error'), e?.message ?? t('analyticsScreen.pdfError'));
     }
   }
 
   return (
     <View style={styles.container}>
       <Header
-        title="Analytique"
-        subtitle="Tendances & performance"
+        title={t('analyticsScreen.title')}
+        subtitle={t('analyticsScreen.subtitle')}
         showBack
         rightLabel={permissions.canExport ? 'PDF' : undefined}
         onRightPress={permissions.canExport ? handleExportPDF : undefined}
@@ -192,31 +194,31 @@ export default function AnalyticsScreen() {
         <View style={styles.kpiRow}>
           <View style={[styles.kpiCard, { borderLeftColor: C.primary }]}>
             <Text style={[styles.kpiVal, { color: C.primary }]}>{totalReserves}</Text>
-            <Text style={styles.kpiLabel}>Total</Text>
+            <Text style={styles.kpiLabel}>{t('analyticsScreen.kpis.total')}</Text>
           </View>
           <View style={[styles.kpiCard, { borderLeftColor: C.closed }]}>
             <Text style={[styles.kpiVal, { color: C.closed }]}>{closureRate}%</Text>
-            <Text style={styles.kpiLabel}>Taux clôture</Text>
+            <Text style={styles.kpiLabel}>{t('analyticsScreen.kpis.closureRate')}</Text>
           </View>
           <View style={[styles.kpiCard, { borderLeftColor: overdueReserves > 0 ? C.open : C.closed }]}>
             <Text style={[styles.kpiVal, { color: overdueReserves > 0 ? C.open : C.closed }]}>{overdueReserves}</Text>
-            <Text style={styles.kpiLabel}>En retard</Text>
+            <Text style={styles.kpiLabel}>{t('analyticsScreen.kpis.overdue')}</Text>
           </View>
           <View style={[styles.kpiCard, { borderLeftColor: criticalReserves > 0 ? '#7C3AED' : C.closed }]}>
             <Text style={[styles.kpiVal, { color: criticalReserves > 0 ? '#7C3AED' : C.closed }]}>{criticalReserves}</Text>
-            <Text style={styles.kpiLabel}>Critiques</Text>
+            <Text style={styles.kpiLabel}>{t('analyticsScreen.kpis.critical')}</Text>
           </View>
         </View>
 
         {/* Status breakdown */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Répartition par statut</Text>
+          <Text style={styles.sectionTitle}>{t('analyticsScreen.sections.status')}</Text>
           {[
-            { label: 'Ouvertes', val: openReserves, color: C.open },
-            { label: 'En cours', val: inProgressReserves, color: C.inProgress },
-            { label: 'En attente', val: reserves.filter(r => r.status === 'waiting').length, color: C.waiting },
-            { label: 'Vérification', val: reserves.filter(r => r.status === 'verification').length, color: C.verification },
-            { label: 'Clôturées', val: closedReserves, color: C.closed },
+            { label: t('reserveLabels.status.open'), val: openReserves, color: C.open },
+            { label: t('reserveLabels.status.in_progress'), val: inProgressReserves, color: C.inProgress },
+            { label: t('reserveLabels.status.waiting'), val: reserves.filter(r => r.status === 'waiting').length, color: C.waiting },
+            { label: t('reserveLabels.status.verification'), val: reserves.filter(r => r.status === 'verification').length, color: C.verification },
+            { label: t('reserveLabels.status.closed'), val: closedReserves, color: C.closed },
           ].map(item => (
             <View key={item.label} style={styles.statRow}>
               <View style={[styles.statDot, { backgroundColor: item.color }]} />
@@ -232,15 +234,15 @@ export default function AnalyticsScreen() {
 
         {/* Weekly trend chart */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Évolution hebdomadaire — 8 semaines</Text>
+          <Text style={styles.sectionTitle}>{t('analyticsScreen.sections.weekly')}</Text>
           <View style={styles.legend}>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: C.primary }]} />
-              <Text style={styles.legendLabel}>Créées</Text>
+              <Text style={styles.legendLabel}>{t('analyticsScreen.created')}</Text>
             </View>
             <View style={styles.legendItem}>
               <View style={[styles.legendDot, { backgroundColor: C.closed }]} />
-              <Text style={styles.legendLabel}>Clôturées</Text>
+              <Text style={styles.legendLabel}>{t('analyticsScreen.closed')}</Text>
             </View>
           </View>
           <View style={styles.chartArea}>
@@ -267,9 +269,9 @@ export default function AnalyticsScreen() {
 
         {/* Company performance */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Performance par entreprise</Text>
+          <Text style={styles.sectionTitle}>{t('analyticsScreen.sections.company')}</Text>
           {companyStats.length === 0 ? (
-            <Text style={styles.emptyText}>Aucune donnée entreprise</Text>
+            <Text style={styles.emptyText}>{t('analyticsScreen.noCompanyData')}</Text>
           ) : (
             companyStats.map(co => (
               <View key={co.companyName} style={styles.companyRow}>
@@ -288,11 +290,11 @@ export default function AnalyticsScreen() {
                     }]} />
                   </View>
                   <View style={styles.companyMeta}>
-                    <Text style={styles.companyMetaText}>{co.total} réserve{co.total !== 1 ? 's' : ''}</Text>
-                    <Text style={styles.companyMetaText}>{co.closed} clôturée{co.closed !== 1 ? 's' : ''}</Text>
+                    <Text style={styles.companyMetaText}>{t('analyticsScreen.reserveCount', { count: co.total })}</Text>
+                    <Text style={styles.companyMetaText}>{t('analyticsScreen.closedCount', { count: co.closed })}</Text>
                     {co.overdue > 0 && (
                       <Text style={[styles.companyMetaText, { color: C.open }]}>
-                        {co.overdue} en retard
+                        {t('analyticsScreen.overdueCount', { count: co.overdue })}
                       </Text>
                     )}
                   </View>
@@ -304,12 +306,12 @@ export default function AnalyticsScreen() {
 
         {/* Priority breakdown */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Répartition par priorité (actives)</Text>
+          <Text style={styles.sectionTitle}>{t('analyticsScreen.sections.priority')}</Text>
           {[
-            { label: 'Critique', color: '#EF4444', key: 'critical' },
-            { label: 'Haute', color: '#F97316', key: 'high' },
-            { label: 'Moyenne', color: '#F59E0B', key: 'medium' },
-            { label: 'Basse', color: '#22C55E', key: 'low' },
+            { label: t('reserveLabels.priority.critical'), color: '#EF4444', key: 'critical' },
+            { label: t('reserveLabels.priority.high'), color: '#F97316', key: 'high' },
+            { label: t('reserveLabels.priority.medium'), color: '#F59E0B', key: 'medium' },
+            { label: t('reserveLabels.priority.low'), color: '#22C55E', key: 'low' },
           ].map(p => {
             const cnt = reserves.filter(r => r.priority === p.key && r.status !== 'closed').length;
             const activeTotal = reserves.filter(r => r.status !== 'closed').length;
@@ -329,17 +331,17 @@ export default function AnalyticsScreen() {
 
         {/* Building breakdown */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Répartition par bâtiment</Text>
+          <Text style={styles.sectionTitle}>{t('analyticsScreen.sections.building')}</Text>
           {(() => {
             const buildings = [...new Set(reserves.map(r => r.building))].sort();
             const maxBld = Math.max(...buildings.map(b => reserves.filter(r => r.building === b).length), 1);
-            if (buildings.length === 0) return <Text style={styles.emptyText}>Aucune donnée</Text>;
+            if (buildings.length === 0) return <Text style={styles.emptyText}>{t('analyticsScreen.noData')}</Text>;
             return buildings.map((b, i) => {
               const cnt = reserves.filter(r => r.building === b).length;
               const clsd = reserves.filter(r => r.building === b && r.status === 'closed').length;
               return (
                 <View key={b} style={styles.statRow}>
-                  <Text style={styles.buildingLabel}>Bât. {b}</Text>
+                  <Text style={styles.buildingLabel}>{t('analyticsScreen.buildingShort', { building: b })}</Text>
                   <MiniBar value={cnt} max={maxBld} color={C.primary} />
                   <Text style={[styles.statVal, { color: C.primary }]}>{cnt}</Text>
                   <Text style={styles.statPct}>{cnt > 0 ? `${Math.round((clsd / cnt) * 100)}%` : '0%'} ✓</Text>
@@ -352,7 +354,7 @@ export default function AnalyticsScreen() {
         {/* Lot breakdown */}
         {lots.length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Répartition par lot (CCTP)</Text>
+            <Text style={styles.sectionTitle}>{t('analyticsScreen.sections.lot')}</Text>
             {(() => {
               const lotsWithReserves = lots
                 .map(lot => {
@@ -361,7 +363,7 @@ export default function AnalyticsScreen() {
                 })
                 .filter(x => x.total > 0)
                 .sort((a, b) => b.total - a.total);
-              if (lotsWithReserves.length === 0) return <Text style={styles.emptyText}>Aucune réserve avec lot attribué</Text>;
+              if (lotsWithReserves.length === 0) return <Text style={styles.emptyText}>{t('analyticsScreen.noLotData')}</Text>;
               const maxLot = Math.max(...lotsWithReserves.map(x => x.total), 1);
               return lotsWithReserves.map(({ lot, total, closed }) => (
                 <View key={lot.id} style={styles.statRow}>
@@ -384,10 +386,10 @@ export default function AnalyticsScreen() {
           const closedDelta = current.closed - previous.closed;
           return (
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Semaine en cours vs précédente</Text>
+              <Text style={styles.sectionTitle}>{t('analyticsScreen.sections.weekComparison')}</Text>
               <View style={styles.wowRow}>
                 <View style={styles.wowItem}>
-                  <Text style={styles.wowLabel}>Créées cette semaine</Text>
+                  <Text style={styles.wowLabel}>{t('analyticsScreen.createdThisWeek')}</Text>
                   <Text style={[styles.wowVal, { color: C.primary }]}>{current.created}</Text>
                   <View style={[styles.wowDelta, { backgroundColor: createdDelta > 0 ? '#FEF2F2' : createdDelta < 0 ? '#ECFDF5' : C.surface2 }]}>
                     <Ionicons
@@ -396,13 +398,13 @@ export default function AnalyticsScreen() {
                       color={createdDelta > 0 ? '#DC2626' : createdDelta < 0 ? '#059669' : C.textMuted}
                     />
                     <Text style={[styles.wowDeltaText, { color: createdDelta > 0 ? '#DC2626' : createdDelta < 0 ? '#059669' : C.textMuted }]}>
-                      {createdDelta > 0 ? '+' : ''}{createdDelta} vs S. préc.
+                      {t('analyticsScreen.deltaPrevious', { delta: `${createdDelta > 0 ? '+' : ''}${createdDelta}` })}
                     </Text>
                   </View>
                 </View>
                 <View style={styles.wowDivider} />
                 <View style={styles.wowItem}>
-                  <Text style={styles.wowLabel}>Clôturées cette semaine</Text>
+                  <Text style={styles.wowLabel}>{t('analyticsScreen.closedThisWeek')}</Text>
                   <Text style={[styles.wowVal, { color: C.closed }]}>{current.closed}</Text>
                   <View style={[styles.wowDelta, { backgroundColor: closedDelta > 0 ? '#ECFDF5' : closedDelta < 0 ? '#FEF2F2' : C.surface2 }]}>
                     <Ionicons
@@ -411,7 +413,7 @@ export default function AnalyticsScreen() {
                       color={closedDelta > 0 ? '#059669' : closedDelta < 0 ? '#DC2626' : C.textMuted}
                     />
                     <Text style={[styles.wowDeltaText, { color: closedDelta > 0 ? '#059669' : closedDelta < 0 ? '#DC2626' : C.textMuted }]}>
-                      {closedDelta > 0 ? '+' : ''}{closedDelta} vs S. préc.
+                      {t('analyticsScreen.deltaPrevious', { delta: `${closedDelta > 0 ? '+' : ''}${closedDelta}` })}
                     </Text>
                   </View>
                 </View>

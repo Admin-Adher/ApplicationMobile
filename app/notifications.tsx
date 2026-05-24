@@ -4,62 +4,72 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useNotifications, NotifType } from '@/context/NotificationsContext';
+import { useLanguage } from '@/context/LanguageContext';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 
-const TYPE_CONFIG: Record<NotifType, { icon: string; color: string; bg: string; label: string }> = {
+const TYPE_CONFIG: Record<NotifType, { icon: string; color: string; bg: string; labelKey: string }> = {
   critical_reserve: {
     icon: 'warning',
     color: '#EF4444',
     bg: '#FEF2F2',
-    label: 'Réserve critique',
+    labelKey: 'notifications.types.critical_reserve',
   },
   overdue_reserve: {
     icon: 'time',
     color: '#F59E0B',
     bg: '#FFFBEB',
-    label: 'Réserve en retard',
+    labelKey: 'notifications.types.overdue_reserve',
   },
   due_soon_reserve: {
     icon: 'alarm-outline',
     color: '#6366F1',
     bg: '#EEF2FF',
-    label: 'Échéance imminente',
+    labelKey: 'notifications.types.due_soon_reserve',
   },
   late_task: {
     icon: 'calendar',
     color: '#8B5CF6',
     bg: '#F5F3FF',
-    label: 'Tâche en retard',
+    labelKey: 'notifications.types.late_task',
   },
   system: {
     icon: 'information-circle',
     color: C.primary,
     bg: C.primaryBg,
-    label: 'Système',
+    labelKey: 'notifications.types.system',
   },
 };
 
-function timeAgo(dateStr: string): string {
+function localeForLanguage(language: string): string {
+  if (language === 'en') return 'en-US';
+  if (language === 'es') return 'es-ES';
+  return 'fr-FR';
+}
+
+function timeAgo(dateStr: string, t: (key: string, options?: Record<string, unknown>) => string, locale: string): string {
   try {
     const d = new Date(dateStr);
     const diff = Date.now() - d.getTime();
     const mins = Math.floor(diff / 60000);
     const hours = Math.floor(mins / 60);
     const days = Math.floor(hours / 24);
-    if (days > 30) return d.toLocaleDateString('fr-FR');
-    if (days > 0) return `il y a ${days}j`;
-    if (hours > 0) return `il y a ${hours}h`;
-    if (mins > 0) return `il y a ${mins}min`;
-    return "à l'instant";
+    if (days > 30) return d.toLocaleDateString(locale);
+    if (days > 0) return t('notifications.time.days', { count: days });
+    if (hours > 0) return t('notifications.time.hours', { count: hours });
+    if (mins > 0) return t('notifications.time.minutes', { count: mins });
+    return t('notifications.time.now');
   } catch {
     return '';
   }
 }
 
 export default function NotificationsScreen() {
+  const { t } = useTranslation();
+  const { effectiveLanguage } = useLanguage();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { notifications, unreadCount, markRead, markAllRead } = useNotifications();
@@ -82,13 +92,13 @@ export default function NotificationsScreen() {
   return (
     <View style={[styles.container, { paddingTop: topPad }]}>
       <Header
-        title="Notifications"
-        subtitle={unreadCount > 0 ? `${unreadCount} non lue${unreadCount > 1 ? 's' : ''}` : 'Tout est à jour'}
+        title={t('notifications.title')}
+        subtitle={unreadCount > 0 ? t('notifications.unread', { count: unreadCount }) : t('notifications.upToDate')}
         onBack={() => router.back()}
         rightElement={
           unreadCount > 0 ? (
             <TouchableOpacity style={styles.markAllBtn} onPress={markAllRead}>
-              <Text style={styles.markAllText}>Tout lire</Text>
+              <Text style={styles.markAllText}>{t('notifications.markAllRead')}</Text>
             </TouchableOpacity>
           ) : undefined
         }
@@ -100,16 +110,16 @@ export default function NotificationsScreen() {
             <View style={styles.emptyIcon}>
               <Ionicons name="notifications-off-outline" size={36} color={C.textMuted} />
             </View>
-            <Text style={styles.emptyTitle}>Aucune notification</Text>
+            <Text style={styles.emptyTitle}>{t('notifications.emptyTitle')}</Text>
             <Text style={styles.emptySub}>
-              Vos alertes de réserves critiques, retards et incidents apparaîtront ici.
+              {t('notifications.emptyText')}
             </Text>
           </View>
         )}
 
         {unread.length > 0 && (
           <>
-            <Text style={styles.sectionLabel}>Non lues</Text>
+            <Text style={styles.sectionLabel}>{t('notifications.unreadSection')}</Text>
             {unread.map(n => {
               const cfg = TYPE_CONFIG[n.type];
               return (
@@ -124,8 +134,8 @@ export default function NotificationsScreen() {
                   </View>
                   <View style={styles.cardContent}>
                     <View style={styles.cardTop}>
-                      <Text style={[styles.cardType, { color: cfg.color }]}>{cfg.label}</Text>
-                      <Text style={styles.cardTime}>{timeAgo(n.createdAt)}</Text>
+                      <Text style={[styles.cardType, { color: cfg.color }]}>{t(cfg.labelKey)}</Text>
+                      <Text style={styles.cardTime}>{timeAgo(n.createdAt, t, localeForLanguage(effectiveLanguage))}</Text>
                     </View>
                     <Text style={styles.cardBody} numberOfLines={2}>{n.body}</Text>
                   </View>
@@ -138,7 +148,7 @@ export default function NotificationsScreen() {
 
         {read.length > 0 && (
           <>
-            <Text style={styles.sectionLabel}>{unread.length > 0 ? 'Lues' : 'Toutes les notifications'}</Text>
+            <Text style={styles.sectionLabel}>{unread.length > 0 ? t('notifications.readSection') : t('notifications.allSection')}</Text>
             {read.map(n => {
               const cfg = TYPE_CONFIG[n.type];
               return (
@@ -153,8 +163,8 @@ export default function NotificationsScreen() {
                   </View>
                   <View style={styles.cardContent}>
                     <View style={styles.cardTop}>
-                      <Text style={[styles.cardType, { color: C.textMuted }]}>{cfg.label}</Text>
-                      <Text style={styles.cardTime}>{timeAgo(n.createdAt)}</Text>
+                      <Text style={[styles.cardType, { color: C.textMuted }]}>{t(cfg.labelKey)}</Text>
+                      <Text style={styles.cardTime}>{timeAgo(n.createdAt, t, localeForLanguage(effectiveLanguage))}</Text>
                     </View>
                     <Text style={[styles.cardBody, { color: C.textSub }]} numberOfLines={2}>{n.body}</Text>
                   </View>

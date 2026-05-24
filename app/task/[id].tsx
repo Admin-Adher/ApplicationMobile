@@ -5,6 +5,7 @@ import {
 import { useState } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -15,24 +16,25 @@ import DictationTextInput from '@/components/DictationTextInput';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline, formatDate } from '@/lib/reserveUtils';
 
-const STATUS_OPTS: { value: TaskStatus; label: string; color: string; icon: string }[] = [
-  { value: 'todo',        label: 'À faire',   color: C.textMuted,  icon: 'ellipse-outline' },
-  { value: 'in_progress', label: 'En cours',  color: C.inProgress, icon: 'play-circle-outline' },
-  { value: 'done',        label: 'Terminé',   color: C.closed,     icon: 'checkmark-circle-outline' },
-  { value: 'delayed',     label: 'En retard', color: C.waiting,    icon: 'alert-circle-outline' },
+const STATUS_OPTS: { value: TaskStatus; labelKey: string; color: string; icon: string }[] = [
+  { value: 'todo',        labelKey: 'taskLabels.status.todo',        color: C.textMuted,  icon: 'ellipse-outline' },
+  { value: 'in_progress', labelKey: 'taskLabels.status.in_progress', color: C.inProgress, icon: 'play-circle-outline' },
+  { value: 'done',        labelKey: 'taskLabels.status.done',        color: C.closed,     icon: 'checkmark-circle-outline' },
+  { value: 'delayed',     labelKey: 'taskLabels.status.delayed',     color: C.waiting,    icon: 'alert-circle-outline' },
 ];
 
-const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string; icon: string }[] = [
-  { value: 'low',      label: 'Faible',   color: '#22C55E', icon: 'arrow-down-outline' },
-  { value: 'medium',   label: 'Moyen',    color: '#F59E0B', icon: 'remove-outline' },
-  { value: 'high',     label: 'Élevé',    color: '#EF4444', icon: 'arrow-up-outline' },
-  { value: 'critical', label: 'Critique', color: '#7C3AED', icon: 'flame-outline' },
+const PRIORITY_OPTS: { value: ReservePriority; labelKey: string; color: string; icon: string }[] = [
+  { value: 'low',      labelKey: 'taskLabels.priority.low',      color: '#22C55E', icon: 'arrow-down-outline' },
+  { value: 'medium',   labelKey: 'taskLabels.priority.medium',   color: '#F59E0B', icon: 'remove-outline' },
+  { value: 'high',     labelKey: 'taskLabels.priority.high',     color: '#EF4444', icon: 'arrow-up-outline' },
+  { value: 'critical', labelKey: 'taskLabels.priority.critical', color: '#7C3AED', icon: 'flame-outline' },
 ];
 
 const PROGRESS_PRESETS = [0, 25, 50, 75, 100];
 
 export default function EditTaskScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { tasks, reserves, updateTask, deleteTask, companies, addTaskComment, updateTaskComment, deleteTaskComment } = useApp();
   const { user, permissions } = useAuth();
@@ -75,10 +77,10 @@ export default function EditTaskScreen() {
   if (user?.role === 'sous_traitant') {
     return (
       <View style={styles.container}>
-        <Header title="Accès restreint" showBack />
+        <Header title={t('taskDetail.restrictedTitle')} showBack />
         <View style={styles.notFound}>
           <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-          <Text style={styles.notFoundText}>Les sous-traitants n'ont pas accès au planning des tâches.</Text>
+          <Text style={styles.notFoundText}>{t('taskDetail.restrictedText')}</Text>
         </View>
       </View>
     );
@@ -87,10 +89,10 @@ export default function EditTaskScreen() {
   if (!task) {
     return (
       <View style={styles.container}>
-        <Header title="Tâche introuvable" showBack />
+        <Header title={t('taskDetail.notFoundTitle')} showBack />
         <View style={styles.notFound}>
           <Ionicons name="alert-circle-outline" size={48} color={C.textMuted} />
-          <Text style={styles.notFoundText}>Cette tâche n'existe plus.</Text>
+          <Text style={styles.notFoundText}>{t('taskDetail.notFoundText')}</Text>
         </View>
       </View>
     );
@@ -98,11 +100,11 @@ export default function EditTaskScreen() {
 
   function validate(): boolean {
     const e: Record<string, string> = {};
-    if (!title.trim()) e.title = 'Le titre est obligatoire.';
+    if (!title.trim()) e.title = t('taskForm.titleRequired');
     if (startDate.trim() && !validateDeadline(startDate.trim()))
-      e.startDate = 'Format invalide (ex : 01/04/2026).';
+      e.startDate = t('taskForm.invalidStartDate');
     if (deadline.trim() && !validateDeadline(deadline.trim()))
-      e.deadline = 'Format invalide (ex : 30/04/2026).';
+      e.deadline = t('taskForm.invalidDeadline');
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -128,12 +130,12 @@ export default function EditTaskScreen() {
 
   function handleDelete() {
     Alert.alert(
-      'Supprimer la tâche',
-      `Voulez-vous vraiment supprimer "${task!.title}" ?`,
+      t('taskDetail.deleteTaskTitle'),
+      t('taskDetail.deleteTaskText', { title: task!.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer', style: 'destructive',
+          text: t('common.delete'), style: 'destructive',
           onPress: () => { deleteTask(task!.id); router.back(); },
         },
       ]
@@ -142,7 +144,7 @@ export default function EditTaskScreen() {
 
   function handleAddComment() {
     if (!newComment.trim()) return;
-    addTaskComment(task!.id, newComment.trim(), user?.name ?? 'Utilisateur');
+    addTaskComment(task!.id, newComment.trim(), user?.name ?? t('taskDetail.userFallback'));
     setNewComment('');
   }
 
@@ -169,16 +171,16 @@ export default function EditTaskScreen() {
     if (!task) return;
     const doDelete = () => deleteTaskComment(task.id, commentId);
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && window.confirm('Supprimer ce commentaire ?')) {
+      if (typeof window !== 'undefined' && window.confirm(t('taskDetail.deleteCommentTitle'))) {
         doDelete();
       }
     } else {
       Alert.alert(
-        'Supprimer le commentaire',
-        'Cette action est irréversible.',
+        t('taskDetail.deleteCommentTitle'),
+        t('taskDetail.deleteCommentText'),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Supprimer', style: 'destructive', onPress: doDelete },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('common.delete'), style: 'destructive', onPress: doDelete },
         ]
       );
     }
@@ -192,9 +194,9 @@ export default function EditTaskScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <Header
-        title={permissions.canEdit ? 'Modifier la tâche' : 'Détails de la tâche'}
+        title={permissions.canEdit ? t('taskDetail.editTitle') : t('taskDetail.viewTitle')}
         showBack
-        rightLabel={permissions.canEdit ? 'Enregistrer' : undefined}
+        rightLabel={permissions.canEdit ? t('common.save') : undefined}
         onRightPress={permissions.canEdit ? handleSave : undefined}
       />
 
@@ -214,7 +216,7 @@ export default function EditTaskScreen() {
             <View style={styles.reserveLinkLeft}>
               <Ionicons name="warning" size={16} color={C.open} />
               <View>
-                <Text style={styles.reserveLinkLabel}>Réserve liée</Text>
+                <Text style={styles.reserveLinkLabel}>{t('taskDetail.linkedReserve')}</Text>
                 <Text style={styles.reserveLinkId}>{linkedReserve.title}</Text>
               </View>
             </View>
@@ -224,12 +226,12 @@ export default function EditTaskScreen() {
 
         {/* ── Informations générales ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Informations générales</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.generalInfo')}</Text>
 
-          <Text style={styles.label}>Titre *</Text>
+          <Text style={styles.label}>{t('taskForm.titleLabel')}</Text>
           <DictationTextInput
             inputStyle={[styles.input, errors.title && styles.inputError]}
-            placeholder="Titre de la tâche"
+            placeholder={t('taskForm.titlePlaceholder')}
             placeholderTextColor={C.textMuted}
             value={title}
             onChangeText={t => { setTitle(t); if (errors.title) setErrors(p => ({ ...p, title: '' })); }}
@@ -239,10 +241,10 @@ export default function EditTaskScreen() {
           />
           {errors.title ? <Text style={styles.errorText}>{errors.title}</Text> : null}
 
-          <Text style={styles.label}>Description</Text>
+          <Text style={styles.label}>{t('taskForm.description')}</Text>
           <DictationTextInput
             inputStyle={[styles.input, styles.multiline]}
-            placeholder="Description détaillée..."
+            placeholder={t('taskForm.descriptionPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={description}
             onChangeText={setDescription}
@@ -256,10 +258,10 @@ export default function EditTaskScreen() {
 
         {/* ── Planification ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Planification</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.planning')}</Text>
 
           <DateInput
-            label="Date de début"
+            label={t('taskForm.startDate')}
             value={startDate}
             onChange={v => { setStartDate(v); if (errors.startDate) setErrors(p => ({ ...p, startDate: '' })); }}
             optional
@@ -267,7 +269,7 @@ export default function EditTaskScreen() {
           {errors.startDate ? <Text style={styles.errorText}>{errors.startDate}</Text> : null}
 
           <DateInput
-            label="Échéance"
+            label={t('taskForm.deadline')}
             value={deadline}
             onChange={v => { setDeadline(v); if (errors.deadline) setErrors(p => ({ ...p, deadline: '' })); }}
           />
@@ -276,10 +278,10 @@ export default function EditTaskScreen() {
 
         {/* ── Affectation ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Affectation</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.assignment')}</Text>
 
           {/* Entreprise */}
-          <Text style={styles.label}>Entreprise</Text>
+          <Text style={styles.label}>{t('taskForm.company')}</Text>
           <CompanySelector
             mode="single"
             identifier="id"
@@ -287,16 +289,16 @@ export default function EditTaskScreen() {
             value={companyId === '' ? null : companyId}
             onChange={(v) => permissions.canEdit && setCompanyId(v ?? '')}
             allowNone
-            noneLabel="Aucune"
+            noneLabel={t('companySelector.none')}
             disabled={!permissions.canEdit}
-            emptyText="Aucune entreprise enregistrée"
+            emptyText={t('companySelector.empty')}
           />
 
           {/* Responsable */}
-          <Text style={[styles.label, { marginTop: 14 }]}>Responsable</Text>
+          <Text style={[styles.label, { marginTop: 14 }]}>{t('taskForm.assignee')}</Text>
           <TextInput
             style={styles.input}
-            placeholder="Nom du responsable"
+            placeholder={t('taskForm.assigneePlaceholder')}
             placeholderTextColor={C.textMuted}
             value={assignee}
             onChangeText={setAssignee}
@@ -306,7 +308,7 @@ export default function EditTaskScreen() {
 
         {/* ── Statut ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Statut</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.status')}</Text>
           <View style={styles.optionGrid}>
             {STATUS_OPTS.map(opt => {
               const active = status === opt.value;
@@ -318,7 +320,7 @@ export default function EditTaskScreen() {
                 >
                   <Ionicons name={opt.icon as any} size={15} color={active ? opt.color : C.textMuted} />
                   <Text style={[styles.optionLabel, active && { color: opt.color, fontFamily: 'Inter_600SemiBold' }]}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </Text>
                 </TouchableOpacity>
               );
@@ -328,7 +330,7 @@ export default function EditTaskScreen() {
 
         {/* ── Priorité ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Priorité</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.priority')}</Text>
           <View style={styles.optionGrid}>
             {PRIORITY_OPTS.map(opt => {
               const active = priority === opt.value;
@@ -340,7 +342,7 @@ export default function EditTaskScreen() {
                 >
                   <Ionicons name={opt.icon as any} size={15} color={active ? opt.color : C.textMuted} />
                   <Text style={[styles.optionLabel, active && { color: opt.color, fontFamily: 'Inter_600SemiBold' }]}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </Text>
                 </TouchableOpacity>
               );
@@ -350,7 +352,7 @@ export default function EditTaskScreen() {
 
         {/* ── Avancement ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Avancement</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.progress')}</Text>
 
           <View style={styles.progressBarBg}>
             <View style={[styles.progressBarFill, { width: `${progress}%` as any }]} />
@@ -372,7 +374,7 @@ export default function EditTaskScreen() {
           </View>
 
           <View style={styles.progressInputRow}>
-            <Text style={styles.progressInputLabel}>Valeur précise :</Text>
+            <Text style={styles.progressInputLabel}>{t('taskForm.exactValue')}</Text>
             <TextInput
               style={styles.progressInput}
               value={String(progress)}
@@ -393,13 +395,13 @@ export default function EditTaskScreen() {
           <>
             <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
               <Ionicons name="checkmark-circle" size={20} color="#fff" />
-              <Text style={styles.saveBtnText}>Enregistrer les modifications</Text>
+              <Text style={styles.saveBtnText}>{t('taskDetail.saveChanges')}</Text>
             </TouchableOpacity>
 
             {permissions.canDelete && (
               <TouchableOpacity style={styles.deleteBtn} onPress={handleDelete} activeOpacity={0.85}>
                 <Ionicons name="trash-outline" size={18} color={C.open} />
-                <Text style={styles.deleteBtnText}>Supprimer cette tâche</Text>
+                <Text style={styles.deleteBtnText}>{t('taskDetail.deleteThisTask')}</Text>
               </TouchableOpacity>
             )}
           </>
@@ -407,9 +409,9 @@ export default function EditTaskScreen() {
 
         {/* ── Commentaires ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Commentaires ({task.comments?.length ?? 0})</Text>
+          <Text style={styles.sectionTitle}>{t('taskDetail.comments', { count: task.comments?.length ?? 0 })}</Text>
           {(task.comments ?? []).length === 0 && (
-            <Text style={styles.emptyComments}>Aucun commentaire — soyez le premier à commenter.</Text>
+            <Text style={styles.emptyComments}>{t('taskDetail.noComment')}</Text>
           )}
           {(task.comments ?? []).map(c => {
             const isOwner = (c.authorId && user?.id && c.authorId === user.id) ||
@@ -425,7 +427,7 @@ export default function EditTaskScreen() {
                     <Text style={styles.commentAuthor}>{c.author}</Text>
                     <Text style={styles.commentDate}>
                       {formatDate(c.createdAt)}
-                      {c.editedAt ? ` · modifié le ${formatDate(c.editedAt)}` : ''}
+                      {c.editedAt ? t('taskDetail.editedAt', { date: formatDate(c.editedAt) }) : ''}
                     </Text>
                   </View>
                   {isOwner && !isEditing && (
@@ -433,14 +435,14 @@ export default function EditTaskScreen() {
                       <TouchableOpacity
                         onPress={() => handleStartEditComment(c)}
                         style={styles.commentActionBtn}
-                        accessibilityLabel="Modifier le commentaire"
+                        accessibilityLabel={t('taskDetail.editCommentA11y')}
                       >
                         <Ionicons name="create-outline" size={16} color={C.primary} />
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => handleDeleteComment(c.id)}
                         style={styles.commentActionBtn}
-                        accessibilityLabel="Supprimer le commentaire"
+                        accessibilityLabel={t('taskDetail.deleteCommentA11y')}
                       >
                         <Ionicons name="trash-outline" size={16} color={C.open} />
                       </TouchableOpacity>
@@ -464,7 +466,7 @@ export default function EditTaskScreen() {
                         onPress={handleCancelEditComment}
                         style={[styles.commentActionBtn, { paddingHorizontal: 12 }]}
                       >
-                        <Text style={{ color: C.textMuted, fontWeight: '600' }}>Annuler</Text>
+                        <Text style={{ color: C.textMuted, fontWeight: '600' }}>{t('common.cancel')}</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={handleSaveEditComment}
@@ -474,7 +476,7 @@ export default function EditTaskScreen() {
                         ]}
                       >
                         <Ionicons name="checkmark" size={16} color="#fff" />
-                        <Text style={{ color: '#fff', fontWeight: '600' }}>Enregistrer</Text>
+                        <Text style={{ color: '#fff', fontWeight: '600' }}>{t('common.save')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -488,7 +490,7 @@ export default function EditTaskScreen() {
             <DictationTextInput
               inputStyle={styles.commentInput}
               containerStyle={{ flex: 1 }}
-              placeholder="Ajouter un commentaire..."
+              placeholder={t('taskDetail.addCommentPlaceholder')}
               placeholderTextColor={C.textMuted}
               value={newComment}
               onChangeText={setNewComment}
@@ -509,7 +511,7 @@ export default function EditTaskScreen() {
         {/* ── Historique ── */}
         {(task.history ?? []).length > 0 && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Historique des modifications</Text>
+            <Text style={styles.sectionTitle}>{t('taskDetail.history')}</Text>
             {[...(task.history ?? [])].reverse().map((h, idx) => (
               <View key={idx} style={styles.historyItem}>
                 <View style={styles.historyDot} />

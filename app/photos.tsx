@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView, Share, KeyboardAvoidingView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
@@ -15,6 +16,7 @@ import { genId, formatDateFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
 
 export default function PhotosScreen() {
+  const { t } = useTranslation();
   const { photos, addPhoto, deletePhoto, channels, addMessage } = useApp();
   const { user, permissions } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -38,7 +40,7 @@ export default function PhotosScreen() {
 
   function handleShareToChannel(channel: Channel) {
     if (!sharePhoto) return;
-    const caption = shareCaption.trim() || sharePhoto.comment || 'Photo partagée';
+    const caption = shareCaption.trim() || sharePhoto.comment || t('photosScreen.sharedPhotoFallback');
     addMessage(
       channel.id,
       caption,
@@ -46,15 +48,15 @@ export default function PhotosScreen() {
       user?.name ?? 'Moi'
     );
     const note = sharePhoto.uri
-      ? `La photo a été partagée dans « ${channel.name} » avec l'image.`
-      : `Le commentaire a été partagé dans « ${channel.name} » (photo sans image disponible).`;
+      ? t('photosScreen.shareChannelWithImage', { channel: channel.name })
+      : t('photosScreen.shareChannelNoImage', { channel: channel.name });
     setShareModalVisible(false);
-    Alert.alert('Partage effectué', note, [{ text: 'OK' }]);
+    Alert.alert(t('photosScreen.shareDoneTitle'), note, [{ text: 'OK' }]);
   }
 
   async function handleSystemShare() {
     if (!sharePhoto) return;
-    const caption = shareCaption.trim() || sharePhoto.comment || 'Photo chantier BuildTrack';
+    const caption = shareCaption.trim() || sharePhoto.comment || t('photosScreen.systemShareFallback');
     const uri = sharePhoto.uri;
 
     try {
@@ -63,9 +65,9 @@ export default function PhotosScreen() {
           await (navigator as any).share({ title: caption, url: uri });
         } else if (uri?.startsWith('http')) {
           await (navigator as any).clipboard?.writeText(uri);
-          Alert.alert('Lien copié', 'Le lien de la photo a été copié. Collez-le dans WhatsApp ou toute autre application.');
+          Alert.alert(t('photosScreen.linkCopiedTitle'), t('photosScreen.linkCopiedText'));
         } else {
-          Alert.alert('Partage non disponible', "Cette photo locale ne peut pas être partagée sur le web. Ajoutez-la d'abord au cloud via Supabase.");
+          Alert.alert(t('photosScreen.shareUnavailableTitle'), t('photosScreen.webLocalUnavailable'));
         }
         return;
       }
@@ -86,26 +88,26 @@ export default function PhotosScreen() {
           }
           await Sharing.shareAsync(fileUri, { mimeType: 'image/jpeg', dialogTitle: caption });
         } else {
-          Alert.alert('Non disponible', "Le partage de fichiers n'est pas disponible sur cet appareil.");
+          Alert.alert(t('photosScreen.unavailableTitle'), t('photosScreen.fileShareUnavailable'));
         }
         return;
       }
 
-      Alert.alert('Aucune image', "Cette photo n'a pas d'URI valide pour le partage.");
+      Alert.alert(t('photosScreen.noImageTitle'), t('photosScreen.invalidUri'));
     } catch (err: any) {
       if (err?.message?.includes('cancel') || err?.message?.includes('abort')) return;
-      Alert.alert('Erreur', `Impossible de partager la photo.\n${err?.message ?? ''}`);
+      Alert.alert(t('common.error'), t('photosScreen.shareError', { message: err?.message ?? '' }));
     }
   }
 
   function handleDeletePhoto(id: string, comment: string) {
     if (!permissions.canDelete) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas de supprimer des photos.");
+      Alert.alert(t('photosScreen.deniedTitle'), t('photosScreen.deleteDenied'));
       return;
     }
-    Alert.alert('Supprimer la photo', `Supprimer "${comment}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deletePhoto(id) },
+    Alert.alert(t('photosScreen.deletePhotoTitle'), t('photosScreen.deletePhotoText', { comment }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => deletePhoto(id) },
     ]);
   }
 
@@ -156,19 +158,19 @@ export default function PhotosScreen() {
 
       const newPhoto: Photo = {
         id: genId(),
-        comment: commentInput.trim() || 'Photo chantier',
-        location: locationInput.trim() || 'Zone non définie',
+        comment: commentInput.trim() || t('photosScreen.defaultComment'),
+        location: locationInput.trim() || t('photosScreen.undefinedZone'),
         takenAt: formatDateFR(new Date()),
-        takenBy: user?.name ?? 'Équipe',
+        takenBy: user?.name ?? t('photosScreen.teamFallback'),
         colorCode: C.closed,
         uri: finalUri,
       };
       addPhoto(newPhoto);
       if (storageUrl) {
-        Alert.alert('Photo enregistrée', 'Photo uploadée sur Supabase Storage.');
+        Alert.alert(t('photosScreen.savedTitle'), t('photosScreen.uploadedText'));
       }
     } catch {
-      Alert.alert('Erreur', 'Impossible de traiter la photo.');
+      Alert.alert(t('common.error'), t('photosScreen.processError'));
     } finally {
       setLoading(false);
       setPendingUri(null);
@@ -201,13 +203,13 @@ export default function PhotosScreen() {
 
   async function handlePickPhoto() {
     if (!permissions.canCreate) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'ajouter des photos.");
+      Alert.alert(t('photosScreen.deniedTitle'), t('photosScreen.createDenied'));
       return;
     }
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission refusée', "L'accès à la galerie est nécessaire.");
+        Alert.alert(t('photosScreen.permissionDenied'), t('photosScreen.galleryRequired'));
         return;
       }
     }
@@ -223,16 +225,16 @@ export default function PhotosScreen() {
 
   async function handleCamera() {
     if (!permissions.canCreate) {
-      Alert.alert('Accès refusé', "Votre rôle ne permet pas d'ajouter des photos.");
+      Alert.alert(t('photosScreen.deniedTitle'), t('photosScreen.createDenied'));
       return;
     }
     if (Platform.OS === 'web') {
-      Alert.alert('Info', 'La prise de photo directe est disponible sur appareil mobile via Expo Go.');
+      Alert.alert(t('photosScreen.infoTitle'), t('photosScreen.cameraMobileOnly'));
       return;
     }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert('Permission refusée', "L'accès à l'appareil photo est nécessaire.");
+      Alert.alert(t('photosScreen.permissionDenied'), t('photosScreen.cameraRequired'));
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
@@ -244,8 +246,8 @@ export default function PhotosScreen() {
   return (
     <View style={styles.container}>
       <Header
-        title="Photos chantier"
-        subtitle={`${photos.length} photos`}
+        title={t('photosScreen.title')}
+        subtitle={t('photosScreen.subtitle', { count: photos.length })}
         showBack
         rightIcon={permissions.canCreate ? 'camera-outline' : undefined}
         onRightPress={permissions.canCreate ? handleCamera : undefined}
@@ -263,11 +265,11 @@ export default function PhotosScreen() {
             <View style={styles.statsRow}>
               <View style={styles.statItem}>
                 <Text style={styles.statVal}>{photos.length}</Text>
-                <Text style={styles.statLabel}>Photos totales</Text>
+                <Text style={styles.statLabel}>{t('photosScreen.totalPhotos')}</Text>
               </View>
               <View style={styles.statItem}>
                 <Text style={styles.statVal}>{uniqueAuthors.length}</Text>
-                <Text style={styles.statLabel}>Photographes</Text>
+                <Text style={styles.statLabel}>{t('photosScreen.photographers')}</Text>
               </View>
             </View>
 
@@ -275,7 +277,7 @@ export default function PhotosScreen() {
               <Ionicons name="search-outline" size={16} color={C.textMuted} />
               <TextInput
                 style={styles.searchInput}
-                placeholder="Rechercher par commentaire, lieu, auteur..."
+                placeholder={t('photosScreen.searchPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
@@ -295,7 +297,7 @@ export default function PhotosScreen() {
                     style={[styles.filterChip, !authorFilter && styles.filterChipActive]}
                     onPress={() => setAuthorFilter('')}
                   >
-                    <Text style={[styles.filterChipText, !authorFilter && styles.filterChipTextActive]}>Tous</Text>
+                    <Text style={[styles.filterChipText, !authorFilter && styles.filterChipTextActive]}>{t('photosScreen.allAuthors')}</Text>
                   </TouchableOpacity>
                   {uniqueAuthors.map(author => (
                     <TouchableOpacity
@@ -311,25 +313,25 @@ export default function PhotosScreen() {
             )}
 
             {(searchQuery || authorFilter) && (
-              <Text style={styles.filterResult}>{filteredPhotos.length} photo{filteredPhotos.length !== 1 ? 's' : ''} trouvée{filteredPhotos.length !== 1 ? 's' : ''}</Text>
+              <Text style={styles.filterResult}>{t('photosScreen.resultsCount', { count: filteredPhotos.length })}</Text>
             )}
 
             {permissions.canCreate && (
               <View style={styles.actionRow}>
                 <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handleCamera} disabled={loading}>
                   <Ionicons name="camera" size={18} color={C.primary} />
-                  <Text style={styles.actionBtnText}>Prendre une photo</Text>
+                  <Text style={styles.actionBtnText}>{t('photosScreen.takePhoto')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.actionBtn, { flex: 1 }]} onPress={handlePickPhoto} disabled={loading}>
                   <Ionicons name="images-outline" size={18} color={C.inProgress} />
-                  <Text style={[styles.actionBtnText, { color: C.inProgress }]}>Depuis la galerie</Text>
+                  <Text style={[styles.actionBtnText, { color: C.inProgress }]}>{t('photosScreen.fromGallery')}</Text>
                 </TouchableOpacity>
               </View>
             )}
             {loading && (
               <View style={styles.loadingRow}>
                 <ActivityIndicator color={C.primary} size="small" />
-                <Text style={styles.loadingText}>Upload en cours...</Text>
+                <Text style={styles.loadingText}>{t('photosScreen.uploading')}</Text>
               </View>
             )}
           </>
@@ -371,13 +373,13 @@ export default function PhotosScreen() {
                   <Ionicons name="phone-portrait-outline" size={10} color={C.textMuted} />
                 )}
                 <Text style={[styles.photoDate, item.uri?.startsWith('http') && { color: C.closed }]}>
-                  {item.uri?.startsWith('http') ? 'Cloud' : 'Local'} — {item.takenAt}
+                  {item.uri?.startsWith('http') ? t('photosScreen.cloud') : t('photosScreen.local')} — {item.takenAt}
                 </Text>
               </View>
               <View style={styles.photoActions}>
                 <TouchableOpacity style={styles.shareBtn} onPress={() => openShareModal(item)} activeOpacity={0.75}>
                   <Ionicons name="share-social-outline" size={12} color={C.primary} />
-                  <Text style={styles.shareBtnText}>Partager</Text>
+                  <Text style={styles.shareBtnText}>{t('photosScreen.share')}</Text>
                 </TouchableOpacity>
                 {permissions.canDelete && (
                   <TouchableOpacity style={styles.deleteBtn} onPress={() => handleDeletePhoto(item.id, item.comment)} activeOpacity={0.75}>
@@ -391,8 +393,8 @@ export default function PhotosScreen() {
         ListEmptyComponent={() => (
           <View style={styles.empty}>
             <Ionicons name="camera-outline" size={48} color={C.textMuted} />
-            <Text style={styles.emptyText}>Aucune photo</Text>
-            <Text style={styles.emptyHint}>Appuyez sur un bouton ci-dessus pour ajouter</Text>
+            <Text style={styles.emptyText}>{t('photosScreen.emptyTitle')}</Text>
+            <Text style={styles.emptyHint}>{t('photosScreen.emptyHint')}</Text>
           </View>
         )}
       />
@@ -414,7 +416,7 @@ export default function PhotosScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Partager la photo</Text>
+              <Text style={styles.modalTitle}>{t('photosScreen.sharePhoto')}</Text>
               <TouchableOpacity onPress={() => setShareModalVisible(false)} hitSlop={8}>
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
@@ -425,10 +427,10 @@ export default function PhotosScreen() {
             )}
 
             <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Légende (optionnel)</Text>
+              <Text style={styles.modalLabel}>{t('photosScreen.captionOptional')}</Text>
               <DictationTextInput
                 inputStyle={styles.modalInput}
-                placeholder="Ajoutez un commentaire..."
+                placeholder={t('photosScreen.captionPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={shareCaption}
                 onChangeText={setShareCaption}
@@ -441,7 +443,7 @@ export default function PhotosScreen() {
             {!sharePhoto?.uri && (
               <View style={styles.noUriWarning}>
                 <Ionicons name="information-circle-outline" size={16} color={C.waiting} />
-                <Text style={styles.noUriWarningText}>Cette photo n'a pas d'image — seul le commentaire sera partagé.</Text>
+                <Text style={styles.noUriWarningText}>{t('photosScreen.noImageWarning')}</Text>
               </View>
             )}
 
@@ -451,8 +453,8 @@ export default function PhotosScreen() {
                 <Ionicons name="share-outline" size={20} color="#fff" />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.sysShareTitle}>Partager via WhatsApp, SMS…</Text>
-                <Text style={styles.sysShareSub}>Ouvre les applications installées sur l'appareil</Text>
+                <Text style={styles.sysShareTitle}>{t('photosScreen.systemShareTitle')}</Text>
+                <Text style={styles.sysShareSub}>{t('photosScreen.systemShareSubtitle')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={16} color="#fff" />
             </TouchableOpacity>
@@ -460,7 +462,7 @@ export default function PhotosScreen() {
             {/* Séparateur */}
             <View style={styles.shareSeparator}>
               <View style={styles.separatorLine} />
-              <Text style={styles.separatorLabel}>ou partager dans un canal BuildTrack</Text>
+              <Text style={styles.separatorLabel}>{t('photosScreen.shareInChannel')}</Text>
               <View style={styles.separatorLine} />
             </View>
 
@@ -492,7 +494,7 @@ export default function PhotosScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Annoter la photo</Text>
+              <Text style={styles.modalTitle}>{t('photosScreen.annotatePhoto')}</Text>
               <TouchableOpacity onPress={cancelModal} hitSlop={8}>
                 <Ionicons name="close" size={22} color={C.textSub} />
               </TouchableOpacity>
@@ -503,10 +505,10 @@ export default function PhotosScreen() {
             )}
 
             <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Commentaire</Text>
+              <Text style={styles.modalLabel}>{t('photosScreen.comment')}</Text>
               <DictationTextInput
                 inputStyle={styles.modalInput}
-                placeholder="Décrivez ce que montre la photo..."
+                placeholder={t('photosScreen.commentPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={commentInput}
                 onChangeText={setCommentInput}
@@ -518,10 +520,10 @@ export default function PhotosScreen() {
             </View>
 
             <View style={styles.modalField}>
-              <Text style={styles.modalLabel}>Emplacement</Text>
+              <Text style={styles.modalLabel}>{t('photosScreen.location')}</Text>
               <TextInput
                 style={styles.modalInput}
-                placeholder="Ex : Bâtiment A — Zone Nord — R+2"
+                placeholder={t('photosScreen.locationPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={locationInput}
                 onChangeText={setLocationInput}
@@ -532,23 +534,23 @@ export default function PhotosScreen() {
               <View style={styles.gpsIndicator}>
                 <Ionicons name="locate" size={12} color="#10B981" />
                 <Text style={styles.gpsIndicatorText}>
-                  GPS capturé : {pendingGps.lat.toFixed(5)}, {pendingGps.lon.toFixed(5)} ±{pendingGps.accuracy}m
+                  {t('photosScreen.gpsCaptured', { lat: pendingGps.lat.toFixed(5), lon: pendingGps.lon.toFixed(5), accuracy: pendingGps.accuracy })}
                 </Text>
               </View>
             ) : Platform.OS !== 'web' ? (
               <View style={[styles.gpsIndicator, { backgroundColor: C.surface2, borderColor: C.border }]}>
                 <Ionicons name="locate-outline" size={12} color={C.textMuted} />
-                <Text style={[styles.gpsIndicatorText, { color: C.textMuted }]}>Localisation GPS en cours...</Text>
+                <Text style={[styles.gpsIndicatorText, { color: C.textMuted }]}>{t('photosScreen.gpsLoading')}</Text>
               </View>
             ) : null}
 
             <View style={styles.modalBtns}>
               <TouchableOpacity style={styles.cancelBtn} onPress={cancelModal}>
-                <Text style={styles.cancelBtnText}>Annuler</Text>
+                <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.confirmBtn} onPress={confirmPhoto}>
                 <Ionicons name="checkmark" size={16} color="#fff" />
-                <Text style={styles.confirmBtnText}>Enregistrer</Text>
+                <Text style={styles.confirmBtnText}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>

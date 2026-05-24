@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, TextInput, ScrollView, TouchableOpacity, Platfo
 import { useState, useMemo } from 'react';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -11,10 +12,15 @@ import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import BottomNavBar from '@/components/BottomNavBar';
 
-const STATUS_LABELS: Record<string, string> = {
-  open: 'Ouvert', in_progress: 'En cours', waiting: 'En attente',
-  verification: 'Vérification', closed: 'Clôturé',
-  todo: 'À faire', done: 'Terminé', delayed: 'En retard',
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  open: 'reserveLabels.status.open',
+  in_progress: 'reserveLabels.status.in_progress',
+  waiting: 'reserveLabels.status.waiting',
+  verification: 'reserveLabels.status.verification',
+  closed: 'reserveLabels.status.closed',
+  todo: 'taskLabels.status.todo',
+  done: 'taskLabels.status.done',
+  delayed: 'taskLabels.status.delayed',
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -23,14 +29,12 @@ const STATUS_COLORS: Record<string, string> = {
   todo: C.textMuted, done: C.closed, delayed: C.waiting,
 };
 
-const INCIDENT_SEVERITY_LABELS: Record<string, string> = {
-  minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique',
-};
 const INCIDENT_SEVERITY_COLORS: Record<string, string> = {
   minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D',
 };
 
 export default function SearchScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { reserves, tasks, documents, visites, companies } = useApp();
   const { user } = useAuth();
@@ -112,13 +116,13 @@ export default function SearchScreen() {
 
   return (
     <View style={styles.container}>
-      <Header title="Recherche globale" showBack />
+      <Header title={t('searchScreen.title')} showBack />
 
       <View style={styles.searchWrap}>
         <Ionicons name="search" size={18} color={q.length >= 2 ? C.primary : C.textMuted} />
         <TextInput
           style={styles.searchInput}
-          placeholder="Réserves, tâches, documents..."
+          placeholder={t('searchScreen.placeholder')}
           placeholderTextColor={C.textMuted}
           value={query}
           onChangeText={setQuery}
@@ -135,18 +139,18 @@ export default function SearchScreen() {
       {!hasQuery && (
         <View style={styles.emptyState}>
           <Ionicons name="search-circle-outline" size={56} color={C.border} />
-          <Text style={styles.hintTitle}>Recherche unifiée</Text>
+          <Text style={styles.hintTitle}>{t('searchScreen.emptyTitle')}</Text>
           <Text style={styles.hintText}>
-            Tapez au moins 2 caractères pour chercher dans les réserves, tâches, documents et incidents.
+            {t('searchScreen.emptyText')}
           </Text>
           <View style={styles.shortcutsWrap}>
-            <Text style={styles.shortcutsLabel}>Suggestions rapides</Text>
+            <Text style={styles.shortcutsLabel}>{t('searchScreen.quickSuggestions')}</Text>
             <View style={styles.shortcutsRow}>
               {[
-                { icon: 'warning', label: 'Réserves ouvertes', q: 'ouvert', color: C.open },
-                { icon: 'calendar', label: 'Planning', q: 'en cours', color: C.inProgress },
-                { icon: 'folder-open', label: 'Plans', q: 'plan', color: C.closed },
-                { icon: 'shield', label: 'Sécurité', q: 'incident', color: '#EF4444' },
+                { icon: 'warning', label: t('searchScreen.suggestions.openReserves'), q: t('searchScreen.suggestionQueries.open'), color: C.open },
+                { icon: 'calendar', label: t('searchScreen.suggestions.planning'), q: t('searchScreen.suggestionQueries.inProgress'), color: C.inProgress },
+                { icon: 'folder-open', label: t('searchScreen.suggestions.plans'), q: t('searchScreen.suggestionQueries.plan'), color: C.closed },
+                { icon: 'shield', label: t('searchScreen.suggestions.safety'), q: t('searchScreen.suggestionQueries.incident'), color: '#EF4444' },
               ].map(s => (
                 <TouchableOpacity
                   key={s.q}
@@ -166,8 +170,8 @@ export default function SearchScreen() {
       {hasQuery && !hasResults && (
         <View style={styles.hint}>
           <Ionicons name="file-tray-outline" size={48} color={C.border} />
-          <Text style={styles.hintTitle}>Aucun résultat</Text>
-          <Text style={styles.hintText}>Aucun élément ne correspond à "{q}".</Text>
+          <Text style={styles.hintTitle}>{t('searchScreen.noResultTitle')}</Text>
+          <Text style={styles.hintText}>{t('searchScreen.noResultText', { query: q })}</Text>
         </View>
       )}
 
@@ -177,7 +181,7 @@ export default function SearchScreen() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="warning" size={14} color={C.open} />
-                <Text style={styles.sectionTitle}>Réserves ({filteredReserves.length})</Text>
+                <Text style={styles.sectionTitle}>{t('searchScreen.sections.reserves', { count: filteredReserves.length })}</Text>
               </View>
               {filteredReserves.map(r => (
                 <TouchableOpacity
@@ -190,13 +194,13 @@ export default function SearchScreen() {
                     <Text style={styles.resultId}>{r.id}</Text>
                     <View style={[styles.statusPill, { backgroundColor: STATUS_COLORS[r.status] + '20' }]}>
                       <Text style={[styles.statusPillText, { color: STATUS_COLORS[r.status] }]}>
-                        {STATUS_LABELS[r.status]}
+                        {t(STATUS_LABEL_KEYS[r.status] ?? r.status)}
                       </Text>
                     </View>
                   </View>
                   <Text style={styles.resultTitle}>{r.title}</Text>
                   <View style={styles.resultMeta}>
-                    <Text style={styles.resultMetaText}>Bât. {r.building} · {r.zone} · {r.company}</Text>
+                    <Text style={styles.resultMetaText}>{t('searchScreen.reserveMeta', { building: r.building, zone: r.zone, company: r.company })}</Text>
                   </View>
                   <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                 </TouchableOpacity>
@@ -208,28 +212,28 @@ export default function SearchScreen() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="calendar" size={14} color={C.closed} />
-                <Text style={styles.sectionTitle}>Tâches ({filteredTasks.length})</Text>
+                <Text style={styles.sectionTitle}>{t('searchScreen.sections.tasks', { count: filteredTasks.length })}</Text>
               </View>
-              {filteredTasks.map(t => (
+              {filteredTasks.map(task => (
                 <TouchableOpacity
-                  key={t.id}
+                  key={task.id}
                   style={styles.resultCard}
-                  onPress={() => router.push(`/task/${t.id}` as any)}
+                  onPress={() => router.push(`/task/${task.id}` as any)}
                   activeOpacity={0.75}
                 >
                   <View style={styles.resultRow}>
-                    <Text style={styles.resultTitle} numberOfLines={1}>{t.title}</Text>
-                    <View style={[styles.statusPill, { backgroundColor: STATUS_COLORS[t.status] + '20' }]}>
-                      <Text style={[styles.statusPillText, { color: STATUS_COLORS[t.status] }]}>
-                        {STATUS_LABELS[t.status]}
+                    <Text style={styles.resultTitle} numberOfLines={1}>{task.title}</Text>
+                    <View style={[styles.statusPill, { backgroundColor: STATUS_COLORS[task.status] + '20' }]}>
+                      <Text style={[styles.statusPillText, { color: STATUS_COLORS[task.status] }]}>
+                        {t(STATUS_LABEL_KEYS[task.status] ?? task.status)}
                       </Text>
                     </View>
                   </View>
                   <View style={styles.resultMeta}>
-                    <Text style={styles.resultMetaText}>{t.assignee} · {t.progress}% · Éch. {t.deadline}</Text>
+                    <Text style={styles.resultMetaText}>{t('searchScreen.taskMeta', { assignee: task.assignee, progress: task.progress, deadline: task.deadline })}</Text>
                   </View>
                   <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: `${t.progress}%` as any, backgroundColor: STATUS_COLORS[t.status] }]} />
+                    <View style={[styles.progressFill, { width: `${task.progress}%` as any, backgroundColor: STATUS_COLORS[task.status] }]} />
                   </View>
                   <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                 </TouchableOpacity>
@@ -241,7 +245,7 @@ export default function SearchScreen() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="folder-open" size={14} color={C.inProgress} />
-                <Text style={styles.sectionTitle}>Documents ({filteredDocuments.length})</Text>
+                <Text style={styles.sectionTitle}>{t('searchScreen.sections.documents', { count: filteredDocuments.length })}</Text>
               </View>
               {filteredDocuments.map(d => (
                 <TouchableOpacity
@@ -254,7 +258,7 @@ export default function SearchScreen() {
                     <Ionicons name="document-text-outline" size={16} color={C.inProgress} />
                     <Text style={[styles.resultTitle, { flex: 1 }]} numberOfLines={1}>{d.name}</Text>
                   </View>
-                  <Text style={styles.resultMetaText}>{d.category} · {d.size} · {d.uploadedAt}</Text>
+                  <Text style={styles.resultMetaText}>{t('searchScreen.documentMeta', { category: d.category, size: d.size, date: d.uploadedAt })}</Text>
                   <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                 </TouchableOpacity>
               ))}
@@ -265,7 +269,7 @@ export default function SearchScreen() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="shield-outline" size={14} color="#EF4444" />
-                <Text style={styles.sectionTitle}>Incidents ({filteredIncidents.length})</Text>
+                <Text style={styles.sectionTitle}>{t('searchScreen.sections.incidents', { count: filteredIncidents.length })}</Text>
               </View>
               {filteredIncidents.map(i => {
                 const sevColor = INCIDENT_SEVERITY_COLORS[i.severity] ?? '#6B7280';
@@ -279,14 +283,14 @@ export default function SearchScreen() {
                     <View style={styles.resultRow}>
                       <View style={[styles.statusPill, { backgroundColor: sevColor + '20' }]}>
                         <Text style={[styles.statusPillText, { color: sevColor }]}>
-                          {INCIDENT_SEVERITY_LABELS[i.severity]}
+                          {t(`incidentsScreen.severity.${i.severity}`)}
                         </Text>
                       </View>
                       <Text style={[styles.resultTitle, { flex: 1 }]} numberOfLines={1}>{i.title}</Text>
                     </View>
                     <Text style={styles.resultMetaText} numberOfLines={1}>{i.description}</Text>
                     <View style={[styles.resultMeta, { marginTop: 4 }]}>
-                      <Text style={styles.resultMetaText}>Bât. {i.building} — {i.location} — {i.reportedAt}</Text>
+                      <Text style={styles.resultMetaText}>{t('searchScreen.incidentMeta', { building: i.building, location: i.location, date: i.reportedAt })}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                   </TouchableOpacity>
@@ -299,16 +303,16 @@ export default function SearchScreen() {
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="eye-outline" size={14} color="#6366F1" />
-                <Text style={styles.sectionTitle}>Visites ({filteredVisites.length})</Text>
+                <Text style={styles.sectionTitle}>{t('searchScreen.sections.visits', { count: filteredVisites.length })}</Text>
               </View>
               {filteredVisites.map(v => {
                 const vColor = v.status === 'completed' ? C.closed : v.status === 'in_progress' ? C.inProgress : '#6366F1';
-                const vLabel = v.status === 'completed' ? 'Terminée' : v.status === 'in_progress' ? 'En cours' : 'Planifiée';
+                const vLabel = t(`visits.status.${v.status}`);
                 const locationLabel = v.visitedLocations?.length
-                  ? `${v.visitedLocations.length} bâtiment${v.visitedLocations.length > 1 ? 's' : ''}`
+                  ? t('searchScreen.buildingsCount', { count: v.visitedLocations.length })
                   : v.building
-                    ? `Bât. ${v.building}`
-                    : 'Périmètre non défini';
+                    ? t('searchScreen.buildingShort', { building: v.building })
+                    : t('searchScreen.undefinedScope');
                 return (
                   <TouchableOpacity
                     key={v.id}
@@ -324,7 +328,7 @@ export default function SearchScreen() {
                     </View>
                     <Text style={styles.resultTitle} numberOfLines={1}>{v.title}</Text>
                     <View style={styles.resultMeta}>
-                      <Text style={styles.resultMetaText}>{locationLabel} · {v.date} · {v.conducteur}</Text>
+                      <Text style={styles.resultMetaText}>{t('searchScreen.visitMeta', { location: locationLabel, date: v.date, conductor: v.conducteur })}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
                   </TouchableOpacity>

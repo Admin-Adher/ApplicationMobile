@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, 
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import {
   exportPDF as exportPDFHelper,
@@ -18,6 +19,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { Visite, Reserve, VisiteStatus, OprStatus } from '@/constants/types';
 import { formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
@@ -39,10 +41,10 @@ import {
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
 
-const STATUS_CFG: Record<VisiteStatus, { label: string; color: string }> = {
-  planned: { label: 'Planifiée', color: '#6366F1' },
-  in_progress: { label: 'En cours', color: C.inProgress },
-  completed: { label: 'Terminée', color: C.closed },
+const STATUS_CFG: Record<VisiteStatus, { color: string }> = {
+  planned: { color: '#6366F1' },
+  in_progress: { color: C.inProgress },
+  completed: { color: C.closed },
 };
 
 const RESERVE_STATUS_LABELS = SHARED_STATUS_LABELS as Record<string, string>;
@@ -829,6 +831,8 @@ function buildVisitePDF(
 
 export default function VisiteDetailScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
+  const { effectiveLanguage } = useLanguage();
   const { id } = useLocalSearchParams<{ id: string }>();
   const {
     visites,
@@ -865,7 +869,7 @@ export default function VisiteDetailScreen() {
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
   const [attachSubmitting, setAttachSubmitting] = useState(false);
   const [reserveVisitActionLoadingId, setReserveVisitActionLoadingId] = useState<string | null>(null);
-  const [reportLanguage, setReportLanguage] = useState<VisitReportLanguage>('fr');
+  const [reportLanguage, setReportLanguage] = useState<VisitReportLanguage>(effectiveLanguage as VisitReportLanguage);
 
   const visite = visites.find(v => v.id === id);
   const visiteReserveIds = useMemo(() => new Set(visite?.reserveIds ?? []), [visite?.reserveIds]);
@@ -932,12 +936,12 @@ export default function VisiteDetailScreen() {
     return (
       <View style={[styles.container, { alignItems: 'center', justifyContent: 'center', padding: 32 }]}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>Accès restreint</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>{t('visits.detail.restrictedTitle')}</Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
-          Les sous-traitants n'ont pas accès aux détails des visites de chantier.
+          {t('visits.detail.restrictedText')}
         </Text>
         <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('visits.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -946,10 +950,10 @@ export default function VisiteDetailScreen() {
   if (!visite) {
     return (
       <View style={styles.container}>
-        <Header title="Visite" showBack />
+        <Header title={t('visits.detail.headerFallback')} showBack />
         <View style={styles.notFound}>
           <Ionicons name="alert-circle-outline" size={40} color={C.textMuted} />
-          <Text style={styles.notFoundText}>Visite introuvable</Text>
+          <Text style={styles.notFoundText}>{t('visits.detail.notFound')}</Text>
         </View>
       </View>
     );
@@ -981,10 +985,10 @@ export default function VisiteDetailScreen() {
 
   function handleDelete() {
     if (!visite) return;
-    Alert.alert('Supprimer', `Supprimer la visite "${visite.title}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('visits.deleteTitle'), t('visits.deleteText', { title: visite.title }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer', style: 'destructive', onPress: () => {
+        text: t('common.delete'), style: 'destructive', onPress: () => {
           deleteVisite(visite.id!);
           router.back();
         },
@@ -1001,11 +1005,11 @@ export default function VisiteDetailScreen() {
       const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite.entrepriseSignature ?? null;
       const signataire = entrepriseSignataire.trim() || visite.entrepriseSignataire;
       if (!conducteurSig && !entrepriseSig) {
-        Alert.alert('Signature requise', 'Ajoutez au moins une signature avant de valider le PV.');
+        Alert.alert(t('visits.detail.signatureRequiredTitle'), t('visits.detail.signatureRequiredText'));
         return;
       }
       if (entrepriseSig && !signataire) {
-        Alert.alert('Signataire requis', "Renseignez le nom du représentant de l'entreprise.");
+        Alert.alert(t('visits.detail.signerRequiredTitle'), t('visits.detail.signerRequiredText'));
         setSigningTab('entreprise');
         return;
       }
@@ -1020,7 +1024,7 @@ export default function VisiteDetailScreen() {
         status: 'completed',
       });
       setSignModalVisible(false);
-      Alert.alert('PV signé', 'Les signatures ont été enregistrées. Le PV peut maintenant être exporté en PDF.');
+      Alert.alert(t('visits.detail.signedTitle'), t('visits.detail.signedText'));
     } finally {
       setIsSigning(false);
     }
@@ -1068,11 +1072,11 @@ export default function VisiteDetailScreen() {
     );
     if (reservesAlreadyInOtherVisit.length > 0 && !forceMove) {
       Alert.alert(
-        'Déplacer des réserves ?',
-        `${reservesAlreadyInOtherVisit.length} réserve${reservesAlreadyInOtherVisit.length > 1 ? 's sont déjà liées' : ' est déjà liée'} à une autre visite. Elles seront retirées de leur ancienne visite et ajoutées ici.`,
+        t('visits.detail.moveReservesTitle'),
+        t('visits.detail.moveReservesText', { count: reservesAlreadyInOtherVisit.length }),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Déplacer', style: 'destructive', onPress: () => { void applyAttachReserves(true); } },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('visits.detail.move'), style: 'destructive', onPress: () => { void applyAttachReserves(true); } },
         ]
       );
       return;
@@ -1082,7 +1086,7 @@ export default function VisiteDetailScreen() {
     try {
       const result = await attachReservesToVisite(visite.id, selectedIds);
       if (!result.success) {
-        Alert.alert('Rattachement impossible', result.error ?? "Les réserves n'ont pas pu être ajoutées à cette visite.");
+        Alert.alert(t('visits.detail.attachImpossibleTitle'), result.error ?? t('visits.detail.attachImpossibleText'));
         return;
       }
 
@@ -1090,10 +1094,10 @@ export default function VisiteDetailScreen() {
       setAttachSearch('');
       setAttachModalVisible(false);
       Alert.alert(
-        result.queued ? 'Rattachement enregistré' : 'Réserves ajoutées',
+        result.queued ? t('visits.detail.attachQueuedTitle') : t('visits.detail.attachDoneTitle'),
         result.queued
-          ? `${selected.length} réserve${selected.length > 1 ? 's seront synchronisées' : ' sera synchronisée'} dès que la connexion sera stable.`
-          : `${selected.length} réserve${selected.length > 1 ? 's ont été rattachées' : ' a été rattachée'} à cette visite.`
+          ? t('visits.detail.attachQueuedText', { count: selected.length })
+          : t('visits.detail.attachDoneText', { count: selected.length })
       );
     } finally {
       setAttachSubmitting(false);
@@ -1106,14 +1110,14 @@ export default function VisiteDetailScreen() {
     try {
       const result = await unlinkReservesFromVisite(visite.id, [reserve.id]);
       if (!result.success) {
-        Alert.alert('Retrait impossible', result.error ?? "La réserve n'a pas pu être retirée de cette visite.");
+        Alert.alert(t('visits.detail.unlinkImpossibleTitle'), result.error ?? t('visits.detail.unlinkImpossibleText'));
         return;
       }
       Alert.alert(
-        result.queued ? 'Retrait enregistré' : 'Réserve retirée',
+        result.queued ? t('visits.detail.unlinkQueuedTitle') : t('visits.detail.unlinkDoneTitle'),
         result.queued
-          ? 'La réserve restera visible hors ligne puis sera retirée de cette visite à la prochaine synchronisation stable.'
-          : "La réserve existe toujours dans l'onglet Réserves, mais elle n'est plus liée à cette visite."
+          ? t('visits.detail.unlinkQueuedText')
+          : t('visits.detail.unlinkDoneText')
       );
     } finally {
       setReserveVisitActionLoadingId(null);
@@ -1122,11 +1126,11 @@ export default function VisiteDetailScreen() {
 
   function confirmRemoveReserveFromVisit(reserve: Reserve) {
     Alert.alert(
-      'Retirer de cette visite',
-      `Retirer "${reserve.title}" de cette visite ? La réserve ne sera pas supprimée.`,
+      t('visits.detail.removeFromVisitTitle'),
+      t('visits.detail.removeFromVisitText', { title: reserve.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Retirer', style: 'destructive', onPress: () => { void removeReserveFromVisit(reserve); } },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('visits.detail.remove'), style: 'destructive', onPress: () => { void removeReserveFromVisit(reserve); } },
       ],
     );
   }
@@ -1134,50 +1138,50 @@ export default function VisiteDetailScreen() {
   function toggleArchiveReserveFromVisit(reserve: Reserve) {
     if (reserve.archivedAt) {
       Alert.alert(
-        'Désarchiver la réserve',
-        `Remettre "${reserve.title}" dans les réserves actives ?`,
+        t('visits.detail.unarchiveReserveTitle'),
+        t('visits.detail.unarchiveReserveText', { title: reserve.title }),
         [
-          { text: 'Annuler', style: 'cancel' },
-          { text: 'Désarchiver', onPress: () => unarchiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux') },
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('visits.detail.unarchive'), onPress: () => unarchiveReserve(reserve.id, user?.name ?? t('visits.detail.defaultConductor')) },
         ],
       );
       return;
     }
 
     Alert.alert(
-      'Archiver la réserve',
-      `Archiver "${reserve.title}" ? Elle sera masquée des listes actives et du plan, mais restera consultable dans les archives.`,
+      t('visits.detail.archiveReserveTitle'),
+      t('visits.detail.archiveReserveText', { title: reserve.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Archiver', style: 'destructive', onPress: () => archiveReserve(reserve.id, user?.name ?? 'Conducteur de travaux') },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('visits.detail.archive'), style: 'destructive', onPress: () => archiveReserve(reserve.id, user?.name ?? t('visits.detail.defaultConductor')) },
       ],
     );
   }
 
   function confirmDeleteReserveFromVisit(reserve: Reserve) {
     Alert.alert(
-      'Supprimer définitivement',
-      `Supprimer définitivement "${reserve.title}" ? Cette action retirera la réserve partout, pas seulement de la visite.`,
+      t('visits.detail.deleteReserveForeverTitle'),
+      t('visits.detail.deleteReserveForeverText', { title: reserve.title }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => deleteReserve(reserve.id) },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('common.delete'), style: 'destructive', onPress: () => deleteReserve(reserve.id) },
       ],
     );
   }
 
   function openReserveVisitActions(reserve: Reserve) {
     const buttons: any[] = [
-      { text: 'Ouvrir la réserve', onPress: () => router.push(`/reserve/${reserve.id}` as any) },
-      { text: 'Retirer de cette visite', style: 'destructive', onPress: () => confirmRemoveReserveFromVisit(reserve) },
+      { text: t('visits.detail.openReserve'), onPress: () => router.push(`/reserve/${reserve.id}` as any) },
+      { text: t('visits.detail.removeFromVisitTitle'), style: 'destructive', onPress: () => confirmRemoveReserveFromVisit(reserve) },
       {
-        text: reserve.archivedAt ? 'Désarchiver la réserve' : 'Archiver la réserve',
+        text: reserve.archivedAt ? t('visits.detail.unarchiveReserveTitle') : t('visits.detail.archiveReserveTitle'),
         onPress: () => toggleArchiveReserveFromVisit(reserve),
       },
     ];
     if (permissions.canDelete) {
-      buttons.push({ text: 'Supprimer définitivement', style: 'destructive', onPress: () => confirmDeleteReserveFromVisit(reserve) });
+      buttons.push({ text: t('visits.detail.deleteReserveForeverTitle'), style: 'destructive', onPress: () => confirmDeleteReserveFromVisit(reserve) });
     }
-    buttons.push({ text: 'Annuler', style: 'cancel' });
+    buttons.push({ text: t('common.cancel'), style: 'cancel' });
     Alert.alert(reserve.id, reserve.title, buttons);
   }
 
@@ -1206,7 +1210,7 @@ export default function VisiteDetailScreen() {
             <Text style={styles.attachReserveId}>{reserve.id}</Text>
             <View style={[styles.attachStatusBadge, { backgroundColor: statusColor + '18' }]}>
               <Text style={[styles.attachStatusText, { color: statusColor }]}>
-                {RESERVE_STATUS_LABELS[reserve.status] ?? reserve.status}
+                {t(`reserveLabels.status.${reserve.status}`, { defaultValue: RESERVE_STATUS_LABELS[reserve.status] ?? reserve.status })}
               </Text>
             </View>
           </View>
@@ -1214,13 +1218,13 @@ export default function VisiteDetailScreen() {
           <View style={styles.attachReserveMetaRow}>
             <View style={[styles.priorityDot, { backgroundColor: priorityColor }]} />
             <Text style={styles.attachReserveMeta} numberOfLines={1}>
-              {[PRIORITY_LABELS[reserve.priority] ?? reserve.priority, reserveCompanyLabel(reserve), meta].filter(Boolean).join(' · ')}
+              {[t(`reserveLabels.priority.${reserve.priority}`, { defaultValue: PRIORITY_LABELS[reserve.priority] ?? reserve.priority }), reserveCompanyLabel(reserve), meta].filter(Boolean).join(' · ')}
             </Text>
           </View>
           {alreadyLinked && (
             <View style={styles.attachMoveBadge}>
               <Ionicons name="swap-horizontal-outline" size={12} color={C.waiting} />
-              <Text style={styles.attachMoveBadgeText}>Déjà liée à une autre visite</Text>
+              <Text style={styles.attachMoveBadgeText}>{t('visits.detail.alreadyLinked')}</Text>
             </View>
           )}
         </View>
@@ -1248,7 +1252,7 @@ export default function VisiteDetailScreen() {
       const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap, coverPhotoDataUrl, language);
       await exportPDFHelper(html, buildPdfFilename(`CR_Visite_${language.toUpperCase()}`, [visite.title, visite.level, projectName]));
     } catch (e: any) {
-      Alert.alert('Erreur', e?.message ?? 'Impossible de générer le PDF');
+      Alert.alert(t('common.error'), e?.message ?? t('visits.detail.pdfError'));
     }
   }
 
@@ -1277,13 +1281,13 @@ export default function VisiteDetailScreen() {
               style={[styles.statusPill, { backgroundColor: cfg.color + '20', borderColor: cfg.color }]}
               onPress={permissions.canEdit ? () => setStatusModalVisible(true) : undefined}
             >
-              <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+              <Text style={[styles.statusText, { color: cfg.color }]}>{t(`visits.status.${visite.status}`)}</Text>
               {permissions.canEdit && <Ionicons name="chevron-down" size={12} color={cfg.color} />}
             </TouchableOpacity>
             {permissions.canDelete && (
               <TouchableOpacity onPress={handleDelete} style={styles.deleteBtn}>
                 <Ionicons name="trash-outline" size={16} color={C.open} />
-                <Text style={styles.deleteBtnText}>Supprimer</Text>
+                <Text style={styles.deleteBtnText}>{t('common.delete')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -1292,14 +1296,14 @@ export default function VisiteDetailScreen() {
             <View style={styles.infoItem}>
               <Ionicons name="person-outline" size={14} color={C.textMuted} />
               <View>
-                <Text style={styles.infoLabel}>Conducteur</Text>
+                <Text style={styles.infoLabel}>{t('visits.detail.conductor')}</Text>
                 <Text style={styles.infoVal}>{visite.conducteur}</Text>
               </View>
             </View>
             <View style={styles.infoItem}>
               <Ionicons name="calendar-outline" size={14} color={C.textMuted} />
               <View>
-                <Text style={styles.infoLabel}>Date</Text>
+                <Text style={styles.infoLabel}>{t('visits.new.date')}</Text>
                 <Text style={styles.infoVal}>
                   {visite.date}
                   {(visite.startTime || visite.endTime)
@@ -1311,7 +1315,7 @@ export default function VisiteDetailScreen() {
             <View style={styles.infoItem}>
               <Ionicons name="business-outline" size={14} color={C.textMuted} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.infoLabel}>{visite.visitedLocations?.length ? 'Périmètre de visite' : 'Localisation'}</Text>
+                <Text style={styles.infoLabel}>{visite.visitedLocations?.length ? t('visits.detail.visitScope') : t('visits.detail.location')}</Text>
                 <Text style={styles.infoVal}>
                   {visiteLocationDisplay || '—'}
                 </Text>
@@ -1324,9 +1328,9 @@ export default function VisiteDetailScreen() {
             </View>
             {visite.defaultPlanId ? (
               <View style={styles.infoItem}>
-                <Ionicons name="map-outline" size={14} color={C.textMuted} />
-                <View>
-                  <Text style={styles.infoLabel}>Plan de référence</Text>
+              <Ionicons name="map-outline" size={14} color={C.textMuted} />
+              <View>
+                  <Text style={styles.infoLabel}>{t('visits.detail.referencePlan')}</Text>
                   <Text style={styles.infoVal}>{visite.defaultPlanId}</Text>
                 </View>
               </View>
@@ -1337,7 +1341,7 @@ export default function VisiteDetailScreen() {
             <View style={styles.deadlineBox}>
               <Ionicons name="time-outline" size={13} color={C.inProgress} />
               <Text style={styles.deadlineBoxText}>
-                Délai de levée des réserves : <Text style={{ fontFamily: 'Inter_600SemiBold' }}>{visite.reserveDeadlineDate}</Text>
+                {t('visits.detail.reserveDeadlinePrefix')} <Text style={{ fontFamily: 'Inter_600SemiBold' }}>{visite.reserveDeadlineDate}</Text>
               </Text>
             </View>
           )}
@@ -1354,7 +1358,7 @@ export default function VisiteDetailScreen() {
 
           {visite.notes ? (
             <View style={styles.notesBox}>
-              <Text style={styles.notesLabel}>Notes</Text>
+              <Text style={styles.notesLabel}>{t('visits.detail.notes')}</Text>
               <Text style={styles.notesText}>{visite.notes}</Text>
             </View>
           ) : null}
@@ -1364,7 +1368,7 @@ export default function VisiteDetailScreen() {
         {visite.participants && visite.participants.length > 0 && (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>
-              Participants ({visite.participants.length})
+              {t('visits.new.participants', { count: visite.participants.length })}
             </Text>
             <View style={{ marginTop: 10, gap: 8 }}>
               {visite.participants.map(p => (
@@ -1398,14 +1402,14 @@ export default function VisiteDetailScreen() {
               return (
                 <>
                   <View style={styles.checklistHeaderRow}>
-                    <Text style={styles.sectionTitle}>Checklist de contrôle</Text>
+                    <Text style={styles.sectionTitle}>{t('visits.new.checklist')}</Text>
                     <Text style={styles.checklistCounter}>{done}/{total}</Text>
                   </View>
                   <View style={styles.progressBarBg}>
                     <View style={[styles.progressBarFill, { width: `${pct}%` as any }]} />
                   </View>
                   {permissions.canEdit && (
-                    <Text style={styles.checklistHint}>Touchez un point pour le valider pendant la visite.</Text>
+                    <Text style={styles.checklistHint}>{t('visits.detail.checklistTouchHint')}</Text>
                   )}
                   <View style={{ marginTop: 10, gap: 6 }}>
                     {visite.checklistItems!.map(item => (
@@ -1435,14 +1439,14 @@ export default function VisiteDetailScreen() {
 
         {tunnelData && (
           <View style={styles.tunnelCard}>
-            <Text style={styles.tunnelTitle}>Progression du tunnel de réception</Text>
+            <Text style={styles.tunnelTitle}>{t('visits.detail.tunnelTitle')}</Text>
             <View style={styles.tunnelSteps}>
               {[
-                { label: 'Visite', done: true, icon: 'eye-outline' as const, color: '#6366F1' },
-                { label: 'Réserves', done: tunnelData.total > 0, icon: 'warning-outline' as const, color: C.open, sub: tunnelData.total > 0 ? `${tunnelData.total} relevée${tunnelData.total > 1 ? 's' : ''}` : 'Aucune' },
-                { label: 'Levée', done: tunnelData.closed > 0, icon: 'checkmark-circle-outline' as const, color: C.closed, sub: tunnelData.total > 0 ? `${tunnelData.pctLevees}%` : '—' },
-                { label: 'OPR', done: tunnelData.anyOpr, icon: 'document-text-outline' as const, color: C.inProgress, sub: tunnelData.anyOpr ? 'Créé' : 'En attente' },
-                { label: 'PV signé', done: !!tunnelData.signedOpr, icon: 'ribbon-outline' as const, color: C.closed, sub: tunnelData.signedOpr ? `Le ${tunnelData.signedOpr.signedAt}` : 'Non signé' },
+                { label: t('visits.detail.tunnelVisit'), done: true, icon: 'eye-outline' as const, color: '#6366F1' },
+                { label: t('visits.detail.tunnelReserves'), done: tunnelData.total > 0, icon: 'warning-outline' as const, color: C.open, sub: tunnelData.total > 0 ? t('visits.detail.raisedCount', { count: tunnelData.total }) : t('visits.detail.none') },
+                { label: t('visits.detail.tunnelClosed'), done: tunnelData.closed > 0, icon: 'checkmark-circle-outline' as const, color: C.closed, sub: tunnelData.total > 0 ? `${tunnelData.pctLevees}%` : '—' },
+                { label: 'OPR', done: tunnelData.anyOpr, icon: 'document-text-outline' as const, color: C.inProgress, sub: tunnelData.anyOpr ? t('visits.detail.created') : t('reserveLabels.status.waiting') },
+                { label: t('visits.detail.signedPv'), done: !!tunnelData.signedOpr, icon: 'ribbon-outline' as const, color: C.closed, sub: tunnelData.signedOpr ? t('visits.detail.signedOn', { date: tunnelData.signedOpr.signedAt }) : t('visits.detail.notSigned') },
               ].map((step, i, arr) => (
                 <View key={step.label} style={styles.tunnelStepWrap}>
                   <View style={[styles.tunnelStep, step.done && { backgroundColor: step.color + '15', borderColor: step.color + '50' }]}>
@@ -1463,19 +1467,19 @@ export default function VisiteDetailScreen() {
         )}
 
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Réserves de cette visite ({visiteReserves.length})</Text>
+          <Text style={styles.sectionTitle}>{t('visits.detail.visitReserves', { count: visiteReserves.length })}</Text>
           {permissions.canCreate && (
             <View style={styles.sectionActions}>
               <TouchableOpacity style={styles.secondaryAddBtn} onPress={openAttachModal}>
                 <Ionicons name="link-outline" size={14} color={C.primary} />
-                <Text style={styles.secondaryAddBtnText}>Existante</Text>
+                <Text style={styles.secondaryAddBtnText}>{t('visits.detail.existing')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.addBtn}
                 onPress={() => router.push(`/reserve/new?visiteId=${visite.id}` as any)}
               >
                 <Ionicons name="add" size={15} color={C.primary} />
-                <Text style={styles.addBtnText}>Nouvelle</Text>
+                <Text style={styles.addBtnText}>{t('visits.detail.newReserve')}</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1484,20 +1488,20 @@ export default function VisiteDetailScreen() {
         {visiteReserves.length === 0 ? (
           <View style={styles.emptyReserves}>
             <Ionicons name="warning-outline" size={32} color={C.textMuted} />
-            <Text style={styles.emptyText}>Aucune réserve rattachée à cette visite</Text>
-            <Text style={styles.emptySubText}>Les réserves créées avec cette visite apparaîtront ici</Text>
+            <Text style={styles.emptyText}>{t('visits.detail.noLinkedReserve')}</Text>
+            <Text style={styles.emptySubText}>{t('visits.detail.noLinkedReserveHint')}</Text>
             {permissions.canCreate && (
               <View style={styles.emptyActions}>
                 <TouchableOpacity style={styles.emptySecondaryBtn} onPress={openAttachModal}>
                   <Ionicons name="link-outline" size={15} color={C.primary} />
-                  <Text style={styles.emptySecondaryBtnText}>Rattacher une réserve</Text>
+                  <Text style={styles.emptySecondaryBtnText}>{t('visits.detail.attachReserve')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.emptyPrimaryBtn}
                   onPress={() => router.push(`/reserve/new?visiteId=${visite.id}` as any)}
                 >
                   <Ionicons name="add" size={15} color="#fff" />
-                  <Text style={styles.emptyPrimaryBtnText}>Nouvelle réserve</Text>
+                  <Text style={styles.emptyPrimaryBtnText}>{t('visits.detail.newReserve')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -1519,11 +1523,11 @@ export default function VisiteDetailScreen() {
                     {r.archivedAt ? (
                       <View style={styles.reserveArchiveBadge}>
                         <Ionicons name="archive-outline" size={11} color={C.textMuted} />
-                        <Text style={styles.reserveArchiveBadgeText}>Archivée</Text>
+                        <Text style={styles.reserveArchiveBadgeText}>{t('reserveCard.archived')}</Text>
                       </View>
                     ) : null}
                     <View style={[styles.statusBadge, { backgroundColor: sColor + '20' }]}>
-                      <Text style={[styles.statusBadgeText, { color: sColor }]}>{RESERVE_STATUS_LABELS[r.status] ?? r.status}</Text>
+                      <Text style={[styles.statusBadgeText, { color: sColor }]}>{t(`reserveLabels.status.${r.status}`, { defaultValue: RESERVE_STATUS_LABELS[r.status] ?? r.status })}</Text>
                     </View>
                     {permissions.canEdit && (
                       <TouchableOpacity
@@ -1539,7 +1543,7 @@ export default function VisiteDetailScreen() {
                 <Text style={styles.reserveTitle}>{r.title}</Text>
                 <View style={styles.reserveMeta}>
                   <View style={[styles.priorityDot, { backgroundColor: pColor }]} />
-                  <Text style={styles.reserveMetaText}>{PRIORITY_LABELS[r.priority] ?? r.priority}</Text>
+                  <Text style={styles.reserveMetaText}>{t(`reserveLabels.priority.${r.priority}`, { defaultValue: PRIORITY_LABELS[r.priority] ?? r.priority })}</Text>
                   <Text style={styles.reserveMetaDot}>·</Text>
                   <Text style={styles.reserveMetaText}>{r.company}</Text>
                   <Text style={styles.reserveMetaDot}>·</Text>
@@ -1557,14 +1561,14 @@ export default function VisiteDetailScreen() {
                       ) : (
                         <Ionicons name="remove-circle-outline" size={15} color={C.open} />
                       )}
-                      <Text style={[styles.reserveVisitActionText, { color: C.open }]}>Retirer</Text>
+                      <Text style={[styles.reserveVisitActionText, { color: C.open }]}>{t('visits.detail.remove')}</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.reserveVisitActionBtn}
                       onPress={() => toggleArchiveReserveFromVisit(r)}
                     >
                       <Ionicons name={r.archivedAt ? 'archive' : 'archive-outline'} size={15} color={C.textSub} />
-                      <Text style={styles.reserveVisitActionText}>{r.archivedAt ? 'Désarchiver' : 'Archiver'}</Text>
+                      <Text style={styles.reserveVisitActionText}>{r.archivedAt ? t('visits.detail.unarchive') : t('visits.detail.archive')}</Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -1587,7 +1591,7 @@ export default function VisiteDetailScreen() {
               color={visite.signedAt ? C.closed : C.primary}
             />
             <Text style={[styles.signBtnText, visite.signedAt && styles.signBtnTextSigned]}>
-              {visite.signedAt ? `PV signé le ${formatDate(visite.signedAt)}` : 'Signer le PV de visite'}
+              {visite.signedAt ? t('visits.detail.pvSignedOn', { date: formatDate(visite.signedAt) }) : t('visits.detail.signVisitPv')}
             </Text>
           </TouchableOpacity>
         )}
@@ -1636,7 +1640,7 @@ export default function VisiteDetailScreen() {
         <View style={styles.statusModalOverlay}>
           <View style={styles.statusModal}>
             <View style={styles.statusModalHeader}>
-              <Text style={styles.statusModalTitle}>Statut de la visite</Text>
+              <Text style={styles.statusModalTitle}>{t('visits.detail.statusModalTitle')}</Text>
               <TouchableOpacity onPress={() => setStatusModalVisible(false)} hitSlop={8}>
                 <Ionicons name="close" size={20} color={C.text} />
               </TouchableOpacity>
@@ -1658,7 +1662,7 @@ export default function VisiteDetailScreen() {
                       color={option.color}
                     />
                   </View>
-                  <Text style={[styles.statusOptionText, active && { color: option.color }]}>{option.label}</Text>
+                  <Text style={[styles.statusOptionText, active && { color: option.color }]}>{t(`visits.status.${nextStatus}`)}</Text>
                   {active && <Ionicons name="checkmark" size={16} color={option.color} />}
                 </TouchableOpacity>
               );
@@ -1672,7 +1676,7 @@ export default function VisiteDetailScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.signModal}>
             <View style={styles.signModalHeader}>
-              <Text style={styles.signModalTitle}>Signature du PV de visite</Text>
+              <Text style={styles.signModalTitle}>{t('visits.detail.signModalTitle')}</Text>
               <TouchableOpacity onPress={() => setSignModalVisible(false)}>
                 <Ionicons name="close" size={22} color={C.text} />
               </TouchableOpacity>
@@ -1685,7 +1689,7 @@ export default function VisiteDetailScreen() {
               >
                 <Ionicons name="person-outline" size={13} color={signingTab === 'conducteur' ? C.primary : C.textSub} />
                 <Text style={[styles.signTabText, signingTab === 'conducteur' && styles.signTabTextActive]}>
-                  Conducteur
+                  {t('visits.detail.conductor')}
                 </Text>
                 {visite.conducteurSignature && <Ionicons name="checkmark-circle" size={12} color={C.closed} />}
               </TouchableOpacity>
@@ -1695,7 +1699,7 @@ export default function VisiteDetailScreen() {
               >
                 <Ionicons name="business-outline" size={13} color={signingTab === 'entreprise' ? C.primary : C.textSub} />
                 <Text style={[styles.signTabText, signingTab === 'entreprise' && styles.signTabTextActive]}>
-                  Entreprise
+                  {t('visits.detail.company')}
                 </Text>
                 {visite.entrepriseSignature && <Ionicons name="checkmark-circle" size={12} color={C.closed} />}
               </TouchableOpacity>
@@ -1704,30 +1708,30 @@ export default function VisiteDetailScreen() {
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.signModalContent}>
               {signingTab === 'conducteur' ? (
                 <View style={styles.signSection}>
-                  <Text style={styles.signSectionLabel}>Conducteur de travaux</Text>
+                  <Text style={styles.signSectionLabel}>{t('visits.detail.conductor')}</Text>
                   <Text style={styles.signSectionName}>{visite.conducteur}</Text>
-                  <Text style={styles.signInstruction}>Signez dans le cadre ci-dessous :</Text>
+                  <Text style={styles.signInstruction}>{t('visits.detail.signInstruction')}</Text>
                   <SignaturePad ref={conducteurSigRef} />
                   <TouchableOpacity style={styles.clearBtn} onPress={() => conducteurSigRef.current?.clear()}>
                     <Ionicons name="refresh-outline" size={14} color={C.textSub} />
-                    <Text style={styles.clearBtnText}>Effacer</Text>
+                    <Text style={styles.clearBtnText}>{t('visits.detail.clear')}</Text>
                   </TouchableOpacity>
                 </View>
               ) : (
                 <View style={styles.signSection}>
-                  <Text style={styles.signSectionLabel}>Représentant de l'entreprise</Text>
+                  <Text style={styles.signSectionLabel}>{t('visits.detail.companyRepresentative')}</Text>
                   <TextInput
                     style={styles.signNameInput}
-                    placeholder="Nom et prénom du signataire..."
+                    placeholder={t('visits.detail.signerNamePlaceholder')}
                     placeholderTextColor={C.textMuted}
                     value={entrepriseSignataire}
                     onChangeText={setEntrepriseSignataire}
                   />
-                  <Text style={styles.signInstruction}>Signez dans le cadre ci-dessous :</Text>
+                  <Text style={styles.signInstruction}>{t('visits.detail.signInstruction')}</Text>
                   <SignaturePad ref={entrepriseSigRef} />
                   <TouchableOpacity style={styles.clearBtn} onPress={() => entrepriseSigRef.current?.clear()}>
                     <Ionicons name="refresh-outline" size={14} color={C.textSub} />
-                    <Text style={styles.clearBtnText}>Effacer</Text>
+                    <Text style={styles.clearBtnText}>{t('visits.detail.clear')}</Text>
                   </TouchableOpacity>
                 </View>
               )}
@@ -1744,7 +1748,7 @@ export default function VisiteDetailScreen() {
                 <Ionicons name="checkmark-circle" size={18} color="#fff" />
               )}
               <Text style={styles.saveSignBtnText}>
-                {isSigning ? 'Enregistrement…' : 'Valider les signatures'}
+                {isSigning ? t('visits.detail.saving') : t('visits.detail.validateSignatures')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -1757,7 +1761,7 @@ export default function VisiteDetailScreen() {
           <View style={styles.modalOverlay}>
             <View style={styles.locModal}>
               <View style={styles.locModalHeader}>
-                <Text style={styles.locModalTitle}>Modifier la localisation</Text>
+                <Text style={styles.locModalTitle}>{t('visits.detail.editLocation')}</Text>
                 <TouchableOpacity onPress={() => setEditLocModal(false)}>
                   <Ionicons name="close" size={22} color={C.text} />
                 </TouchableOpacity>
@@ -1775,7 +1779,7 @@ export default function VisiteDetailScreen() {
               </ScrollView>
               <TouchableOpacity style={styles.locSaveBtn} onPress={saveEditLoc}>
                 <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                <Text style={styles.locSaveBtnText}>Enregistrer</Text>
+                <Text style={styles.locSaveBtnText}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1789,9 +1793,9 @@ export default function VisiteDetailScreen() {
               <View style={styles.attachHandle} />
               <View style={styles.attachModalHeader}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.attachModalTitle}>Ajouter des réserves existantes</Text>
+                  <Text style={styles.attachModalTitle}>{t('visits.detail.attachExistingTitle')}</Text>
                   <Text style={styles.attachModalSubtitle}>
-                    Sélectionnez les réserves du chantier à rattacher à cette visite.
+                    {t('visits.detail.attachSubtitle')}
                   </Text>
                 </View>
                 <TouchableOpacity onPress={() => setAttachModalVisible(false)} style={styles.attachCloseBtn}>
@@ -1803,7 +1807,7 @@ export default function VisiteDetailScreen() {
                 <Ionicons name="search-outline" size={18} color={C.textMuted} />
                 <TextInput
                   style={styles.attachSearchInput}
-                  placeholder="Rechercher une réserve, entreprise, zone..."
+                  placeholder={t('visits.detail.attachSearchPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={attachSearch}
                   onChangeText={setAttachSearch}
@@ -1821,14 +1825,14 @@ export default function VisiteDetailScreen() {
                   onPress={() => setAttachScopeOnly(true)}
                 >
                   <Ionicons name="map-outline" size={14} color={attachScopeOnly ? C.primary : C.textSub} />
-                  <Text style={[styles.attachScopeText, attachScopeOnly && styles.attachScopeTextActive]}>Périmètre visite</Text>
+                  <Text style={[styles.attachScopeText, attachScopeOnly && styles.attachScopeTextActive]}>{t('visits.detail.visitScopeShort')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.attachScopeBtn, !attachScopeOnly && styles.attachScopeBtnActive]}
                   onPress={() => setAttachScopeOnly(false)}
                 >
                   <Ionicons name="business-outline" size={14} color={!attachScopeOnly ? C.primary : C.textSub} />
-                  <Text style={[styles.attachScopeText, !attachScopeOnly && styles.attachScopeTextActive]}>Tout le chantier</Text>
+                  <Text style={[styles.attachScopeText, !attachScopeOnly && styles.attachScopeTextActive]}>{t('visits.detail.wholeProject')}</Text>
                 </TouchableOpacity>
               </View>
 
@@ -1847,11 +1851,11 @@ export default function VisiteDetailScreen() {
                 ListEmptyComponent={
                   <View style={styles.attachEmpty}>
                     <Ionicons name="file-tray-outline" size={32} color={C.textMuted} />
-                    <Text style={styles.attachEmptyTitle}>Aucune réserve disponible</Text>
+                    <Text style={styles.attachEmptyTitle}>{t('visits.detail.noAttachableReserve')}</Text>
                     <Text style={styles.attachEmptyText}>
                       {attachScopeOnly
-                        ? 'Aucune réserve ne correspond au périmètre de cette visite. Essayez avec tout le chantier.'
-                        : 'Aucune réserve ne correspond à votre recherche.'}
+                        ? t('visits.detail.noAttachableInScope')
+                        : t('visits.detail.noAttachableSearch')}
                     </Text>
                   </View>
                 }
@@ -1865,7 +1869,7 @@ export default function VisiteDetailScreen() {
                 >
                   {attachSubmitting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="link-outline" size={18} color="#fff" />}
                   <Text style={styles.attachSubmitText}>
-                    {attachSubmitting ? 'Ajout en cours...' : `Ajouter ${attachSelectedIds.length > 0 ? `(${attachSelectedIds.length})` : ''}`}
+                    {attachSubmitting ? t('visits.detail.adding') : t('visits.detail.addSelected', { count: attachSelectedIds.length })}
                   </Text>
                 </TouchableOpacity>
               </View>

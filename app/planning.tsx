@@ -5,10 +5,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { usePointage } from '@/context/PointageContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { Task, TaskStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import { parseDeadline, formatDate } from '@/lib/reserveUtils';
@@ -16,25 +18,21 @@ import BottomNavBar from '@/components/BottomNavBar';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const STATUS_CFG: Record<TaskStatus, { label: string; color: string }> = {
-  todo: { label: 'À faire', color: C.textMuted },
-  in_progress: { label: 'En cours', color: C.inProgress },
-  done: { label: 'Terminé', color: C.closed },
-  delayed: { label: 'Retard', color: C.waiting },
+const STATUS_CFG: Record<TaskStatus, { labelKey: string; color: string }> = {
+  todo: { labelKey: 'taskLabels.status.todo', color: C.textMuted },
+  in_progress: { labelKey: 'taskLabels.status.in_progress', color: C.inProgress },
+  done: { labelKey: 'taskLabels.status.done', color: C.closed },
+  delayed: { labelKey: 'taskLabels.status.delayed', color: C.waiting },
 };
 
-const PRIORITY_CFG: Record<string, { label: string; color: string }> = {
-  low: { label: 'Faible', color: '#22C55E' },
-  medium: { label: 'Moyen', color: '#F59E0B' },
-  high: { label: 'Haute', color: '#EF4444' },
-  critical: { label: 'Critique', color: '#7C3AED' },
+const PRIORITY_CFG: Record<string, { labelKey: string; color: string }> = {
+  low: { labelKey: 'taskLabels.priority.low', color: '#22C55E' },
+  medium: { labelKey: 'taskLabels.priority.medium', color: '#F59E0B' },
+  high: { labelKey: 'taskLabels.priority.high', color: '#EF4444' },
+  critical: { labelKey: 'taskLabels.priority.critical', color: '#7C3AED' },
 };
 
 const PRIORITY_ORDER: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
-
-const MONTHS_FR = ['Janv', 'Févr', 'Mars', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sept', 'Oct', 'Nov', 'Déc'];
-const MONTHS_FULL = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
-const DAYS_FULL = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 
 type ViewMode = 'list' | 'calendar' | 'gantt';
 type GroupMode = 'company' | 'status' | 'priority';
@@ -54,10 +52,19 @@ function isSameDay(a: Date, b: Date): boolean {
 function toDateKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-function dayLabel(d: Date, today: Date): string {
-  if (isSameDay(d, today)) return `Aujourd'hui · ${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]}`;
-  if (isSameDay(d, addDays(today, 1))) return `Demain · ${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]}`;
-  return `${DAYS_FULL[d.getDay()]} ${d.getDate()} ${MONTHS_FULL[d.getMonth()]}`;
+function localeForLanguage(language: string): string {
+  if (language === 'en') return 'en-US';
+  if (language === 'es') return 'es-ES';
+  return 'fr-FR';
+}
+function dayLabel(d: Date, today: Date, t: (key: string) => string, locale: string): string {
+  const formatted = new Intl.DateTimeFormat(locale, { weekday: 'long', day: 'numeric', month: 'long' }).format(d);
+  if (isSameDay(d, today)) return `${t('planningScreen.today')} · ${formatted}`;
+  if (isSameDay(d, addDays(today, 1))) return `${t('planningScreen.tomorrow')} · ${formatted}`;
+  return formatted;
+}
+function shortMonth(d: Date, locale: string): string {
+  return new Intl.DateTimeFormat(locale, { month: 'short' }).format(d);
 }
 function getTaskStartDate(task: Task): Date {
   if (task.startDate) { const p = parseDeadline(task.startDate); if (p) return p; }
@@ -72,6 +79,7 @@ function getTaskStartDate(task: Task): Date {
 function TaskCard({ task, onDelete, canEdit, onPress }: {
   task: Task; onDelete: () => void; canEdit: boolean; onPress?: () => void;
 }) {
+  const { t } = useTranslation();
   const { companies } = useApp();
   const { entries } = usePointage();
   const cfg = STATUS_CFG[task.status];
@@ -87,7 +95,7 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
       return acc + (diff > 0 ? Math.round((diff / 60) * 10) / 10 : 0);
     }, 0);
   }, [entries, task.id]);
-  const companyName = co?.name ?? task.company ?? '—';
+  const companyName = co?.name ?? task.company ?? t('planningScreen.noCompany');
   const deadline = parseDeadline(task.deadline);
   const today = sod(new Date());
   const isOverdue = deadline && sod(deadline) < today && task.status !== 'done';
@@ -100,12 +108,12 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
       <View style={styles.taskTop}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
           <View style={[styles.statusBadge, { backgroundColor: cfg.color + '20' }]}>
-            <Text style={[styles.statusText, { color: cfg.color }]}>{cfg.label}</Text>
+            <Text style={[styles.statusText, { color: cfg.color }]}>{t(cfg.labelKey)}</Text>
           </View>
           {task.priority && PRIORITY_CFG[task.priority] && (
             <View style={[styles.statusBadge, { backgroundColor: PRIORITY_CFG[task.priority].color + '15', flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: PRIORITY_CFG[task.priority].color }} />
-              <Text style={[styles.statusText, { color: PRIORITY_CFG[task.priority].color }]}>{PRIORITY_CFG[task.priority].label}</Text>
+              <Text style={[styles.statusText, { color: PRIORITY_CFG[task.priority].color }]}>{t(PRIORITY_CFG[task.priority].labelKey)}</Text>
             </View>
           )}
         </View>
@@ -135,11 +143,11 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
                     : { color: C.textSub },
               ]}>
                 {isOverdue
-                  ? `Retard ${formatDate(task.deadline)}`
+                  ? t('planningScreen.overdueDate', { date: formatDate(task.deadline) })
                   : daysLeft === 0
-                    ? "Aujourd'hui"
+                    ? t('planningScreen.today')
                     : daysLeft === 1
-                      ? 'Demain'
+                      ? t('planningScreen.tomorrow')
                       : formatDate(task.deadline)}
               </Text>
             </View>
@@ -176,7 +184,7 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
       {loggedHours > 0 && (
         <View style={styles.loggedHoursRow}>
           <Ionicons name="time-outline" size={11} color={C.inProgress} />
-          <Text style={styles.loggedHoursText}>{loggedHours}h pointées sur cette tâche</Text>
+          <Text style={styles.loggedHoursText}>{t('planningScreen.loggedHours', { hours: loggedHours })}</Text>
         </View>
       )}
 
@@ -187,9 +195,12 @@ function TaskCard({ task, onDelete, canEdit, onPress }: {
 // ─── AgendaView — Calendrier tab ─────────────────────────────────────────────
 
 function AgendaView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: string) => void }) {
+  const { t: tr } = useTranslation();
+  const { effectiveLanguage } = useLanguage();
   const { companies } = useApp();
   const today = useMemo(() => sod(new Date()), []);
   const todayKey = toDateKey(today);
+  const locale = localeForLanguage(effectiveLanguage);
 
   type Section = {
     key: string; label: string; icon?: string;
@@ -223,7 +234,7 @@ function AgendaView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: s
       );
       result.push({
         key: 'overdue',
-        label: `En retard — ${overdueTasks.length} tâche${overdueTasks.length > 1 ? 's' : ''}`,
+        label: tr('planningScreen.overdueSection', { count: overdueTasks.length }),
         icon: 'alert-circle',
         isOverdue: true,
         tasks: overdueTasks,
@@ -233,7 +244,7 @@ function AgendaView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: s
     const todayTasks = (byDay[todayKey] ?? []).sort(
       (a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)
     );
-    result.push({ key: todayKey, label: dayLabel(today, today), isToday: true, tasks: todayTasks });
+    result.push({ key: todayKey, label: dayLabel(today, today, tr, locale), isToday: true, tasks: todayTasks });
 
     const futureKeys = Object.keys(byDay).filter(k => k > todayKey).sort();
     for (const key of futureKeys) {
@@ -245,7 +256,7 @@ function AgendaView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: s
       } else {
         result.push({
           key,
-          label: dayLabel(date, today),
+          label: dayLabel(date, today, tr, locale),
           tasks: byDay[key].sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)),
         });
       }
@@ -255,21 +266,21 @@ function AgendaView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: s
       laterTasks.sort((a, b) =>
         (parseDeadline(a.deadline)?.getTime() ?? 0) - (parseDeadline(b.deadline)?.getTime() ?? 0)
       );
-      result.push({ key: 'later', label: 'Plus tard', icon: 'time-outline', tasks: laterTasks });
+      result.push({ key: 'later', label: tr('planningScreen.later'), icon: 'time-outline', tasks: laterTasks });
     }
     if (noDateTasks.length > 0) {
-      result.push({ key: 'nodate', label: 'Sans échéance', icon: 'help-circle-outline', tasks: noDateTasks });
+      result.push({ key: 'nodate', label: tr('planningScreen.noDeadline'), icon: 'help-circle-outline', tasks: noDateTasks });
     }
 
     return result;
-  }, [tasks, today, todayKey]);
+  }, [tasks, today, todayKey, tr, locale]);
 
   if (tasks.length === 0) {
     return (
       <View style={aStyles.empty}>
         <Ionicons name="today-outline" size={40} color={C.textMuted} />
-        <Text style={aStyles.emptyText}>Aucune tâche à afficher</Text>
-        <Text style={aStyles.emptyHint}>Créez des tâches depuis l'onglet Liste</Text>
+        <Text style={aStyles.emptyText}>{tr('planningScreen.noTaskToDisplay')}</Text>
+        <Text style={aStyles.emptyHint}>{tr('planningScreen.createFromList')}</Text>
       </View>
     );
   }
@@ -305,7 +316,7 @@ function AgendaView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: s
           {section.tasks.length === 0 && section.isToday && (
             <View style={aStyles.emptyToday}>
               <Ionicons name="checkmark-circle-outline" size={15} color={C.textMuted} />
-              <Text style={aStyles.emptyTodayText}>Aucune échéance aujourd'hui — bonne journée !</Text>
+              <Text style={aStyles.emptyTodayText}>{tr('planningScreen.emptyToday')}</Text>
             </View>
           )}
 
@@ -326,13 +337,13 @@ function AgendaView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: s
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 5, flexWrap: 'wrap' }}>
                         <View style={[aStyles.statusPill, { backgroundColor: cfg.color + '20' }]}>
-                          <Text style={[aStyles.statusPillText, { color: cfg.color }]}>{cfg.label}</Text>
+                          <Text style={[aStyles.statusPillText, { color: cfg.color }]}>{tr(cfg.labelKey)}</Text>
                         </View>
                         {t.priority && PRIORITY_CFG[t.priority] && (
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
                             <View style={{ width: 5, height: 5, borderRadius: 3, backgroundColor: PRIORITY_CFG[t.priority].color }} />
                             <Text style={{ fontSize: 10, fontFamily: 'Inter_500Medium', color: PRIORITY_CFG[t.priority].color }}>
-                              {PRIORITY_CFG[t.priority].label}
+                              {tr(PRIORITY_CFG[t.priority].labelKey)}
                             </Text>
                           </View>
                         )}
@@ -386,10 +397,13 @@ const G_MILESTONE_H = 22;
 const DAY_W: Record<Granularity, number> = { week: 26, month: 9 };
 
 function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: string) => void }) {
+  const { t } = useTranslation();
+  const { effectiveLanguage } = useLanguage();
   const { companies, chantiers } = useApp();
   const [granularity, setGranularity] = useState<Granularity>('month');
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const today = useMemo(() => sod(new Date()), []);
+  const locale = localeForLanguage(effectiveLanguage);
   const DPX = DAY_W[granularity];
 
   const grouped = useMemo(() => {
@@ -441,18 +455,18 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
       const cur = new Date(minDate);
       while (cur.getDay() !== 1) cur.setDate(cur.getDate() + 1);
       while (cur <= maxDate) {
-        result.push({ label: `${cur.getDate()} ${MONTHS_FR[cur.getMonth()]}`, x: dx(cur) });
+        result.push({ label: `${cur.getDate()} ${shortMonth(cur, locale)}`, x: dx(cur) });
         cur.setDate(cur.getDate() + 7);
       }
     } else {
       const cur = new Date(minDate.getFullYear(), minDate.getMonth(), 1);
       while (cur <= maxDate) {
-        result.push({ label: `${MONTHS_FR[cur.getMonth()]} ${cur.getFullYear()}`, x: dx(cur) });
+        result.push({ label: `${shortMonth(cur, locale)} ${cur.getFullYear()}`, x: dx(cur) });
         cur.setMonth(cur.getMonth() + 1);
       }
     }
     return result;
-  }, [granularity, minDate, maxDate, DPX]);
+  }, [granularity, minDate, maxDate, DPX, locale]);
 
   const milestonesWithX = useMemo(() => {
     const list: { label: string; x: number; color: string; icon: string }[] = [];
@@ -488,7 +502,7 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
     return (
       <View style={gStyles.empty}>
         <Ionicons name="bar-chart-outline" size={40} color={C.textMuted} />
-        <Text style={gStyles.emptyText}>Aucune tâche à afficher</Text>
+        <Text style={gStyles.emptyText}>{t('planningScreen.noTaskToDisplay')}</Text>
       </View>
     );
   }
@@ -496,7 +510,7 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
   return (
     <View>
       <View style={gStyles.granRow}>
-        <Text style={gStyles.granLabel}>Échelle :</Text>
+        <Text style={gStyles.granLabel}>{t('planningScreen.scale')}</Text>
         {(['week', 'month'] as Granularity[]).map(g => (
           <TouchableOpacity
             key={g}
@@ -504,23 +518,23 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
             onPress={() => setGranularity(g)}
           >
             <Text style={[gStyles.granBtnText, granularity === g && gStyles.granBtnTextActive]}>
-              {g === 'week' ? 'Semaine' : 'Mois'}
+              {g === 'week' ? t('planningScreen.week') : t('planningScreen.month')}
             </Text>
           </TouchableOpacity>
         ))}
         <View style={{ flex: 1 }} />
-        <Text style={gStyles.scrollHint}>← Défiler →</Text>
+        <Text style={gStyles.scrollHint}>{t('planningScreen.scrollHint')}</Text>
       </View>
 
       <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: C.border, borderRadius: 10, overflow: 'hidden' }}>
         {/* Fixed left label column */}
         <View style={{ width: G_LABEL, borderRightWidth: 1, borderRightColor: C.border, backgroundColor: C.surface }}>
           <View style={[gStyles.leftHeader, { height: headerH }]}>
-            <Text style={gStyles.leftHeaderText}>ENTREPRISES / TÂCHES</Text>
+            <Text style={gStyles.leftHeaderText}>{t('planningScreen.ganttLeftHeader')}</Text>
           </View>
           {grouped.map(({ key, co, items }) => {
             const color = co?.color ?? C.primary;
-            const name = co?.shortName ?? co?.name ?? 'Sans entreprise';
+            const name = co?.shortName ?? co?.name ?? t('planningScreen.noCompany');
             const isCollapsed = collapsed.has(key);
             return (
               <View key={key}>
@@ -626,6 +640,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
   onDelete: (id: string, title: string) => void;
   onPress: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const { companies } = useApp();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
@@ -644,7 +659,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
         const co = companies.find(c => c.id === key);
         return {
           key,
-          label: co?.name ?? ts[0]?.company ?? 'Sans entreprise',
+          label: co?.name ?? ts[0]?.company ?? t('planningScreen.noCompany'),
           color: co?.color ?? C.textMuted,
           tasks: ts.sort((a, b) => (PRIORITY_ORDER[a.priority] ?? 9) - (PRIORITY_ORDER[b.priority] ?? 9)),
         };
@@ -655,7 +670,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
       const ORDER = ['critical', 'high', 'medium', 'low'] as const;
       return ORDER.map(p => ({
         key: p,
-        label: PRIORITY_CFG[p]?.label ?? p,
+        label: t(PRIORITY_CFG[p]?.labelKey ?? p),
         color: PRIORITY_CFG[p]?.color ?? C.textMuted,
         tasks: tasks.filter(t => t.priority === p),
       })).filter(g => g.tasks.length > 0);
@@ -664,11 +679,11 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
     const ORDER: TaskStatus[] = ['delayed', 'in_progress', 'todo', 'done'];
     return ORDER.map(s => ({
       key: s,
-      label: STATUS_CFG[s].label,
+      label: t(STATUS_CFG[s].labelKey),
       color: STATUS_CFG[s].color,
       tasks: tasks.filter(t => t.status === s),
     })).filter(g => g.tasks.length > 0);
-  }, [tasks, groupBy, companies]);
+  }, [tasks, groupBy, companies, t]);
 
   function toggleCollapse(key: string) {
     setCollapsed(prev => {
@@ -682,7 +697,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
     return (
       <View style={styles.empty}>
         <Ionicons name="checkmark-done-outline" size={40} color={C.textMuted} />
-        <Text style={styles.emptyText}>Aucune tâche dans cette catégorie</Text>
+        <Text style={styles.emptyText}>{t('planningScreen.emptyCategory')}</Text>
       </View>
     );
   }
@@ -728,6 +743,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 
 export default function PlanningScreen() {
+  const { t } = useTranslation();
   const { tasks, deleteTask, companies, reload } = useApp();
   const { permissions, user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
@@ -748,12 +764,12 @@ export default function PlanningScreen() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>Accès restreint</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>{t('taskDetail.restrictedTitle')}</Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
-          Le planning des tâches n'est pas accessible aux sous-traitants.
+          {t('taskDetail.restrictedText')}
         </Text>
         <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>Retour</Text>
+          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('visits.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -800,10 +816,10 @@ export default function PlanningScreen() {
 
 
   function handleDelete(id: string, title: string) {
-    Alert.alert('Supprimer', `Supprimer la tâche "${title}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
+    Alert.alert(t('taskDetail.deleteTaskTitle'), t('taskDetail.deleteTaskText', { title }), [
+      { text: t('common.cancel'), style: 'cancel' },
       {
-        text: 'Supprimer', style: 'destructive', onPress: () => {
+        text: t('common.delete'), style: 'destructive', onPress: () => {
           Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
           deleteTask(id);
         },
@@ -812,18 +828,18 @@ export default function PlanningScreen() {
   }
 
   const VIEW_TABS = [
-    { key: 'list' as const, label: 'Liste', icon: 'list-outline' },
-    { key: 'calendar' as const, label: 'Agenda', icon: 'today-outline' },
-    { key: 'gantt' as const, label: 'Gantt', icon: 'reorder-four-outline' },
+    { key: 'list' as const, label: t('planningScreen.list'), icon: 'list-outline' },
+    { key: 'calendar' as const, label: t('planningScreen.agenda'), icon: 'today-outline' },
+    { key: 'gantt' as const, label: t('planningScreen.gantt'), icon: 'reorder-four-outline' },
   ];
 
   return (
     <View style={styles.container}>
       <Header
-        title="Planning"
-        subtitle={`${tasks.length} tâche${tasks.length !== 1 ? 's' : ''} au total`}
+        title={t('planningScreen.title')}
+        subtitle={t('planningScreen.totalTasks', { count: tasks.length })}
         showBack
-        rightLabel={permissions.canCreate && tasks.length > 0 ? '+ Nouvelle tâche' : undefined}
+        rightLabel={permissions.canCreate && tasks.length > 0 ? t('planningScreen.newTask') : undefined}
         onRightPress={permissions.canCreate && tasks.length > 0 ? () => router.push('/task/new' as any) : undefined}
       />
 
@@ -858,7 +874,7 @@ export default function PlanningScreen() {
           <Ionicons name="search-outline" size={15} color={C.textMuted} />
           <TextInput
             style={styles.searchInput}
-            placeholder="Rechercher une tâche..."
+            placeholder={t('planningScreen.searchPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={search}
             onChangeText={setSearch}
@@ -882,7 +898,7 @@ export default function PlanningScreen() {
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { borderTopColor: C.primary }]}>
             <Text style={[styles.statVal, { color: C.primary }]}>{activeCompanies}</Text>
-            <Text style={styles.statLabel}>Entreprises{'\n'}actives</Text>
+            <Text style={styles.statLabel}>{t('planningScreen.activeCompanies')}</Text>
           </View>
 
           <TouchableOpacity
@@ -890,7 +906,7 @@ export default function PlanningScreen() {
             onPress={() => setFilterStatus(filterStatus === 'delayed' ? 'all' : 'delayed')}
           >
             <Text style={[styles.statVal, { color: delayed > 0 ? C.waiting : C.textMuted }]}>{delayed}</Text>
-            <Text style={styles.statLabel}>En{'\n'}retard</Text>
+            <Text style={styles.statLabel}>{t('planningScreen.overdueStat')}</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -898,14 +914,14 @@ export default function PlanningScreen() {
             onPress={() => setFilterStatus(filterStatus === 'in_progress' ? 'all' : 'in_progress')}
           >
             <Text style={[styles.statVal, { color: C.inProgress }]}>{inP}</Text>
-            <Text style={styles.statLabel}>En{'\n'}cours</Text>
+            <Text style={styles.statLabel}>{t('planningScreen.inProgressStat')}</Text>
           </TouchableOpacity>
 
           <View style={[styles.statCard, { borderTopColor: C.closed }]}>
             <Text style={[styles.statVal, { color: avgProgress >= 80 ? C.closed : avgProgress >= 40 ? C.inProgress : C.textMuted }]}>
               {avgProgress}%
             </Text>
-            <Text style={styles.statLabel}>Avance{'\n'}moy.</Text>
+            <Text style={styles.statLabel}>{t('planningScreen.avgProgress')}</Text>
           </View>
         </View>
 
@@ -917,7 +933,7 @@ export default function PlanningScreen() {
                 style={[styles.companyChip, filterCompany === 'all' && styles.companyChipActive]}
                 onPress={() => setFilterCompany('all')}
               >
-                <Text style={[styles.companyChipText, filterCompany === 'all' && styles.companyChipTextActive]}>Toutes</Text>
+                <Text style={[styles.companyChipText, filterCompany === 'all' && styles.companyChipTextActive]}>{t('reservesScreen.allFem')}</Text>
               </TouchableOpacity>
               {companies.map(co => (
                 <TouchableOpacity
@@ -941,23 +957,23 @@ export default function PlanningScreen() {
                 <View style={styles.emptyIconWrap}>
                   <Ionicons name="clipboard-outline" size={48} color={C.primary + '60'} />
                 </View>
-                <Text style={styles.emptyTitle}>Aucune tâche pour le moment</Text>
-                <Text style={styles.emptyHint}>Planifiez vos travaux en créant la première tâche de ce chantier.</Text>
+                <Text style={styles.emptyTitle}>{t('planningScreen.noTaskYet')}</Text>
+                <Text style={styles.emptyHint}>{t('planningScreen.noTaskYetHint')}</Text>
                 <TouchableOpacity
                   style={styles.emptyCreateBtn}
                   onPress={() => router.push('/task/new' as any)}
                   activeOpacity={0.82}
                 >
                   <Ionicons name="add-circle" size={20} color="#fff" />
-                  <Text style={styles.emptyCreateBtnText}>Créer une tâche</Text>
+                  <Text style={styles.emptyCreateBtnText}>{t('taskForm.createTask')}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <>
                 <View style={lStyles.modeBar}>
                   {([
-                    { key: 'company' as const, label: 'Entreprise', icon: 'business-outline' },
-                    { key: 'priority' as const, label: 'Priorité', icon: 'flag-outline' },
+                    { key: 'company' as const, label: t('taskForm.company'), icon: 'business-outline' },
+                    { key: 'priority' as const, label: t('taskForm.priority'), icon: 'flag-outline' },
                   ]).map(opt => (
                     <TouchableOpacity
                       key={opt.key}

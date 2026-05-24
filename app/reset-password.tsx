@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import * as Linking from 'expo-linking';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { sendPasswordChangedEmail } from '@/lib/email/client';
@@ -17,13 +18,6 @@ const STRENGTH_COLORS: Record<Strength, string> = {
   2: '#F59E0B',
   3: '#22C55E',
 };
-const STRENGTH_LABELS: Record<Strength, string> = {
-  0: '',
-  1: 'Faible',
-  2: 'Moyen',
-  3: 'Fort',
-};
-
 function getStrength(pwd: string): Strength {
   if (!pwd) return 0;
   let score = 0;
@@ -68,6 +62,7 @@ async function extractTokensFromUrl(): Promise<{ accessToken: string; refreshTok
 }
 
 export default function ResetPasswordScreen() {
+  const { t, i18n } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -80,7 +75,7 @@ export default function ResetPasswordScreen() {
 
   const strength = getStrength(password);
   const strengthColor = STRENGTH_COLORS[strength];
-  const strengthLabel = STRENGTH_LABELS[strength];
+  const strengthLabel = strength > 0 ? t(`resetPassword.strength.${strength}`) : '';
 
   useEffect(() => {
     let cancelled = false;
@@ -102,11 +97,11 @@ export default function ResetPasswordScreen() {
   async function handleSave() {
     const pwd = password.trim();
     if (pwd.length < 6) {
-      setFieldError('Le mot de passe doit contenir au moins 6 caractères.');
+      setFieldError(t('resetPassword.passwordTooShort'));
       return;
     }
     if (pwd !== confirm.trim()) {
-      setFieldError('Les mots de passe ne correspondent pas.');
+      setFieldError(t('resetPassword.passwordMismatch'));
       return;
     }
     setFieldError('');
@@ -122,7 +117,7 @@ export default function ResetPasswordScreen() {
     const userMeta = userData?.user?.user_metadata;
     const userName: string = userMeta?.name ?? userMeta?.full_name ?? userEmail.split('@')[0];
     if (userEmail) {
-      sendPasswordChangedEmail({ email: userEmail, name: userName }).catch(() => {});
+      sendPasswordChangedEmail({ email: userEmail, name: userName, language: i18n.resolvedLanguage ?? i18n.language }).catch(() => {});
     }
     await supabase.auth.signOut();
     setStatus('success');
@@ -151,7 +146,7 @@ export default function ResetPasswordScreen() {
           </View>
           <View style={styles.heroDivider} />
           <Text style={styles.heroTitle}>BuildTrack</Text>
-          <Text style={styles.heroTagline}>Gestion de chantier numérique</Text>
+          <Text style={styles.heroTagline}>{t('app.tagline')}</Text>
         </View>
 
         {/* Card */}
@@ -162,7 +157,7 @@ export default function ResetPasswordScreen() {
             {status === 'loading' && (
               <View style={styles.centeredBlock}>
                 <ActivityIndicator size="large" color={C.primary} />
-                <Text style={styles.loadingText}>Vérification du lien…</Text>
+                <Text style={styles.loadingText}>{t('resetPassword.checkingLink')}</Text>
               </View>
             )}
 
@@ -172,14 +167,13 @@ export default function ResetPasswordScreen() {
                 <View style={[styles.iconCircle, { backgroundColor: C.openBg }]}>
                   <Ionicons name="warning-outline" size={32} color={C.open} />
                 </View>
-                <Text style={styles.errorTitle}>Lien invalide ou expiré</Text>
+                <Text style={styles.errorTitle}>{t('resetPassword.invalidTitle')}</Text>
                 <Text style={styles.errorBody}>
-                  Ce lien de réinitialisation est invalide ou a expiré (durée de validité : 1 heure).
-                  Veuillez refaire la demande depuis l'écran de connexion.
+                  {t('resetPassword.invalidText')}
                 </Text>
                 <TouchableOpacity style={styles.btn} onPress={() => router.replace('/login')} activeOpacity={0.85}>
                   <Ionicons name="arrow-back-outline" size={18} color={C.primary} />
-                  <Text style={styles.btnText}>Retour à la connexion</Text>
+                  <Text style={styles.btnText}>{t('resetPassword.backToLogin')}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -192,13 +186,13 @@ export default function ResetPasswordScreen() {
                     <Ionicons name="lock-open-outline" size={24} color={C.primary} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.cardTitle}>Nouveau mot de passe</Text>
-                    <Text style={styles.cardSub}>Choisissez un mot de passe sécurisé d'au moins 6 caractères.</Text>
+                    <Text style={styles.cardTitle}>{t('resetPassword.newPasswordTitle')}</Text>
+                    <Text style={styles.cardSub}>{t('resetPassword.newPasswordSubtitle')}</Text>
                   </View>
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={styles.label}>Nouveau mot de passe</Text>
+                  <Text style={styles.label}>{t('resetPassword.newPasswordLabel')}</Text>
                   <View style={[styles.inputWrap, fieldError ? styles.inputWrapError : null]}>
                     <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
                     <TextInput
@@ -237,7 +231,7 @@ export default function ResetPasswordScreen() {
                 </View>
 
                 <View style={styles.field}>
-                  <Text style={styles.label}>Confirmer le mot de passe</Text>
+                  <Text style={styles.label}>{t('resetPassword.confirmPasswordLabel')}</Text>
                   <View style={[styles.inputWrap, fieldError ? styles.inputWrapError : null]}>
                     <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
                     <TextInput
@@ -264,7 +258,7 @@ export default function ResetPasswordScreen() {
                   <View style={styles.saveBanner}>
                     <Ionicons name="warning-outline" size={14} color={C.open} />
                     <Text style={styles.saveBannerText}>
-                      Une erreur est survenue. Réessayez ou refaites la demande depuis la connexion.
+                      {t('resetPassword.saveError')}
                     </Text>
                   </View>
                 )}
@@ -278,12 +272,12 @@ export default function ResetPasswordScreen() {
                   {status === 'saving' ? (
                     <>
                       <ActivityIndicator size="small" color={C.primary} />
-                      <Text style={styles.btnText}>Enregistrement…</Text>
+                      <Text style={styles.btnText}>{t('resetPassword.saving')}</Text>
                     </>
                   ) : (
                     <>
                       <Ionicons name="checkmark-circle-outline" size={20} color={C.primary} />
-                      <Text style={styles.btnText}>Enregistrer le mot de passe</Text>
+                      <Text style={styles.btnText}>{t('resetPassword.savePassword')}</Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -296,13 +290,13 @@ export default function ResetPasswordScreen() {
                 <View style={[styles.iconCircle, { backgroundColor: '#E6F9F0', width: 72, height: 72, borderRadius: 36 }]}>
                   <Ionicons name="checkmark-circle" size={40} color={C.closed} />
                 </View>
-                <Text style={styles.successTitle}>Mot de passe modifié !</Text>
+                <Text style={styles.successTitle}>{t('resetPassword.successTitle')}</Text>
                 <Text style={styles.successBody}>
-                  Votre nouveau mot de passe a bien été enregistré. Vous pouvez maintenant vous connecter.
+                  {t('resetPassword.successText')}
                 </Text>
                 <TouchableOpacity style={styles.btn} onPress={() => router.replace('/login')} activeOpacity={0.85}>
                   <Ionicons name="log-in-outline" size={18} color={C.primary} />
-                  <Text style={styles.btnText}>Se connecter</Text>
+                  <Text style={styles.btnText}>{t('resetPassword.login')}</Text>
                 </TouchableOpacity>
               </View>
             )}

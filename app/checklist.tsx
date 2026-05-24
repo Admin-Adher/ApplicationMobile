@@ -1,9 +1,10 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
@@ -13,21 +14,26 @@ import { genId, formatDateFR } from '@/lib/utils';
 
 const CHECKLIST_KEY = 'buildtrack_checklists_v1';
 
-const TEMPLATE_ITEMS = [
-  'Vérification des EPI sur site',
-  'Contrôle des accès chantier',
-  'État des échafaudages',
-  'Signalisation et balisage',
-  'Vérification des engins et matériels',
-  'Propreté et ordre des zones de travail',
-  'Stockage des matériaux conforme',
-  'Registre de sécurité à jour',
+const TEMPLATE_ITEM_KEYS = [
+  'ppe',
+  'access',
+  'scaffolding',
+  'signage',
+  'equipment',
+  'cleanliness',
+  'storage',
+  'register',
 ];
 
 export default function ChecklistScreen() {
+  const { t } = useTranslation();
   const { user, permissions } = useAuth();
   const [checklists, setChecklists] = useState<Checklist[]>([]);
   const [showNew, setShowNew] = useState(false);
+  const templateItems = useMemo(
+    () => TEMPLATE_ITEM_KEYS.map(key => t(`checklistScreen.templates.${key}`)),
+    [t]
+  );
 
   useEffect(() => {
     AsyncStorage.getItem(CHECKLIST_KEY).then(raw => {
@@ -35,13 +41,13 @@ export default function ChecklistScreen() {
     });
   }, []);
   const [newTitle, setNewTitle] = useState('');
-  const [newItems, setNewItems] = useState<string[]>([...TEMPLATE_ITEMS]);
+  const [newItems, setNewItems] = useState<string[]>(templateItems);
   const [newItemText, setNewItemText] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const handleCreate = useCallback(() => {
     if (!newTitle.trim()) {
-      Alert.alert('Titre requis', 'Veuillez saisir un titre pour la checklist.');
+      Alert.alert(t('checklistScreen.titleRequired'), t('checklistScreen.titleRequiredText'));
       return;
     }
     const items: ChecklistItem[] = newItems.map(label => ({
@@ -59,7 +65,7 @@ export default function ChecklistScreen() {
       status: 'in_progress',
       items,
       createdAt: formatDateFR(new Date()),
-      createdBy: user?.name ?? 'Équipe',
+      createdBy: user?.name ?? t('checklistScreen.teamFallback'),
     };
     setChecklists(prev => {
       const updated = [checklist, ...prev];
@@ -67,9 +73,9 @@ export default function ChecklistScreen() {
       return updated;
     });
     setNewTitle('');
-    setNewItems([...TEMPLATE_ITEMS]);
+    setNewItems([...templateItems]);
     setShowNew(false);
-  }, [newTitle, newItems, user]);
+  }, [newTitle, newItems, user, t, templateItems]);
 
   const toggleItem = useCallback((checklistId: string, itemId: string) => {
     if (!permissions.canEdit) return;
@@ -106,15 +112,15 @@ export default function ChecklistScreen() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>Accès restreint</Text>
+        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>{t('checklistScreen.restrictedTitle')}</Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-          Les checklists qualité ne sont pas accessibles aux sous-traitants.
+          {t('checklistScreen.restrictedText')}
         </Text>
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('checklistScreen.backDashboard')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -123,10 +129,10 @@ export default function ChecklistScreen() {
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
-        title="Check-listes qualité"
-        subtitle="Contrôle qualité chantier"
+        title={t('checklistScreen.title')}
+        subtitle={t('checklistScreen.subtitle')}
         showBack
-        rightLabel={permissions.canCreate ? 'Nouvelle' : undefined}
+        rightLabel={permissions.canCreate ? t('checklistScreen.new') : undefined}
         onRightPress={permissions.canCreate ? () => setShowNew(s => !s) : undefined}
       />
 
@@ -134,16 +140,16 @@ export default function ChecklistScreen() {
 
         {showNew && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Nouvelle check-liste</Text>
-            <Text style={styles.label}>Titre *</Text>
+            <Text style={styles.sectionTitle}>{t('checklistScreen.newChecklist')}</Text>
+            <Text style={styles.label}>{t('checklistScreen.titleLabel')}</Text>
             <TextInput
               style={styles.input}
-              placeholder="Ex: Contrôle qualité — Bâtiment A"
+              placeholder={t('checklistScreen.titlePlaceholder')}
               placeholderTextColor={C.textMuted}
               value={newTitle}
               onChangeText={setNewTitle}
             />
-            <Text style={styles.label}>Éléments à vérifier</Text>
+            <Text style={styles.label}>{t('checklistScreen.itemsToCheck')}</Text>
             {newItems.map((item, idx) => (
               <View key={idx} style={styles.templateRow}>
                 <Ionicons name="checkmark-circle-outline" size={16} color={C.primary} />
@@ -156,7 +162,7 @@ export default function ChecklistScreen() {
             <View style={styles.addItemRow}>
               <TextInput
                 style={[styles.input, { flex: 1, marginBottom: 0 }]}
-                placeholder="Ajouter un élément..."
+                placeholder={t('checklistScreen.addItemPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 value={newItemText}
                 onChangeText={setNewItemText}
@@ -175,7 +181,7 @@ export default function ChecklistScreen() {
             </View>
             <TouchableOpacity style={styles.createBtn} onPress={handleCreate}>
               <Ionicons name="checkmark-circle" size={18} color="#fff" />
-              <Text style={styles.createBtnText}>Créer la check-liste</Text>
+              <Text style={styles.createBtnText}>{t('checklistScreen.createChecklist')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -183,12 +189,12 @@ export default function ChecklistScreen() {
         {checklists.length === 0 && !showNew && (
           <View style={styles.emptyBox}>
             <Ionicons name="checkmark-done-circle-outline" size={52} color={C.border} />
-            <Text style={styles.emptyTitle}>Aucune check-liste</Text>
-            <Text style={styles.emptyText}>Créez votre première check-liste qualité pour contrôler les points de conformité du chantier.</Text>
+            <Text style={styles.emptyTitle}>{t('checklistScreen.emptyTitle')}</Text>
+            <Text style={styles.emptyText}>{t('checklistScreen.emptyText')}</Text>
             {permissions.canCreate && (
               <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowNew(true)}>
                 <Ionicons name="add-circle" size={18} color={C.primary} />
-                <Text style={styles.emptyBtnText}>Créer une check-liste</Text>
+                <Text style={styles.emptyBtnText}>{t('checklistScreen.createChecklist')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -221,7 +227,7 @@ export default function ChecklistScreen() {
                   backgroundColor: pct === 100 ? C.closed : C.primary,
                 }]} />
               </View>
-              <Text style={styles.clCount}>{checked}/{cl.items.length} points vérifiés</Text>
+              <Text style={styles.clCount}>{t('checklistScreen.checkedCount', { checked, total: cl.items.length })}</Text>
               {isExpanded && (
                 <View style={styles.itemList}>
                   {cl.items.map(item => (

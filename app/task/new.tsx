@@ -5,6 +5,7 @@ import {
 import { useState } from 'react';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -16,24 +17,25 @@ import { Task, TaskStatus, ReservePriority } from '@/constants/types';
 import { validateDeadline } from '@/lib/reserveUtils';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 
-const STATUS_OPTS: { value: TaskStatus; label: string; color: string; icon: string }[] = [
-  { value: 'todo',        label: 'À faire',   color: C.textMuted,  icon: 'ellipse-outline' },
-  { value: 'in_progress', label: 'En cours',  color: C.inProgress, icon: 'play-circle-outline' },
-  { value: 'done',        label: 'Terminé',   color: C.closed,     icon: 'checkmark-circle-outline' },
-  { value: 'delayed',     label: 'En retard', color: C.waiting,    icon: 'alert-circle-outline' },
+const STATUS_OPTS: { value: TaskStatus; labelKey: string; color: string; icon: string }[] = [
+  { value: 'todo',        labelKey: 'taskLabels.status.todo',        color: C.textMuted,  icon: 'ellipse-outline' },
+  { value: 'in_progress', labelKey: 'taskLabels.status.in_progress', color: C.inProgress, icon: 'play-circle-outline' },
+  { value: 'done',        labelKey: 'taskLabels.status.done',        color: C.closed,     icon: 'checkmark-circle-outline' },
+  { value: 'delayed',     labelKey: 'taskLabels.status.delayed',     color: C.waiting,    icon: 'alert-circle-outline' },
 ];
 
-const PRIORITY_OPTS: { value: ReservePriority; label: string; color: string; icon: string }[] = [
-  { value: 'low',      label: 'Faible',   color: '#22C55E', icon: 'arrow-down-outline' },
-  { value: 'medium',   label: 'Moyen',    color: '#F59E0B', icon: 'remove-outline' },
-  { value: 'high',     label: 'Élevé',    color: '#EF4444', icon: 'arrow-up-outline' },
-  { value: 'critical', label: 'Critique', color: '#7C3AED', icon: 'flame-outline' },
+const PRIORITY_OPTS: { value: ReservePriority; labelKey: string; color: string; icon: string }[] = [
+  { value: 'low',      labelKey: 'taskLabels.priority.low',      color: '#22C55E', icon: 'arrow-down-outline' },
+  { value: 'medium',   labelKey: 'taskLabels.priority.medium',   color: '#F59E0B', icon: 'remove-outline' },
+  { value: 'high',     labelKey: 'taskLabels.priority.high',     color: '#EF4444', icon: 'arrow-up-outline' },
+  { value: 'critical', labelKey: 'taskLabels.priority.critical', color: '#7C3AED', icon: 'flame-outline' },
 ];
 
 const PROGRESS_PRESETS = [0, 25, 50, 75, 100];
 
 export default function NewTaskScreen() {
   const router = useRouter();
+  const { t } = useTranslation();
   const { reserveId } = useLocalSearchParams<{ reserveId?: string }>();
   const { addTask, reserves, updateReserveFields, companies, activeChantierId } = useApp();
   const { user, permissions } = useAuth();
@@ -45,7 +47,7 @@ export default function NewTaskScreen() {
     ?? companies[0]?.id
     ?? '';
 
-  const [title, setTitle]           = useState(sourceReserve ? `Lever : ${sourceReserve.title}` : '');
+  const [title, setTitle]           = useState(sourceReserve ? t('taskForm.liftTitle', { title: sourceReserve.title }) : '');
   const [description, setDescription] = useState(sourceReserve?.description ?? '');
   const [status, setStatus]         = useState<TaskStatus>('todo');
   const [priority, setPriority]     = useState<ReservePriority>(sourceReserve?.priority ?? 'medium');
@@ -63,10 +65,10 @@ export default function NewTaskScreen() {
     return (
       <View style={styles.accessDenied}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={styles.accessDeniedTitle}>Accès refusé</Text>
-        <Text style={styles.accessDeniedSub}>Votre rôle ne permet pas de créer des tâches.</Text>
+        <Text style={styles.accessDeniedTitle}>{t('taskForm.accessDeniedTitle')}</Text>
+        <Text style={styles.accessDeniedSub}>{t('taskForm.accessDeniedText')}</Text>
         <TouchableOpacity onPress={() => router.back()} style={styles.accessDeniedBtn}>
-          <Text style={styles.accessDeniedBtnText}>Retour</Text>
+          <Text style={styles.accessDeniedBtnText}>{t('visits.back')}</Text>
         </TouchableOpacity>
       </View>
     );
@@ -74,11 +76,11 @@ export default function NewTaskScreen() {
 
   function validate(): boolean {
     const e: Record<string, string> = {};
-    if (!title.trim()) e.title = 'Le titre est obligatoire.';
+    if (!title.trim()) e.title = t('taskForm.titleRequired');
     if (startDate.trim() && !validateDeadline(startDate.trim()))
-      e.startDate = 'Format invalide (ex : 01/04/2026).';
+      e.startDate = t('taskForm.invalidStartDate');
     if (deadline.trim() && !validateDeadline(deadline.trim()))
-      e.deadline = 'Format invalide (ex : 30/04/2026).';
+      e.deadline = t('taskForm.invalidDeadline');
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -87,7 +89,7 @@ export default function NewTaskScreen() {
     if (isSaving) return;
     if (!validate()) return;
     if (!activeChantierId) {
-      setErrors(e => ({ ...e, _chantier: 'Aucun chantier actif. Sélectionnez un chantier avant de créer une tâche.' }));
+      setErrors(e => ({ ...e, _chantier: t('taskForm.noActiveProject') }));
       return;
     }
 
@@ -109,7 +111,7 @@ export default function NewTaskScreen() {
       priority,
       startDate: startDate.trim() || undefined,
       deadline: deadline.trim() || fallbackDeadline,
-      assignee: assignee.trim() || (user?.name ?? 'Équipe'),
+      assignee: assignee.trim() || (user?.name ?? t('taskForm.teamFallback')),
       company: selectedCompany?.name ?? companyId,
       progress,
       reserveId: sourceReserve?.id,
@@ -117,8 +119,8 @@ export default function NewTaskScreen() {
       comments: [],
       history: [{
         id: genId(),
-        action: 'Tâche créée',
-        author: user?.name ?? 'Système',
+        action: t('taskForm.taskCreatedHistory'),
+        author: user?.name ?? t('taskForm.systemFallback'),
         createdAt: nowTimestampFR(),
       }],
       createdAt: formatDateFR(new Date()),
@@ -142,9 +144,9 @@ export default function NewTaskScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
       <Header
-        title="Nouvelle tâche"
+        title={t('taskForm.newTitle')}
         showBack
-        rightLabel="Enregistrer"
+        rightLabel={t('common.save')}
         onRightPress={handleSave}
       />
 
@@ -159,19 +161,19 @@ export default function NewTaskScreen() {
           <View style={styles.reserveBanner}>
             <Ionicons name="link-outline" size={15} color={C.primary} />
             <Text style={styles.reserveBannerText} numberOfLines={2}>
-              Liée à la réserve : <Text style={styles.reserveBannerTitle}>{sourceReserve.title}</Text>
+              {t('taskForm.linkedToReserve')} <Text style={styles.reserveBannerTitle}>{sourceReserve.title}</Text>
             </Text>
           </View>
         )}
 
         {/* ── Section 1 : Informations générales ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Informations générales</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.generalInfo')}</Text>
 
-          <Text style={styles.label}>Titre *</Text>
+          <Text style={styles.label}>{t('taskForm.titleLabel')}</Text>
           <DictationTextInput
             inputStyle={[styles.input, errors.title && styles.inputError]}
-            placeholder="Titre de la tâche"
+            placeholder={t('taskForm.titlePlaceholder')}
             placeholderTextColor={C.textMuted}
             value={title}
             onChangeText={t => { setTitle(t); if (errors.title) setErrors(p => ({ ...p, title: '' })); }}
@@ -180,10 +182,10 @@ export default function NewTaskScreen() {
           />
           {errors.title ? <Text style={styles.errorText}>{errors.title}</Text> : null}
 
-          <Text style={styles.label}>Description</Text>
+          <Text style={styles.label}>{t('taskForm.description')}</Text>
           <DictationTextInput
             inputStyle={[styles.input, styles.multiline]}
-            placeholder="Description détaillée..."
+            placeholder={t('taskForm.descriptionPlaceholder')}
             placeholderTextColor={C.textMuted}
             value={description}
             onChangeText={setDescription}
@@ -196,10 +198,10 @@ export default function NewTaskScreen() {
 
         {/* ── Section 2 : Planification ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Planification</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.planning')}</Text>
 
           <DateInput
-            label="Date de début"
+            label={t('taskForm.startDate')}
             value={startDate}
             onChange={v => { setStartDate(v); if (errors.startDate) setErrors(p => ({ ...p, startDate: '' })); }}
             optional
@@ -207,7 +209,7 @@ export default function NewTaskScreen() {
           {errors.startDate ? <Text style={styles.errorText}>{errors.startDate}</Text> : null}
 
           <DateInput
-            label="Échéance"
+            label={t('taskForm.deadline')}
             value={deadline}
             onChange={v => { setDeadline(v); if (errors.deadline) setErrors(p => ({ ...p, deadline: '' })); }}
           />
@@ -216,10 +218,10 @@ export default function NewTaskScreen() {
 
         {/* ── Section 3 : Affectation ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Affectation</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.assignment')}</Text>
 
           {/* Entreprise */}
-          <Text style={styles.label}>Entreprise</Text>
+          <Text style={styles.label}>{t('taskForm.company')}</Text>
           <CompanySelector
             mode="single"
             identifier="id"
@@ -227,15 +229,15 @@ export default function NewTaskScreen() {
             value={companyId === '' ? null : companyId}
             onChange={(v) => setCompanyId(v ?? '')}
             allowNone
-            noneLabel="Aucune"
-            emptyText="Aucune entreprise enregistrée"
+            noneLabel={t('companySelector.none')}
+            emptyText={t('companySelector.empty')}
           />
 
           {/* Responsable */}
-          <Text style={[styles.label, { marginTop: 14 }]}>Responsable</Text>
+          <Text style={[styles.label, { marginTop: 14 }]}>{t('taskForm.assignee')}</Text>
           <TextInput
             style={styles.input}
-            placeholder="Nom du responsable"
+            placeholder={t('taskForm.assigneePlaceholder')}
             placeholderTextColor={C.textMuted}
             value={assignee}
             onChangeText={setAssignee}
@@ -244,7 +246,7 @@ export default function NewTaskScreen() {
 
         {/* ── Section 4 : Statut & Priorité ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Statut</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.status')}</Text>
           <View style={styles.optionGrid}>
             {STATUS_OPTS.map(opt => {
               const active = status === opt.value;
@@ -256,7 +258,7 @@ export default function NewTaskScreen() {
                 >
                   <Ionicons name={opt.icon as any} size={15} color={active ? opt.color : C.textMuted} />
                   <Text style={[styles.optionLabel, active && { color: opt.color, fontFamily: 'Inter_600SemiBold' }]}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </Text>
                 </TouchableOpacity>
               );
@@ -265,7 +267,7 @@ export default function NewTaskScreen() {
         </View>
 
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Priorité</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.priority')}</Text>
           <View style={styles.optionGrid}>
             {PRIORITY_OPTS.map(opt => {
               const active = priority === opt.value;
@@ -277,7 +279,7 @@ export default function NewTaskScreen() {
                 >
                   <Ionicons name={opt.icon as any} size={15} color={active ? opt.color : C.textMuted} />
                   <Text style={[styles.optionLabel, active && { color: opt.color, fontFamily: 'Inter_600SemiBold' }]}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </Text>
                 </TouchableOpacity>
               );
@@ -287,7 +289,7 @@ export default function NewTaskScreen() {
 
         {/* ── Section 5 : Avancement ── */}
         <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Avancement</Text>
+          <Text style={styles.sectionTitle}>{t('taskForm.progress')}</Text>
 
           {/* Progress bar */}
           <View style={styles.progressBarBg}>
@@ -312,7 +314,7 @@ export default function NewTaskScreen() {
 
           {/* Custom input */}
           <View style={styles.progressInputRow}>
-            <Text style={styles.progressInputLabel}>Valeur précise :</Text>
+            <Text style={styles.progressInputLabel}>{t('taskForm.exactValue')}</Text>
             <TextInput
               style={styles.progressInput}
               value={String(progress)}
@@ -347,7 +349,7 @@ export default function NewTaskScreen() {
             : (
               <>
                 <Ionicons name="checkmark-circle" size={20} color="#fff" />
-                <Text style={styles.saveBtnText}>Créer la tâche</Text>
+                <Text style={styles.saveBtnText}>{t('taskForm.createTask')}</Text>
               </>
             )
           }

@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput,
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp, STANDARD_LOTS } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -16,6 +17,7 @@ const LOT_COLORS = [
 ];
 
 function LotCard({ lot, count, onDelete, canDelete }: { lot: Lot; count: number; onDelete: () => void; canDelete: boolean }) {
+  const { t } = useTranslation();
   const isStandard = !!STANDARD_LOTS.find(l => l.id === lot.id);
   return (
     <View style={[styles.lotCard, { borderLeftColor: lot.color }]}>
@@ -36,7 +38,7 @@ function LotCard({ lot, count, onDelete, canDelete }: { lot: Lot; count: number;
           {(lot as any).cctpRef ? (
             <Text style={styles.lotCctpRef} numberOfLines={1}>{(lot as any).cctpRef}</Text>
           ) : null}
-          <Text style={styles.lotCount}>{count} réserve{count !== 1 ? 's' : ''}</Text>
+          <Text style={styles.lotCount}>{t('lotsScreen.reserveCount', { count })}</Text>
         </View>
       </View>
       {canDelete && !isStandard && (
@@ -49,6 +51,7 @@ function LotCard({ lot, count, onDelete, canDelete }: { lot: Lot; count: number;
 }
 
 export default function LotsScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { lots, reserves, addLot, deleteLot } = useApp();
   const { permissions } = useAuth();
@@ -69,7 +72,7 @@ export default function LotsScreen() {
 
   function handleAdd() {
     if (!newCode.trim() || !newName.trim()) {
-      Alert.alert('Champs requis', 'Code et nom du lot sont obligatoires.');
+      Alert.alert(t('lotsScreen.requiredTitle'), t('lotsScreen.requiredText'));
       return;
     }
     const lot: Lot = {
@@ -85,17 +88,17 @@ export default function LotsScreen() {
   }
 
   function handleDelete(lot: Lot) {
-    Alert.alert('Supprimer le lot', `Supprimer le lot "${lot.name}" ?`, [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Supprimer', style: 'destructive', onPress: () => deleteLot(lot.id) },
+    Alert.alert(t('lotsScreen.deleteTitle'), t('lotsScreen.deleteText', { name: lot.name }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => deleteLot(lot.id) },
     ]);
   }
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
-        title="Lots de travaux"
-        subtitle={`${lots.length} lot${lots.length !== 1 ? 's' : ''}`}
+        title={t('lotsScreen.title')}
+        subtitle={t('lotsScreen.subtitle', { count: lots.length })}
         showBack
         rightIcon={permissions.canCreate ? 'add-circle-outline' : undefined}
         onRightPress={permissions.canCreate ? () => setShowForm(v => !v) : undefined}
@@ -104,10 +107,10 @@ export default function LotsScreen() {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {showForm && (
           <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Nouveau lot personnalisé</Text>
+            <Text style={styles.formTitle}>{t('lotsScreen.newCustomLot')}</Text>
             <View style={styles.formRow}>
               <View style={[styles.formField, { flex: 0.3 }]}>
-                <Text style={styles.label}>Code</Text>
+                <Text style={styles.label}>{t('lotsScreen.code')}</Text>
                 <TextInput
                   style={styles.input}
                   placeholder="Ex: 16"
@@ -119,17 +122,17 @@ export default function LotsScreen() {
                 />
               </View>
               <View style={[styles.formField, { flex: 1 }]}>
-                <Text style={styles.label}>Nom</Text>
+                <Text style={styles.label}>{t('lotsScreen.name')}</Text>
                 <TextInput
                   style={styles.input}
-                  placeholder="Ex: Sécurité incendie"
+                  placeholder={t('lotsScreen.namePlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={newName}
                   onChangeText={setNewName}
                 />
               </View>
             </View>
-            <Text style={styles.label}>Couleur</Text>
+            <Text style={styles.label}>{t('lotsScreen.color')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false}>
               <View style={styles.colorRow}>
                 {LOT_COLORS.map(col => (
@@ -143,11 +146,11 @@ export default function LotsScreen() {
             </ScrollView>
             <View style={styles.formActions}>
               <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowForm(false)}>
-                <Text style={styles.cancelBtnText}>Annuler</Text>
+                <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.addBtn} onPress={handleAdd}>
                 <Ionicons name="add" size={16} color="#fff" />
-                <Text style={styles.addBtnText}>Ajouter</Text>
+                <Text style={styles.addBtnText}>{t('lotsScreen.add')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -156,13 +159,13 @@ export default function LotsScreen() {
         <View style={styles.infoCard}>
           <Ionicons name="information-circle-outline" size={16} color={C.primary} />
           <Text style={styles.infoText}>
-            Les lots BTP standards sont pré-configurés. Vous pouvez ajouter vos propres lots métier.
+            {t('lotsScreen.info')}
           </Text>
         </View>
 
         {assignedLots.length > 0 && (
           <>
-            <Text style={styles.sectionLabel}>LOTS AVEC RÉSERVES ({assignedLots.length})</Text>
+            <Text style={styles.sectionLabel}>{t('lotsScreen.assignedSection', { count: assignedLots.length }).toUpperCase()}</Text>
             {assignedLots.map(lot => (
               <LotCard
                 key={lot.id}
@@ -176,7 +179,7 @@ export default function LotsScreen() {
         )}
 
         <Text style={styles.sectionLabel}>
-          {assignedLots.length > 0 ? `TOUS LES LOTS (${unassignedLots.length} sans réserves)` : `LOTS BTP STANDARDS (${lots.length})`}
+          {assignedLots.length > 0 ? t('lotsScreen.allLotsSection', { count: unassignedLots.length }).toUpperCase() : t('lotsScreen.standardSection', { count: lots.length }).toUpperCase()}
         </Text>
         {unassignedLots.map(lot => (
           <LotCard
@@ -191,7 +194,7 @@ export default function LotsScreen() {
         {permissions.canCreate && !showForm && (
           <TouchableOpacity style={styles.newLotBtn} onPress={() => setShowForm(true)}>
             <Ionicons name="add-circle-outline" size={18} color={C.primary} />
-            <Text style={styles.newLotBtnText}>Ajouter un lot personnalisé</Text>
+            <Text style={styles.newLotBtnText}>{t('lotsScreen.addCustomLot')}</Text>
           </TouchableOpacity>
         )}
       </ScrollView>

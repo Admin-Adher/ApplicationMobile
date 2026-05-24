@@ -39,7 +39,6 @@ function formatDate(iso: string): string {
 
 type PwdStrength = 0 | 1 | 2 | 3;
 const PWD_STRENGTH_COLORS: Record<PwdStrength, string> = { 0: '#E5E7EB', 1: '#EF4444', 2: '#F59E0B', 3: '#22C55E' };
-const PWD_STRENGTH_LABELS: Record<PwdStrength, string> = { 0: '', 1: 'Faible', 2: 'Moyen', 3: 'Fort' };
 function getPwdStrength(pwd: string): PwdStrength {
   if (!pwd) return 0;
   let score = 0;
@@ -128,13 +127,13 @@ export default function SettingsScreen() {
   // diagnostic en "Vérification en cours…" indéfiniment.
   function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      const t = setTimeout(
-        () => reject(new Error(`Connexion lente ou instable (${label}). Vérifiez votre réseau et réessayez.`)),
+      const timer = setTimeout(
+        () => reject(new Error(t('settings.diagnostic.timeout', { label }))),
         ms,
       );
       p.then(
-        v => { clearTimeout(t); resolve(v); },
-        e => { clearTimeout(t); reject(e); },
+        v => { clearTimeout(timer); resolve(v); },
+        e => { clearTimeout(timer); reject(e); },
       );
     });
   }
@@ -142,7 +141,7 @@ export default function SettingsScreen() {
   async function runDiagnostic() {
     setDiag({ loading: true, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: null });
     if (!isSupabaseConfigured) {
-      setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: 'Supabase non configuré (mode hors-ligne).' });
+      setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: t('settings.diagnostic.supabaseNotConfigured') });
       return;
     }
     try {
@@ -152,7 +151,7 @@ export default function SettingsScreen() {
         'session',
       ) as any;
       if (!session?.user?.id) {
-        setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: 'Aucune session active. Reconnectez-vous.' });
+        setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: t('settings.diagnostic.noSession') });
         return;
       }
       const { data: profile, error: profErr } = await withTimeout(
@@ -165,7 +164,7 @@ export default function SettingsScreen() {
         'profil',
       ) as any;
       if (profErr) {
-        setDiag({ loading: false, sessionUserId: session.user.id, sessionExpiresAt: session.expires_at ?? null, serverRole: null, serverOrgId: null, error: `Profil introuvable côté serveur (${profErr.message}).` });
+        setDiag({ loading: false, sessionUserId: session.user.id, sessionExpiresAt: session.expires_at ?? null, serverRole: null, serverOrgId: null, error: t('settings.diagnostic.profileMissing', { message: profErr.message }) });
         return;
       }
       setDiag({
@@ -180,7 +179,13 @@ export default function SettingsScreen() {
       // getSession() timed out (auth server slow or JWT-refresh call hanging).
       // The network may be perfectly fine — only the Supabase auth endpoint is slow.
       // Try to read the cached session from AsyncStorage to still show useful info.
-      const isTimeout = err?.message?.includes('Connexion lente') || err?.message?.includes('lent') || err?.message?.includes('timeout');
+      const isTimeout = err?.message?.includes('Connexion lente')
+        || err?.message?.includes('Slow')
+        || err?.message?.includes('lenta')
+        || err?.message?.includes('lent')
+        || err?.message?.includes('timeout')
+        || err?.message?.includes('instable')
+        || err?.message?.includes('unstable');
       let cachedUserId: string | null = null;
       let cachedExpiresAt: number | null = null;
       let sessionStillValid = false;
@@ -203,8 +208,8 @@ export default function SettingsScreen() {
         serverRole: null,
         serverOrgId: null,
         error: isTimeout
-          ? `Serveur auth lent (>${(15000 / 1000).toFixed(0)} s). Réseau local OK — seul le serveur Supabase est lent.${sessionStillValid ? ' Session locale encore valide.' : ' JWT expiré, reconnexion recommandée.'}`
-          : (err?.message ?? 'Erreur inconnue.'),
+          ? t('settings.diagnostic.authSlow', { seconds: (15000 / 1000).toFixed(0), state: sessionStillValid ? t('settings.diagnostic.localSessionValid') : t('settings.diagnostic.jwtExpired') })
+          : (err?.message ?? t('settings.diagnostic.unknownError')),
         sessionTimedOut: isTimeout,
       });
     }
@@ -223,25 +228,25 @@ export default function SettingsScreen() {
   if (diag && !diag.loading && !diag.error) {
     const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'super_admin'];
     if (diag.serverOrgId && user?.organizationId && diag.serverOrgId !== user.organizationId) {
-      diagIssues.push({ level: 'error', msg: `Organisation locale (${user.organizationId.slice(0, 8)}…) ≠ serveur (${diag.serverOrgId.slice(0, 8)}…). Reconnectez-vous.` });
+      diagIssues.push({ level: 'error', msg: t('settings.diagnostic.orgMismatch', { local: user.organizationId.slice(0, 8), server: diag.serverOrgId.slice(0, 8) }) });
     }
     if (!diag.serverOrgId && diag.serverRole !== 'super_admin') {
-      diagIssues.push({ level: 'error', msg: "Votre profil serveur n'a pas d'organisation. Vous ne pouvez ni créer ni voir de réserves." });
+      diagIssues.push({ level: 'error', msg: t('settings.diagnostic.noServerOrg') });
     }
     if (diag.serverRole && diag.serverRole !== user?.role) {
-      diagIssues.push({ level: 'warn', msg: `Rôle local (${user?.role}) ≠ rôle serveur (${diag.serverRole}). Reconnectez-vous pour rafraîchir.` });
+      diagIssues.push({ level: 'warn', msg: t('settings.diagnostic.roleMismatch', { local: user?.role, server: diag.serverRole }) });
     }
     if (diag.serverRole && !allowedRoles.includes(diag.serverRole)) {
-      diagIssues.push({ level: 'warn', msg: `Rôle ${diag.serverRole} : lecture seule (création de réserves/tâches impossible).` });
+      diagIssues.push({ level: 'warn', msg: t('settings.diagnostic.readOnlyRole', { role: diag.serverRole }) });
     }
     if (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 < Date.now()) {
-      diagIssues.push({ level: 'error', msg: 'Session JWT expirée. Reconnectez-vous.' });
+      diagIssues.push({ level: 'error', msg: t('settings.diagnostic.sessionExpired') });
     }
   }
   if (queueCount > 0) {
     diagIssues.push({
       level: 'warn',
-      msg: `${queueCount} opération${queueCount > 1 ? 's' : ''} en attente de synchronisation${!isOnline ? ' (hors ligne)' : ''}.`,
+      msg: t(isOnline ? 'settings.syncQueue.pending' : 'settings.syncQueue.pendingOffline', { count: queueCount }),
     });
   }
   const diagOk = diag && !diag.loading && !diag.error && diagIssues.length === 0;
@@ -385,16 +390,16 @@ export default function SettingsScreen() {
   function handleClearQueue() {
     if (queueCount === 0) return;
     Alert.alert(
-      'Vider la file de synchronisation',
-      `${queueCount} opération${queueCount > 1 ? 's' : ''} bloquée${queueCount > 1 ? 's' : ''} ${queueCount > 1 ? 'seront supprimées' : 'sera supprimée'} sans être envoyée${queueCount > 1 ? 's' : ''} au serveur. Cette action est irréversible.`,
+      t('settings.syncQueue.clearTitle'),
+      t('settings.syncQueue.clearMessage', { count: queueCount }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Vider',
+          text: t('settings.syncQueue.clearAction'),
           style: 'destructive',
           onPress: async () => {
             await clearQueue();
-            Alert.alert('File vidée', 'Les opérations en attente ont été supprimées.');
+            Alert.alert(t('settings.syncQueue.clearedTitle'), t('settings.syncQueue.clearedText'));
           },
         },
       ],
@@ -410,74 +415,74 @@ export default function SettingsScreen() {
 
   async function handleSaveName() {
     const trimmed = nameEdit.trim();
-    if (!trimmed) { setNameMsg({ ok: false, text: 'Le nom ne peut pas être vide.' }); return; }
-    if (trimmed === user?.name) { setNameMsg({ ok: false, text: 'Aucun changement détecté.' }); return; }
-    if (!isSupabaseConfigured) { setNameMsg({ ok: false, text: 'Connexion au serveur requise.' }); return; }
+    if (!trimmed) { setNameMsg({ ok: false, text: t('settings.profile.nameRequired') }); return; }
+    if (trimmed === user?.name) { setNameMsg({ ok: false, text: t('settings.profile.noChange') }); return; }
+    if (!isSupabaseConfigured) { setNameMsg({ ok: false, text: t('settings.profile.serverRequired') }); return; }
     setSavingName(true);
     setNameMsg(null);
     const { error } = await (supabase as any).from('profiles').update({ name: trimmed }).eq('id', user?.id);
     setSavingName(false);
     if (error) {
-      setNameMsg({ ok: false, text: 'Erreur lors de la mise à jour. Réessayez.' });
+      setNameMsg({ ok: false, text: t('settings.profile.updateError') });
     } else {
-      setNameMsg({ ok: true, text: 'Nom mis à jour avec succès.' });
+      setNameMsg({ ok: true, text: t('settings.profile.nameUpdated') });
     }
   }
 
   async function handleChangePassword() {
     setPwdMsg(null);
-    if (!currentPwd) { setPwdMsg({ ok: false, text: 'Saisissez votre mot de passe actuel.' }); return; }
-    if (newPwd.length < 6) { setPwdMsg({ ok: false, text: 'Le nouveau mot de passe doit faire au moins 6 caractères.' }); return; }
-    if (newPwd !== confirmPwd) { setPwdMsg({ ok: false, text: 'Les mots de passe ne correspondent pas.' }); return; }
-    if (!isSupabaseConfigured || !user?.email) { setPwdMsg({ ok: false, text: 'Connexion au serveur requise.' }); return; }
+    if (!currentPwd) { setPwdMsg({ ok: false, text: t('settings.profile.currentPasswordRequired') }); return; }
+    if (newPwd.length < 6) { setPwdMsg({ ok: false, text: t('settings.profile.passwordTooShort') }); return; }
+    if (newPwd !== confirmPwd) { setPwdMsg({ ok: false, text: t('settings.profile.passwordMismatch') }); return; }
+    if (!isSupabaseConfigured || !user?.email) { setPwdMsg({ ok: false, text: t('settings.profile.serverRequired') }); return; }
     setSavingPwd(true);
     const { error: authError } = await supabase.auth.signInWithPassword({ email: user.email, password: currentPwd });
     if (authError) {
       setSavingPwd(false);
-      setPwdMsg({ ok: false, text: 'Mot de passe actuel incorrect.' });
+      setPwdMsg({ ok: false, text: t('settings.profile.currentPasswordIncorrect') });
       return;
     }
     const { error: updateError } = await supabase.auth.updateUser({ password: newPwd });
     setSavingPwd(false);
     if (updateError) {
-      setPwdMsg({ ok: false, text: 'Erreur lors du changement. Réessayez.' });
+      setPwdMsg({ ok: false, text: t('settings.profile.passwordChangeError') });
     } else {
       setCurrentPwd(''); setNewPwd(''); setConfirmPwd('');
-      setPwdMsg({ ok: true, text: 'Mot de passe modifié. Un email de confirmation vous a été envoyé.' });
+      setPwdMsg({ ok: true, text: t('settings.profile.passwordChanged') });
       if (user?.email) {
         const { sendPasswordChangedEmail } = await import('@/lib/email/client');
-        sendPasswordChangedEmail({ email: user.email, name: user.name, language: user.preferredLanguage }).catch(() => {});
+        sendPasswordChangedEmail({ email: user.email, name: user.name, language: effectiveLanguage }).catch(() => {});
       }
     }
   }
 
   async function handleSave() {
     if (!nameInput.trim()) {
-      Alert.alert('Champ requis', 'Le nom du projet est obligatoire.');
+      Alert.alert(t('settings.projectTab.requiredTitle'), t('settings.projectTab.nameRequired'));
       return;
     }
     setSaving(true);
     await setProjectName(nameInput.trim());
     await setProjectDescription(descInput.trim());
     setSaving(false);
-    Alert.alert('Enregistré', 'Les paramètres du projet ont été mis à jour.');
+    Alert.alert(t('settings.projectTab.savedTitle'), t('settings.projectTab.savedText'));
   }
 
   async function handleSaveAttendance() {
     if (companies.length === 0) {
-      Alert.alert('Aucune entreprise', "Ajoutez d'abord des entreprises dans l'onglet Équipes.");
+      Alert.alert(t('settings.attendanceTab.noCompanyTitle'), t('settings.attendanceTab.noCompanyText'));
       return;
     }
     Alert.alert(
-      'Sauvegarder les présences',
-      `Enregistrer les présences du jour (${companies.reduce((a, c) => a + c.actualWorkers, 0)} personnes au total) dans l'historique ?`,
+      t('settings.attendanceTab.saveSnapshotTitle'),
+      t('settings.attendanceTab.saveSnapshotText', { count: companies.reduce<number>((a, c) => a + c.actualWorkers, 0) }),
       [
-        { text: 'Annuler', style: 'cancel' },
+        { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Sauvegarder',
+          text: t('settings.attendanceTab.saveSnapshotAction'),
           onPress: async () => {
-            await saveAttendanceSnapshot(companies, user?.name ?? 'Système');
-            Alert.alert('Présences sauvegardées', "L'instantané a été enregistré dans l'historique.");
+            await saveAttendanceSnapshot(companies, user?.name ?? t('settings.systemUser'));
+            Alert.alert(t('settings.attendanceTab.snapshotSavedTitle'), t('settings.attendanceTab.snapshotSavedText'));
           },
         },
       ]
@@ -486,29 +491,29 @@ export default function SettingsScreen() {
 
   function handleClearHistory() {
     Alert.alert(
-      "Effacer l'historique",
-      `Supprimer définitivement l'historique des présences (${attendanceHistory.length} enregistrements) ?`,
+      t('settings.attendanceTab.clearHistoryTitle'),
+      t('settings.attendanceTab.clearHistoryText', { count: attendanceHistory.length }),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Effacer', style: 'destructive', onPress: () => clearAttendanceHistory() },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('settings.attendanceTab.clearHistoryAction'), style: 'destructive', onPress: () => clearAttendanceHistory() },
       ]
     );
   }
 
   function handleLogout() {
     Alert.alert(
-      'Déconnexion',
-      'Voulez-vous vraiment vous déconnecter ?',
+      t('settings.logoutTitle'),
+      t('settings.logoutMessage'),
       [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Déconnexion', style: 'destructive', onPress: () => logout() },
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('settings.logoutAction'), style: 'destructive', onPress: () => logout() },
       ]
     );
   }
 
   const pwdStrength = getPwdStrength(newPwd);
   const pwdStrengthColor = PWD_STRENGTH_COLORS[pwdStrength];
-  const pwdStrengthLabel = PWD_STRENGTH_LABELS[pwdStrength];
+  const pwdStrengthLabel = pwdStrength === 0 ? '' : t(`settings.profile.strength.${pwdStrength}`);
 
   const statusCfg = subscription ? STATUS_COLORS[subscription.status] : STATUS_COLORS.trial;
   const seatRatio = seatMax === -1 ? 0 : seatUsed / seatMax;
@@ -516,6 +521,7 @@ export default function SettingsScreen() {
   const roleColor = ROLE_COLORS[user?.role ?? 'observateur'] ?? C.primary;
   const userInitials = user ? user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '??';
   const activeLanguage = supportedLanguages.find(lang => lang.code === effectiveLanguage) ?? supportedLanguages[0];
+  const appLocale = effectiveLanguage === 'en' ? 'en-US' : effectiveLanguage === 'es' ? 'es-ES' : 'fr-FR';
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -549,7 +555,7 @@ export default function SettingsScreen() {
               <View style={styles.card}>
                 <View style={styles.cardTitleRow}>
                   <Ionicons name="business-outline" size={16} color={C.primary} />
-                  <Text style={styles.cardTitle}>Organisation</Text>
+                  <Text style={styles.cardTitle}>{t('settings.organization')}</Text>
                 </View>
                 <Text style={styles.orgName}>{organization.name}</Text>
                 <Text style={styles.orgSlug}>/{organization.slug}</Text>
@@ -623,16 +629,16 @@ export default function SettingsScreen() {
             <View style={styles.card}>
               <View style={styles.cardTitleRow}>
                 <Ionicons name="person-outline" size={16} color={C.primary} />
-                <Text style={styles.cardTitle}>Modifier mon profil</Text>
+                <Text style={styles.cardTitle}>{t('settings.profile.title')}</Text>
               </View>
 
               {/* Nom */}
-              <Text style={styles.label}>Nom affiché</Text>
+              <Text style={styles.label}>{t('settings.profile.displayName')}</Text>
               <TextInput
                 style={styles.input}
                 value={nameEdit}
                 onChangeText={v => { setNameEdit(v); setNameMsg(null); }}
-                placeholder="Votre nom"
+                placeholder={t('settings.profile.displayNamePlaceholder')}
                 placeholderTextColor={C.textMuted}
                 autoCapitalize="words"
                 autoCorrect={false}
@@ -649,7 +655,7 @@ export default function SettingsScreen() {
                 disabled={savingName}
               >
                 <Ionicons name={savingName ? 'sync' : 'checkmark-circle-outline'} size={16} color={C.primary} />
-                <Text style={styles.profileBtnTxt}>{savingName ? 'Enregistrement…' : 'Enregistrer le nom'}</Text>
+                <Text style={styles.profileBtnTxt}>{savingName ? t('settings.profile.saving') : t('settings.profile.saveName')}</Text>
               </TouchableOpacity>
 
               <View style={styles.profileDivider} />
@@ -657,10 +663,10 @@ export default function SettingsScreen() {
               {/* Mot de passe */}
               <View style={styles.cardTitleRow}>
                 <Ionicons name="lock-closed-outline" size={15} color={C.primary} />
-                <Text style={styles.cardTitle}>Changer le mot de passe</Text>
+                <Text style={styles.cardTitle}>{t('settings.profile.changePassword')}</Text>
               </View>
 
-              <Text style={styles.label}>Mot de passe actuel</Text>
+              <Text style={styles.label}>{t('settings.profile.currentPassword')}</Text>
               <View style={styles.pwdWrap}>
                 <TextInput
                   style={styles.pwdInput}
@@ -675,7 +681,7 @@ export default function SettingsScreen() {
                 </TouchableOpacity>
               </View>
 
-              <Text style={styles.label}>Nouveau mot de passe</Text>
+              <Text style={styles.label}>{t('settings.profile.newPassword')}</Text>
               <View style={styles.pwdWrap}>
                 <TextInput
                   style={styles.pwdInput}
@@ -703,7 +709,7 @@ export default function SettingsScreen() {
                 </View>
               )}
 
-              <Text style={styles.label}>Confirmer le nouveau mot de passe</Text>
+              <Text style={styles.label}>{t('settings.profile.confirmPassword')}</Text>
               <TextInput
                 style={styles.input}
                 value={confirmPwd}
@@ -726,7 +732,7 @@ export default function SettingsScreen() {
                 disabled={savingPwd}
               >
                 <Ionicons name={savingPwd ? 'sync' : 'shield-checkmark-outline'} size={16} color={C.primary} />
-                <Text style={styles.profileBtnTxt}>{savingPwd ? 'Vérification…' : 'Changer le mot de passe'}</Text>
+                <Text style={styles.profileBtnTxt}>{savingPwd ? t('settings.profile.checking') : t('settings.profile.changePasswordAction')}</Text>
               </TouchableOpacity>
             </View>
 
@@ -737,8 +743,8 @@ export default function SettingsScreen() {
                   <Ionicons name="shield" size={18} color="#8B5CF6" />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.navLabel, { color: '#8B5CF6' }]}>Super Admin Dashboard</Text>
-                  <Text style={styles.navSubPlain}>Gérer organisations et formules</Text>
+                  <Text style={[styles.navLabel, { color: '#8B5CF6' }]}>{t('settings.superAdmin.title')}</Text>
+                  <Text style={styles.navSubPlain}>{t('settings.superAdmin.subtitle')}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="#8B5CF6" />
               </TouchableOpacity>
@@ -753,12 +759,12 @@ export default function SettingsScreen() {
                 />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.navLabel}>Diagnostic du compte</Text>
+                <Text style={styles.navLabel}>{t('settings.diagnostic.title')}</Text>
                 <Text style={styles.navSubPlain}>
-                  {diagOk ? 'Tout est synchronisé avec le serveur'
+                  {diagOk ? t('settings.diagnostic.allSynced')
                     : diag?.error ? diag.error
-                    : diag && diagIssues.length > 0 ? `${diagIssues.length} problème${diagIssues.length > 1 ? 's' : ''} détecté${diagIssues.length > 1 ? 's' : ''}`
-                    : 'Vérifier la cohérence local ↔ serveur'}
+                    : diag && diagIssues.length > 0 ? t('settings.diagnostic.problemCount', { count: diagIssues.length })
+                    : t('settings.diagnostic.checkConsistency')}
                 </Text>
               </View>
               <Ionicons name={diagOpen ? 'chevron-up' : 'chevron-down'} size={16} color={C.textMuted} />
@@ -767,43 +773,43 @@ export default function SettingsScreen() {
             {diagOpen && (
               <View style={[styles.card, { marginTop: 8 }]}>
                 {diag?.loading && (
-                  <Text style={styles.emptyText}>Vérification en cours…</Text>
+                  <Text style={styles.emptyText}>{t('settings.diagnostic.checking')}</Text>
                 )}
                 {diag && !diag.loading && (
                   <>
                     <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>ID utilisateur</Text>
+                      <Text style={styles.diagLabel}>{t('settings.diagnostic.userId')}</Text>
                       <Text style={styles.diagValue} numberOfLines={1}>{user?.id ?? '—'}</Text>
                     </View>
                     <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>Rôle (local)</Text>
+                      <Text style={styles.diagLabel}>{t('settings.diagnostic.localRole')}</Text>
                       <Text style={styles.diagValue}>{user?.role ?? '—'}</Text>
                     </View>
                     <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>Rôle (serveur)</Text>
+                      <Text style={styles.diagLabel}>{t('settings.diagnostic.serverRole')}</Text>
                       <Text style={styles.diagValue}>{diag.serverRole ?? '—'}</Text>
                     </View>
                     <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>Organisation (local)</Text>
+                      <Text style={styles.diagLabel}>{t('settings.diagnostic.localOrg')}</Text>
                       <Text style={styles.diagValue} numberOfLines={1}>{user?.organizationId ?? '—'}</Text>
                     </View>
                     <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>Organisation (serveur)</Text>
+                      <Text style={styles.diagLabel}>{t('settings.diagnostic.serverOrg')}</Text>
                       <Text style={styles.diagValue} numberOfLines={1}>{diag.serverOrgId ?? '—'}</Text>
                     </View>
                     <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>Session</Text>
+                      <Text style={styles.diagLabel}>{t('settings.diagnostic.session')}</Text>
                       <Text style={[
                         styles.diagValue,
                         diag.sessionTimedOut ? { color: '#F59E0B' } : undefined,
                       ]}>
                         {diag.sessionUserId
                           ? (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 > Date.now()
-                              ? `${diag.sessionTimedOut ? '(cache) ' : ''}Active · expire ${new Date(diag.sessionExpiresAt * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })} ${new Date(diag.sessionExpiresAt * 1000).toLocaleDateString('fr-FR')}`
-                              : `${diag.sessionTimedOut ? '(cache) ' : ''}Expirée — reconnexion recommandée`)
+                              ? t('settings.diagnostic.sessionActive', { cache: diag.sessionTimedOut ? t('settings.diagnostic.cachePrefix') : '', time: new Date(diag.sessionExpiresAt * 1000).toLocaleTimeString(appLocale, { hour: '2-digit', minute: '2-digit' }), date: new Date(diag.sessionExpiresAt * 1000).toLocaleDateString(appLocale) })
+                              : t('settings.diagnostic.sessionExpiredCached', { cache: diag.sessionTimedOut ? t('settings.diagnostic.cachePrefix') : '' }))
                           : diag.sessionTimedOut
-                          ? 'Serveur auth lent (cache vide)'
-                          : 'Aucune'}
+                          ? t('settings.diagnostic.authSlowNoCache')
+                          : t('settings.diagnostic.none')}
                       </Text>
                     </View>
 
@@ -822,7 +828,7 @@ export default function SettingsScreen() {
                     {diagOk && (
                       <View style={styles.diagAlertOk}>
                         <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                        <Text style={styles.diagAlertTextOk}>Profil local et serveur synchronisés. Création de réserves autorisée.</Text>
+                        <Text style={styles.diagAlertTextOk}>{t('settings.diagnostic.profileSynced')}</Text>
                       </View>
                     )}
 
@@ -835,13 +841,13 @@ export default function SettingsScreen() {
                             color="#F59E0B"
                           />
                           <Text style={styles.queueHeaderTxt}>
-                            File de synchronisation ({queueCount})
+                            {t('settings.syncQueue.titleWithCount', { count: queueCount })}
                           </Text>
                         </View>
                         <Text style={styles.queueHint}>
                           {isOnline
-                            ? 'Ces opérations attendent d\'être envoyées au serveur. Si elles restent bloquées, elles ont probablement été refusées (ex. permission RLS, données invalides) et peuvent être vidées.'
-                            : 'Hors ligne — les opérations seront envoyées dès le retour de la connexion.'}
+                            ? t('settings.syncQueue.onlineHint')
+                            : t('settings.syncQueue.offlineHint')}
                         </Text>
                         {queue.slice(0, 5).map((op) => (
                           <View key={op.id} style={styles.queueItem}>
@@ -852,8 +858,8 @@ export default function SettingsScreen() {
                                 {op.filter ? ` · ${String(op.filter.value).slice(0, 8)}…` : ''}
                               </Text>
                               <Text style={styles.queueItemMeta} numberOfLines={1}>
-                                {new Date(op.queuedAt).toLocaleString('fr-FR')}
-                                {op.attemptCount ? ` · ${op.attemptCount} échec${op.attemptCount > 1 ? 's' : ''}` : ''}
+                                {new Date(op.queuedAt).toLocaleString(appLocale)}
+                                {op.attemptCount ? ` · ${t('settings.syncQueue.failures', { count: op.attemptCount })}` : ''}
                               </Text>
                               {op.lastError && (
                                 <Text style={styles.queueItemError} numberOfLines={3}>
@@ -864,7 +870,7 @@ export default function SettingsScreen() {
                           </View>
                         ))}
                         {queue.length > 5 && (
-                          <Text style={styles.queueMore}>+ {queue.length - 5} autre{queue.length - 5 > 1 ? 's' : ''}…</Text>
+                          <Text style={styles.queueMore}>{t('settings.syncQueue.more', { count: queue.length - 5 })}</Text>
                         )}
                         <View style={styles.queueActionsRow}>
                           <TouchableOpacity
@@ -879,13 +885,13 @@ export default function SettingsScreen() {
                             />
                             <Text style={[styles.queueRetryTxt, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabledTxt]}>
                               {syncStatus === 'syncing'
-                                ? (syncProgress.total > 0 ? `Sync ${syncProgress.done}/${syncProgress.total}` : 'Sync…')
-                                : !isOnline ? 'Hors ligne' : 'Réessayer'}
+                                ? (syncProgress.total > 0 ? t('settings.syncQueue.syncProgress', { done: syncProgress.done, total: syncProgress.total }) : t('settings.syncQueue.syncing'))
+                                : !isOnline ? t('common.offline') : t('common.retry')}
                             </Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={styles.queueClearBtn} onPress={handleClearQueue}>
                             <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                            <Text style={styles.queueClearTxt}>Vider</Text>
+                            <Text style={styles.queueClearTxt}>{t('settings.syncQueue.clearAction')}</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
@@ -893,7 +899,7 @@ export default function SettingsScreen() {
 
                     <TouchableOpacity style={styles.diagRefreshBtn} onPress={runDiagnostic}>
                       <Ionicons name="refresh" size={14} color={C.primary} />
-                      <Text style={styles.diagRefreshTxt}>Relancer le diagnostic</Text>
+                      <Text style={styles.diagRefreshTxt}>{t('settings.diagnostic.refresh')}</Text>
                     </TouchableOpacity>
                   </>
                 )}
@@ -904,7 +910,7 @@ export default function SettingsScreen() {
               <View style={[styles.navIcon, { backgroundColor: '#FEF2F2' }]}>
                 <Ionicons name="log-out-outline" size={18} color="#EF4444" />
               </View>
-              <Text style={[styles.navLabel, { color: '#EF4444', flex: 1 }]}>Déconnexion</Text>
+              <Text style={[styles.navLabel, { color: '#EF4444', flex: 1 }]}>{t('settings.logoutAction')}</Text>
               <Ionicons name="chevron-forward" size={16} color="#EF4444" />
             </TouchableOpacity>
           </View>
@@ -1044,10 +1050,10 @@ export default function SettingsScreen() {
             {isAdmin && (
               <View style={styles.statsGrid}>
                 {[
-                  { icon: 'warning-outline', label: 'Réserves', val: companies.length > 0 ? '—' : '0', color: C.waiting },
-                  { icon: 'people-outline', label: 'Entreprises', val: String(companies.length), color: C.primary },
-                  { icon: 'folder-open-outline', label: 'Documents', val: '—', color: C.inProgress },
-                  { icon: 'shield-outline', label: 'Incidents', val: '—', color: '#EF4444' },
+                  { icon: 'warning-outline', label: t('settings.projectTab.stats.reserves'), val: companies.length > 0 ? '—' : '0', color: C.waiting },
+                  { icon: 'people-outline', label: t('settings.projectTab.stats.companies'), val: String(companies.length), color: C.primary },
+                  { icon: 'folder-open-outline', label: t('settings.projectTab.stats.documents'), val: '—', color: C.inProgress },
+                  { icon: 'shield-outline', label: t('settings.projectTab.stats.incidents'), val: '—', color: '#EF4444' },
                 ].map(s => (
                   <View key={s.label} style={styles.statBox}>
                     <Ionicons name={s.icon as any} size={20} color={s.color} />
@@ -1060,12 +1066,12 @@ export default function SettingsScreen() {
 
             {isAdmin && (
               <View style={[styles.card, { marginBottom: 14 }]}>
-                <Text style={styles.cardTitle}>Accès rapide</Text>
+                <Text style={styles.cardTitle}>{t('settings.projectTab.quickAccess')}</Text>
                 {[
-                  { icon: 'people', label: 'Gérer les équipes', route: '/(tabs)/equipes', color: '#EC4899' },
-                  { icon: 'document-text', label: 'Rapports chantier', route: '/rapports', color: C.verification },
-                  { icon: 'map', label: 'Plans interactifs', route: '/(tabs)/plans', color: C.closed },
-                  { icon: 'calendar', label: 'Planning des tâches', route: '/planning', color: C.primary },
+                  { icon: 'people', label: t('settings.projectTab.quickTeams'), route: '/(tabs)/equipes', color: '#EC4899' },
+                  { icon: 'document-text', label: t('settings.projectTab.quickReports'), route: '/rapports', color: C.verification },
+                  { icon: 'map', label: t('settings.projectTab.quickPlans'), route: '/(tabs)/plans', color: C.closed },
+                  { icon: 'calendar', label: t('settings.projectTab.quickPlanning'), route: '/planning', color: C.primary },
                 ].map(item => (
                   <TouchableOpacity key={item.label} style={styles.quickRow} onPress={() => router.push(item.route as any)}>
                     <View style={[styles.quickIcon, { backgroundColor: item.color + '18' }]}>
@@ -1080,24 +1086,24 @@ export default function SettingsScreen() {
 
             {isAdmin ? (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>Informations du projet</Text>
+                <Text style={styles.cardTitle}>{t('settings.projectTab.projectInfo')}</Text>
 
-                <Text style={styles.label}>Nom du projet *</Text>
+                <Text style={styles.label}>{t('settings.projectTab.projectName')}</Text>
                 <TextInput
                   style={styles.input}
                   value={nameInput}
                   onChangeText={setNameInput}
-                  placeholder="Ex : Résidence Les Pins"
+                  placeholder={t('settings.projectTab.projectNamePlaceholder')}
                   placeholderTextColor={C.textMuted}
                   maxLength={60}
                 />
 
-                <Text style={styles.label}>Description</Text>
+                <Text style={styles.label}>{t('settings.projectTab.description')}</Text>
                 <TextInput
                   style={[styles.input, styles.textArea]}
                   value={descInput}
                   onChangeText={setDescInput}
-                  placeholder="Ex : Chantier de construction — 48 logements"
+                  placeholder={t('settings.projectTab.descriptionPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   multiline
                   numberOfLines={3}
@@ -1110,14 +1116,14 @@ export default function SettingsScreen() {
                   disabled={saving}
                 >
                   <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                  <Text style={styles.saveBtnText}>{saving ? 'Enregistrement...' : 'Enregistrer'}</Text>
+                  <Text style={styles.saveBtnText}>{saving ? t('settings.projectTab.saving') : t('common.save')}</Text>
                 </TouchableOpacity>
               </View>
             ) : (
               <View style={[styles.card, { alignItems: 'center', paddingVertical: 28 }]}>
                 <Ionicons name="lock-closed-outline" size={32} color={C.textMuted} />
-                <Text style={[styles.cardTitle, { marginTop: 10, textAlign: 'center' }]}>Paramètres projet réservés aux administrateurs</Text>
-                <Text style={[styles.emptyText, { textAlign: 'center', marginTop: 4 }]}>Nom du projet : {projectName}</Text>
+                <Text style={[styles.cardTitle, { marginTop: 10, textAlign: 'center' }]}>{t('settings.projectTab.adminOnly')}</Text>
+                <Text style={[styles.emptyText, { textAlign: 'center', marginTop: 4 }]}>{t('settings.projectTab.projectNameReadOnly', { name: projectName })}</Text>
               </View>
             )}
 
@@ -1125,7 +1131,7 @@ export default function SettingsScreen() {
               <View style={styles.infoRow}>
                 <Ionicons name="information-circle-outline" size={16} color={C.primary} />
                 <Text style={styles.infoText}>
-                  Le nom du projet s'affiche dans le tableau de bord, les rapports PDF et l'écran Modules.
+                  {t('settings.projectTab.projectNameInfo')}
                 </Text>
               </View>
             </View>
@@ -1135,9 +1141,9 @@ export default function SettingsScreen() {
         {activeTab === 'attendance' && !isSousTraitant && (
           <View>
             <View style={[styles.card, { marginBottom: 14 }]}>
-              <Text style={styles.cardTitle}>Préférences pointage</Text>
+              <Text style={styles.cardTitle}>{t('settings.attendanceTab.preferences')}</Text>
 
-              <Text style={styles.label}>Heure d'arrivée par défaut</Text>
+              <Text style={styles.label}>{t('settings.attendanceTab.defaultArrival')}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                 {['06:30', '07:00', '07:30', '08:00', '08:30'].map(t => (
                   <TouchableOpacity
@@ -1149,11 +1155,11 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 ))}
               </View>
-              <Text style={[styles.emptyText, { marginTop: 6 }]}>Utilisée comme valeur pré-remplie dans le formulaire de pointage.</Text>
+              <Text style={[styles.emptyText, { marginTop: 6 }]}>{t('settings.attendanceTab.defaultArrivalHint')}</Text>
 
               <View style={{ height: 1, backgroundColor: C.border, marginVertical: 14 }} />
 
-              <Text style={styles.label}>Durée journée standard</Text>
+              <Text style={styles.label}>{t('settings.attendanceTab.standardDay')}</Text>
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
                 {[6, 7, 8, 9, 10].map(h => (
                   <TouchableOpacity
@@ -1166,14 +1172,14 @@ export default function SettingsScreen() {
                 ))}
               </View>
               <Text style={[styles.emptyText, { marginTop: 6 }]}>
-                Utilisée pour estimer automatiquement les heures lors du pointage rapide — les heures s'affichent en lecture seule (présents × durée journée).
+                {t('settings.attendanceTab.standardDayHint')}
               </Text>
             </View>
 
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Présences aujourd'hui</Text>
+              <Text style={styles.cardTitle}>{t('settings.attendanceTab.todayAttendance')}</Text>
               {companies.length === 0 ? (
-                <Text style={styles.emptyText}>Aucune entreprise configurée.</Text>
+                <Text style={styles.emptyText}>{t('settings.attendanceTab.noConfiguredCompany')}</Text>
               ) : (
                 companies.map(co => (
                   <View key={co.id} style={styles.coRow}>
@@ -1187,7 +1193,7 @@ export default function SettingsScreen() {
               {permissions.canUpdateAttendance && (
                 <TouchableOpacity style={styles.snapshotBtn} onPress={handleSaveAttendance}>
                   <Ionicons name="save-outline" size={16} color={C.primary} />
-                  <Text style={styles.snapshotBtnText}>Sauvegarder l'instantané du jour</Text>
+                  <Text style={styles.snapshotBtnText}>{t('settings.attendanceTab.saveSnapshotActionFull')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1195,18 +1201,18 @@ export default function SettingsScreen() {
             {grouped.length === 0 ? (
               <View style={styles.emptyHistory}>
                 <Ionicons name="time-outline" size={40} color={C.border} />
-                <Text style={styles.emptyTitle}>Aucun historique</Text>
+                <Text style={styles.emptyTitle}>{t('settings.attendanceTab.noHistory')}</Text>
                 <Text style={styles.emptyText}>
-                  Appuyez sur "Sauvegarder l'instantané du jour" pour commencer à suivre les présences quotidiennes.
+                  {t('settings.attendanceTab.noHistoryText')}
                 </Text>
               </View>
             ) : (
               <>
                 <View style={styles.historyHeader}>
-                  <Text style={styles.historyTitle}>Historique ({totalDays} jours)</Text>
+                  <Text style={styles.historyTitle}>{t('settings.attendanceTab.historyTitle', { count: totalDays })}</Text>
                   {permissions.canUpdateAttendance && (
                     <TouchableOpacity onPress={handleClearHistory}>
-                      <Text style={styles.clearText}>Tout effacer</Text>
+                      <Text style={styles.clearText}>{t('settings.attendanceTab.clearAll')}</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -1217,13 +1223,13 @@ export default function SettingsScreen() {
                     <View key={date} style={styles.dayCard}>
                       <View style={styles.dayHeader}>
                         <Text style={styles.dayDate}>{formatDate(date)}</Text>
-                        <Text style={styles.dayTotal}>{totalWorkers} pers. · {totalHours}h</Text>
+                        <Text style={styles.dayTotal}>{t('settings.attendanceTab.dayTotal', { workers: totalWorkers, hours: totalHours })}</Text>
                       </View>
                       {records.map(r => (
                         <View key={r.id} style={styles.recRow}>
                           <View style={[styles.coDot, { backgroundColor: r.companyColor }]} />
                           <Text style={styles.recName}>{r.companyName}</Text>
-                          <Text style={[styles.recVal, { color: r.companyColor }]}>{r.workers} pers.</Text>
+                          <Text style={[styles.recVal, { color: r.companyColor }]}>{t('settings.attendanceTab.peopleShort', { count: r.workers })}</Text>
                           <Text style={styles.recHours}>{r.hoursWorked}h</Text>
                         </View>
                       ))}
@@ -1241,9 +1247,9 @@ export default function SettingsScreen() {
             {!isAdmin ? (
               <View style={{ alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 32 }}>
                 <Ionicons name="lock-closed-outline" size={40} color={C.textMuted} />
-                <Text style={[styles.cardTitle, { marginTop: 14, textAlign: 'center' }]}>Accès réservé aux administrateurs</Text>
+                <Text style={[styles.cardTitle, { marginTop: 14, textAlign: 'center' }]}>{t('settings.integrationsTab.adminOnly')}</Text>
                 <Text style={[styles.emptyText, { textAlign: 'center', marginTop: 6 }]}>
-                  La gestion des intégrations BTP requiert les droits administrateur.
+                  {t('settings.integrationsTab.adminOnlyText')}
                 </Text>
               </View>
             ) : (<>
@@ -1252,26 +1258,26 @@ export default function SettingsScreen() {
                 <Ionicons name={subscription.status === 'expired' ? 'time-outline' : 'pause-circle-outline'} size={20} color="#EF4444" />
                 <Text style={{ flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: '#EF4444', lineHeight: 18 }}>
                   {subscription.status === 'expired'
-                    ? 'Votre abonnement a expiré. Renouvelez-le pour configurer les intégrations.'
-                    : 'Votre abonnement est suspendu. Contactez le support pour le réactiver.'}
+                    ? t('settings.integrationsTab.subscriptionExpired')
+                    : t('settings.integrationsTab.subscriptionSuspended')}
                 </Text>
               </View>
             )}
             <View style={styles.integroBanner}>
               <Ionicons name="apps" size={28} color={C.primary} />
               <View style={{ flex: 1 }}>
-                <Text style={styles.introBannerTitle}>Écosystème BTP</Text>
-                <Text style={styles.introBannerSub}>10 intégrations disponibles — Procore, Revit, Kizeo, Météo-France…</Text>
+                <Text style={styles.introBannerTitle}>{t('settings.integrationsTab.title')}</Text>
+                <Text style={styles.introBannerSub}>{t('settings.integrationsTab.subtitle')}</Text>
               </View>
             </View>
             {[
-              { icon: 'construct-outline',        label: 'Gestion de projet',              desc: 'Procore',               color: C.primary },
-              { icon: 'cube-outline',             label: 'BIM / CAO',                     desc: 'ArchiCAD, Autodesk Revit', color: '#7C3AED' },
-              { icon: 'document-text-outline',    label: 'Documents réglementaires',      desc: 'e-Diffusion BTP',       color: '#0891B2' },
-              { icon: 'location-outline',         label: 'Géolocalisation',               desc: 'Géosat GPS',            color: '#059669' },
-              { icon: 'receipt-outline',          label: 'Formulaires terrain',           desc: 'Kizeo Forms',           color: C.inProgress },
-              { icon: 'cloud-outline',            label: 'GED & Signature',               desc: 'DocuWare, Signaturit',  color: '#BE185D' },
-              { icon: 'partly-sunny-outline',     label: 'Météo & RH',                    desc: 'Météo-France, URSSAF',  color: '#F59E0B' },
+              { icon: 'construct-outline',        label: t('settings.integrationsTab.projectManagement'), desc: 'Procore', color: C.primary },
+              { icon: 'cube-outline',             label: t('settings.integrationsTab.bim'), desc: 'ArchiCAD, Autodesk Revit', color: '#7C3AED' },
+              { icon: 'document-text-outline',    label: t('settings.integrationsTab.regulatoryDocs'), desc: 'e-Diffusion BTP', color: '#0891B2' },
+              { icon: 'location-outline',         label: t('settings.integrationsTab.geolocation'), desc: 'Géosat GPS', color: '#059669' },
+              { icon: 'receipt-outline',          label: t('settings.integrationsTab.fieldForms'), desc: 'Kizeo Forms', color: C.inProgress },
+              { icon: 'cloud-outline',            label: t('settings.integrationsTab.documentsSignature'), desc: 'DocuWare, Signaturit', color: '#BE185D' },
+              { icon: 'partly-sunny-outline',     label: t('settings.integrationsTab.weatherHr'), desc: 'Météo-France, URSSAF', color: '#F59E0B' },
             ].map(item => (
               <View key={item.label} style={[styles.integroCard, { marginBottom: 8 }]}>
                 <View style={[styles.integroSectionIcon, { backgroundColor: item.color + '18', marginRight: 10 }]}>
@@ -1288,7 +1294,7 @@ export default function SettingsScreen() {
               onPress={() => router.push('/integrations')}
             >
               <Ionicons name="apps-outline" size={18} color="#fff" />
-              <Text style={styles.saveBtnText}>Gérer les intégrations</Text>
+              <Text style={styles.saveBtnText}>{t('settings.integrationsTab.manage')}</Text>
             </TouchableOpacity>
             <View style={{ height: 40 }} />
             </>

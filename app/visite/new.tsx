@@ -857,7 +857,7 @@ export default function NewVisiteScreen() {
               ) : null}
 
               <Text style={styles.perimeterCounterText}>
-                {t('visits.new.selectedCount', { selected: visitedLocations.length, total: chantierBuildings.length })}
+                {t('visits.new.selectedCount', { count: visitedLocations.length, selected: visitedLocations.length, total: chantierBuildings.length })}
                 {buildingQuery.trim() ? ` · ${t('visits.new.resultCount', { count: filteredPerimeterBuildings.length })}` : ''}
               </Text>
 

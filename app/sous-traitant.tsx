@@ -2,6 +2,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Pla
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import * as Clipboard from 'expo-clipboard';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
@@ -10,19 +11,19 @@ import { Reserve, Company, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 
-const STATUS_CFG: Record<string, { label: string; color: string }> = {
-  open: { label: 'À traiter', color: C.open },
-  in_progress: { label: 'En cours', color: C.inProgress },
-  waiting: { label: 'En attente', color: C.waiting },
-  verification: { label: 'Vérification', color: C.verification },
-  closed: { label: 'Terminé', color: C.closed },
+const STATUS_CFG: Record<string, { labelKey: string; color: string }> = {
+  open: { labelKey: 'subcontractorScreen.status.toTreat', color: C.open },
+  in_progress: { labelKey: 'reserveLabels.status.in_progress', color: C.inProgress },
+  waiting: { labelKey: 'reserveLabels.status.waiting', color: C.waiting },
+  verification: { labelKey: 'reserveLabels.status.verification', color: C.verification },
+  closed: { labelKey: 'subcontractorScreen.status.done', color: C.closed },
 };
 
-const PRIORITY_CFG: Record<string, { label: string; color: string }> = {
-  low: { label: 'Faible', color: '#22C55E' },
-  medium: { label: 'Moyen', color: '#F59E0B' },
-  high: { label: 'Urgent', color: '#EF4444' },
-  critical: { label: 'CRITIQUE', color: '#7C3AED' },
+const PRIORITY_CFG: Record<string, { labelKey: string; color: string }> = {
+  low: { labelKey: 'reserveLabels.priority.low', color: '#22C55E' },
+  medium: { labelKey: 'reserveLabels.priority.medium', color: '#F59E0B' },
+  high: { labelKey: 'subcontractorScreen.priority.urgent', color: '#EF4444' },
+  critical: { labelKey: 'reserveLabels.priority.critical', color: '#7C3AED' },
 };
 
 function ReserveCard({
@@ -38,6 +39,7 @@ function ReserveCard({
   onMarkDone: () => void;
   canEdit: boolean;
 }) {
+  const { t } = useTranslation();
   const scfg = STATUS_CFG[reserve.status] ?? STATUS_CFG.open;
   const pcfg = PRIORITY_CFG[reserve.priority] ?? PRIORITY_CFG.medium;
   const isOverdue = reserve.deadline && reserve.deadline !== '—' && (() => {
@@ -56,15 +58,15 @@ function ReserveCard({
     <TouchableOpacity style={[styles.card, { borderLeftColor: pcfg.color }]} onPress={onPress} activeOpacity={0.75}>
       <View style={styles.cardTop}>
         <View style={[styles.statusPill, { backgroundColor: scfg.color + '20' }]}>
-          <Text style={[styles.statusText, { color: scfg.color }]}>{scfg.label}</Text>
+          <Text style={[styles.statusText, { color: scfg.color }]}>{t(scfg.labelKey)}</Text>
         </View>
         <View style={[styles.priorityPill, { backgroundColor: pcfg.color + '15' }]}>
-          <Text style={[styles.priorityText, { color: pcfg.color }]}>{pcfg.label}</Text>
+          <Text style={[styles.priorityText, { color: pcfg.color }]}>{t(pcfg.labelKey)}</Text>
         </View>
         {isObservation && (
           <View style={styles.obsPill}>
             <Ionicons name="eye-outline" size={10} color="#0EA5E9" />
-            <Text style={styles.obsText}>Obs.</Text>
+            <Text style={styles.obsText}>{t('subcontractorScreen.observationShort')}</Text>
           </View>
         )}
       </View>
@@ -75,7 +77,7 @@ function ReserveCard({
       ) : null}
       <View style={styles.cardBottom}>
         <Ionicons name="business-outline" size={12} color={C.textMuted} />
-        <Text style={styles.metaText}>Bât. {reserve.building} — {reserve.level}</Text>
+        <Text style={styles.metaText}>{t('subcontractorScreen.reserveLocation', { building: reserve.building, level: reserve.level })}</Text>
         <Ionicons name="calendar-outline" size={12} color={isOverdue ? C.open : C.textMuted} style={{ marginLeft: 8 }} />
         <Text style={[styles.metaText, isOverdue && { color: C.open, fontFamily: 'Inter_600SemiBold' }]}>
           {reserve.deadline}{isOverdue ? ' ⚠' : ''}
@@ -91,7 +93,7 @@ function ReserveCard({
               activeOpacity={0.75}
             >
               <Ionicons name="play-outline" size={13} color={C.inProgress} />
-              <Text style={[styles.actionBtnText, { color: C.inProgress }]}>Marquer en cours</Text>
+              <Text style={[styles.actionBtnText, { color: C.inProgress }]}>{t('subcontractorScreen.markInProgress')}</Text>
             </TouchableOpacity>
           )}
           {(isOpen || isInProgress) && (
@@ -101,7 +103,7 @@ function ReserveCard({
               activeOpacity={0.75}
             >
               <Ionicons name="checkmark-done-outline" size={13} color={C.verification} />
-              <Text style={[styles.actionBtnText, { color: C.verification }]}>Demander la levée</Text>
+              <Text style={[styles.actionBtnText, { color: C.verification }]}>{t('subcontractorScreen.requestClosure')}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -111,6 +113,7 @@ function ReserveCard({
 }
 
 export default function SousTraitantScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { reserves, companies, activeChantierId, updateReserveStatus } = useApp();
   const { user, permissions } = useAuth();
@@ -156,34 +159,34 @@ export default function SousTraitantScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 16, textAlign: 'center' }}>
-          Accès restreint
+          {t('subcontractorScreen.restrictedTitle')}
         </Text>
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 8, textAlign: 'center' }}>
-          Cette vue est réservée aux sous-traitants.
+          {t('subcontractorScreen.restrictedText')}
         </Text>
         <TouchableOpacity
           onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#2563EB', borderRadius: 10 }}
         >
-          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>Retour au tableau de bord</Text>
+          <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('subcontractorScreen.backDashboard')}</Text>
         </TouchableOpacity>
       </View>
     );
   }
 
-  const authorName = user?.name ?? 'Sous-traitant';
+  const authorName = user?.name ?? t('subcontractorScreen.authorFallback');
 
   return (
     <View style={styles.container}>
       <Header
-        title="Vue sous-traitant"
-        subtitle={displayCompany ? displayCompany.name : 'Sélectionnez une entreprise'}
+        title={t('subcontractorScreen.title')}
+        subtitle={displayCompany ? displayCompany.name : t('subcontractorScreen.selectCompany')}
         showBack
       />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.companySection}>
-          <Text style={styles.sectionLabel}>ENTREPRISE</Text>
+          <Text style={styles.sectionLabel}>{t('subcontractorScreen.company').toUpperCase()}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <View style={styles.companyRow}>
               {companies.filter(co => myCompany ? co.id === myCompany.id : false).map(co => (
@@ -212,10 +215,10 @@ export default function SousTraitantScreen() {
           <View style={{ padding: 32, alignItems: 'center' }}>
             <Ionicons name="business-outline" size={40} color="#94A3B8" />
             <Text style={{ fontSize: 15, fontFamily: 'Inter_600SemiBold', color: '#1E293B', marginTop: 12, textAlign: 'center' }}>
-              Aucune entreprise assignée
+              {t('subcontractorScreen.noCompanyTitle')}
             </Text>
             <Text style={{ fontSize: 13, fontFamily: 'Inter_400Regular', color: '#94A3B8', marginTop: 6, textAlign: 'center' }}>
-              Contactez votre administrateur pour être rattaché à une entreprise.
+              {t('subcontractorScreen.noCompanyText')}
             </Text>
           </View>
         )}
@@ -244,15 +247,15 @@ export default function SousTraitantScreen() {
             <View style={styles.statsRow}>
               <View style={[styles.statCard, { borderTopColor: C.open }]}>
                 <Text style={[styles.statVal, { color: C.open }]}>{stats.toTreat}</Text>
-                <Text style={styles.statLabel}>À traiter</Text>
+                <Text style={styles.statLabel}>{t('subcontractorScreen.status.toTreat')}</Text>
               </View>
               <View style={[styles.statCard, { borderTopColor: C.inProgress }]}>
                 <Text style={[styles.statVal, { color: C.inProgress }]}>{stats.inProgress}</Text>
-                <Text style={styles.statLabel}>En cours</Text>
+                <Text style={styles.statLabel}>{t('reserveLabels.status.in_progress')}</Text>
               </View>
               <View style={[styles.statCard, { borderTopColor: C.closed }]}>
                 <Text style={[styles.statVal, { color: C.closed }]}>{stats.done}</Text>
-                <Text style={styles.statLabel}>Clôturées</Text>
+                <Text style={styles.statLabel}>{t('reserveLabels.status.closed')}</Text>
               </View>
             </View>
 
@@ -272,8 +275,8 @@ export default function SousTraitantScreen() {
                 <View style={styles.progressCard}>
                   <View style={styles.progressHeader}>
                     <View>
-                      <Text style={styles.progressTitle}>Taux de clôture global</Text>
-                      <Text style={styles.progressSub}>{closedCo} / {totalCo} réserve{totalCo !== 1 ? 's' : ''}</Text>
+                      <Text style={styles.progressTitle}>{t('subcontractorScreen.globalClosureRate')}</Text>
+                      <Text style={styles.progressSub}>{t('subcontractorScreen.closedRatio', { closed: closedCo, total: totalCo })}</Text>
                     </View>
                     <View style={styles.pctBadge}>
                       <Text style={[styles.pctText, { color: pct >= 70 ? C.closed : pct >= 40 ? C.inProgress : C.open }]}>{pct}%</Text>
@@ -288,7 +291,7 @@ export default function SousTraitantScreen() {
                   {overdue > 0 && (
                     <View style={styles.overdueWarning}>
                       <Ionicons name="alarm-outline" size={14} color={C.open} />
-                      <Text style={styles.overdueText}>{overdue} réserve{overdue > 1 ? 's' : ''} en retard — action requise</Text>
+                      <Text style={styles.overdueText}>{t('subcontractorScreen.overdueWarning', { count: overdue })}</Text>
                     </View>
                   )}
                 </View>
@@ -305,21 +308,21 @@ export default function SousTraitantScreen() {
 
               async function copyLink() {
                 await Clipboard.setStringAsync(portalUrl);
-                Alert.alert('Lien copié', 'Le lien du portail sous-traitant a été copié dans le presse-papiers.');
+                Alert.alert(t('subcontractorScreen.linkCopiedTitle'), t('subcontractorScreen.linkCopiedText'));
               }
 
               return (
                 <View style={styles.portalCard}>
                   <View style={styles.portalHeader}>
                     <Ionicons name="share-social-outline" size={18} color={C.primary} />
-                    <Text style={styles.portalTitle}>Portail sous-traitant</Text>
+                    <Text style={styles.portalTitle}>{t('subcontractorScreen.portalTitle')}</Text>
                     <View style={styles.portalBadge}>
                       <View style={styles.portalBadgeDot} />
-                      <Text style={styles.portalBadgeText}>Partageable</Text>
+                      <Text style={styles.portalBadgeText}>{t('subcontractorScreen.shareable')}</Text>
                     </View>
                   </View>
                   <Text style={styles.portalDesc}>
-                    Partagez ce lien avec {displayCompany?.name} pour qu'ils accèdent directement à leurs réserves sans avoir besoin de l'application.
+                    {t('subcontractorScreen.portalDescription', { company: displayCompany?.name })}
                   </Text>
                   <View style={styles.portalBody}>
                     <Image
@@ -328,11 +331,11 @@ export default function SousTraitantScreen() {
                       resizeMode="contain"
                     />
                     <View style={styles.portalLinkArea}>
-                      <Text style={styles.portalLinkLabel}>Lien d'accès</Text>
+                      <Text style={styles.portalLinkLabel}>{t('subcontractorScreen.accessLink')}</Text>
                       <Text style={styles.portalLinkUrl} numberOfLines={2}>{portalUrl}</Text>
                       <TouchableOpacity style={styles.copyBtn} onPress={copyLink}>
                         <Ionicons name="copy-outline" size={14} color={C.primary} />
-                        <Text style={styles.copyBtnText}>Copier le lien</Text>
+                        <Text style={styles.copyBtnText}>{t('subcontractorScreen.copyLink')}</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -343,25 +346,25 @@ export default function SousTraitantScreen() {
             {permissions.canEditOwn && (
               <View style={styles.infoHint}>
                 <Ionicons name="information-circle-outline" size={13} color={C.primary} />
-                <Text style={styles.infoHintText}>Appuyez sur "Marquer en cours" ou "Marquer traité" pour mettre à jour le statut directement.</Text>
+                <Text style={styles.infoHintText}>{t('subcontractorScreen.actionHint')}</Text>
               </View>
             )}
 
             <View style={styles.filterRow}>
               <Text style={styles.filterTitle}>
-                {showClosed ? 'Toutes les réserves' : 'Réserves actives'} ({companyReserves.length})
+                {t(showClosed ? 'subcontractorScreen.allReserves' : 'subcontractorScreen.activeReserves', { count: companyReserves.length })}
               </Text>
               <TouchableOpacity style={styles.toggleBtn} onPress={() => setShowClosed(v => !v)}>
                 <Ionicons name={showClosed ? 'eye-off-outline' : 'eye-outline'} size={14} color={C.primary} />
-                <Text style={styles.toggleBtnText}>{showClosed ? 'Masquer clôturées' : 'Voir clôturées'}</Text>
+                <Text style={styles.toggleBtnText}>{t(showClosed ? 'subcontractorScreen.hideClosed' : 'subcontractorScreen.showClosed')}</Text>
               </TouchableOpacity>
             </View>
 
             {companyReserves.length === 0 ? (
               <View style={styles.empty}>
                 <Ionicons name="checkmark-done-circle-outline" size={40} color={C.closed} />
-                <Text style={styles.emptyTitle}>Tout est traité !</Text>
-                <Text style={styles.emptyText}>Aucune réserve active pour cette entreprise</Text>
+                <Text style={styles.emptyTitle}>{t('subcontractorScreen.allDoneTitle')}</Text>
+                <Text style={styles.emptyText}>{t('subcontractorScreen.noActiveReserves')}</Text>
               </View>
             ) : (
               companyReserves.map(r => (
@@ -379,9 +382,9 @@ export default function SousTraitantScreen() {
         ) : (
           <View style={styles.empty}>
             <Ionicons name="people-outline" size={40} color={C.textMuted} />
-            <Text style={styles.emptyTitle}>Sélectionnez une entreprise</Text>
+            <Text style={styles.emptyTitle}>{t('subcontractorScreen.selectCompany')}</Text>
             <Text style={styles.emptyText}>
-              Cette vue présente les réserves d'une entreprise sous-traitante, triées par priorité
+              {t('subcontractorScreen.selectCompanyText')}
             </Text>
           </View>
         )}
