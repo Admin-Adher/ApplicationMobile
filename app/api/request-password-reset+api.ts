@@ -29,11 +29,12 @@ export async function POST(request: Request) {
 
     const { data: profileRows } = await supabaseAdmin
       .from('profiles')
-      .select('name')
+      .select('name, preferred_language')
       .eq('email', email.toLowerCase().trim())
       .limit(1);
 
     const name: string = profileRows?.[0]?.name ?? email.split('@')[0];
+    const language: string | null = profileRows?.[0]?.preferred_language ?? null;
 
     const { data: linkData, error: linkError } = await (supabaseAdmin as any).auth.admin.generateLink({
       type: 'recovery',
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
     }
 
     const resetUrl = linkData.properties.action_link;
-    const template = passwordResetEmail({ name, resetUrl });
+    const template = passwordResetEmail({ name, resetUrl, language });
 
     const result = await sendEmail({
       to: email.toLowerCase().trim(),

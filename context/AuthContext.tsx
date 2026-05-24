@@ -149,7 +149,7 @@ async function notifyAdminOfAcceptedInvitation(params: {
 }): Promise<void> {
   try {
     const [adminResult, orgResult] = await Promise.all([
-      (supabase as any).from('profiles').select('name, email').eq('id', params.invitedById).single(),
+      (supabase as any).from('profiles').select('name, email, preferred_language').eq('id', params.invitedById).single(),
       (supabase as any).from('organizations').select('name').eq('id', params.organizationId).single(),
     ]);
     if (adminResult.data?.email && orgResult.data?.name) {
@@ -160,6 +160,7 @@ async function notifyAdminOfAcceptedInvitation(params: {
         inviteeEmail: params.inviteeEmail,
         organizationName: orgResult.data.name,
         role: params.role,
+        language: adminResult.data.preferred_language,
       });
     }
   } catch {}
@@ -1139,6 +1140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             email: email.trim().toLowerCase(),
             name: name.trim(),
             organizationName: orgName,
+            language: profile.preferredLanguage,
           }).catch(() => {});
           return { success: true };
         }
@@ -1425,6 +1427,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           email: targetUser.email,
           name: targetUser.name,
           organizationName: orgName,
+          language: targetUser.preferredLanguage,
         });
       } catch {}
     }

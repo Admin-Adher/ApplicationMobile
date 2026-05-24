@@ -14,6 +14,10 @@ function getApiUrl(): string {
   return base ? `${base}/api/send-email` : '/api/send-email';
 }
 
+type EmailLanguageParam = {
+  language?: string | null;
+};
+
 async function callEmailApi(body: Record<string, unknown>): Promise<{ success: boolean; error?: string }> {
   try {
     const url = getApiUrl();
@@ -44,7 +48,7 @@ export async function sendInvitationEmail(params: {
   token: string;
   expiresAt: string;
   companyName?: string;
-}): Promise<{ success: boolean; error?: string }> {
+} & EmailLanguageParam): Promise<{ success: boolean; error?: string }> {
   return callEmailApi({ type: 'invitation', ...params });
 }
 
@@ -52,7 +56,7 @@ export async function sendWelcomeEmail(params: {
   email: string;
   name: string;
   organizationName?: string;
-}): Promise<void> {
+} & EmailLanguageParam): Promise<void> {
   await callEmailApi({ type: 'welcome', ...params });
 }
 
@@ -86,7 +90,7 @@ export async function sendInvitationAcceptedEmail(params: {
   inviteeEmail: string;
   organizationName: string;
   role: string;
-}): Promise<void> {
+} & EmailLanguageParam): Promise<void> {
   await callEmailApi({ type: 'invitation-accepted', ...params });
 }
 
@@ -105,7 +109,7 @@ export async function sendReserveCreatedEmail(params: {
   companyName: string;
   createdBy: string;
   reserveCode?: string;
-}): Promise<void> {
+} & EmailLanguageParam): Promise<void> {
   await callEmailApi({ type: 'reserve-created', ...params });
 }
 
@@ -121,7 +125,7 @@ export async function sendReserveStatusChangedEmail(params: {
   companyName: string;
   chantierName?: string;
   reserveCode?: string;
-}): Promise<void> {
+} & EmailLanguageParam): Promise<void> {
   await callEmailApi({ type: 'reserve-status-changed', ...params });
 }
 
@@ -136,7 +140,7 @@ export async function sendReserveOverdueEmail(params: {
   companyName: string;
   chantierName?: string;
   reserveCode?: string;
-}): Promise<void> {
+} & EmailLanguageParam): Promise<void> {
   await callEmailApi({ type: 'reserve-overdue', ...params });
 }
 
@@ -144,14 +148,14 @@ export async function sendAccessRevokedEmail(params: {
   email: string;
   name: string;
   organizationName: string;
-}): Promise<void> {
+} & EmailLanguageParam): Promise<void> {
   await callEmailApi({ type: 'access-revoked', ...params });
 }
 
 export async function sendPasswordChangedEmail(params: {
   email: string;
   name: string;
-}): Promise<void> {
+} & EmailLanguageParam): Promise<void> {
   await callEmailApi({ type: 'password-changed', ...params });
 }
 

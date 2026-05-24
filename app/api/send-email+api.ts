@@ -15,6 +15,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { type } = body;
+    const language = body.language ?? body.preferredLanguage ?? null;
 
     if (!type) {
       return Response.json({ error: 'Type manquant' }, { status: 400 });
@@ -25,7 +26,7 @@ export async function POST(request: Request) {
       if (!email || !invitedByName || !organizationName || !role || !token || !expiresAt) {
         return Response.json({ error: 'Paramètres manquants pour invitation' }, { status: 400 });
       }
-      const template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName });
+      const template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName, language });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
       if (!email || !name) {
         return Response.json({ error: 'Paramètres manquants pour welcome' }, { status: 400 });
       }
-      const template = welcomeEmail({ email, name, organizationName });
+      const template = welcomeEmail({ email, name, organizationName, language });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
       if (!email || !name || !resetUrl) {
         return Response.json({ error: 'Paramètres manquants pour password-reset' }, { status: 400 });
       }
-      const template = passwordResetEmail({ name, resetUrl });
+      const template = passwordResetEmail({ name, resetUrl, language });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
@@ -64,7 +65,7 @@ export async function POST(request: Request) {
       if (!adminEmail || !adminName || !inviteeName || !inviteeEmail || !organizationName || !role) {
         return Response.json({ error: 'Paramètres manquants pour invitation-accepted' }, { status: 400 });
       }
-      const template = invitationAcceptedEmail({ adminName, inviteeName, inviteeEmail, organizationName, role });
+      const template = invitationAcceptedEmail({ adminName, inviteeName, inviteeEmail, organizationName, role, language });
       const result = await sendEmail({ to: adminEmail, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
@@ -77,7 +78,7 @@ export async function POST(request: Request) {
       if (!email || !name || !organizationName) {
         return Response.json({ error: 'Paramètres manquants pour access-revoked' }, { status: 400 });
       }
-      const template = accessRevokedEmail({ name, organizationName });
+      const template = accessRevokedEmail({ name, organizationName, language });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
@@ -88,7 +89,7 @@ export async function POST(request: Request) {
     if (type === 'reserve-created') {
       const {
         email, recipientName, reserveTitle, reserveId, priority, deadline,
-        building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+        building, level, zone, description, chantierName, companyName, createdBy, reserveCode, language,
       } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !companyName || !createdBy) {
         return Response.json({ error: 'Paramètres manquants pour reserve-created' }, { status: 400 });
@@ -107,7 +108,7 @@ export async function POST(request: Request) {
     if (type === 'reserve-status-changed') {
       const {
         email, recipientName, reserveTitle, reserveId, newStatus, previousStatus,
-        changedBy, companyName, chantierName, reserveCode,
+        changedBy, companyName, chantierName, reserveCode, language,
       } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !newStatus || !changedBy || !companyName) {
         return Response.json({ error: 'Paramètres manquants pour reserve-status-changed' }, { status: 400 });
@@ -126,7 +127,7 @@ export async function POST(request: Request) {
     if (type === 'reserve-overdue') {
       const {
         email, recipientName, reserveTitle, reserveId, deadline, daysLate,
-        priority, companyName, chantierName, reserveCode,
+        priority, companyName, chantierName, reserveCode, language,
       } = body;
       if (!email || !recipientName || !reserveTitle || !reserveId || !deadline || daysLate == null || !companyName) {
         return Response.json({ error: 'Paramètres manquants pour reserve-overdue' }, { status: 400 });
@@ -147,7 +148,7 @@ export async function POST(request: Request) {
       if (!email || !name) {
         return Response.json({ error: 'Paramètres manquants pour password-changed' }, { status: 400 });
       }
-      const template = passwordChangedEmail({ name });
+      const template = passwordChangedEmail({ name, language });
       const result = await sendEmail({ to: email, ...template });
       if (!result.success) {
         return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });

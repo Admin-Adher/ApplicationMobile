@@ -30,6 +30,22 @@ function serviceClient() {
   return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
 }
 
+async function resolveRecipientLanguage(email: string, fallback?: string | null) {
+  const supabase = serviceClient();
+  const normalizedEmail = String(email ?? '').trim().toLowerCase();
+  if (!supabase || !normalizedEmail) return fallback ?? null;
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('preferred_language')
+    .eq('email', normalizedEmail)
+    .maybeSingle();
+  if (error) {
+    console.warn('[email language] lecture impossible:', error.message);
+    return fallback ?? null;
+  }
+  return data?.preferred_language ?? fallback ?? null;
+}
+
 function emailPreferenceAllows(pref: any, column: string, critical = false) {
   if (!pref) return true;
   if (pref.email_enabled === false) return false;
@@ -102,28 +118,32 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
-      template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName });
+      const language = await resolveRecipientLanguage(email, body.language);
+      template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName, language });
     } else if (type === 'welcome') {
       const { email, name, organizationName } = body;
       if (!email || !name) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
-      template = welcomeEmail({ email, name, organizationName });
+      const language = await resolveRecipientLanguage(email, body.language);
+      template = welcomeEmail({ email, name, organizationName, language });
     } else if (type === 'password-reset') {
       const { email, name, resetUrl } = body;
       if (!email || !name || !resetUrl) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
-      template = passwordResetEmail({ name, resetUrl });
+      const language = await resolveRecipientLanguage(email, body.language);
+      template = passwordResetEmail({ name, resetUrl, language });
     } else if (type === 'invitation-accepted') {
       const { adminEmail, adminName, inviteeName, inviteeEmail, organizationName, role } = body;
       if (!adminEmail || !adminName || !inviteeName || !inviteeEmail || !organizationName || !role) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = adminEmail;
-      template = invitationAcceptedEmail({ adminName, inviteeName, inviteeEmail, organizationName, role });
+      const language = await resolveRecipientLanguage(adminEmail, body.language);
+      template = invitationAcceptedEmail({ adminName, inviteeName, inviteeEmail, organizationName, role, language });
     } else if (type === 'reserve-created') {
       const {
         email, recipientName, reserveTitle, reserveId, priority, deadline,
@@ -133,9 +153,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
+      const language = await resolveRecipientLanguage(email, body.language);
       template = reserveCreatedEmail({
         recipientName, reserveTitle, reserveId, priority, deadline,
-        building, level, zone, description, chantierName, companyName, createdBy, reserveCode,
+        building, level, zone, description, chantierName, companyName, createdBy, reserveCode, language,
         reserveUrl: safeReserveUrl(reserveId, email),
       } as any);
     } else if (type === 'reserve-status-changed') {
@@ -147,9 +168,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
+      const language = await resolveRecipientLanguage(email, body.language);
       template = reserveStatusChangedEmail({
         recipientName, reserveTitle, reserveId, newStatus, previousStatus,
-        changedBy, companyName, chantierName, reserveCode,
+        changedBy, companyName, chantierName, reserveCode, language,
         reserveUrl: safeReserveUrl(reserveId, email),
       } as any);
     } else if (type === 'reserve-overdue') {
@@ -161,9 +183,10 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
+      const language = await resolveRecipientLanguage(email, body.language);
       template = reserveOverdueEmail({
         recipientName, reserveTitle, reserveId, deadline, daysLate,
-        priority, companyName, chantierName, reserveCode,
+        priority, companyName, chantierName, reserveCode, language,
         reserveUrl: safeReserveUrl(reserveId, email),
       } as any);
     } else if (type === 'access-revoked') {
@@ -172,7 +195,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
       }
       to = email;
-      template = accessRevokedEmail({ name, organizationName });
+      const language = await resolveRecipientLanguage(email, body.language);
+      template = accessRevokedEmail({ name, organizationName, language });
     } else {
       return NextResponse.json({ error: `Type inconnu: ${type}` }, { status: 400, headers });
     }

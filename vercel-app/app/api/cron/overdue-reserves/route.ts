@@ -99,7 +99,7 @@ export async function GET(req: NextRequest) {
 
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, name, email, company_id, organization_id, role')
+      .select('id, name, email, company_id, organization_id, role, preferred_language')
       .in('organization_id', orgIds.length ? orgIds : ['__none__']);
     const prefsByUser = await preferencesForProfiles(supabase, (profiles ?? []).map((p: any) => p.id));
 
@@ -186,6 +186,7 @@ export async function GET(req: NextRequest) {
                 chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
                 reserveCode: r.id,
                 reserveUrl: safeReserveUrl(r.id, p.email),
+                language: p.preferred_language,
               } as any);
 
               const sendRes = await sendEmail({
@@ -227,6 +228,7 @@ export async function GET(req: NextRequest) {
               chantierName: r.chantier_id ? chantierName.get(r.chantier_id) : undefined,
               reserveCode: r.id,
               reserveUrl: safeReserveUrl(r.id, a.email),
+              language: a.preferred_language,
             });
 
             const sendRes = await sendEmail({
