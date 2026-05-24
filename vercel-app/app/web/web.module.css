@@ -679,6 +679,56 @@
   margin-top: 12px;
 }
 
+.mediaGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.mediaCard {
+  display: grid;
+  gap: 8px;
+  min-height: 140px;
+  border: 1px solid #dde4ee;
+  border-radius: 12px;
+  padding: 12px;
+  background: #f8fafc;
+  color: #0f172a;
+  text-decoration: none;
+}
+
+.mediaCard[aria-disabled="true"] {
+  pointer-events: none;
+}
+
+.mediaCard img {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+  background: #e2e8f0;
+}
+
+.mediaCard > span {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 4 / 3;
+  border-radius: 10px;
+  background: #eef3fa;
+  color: #003082;
+  font-weight: 900;
+}
+
+.mediaCard strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mediaCard small {
+  color: #64748b;
+}
+
 .commentForm {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

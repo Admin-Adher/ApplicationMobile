@@ -1437,6 +1437,49 @@ function TerrainView({ scoped, data }: any) {
         </div>
       </section>
       <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Photos et documents</h2>
+            <p>Accès web rapide aux médias terrain et pièces GED déjà synchronisés.</p>
+          </div>
+        </div>
+        <div className={styles.mediaGrid}>
+          {scoped.photos.slice(0, 12).map((photo: any) => {
+            const url = assetUrl(photo);
+            return (
+              <a
+                key={photo.id ?? url}
+                className={styles.mediaCard}
+                href={url || undefined}
+                target={url ? '_blank' : undefined}
+                aria-disabled={!url}
+              >
+                {url ? <img src={url} alt={photo.title ?? photo.name ?? 'Photo chantier'} /> : <span>Photo</span>}
+                <strong>{photo.title ?? photo.name ?? 'Photo chantier'}</strong>
+                <small>{prettyDate(photo.taken_at ?? photo.created_at, true)}</small>
+              </a>
+            );
+          })}
+          {scoped.documents.slice(0, 12).map((document: any) => {
+            const url = assetUrl(document);
+            return (
+              <a
+                key={document.id ?? url}
+                className={styles.mediaCard}
+                href={url || undefined}
+                target={url ? '_blank' : undefined}
+                aria-disabled={!url}
+              >
+                <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
+                <strong>{document.title ?? document.name ?? document.file_name ?? 'Document'}</strong>
+                <small>{prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
+              </a>
+            );
+          })}
+          {!scoped.photos.length && !scoped.documents.length && <p className={styles.empty}>Aucun média terrain dans ce périmètre.</p>}
+        </div>
+      </section>
+      <section className={styles.panel}>
         <h2>Lots et entreprises</h2>
         <div className={styles.compactList}>
           {data.lots.slice(0, 40).map((lot: any) => (
