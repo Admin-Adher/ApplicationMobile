@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { PdfReportPayload } from '@/types/pdfReport';
-import { buildGlobalReportHtml, buildGlobalReservesHtml, buildIndividualReserveHtml } from '@/lib/reportBuilder';
+import { buildGlobalReportHtml, buildGlobalReservesHtml, buildIndividualReserveHtml, buildVisitReportHtml } from '@/lib/reportBuilder';
 import { sendEmail } from '@/lib/sender';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { createClient } from '@supabase/supabase-js';
@@ -166,6 +166,14 @@ export async function POST(req: NextRequest) {
         );
       }
       html = buildIndividualReserveHtml(payload);
+    } else if (type === 'visit_report') {
+      if (!payload.chantierName || !payload.visit || !Array.isArray(payload.reserves)) {
+        return NextResponse.json(
+          { success: false, error: 'Payload invalide (visit_report)' },
+          { status: 400, headers }
+        );
+      }
+      html = buildVisitReportHtml(payload);
     } else {
       const plansPayload = payload as PdfReportPayload;
       if (!plansPayload.chantierName || !Array.isArray(plansPayload.reserves) || !Array.isArray(plansPayload.plans)) {

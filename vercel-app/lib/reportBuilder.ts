@@ -389,6 +389,217 @@ function escapeHtml(s: string | null | undefined): string {
     .replace(/'/g, '&#39;');
 }
 
+const VISIT_REPORT_COPY = {
+  fr: {
+    title: 'Compte rendu de visite',
+    generated: 'Genere le',
+    project: 'Chantier',
+    visit: 'Visite',
+    date: 'Date',
+    schedule: 'Horaires',
+    manager: 'Conducteur',
+    scope: 'Perimetre',
+    companies: 'Entreprises concernees',
+    checklist: 'Checklist de controle',
+    noChecklist: 'Aucun point de controle renseigne',
+    notes: 'Notes de visite',
+    noNotes: 'Aucune note renseignee',
+    reserves: 'Reserves relevees',
+    noReserves: 'Aucune reserve rattachee a cette visite',
+    signature: 'Signature',
+    statuses: { planned: 'Planifiee', in_progress: 'En cours', completed: 'Terminee' },
+    types: { controle: 'Controle', opr: 'OPR', securite: 'Securite', reception: 'Reception', synthese: 'Synthese', autre: 'Autre' },
+  },
+  en: {
+    title: 'Site visit report',
+    generated: 'Generated on',
+    project: 'Project',
+    visit: 'Visit',
+    date: 'Date',
+    schedule: 'Schedule',
+    manager: 'Manager',
+    scope: 'Scope',
+    companies: 'Companies involved',
+    checklist: 'Control checklist',
+    noChecklist: 'No checklist item recorded',
+    notes: 'Visit notes',
+    noNotes: 'No notes recorded',
+    reserves: 'Issues raised',
+    noReserves: 'No issue linked to this visit',
+    signature: 'Signature',
+    statuses: { planned: 'Planned', in_progress: 'In progress', completed: 'Completed' },
+    types: { controle: 'Control', opr: 'OPR', securite: 'Safety', reception: 'Handover', synthese: 'Summary', autre: 'Other' },
+  },
+  es: {
+    title: 'Informe de visita',
+    generated: 'Generado el',
+    project: 'Obra',
+    visit: 'Visita',
+    date: 'Fecha',
+    schedule: 'Horario',
+    manager: 'Responsable',
+    scope: 'Alcance',
+    companies: 'Empresas implicadas',
+    checklist: 'Lista de control',
+    noChecklist: 'No hay punto de control registrado',
+    notes: 'Notas de visita',
+    noNotes: 'No hay notas registradas',
+    reserves: 'Reservas detectadas',
+    noReserves: 'Ninguna reserva vinculada a esta visita',
+    signature: 'Firma',
+    statuses: { planned: 'Planificada', in_progress: 'En curso', completed: 'Terminada' },
+    types: { controle: 'Control', opr: 'OPR', securite: 'Seguridad', reception: 'Recepcion', synthese: 'Sintesis', autre: 'Otro' },
+  },
+} as const;
+
+function formatReportDate(value: unknown, lang: ReportLanguage, withTime = false): string {
+  if (!value) return REPORT_COPY[lang].noValue;
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) return escapeHtml(String(value));
+  return date.toLocaleDateString(REPORT_LOCALES[lang], {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+    ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
+  });
+}
+
+export function buildVisitReportHtml(payload: any): string {
+  const lang = reportLanguage(payload.language);
+  const copy = VISIT_REPORT_COPY[lang];
+  const common = REPORT_COPY[lang];
+  const visit = payload.visit ?? {};
+  const reserves = Array.isArray(payload.reserves) ? payload.reserves : [];
+  const companies = Array.isArray(payload.companies) ? payload.companies : [];
+  const companyIds: string[] = Array.isArray(visit.concerned_company_ids)
+    ? visit.concerned_company_ids
+    : Array.isArray(visit.company_ids)
+      ? visit.company_ids
+      : [];
+  const companyNames = companyIds
+    .map(id => companies.find((company: any) => company.id === id)?.name ?? id)
+    .filter(Boolean);
+  const checklistItems = Array.isArray(visit.checklist_items)
+    ? visit.checklist_items
+    : Array.isArray(visit.checklist)
+      ? visit.checklist
+      : [];
+  const scopeParts = [
+    visit.building,
+    visit.level,
+    visit.zone,
+    Array.isArray(visit.visited_locations) && visit.visited_locations.length
+      ? visit.visited_locations.join(', ')
+      : null,
+  ].filter(Boolean);
+  const generatedDate = formatReportDate(payload.generatedAt || Date.now(), lang, true);
+  const visitDate = formatReportDate(visit.date ?? visit.created_at, lang);
+  const status = copy.statuses[String(visit.status ?? 'planned') as keyof typeof copy.statuses] ?? String(visit.status ?? '');
+  const visitType = copy.types[String(visit.visit_type ?? 'controle') as keyof typeof copy.types] ?? String(visit.visit_type ?? '');
+  const checklistHtml = checklistItems.length
+    ? checklistItems.map((item: any, index: number) => {
+        const label = typeof item === 'string' ? item : item.label ?? item.title ?? item.text ?? '';
+        const done = typeof item === 'object' && (item.done || item.checked || item.status === 'done');
+        return `<li style="display:flex;gap:8px;align-items:flex-start;margin-bottom:6px">
+          <span style="display:inline-flex;width:18px;height:18px;border-radius:50%;align-items:center;justify-content:center;background:${done ? '#059669' : '#e2e8f0'};color:${done ? '#fff' : '#64748b'};font-size:10px;font-weight:700">${done ? '✓' : index + 1}</span>
+          <span>${escapeHtml(label)}</span>
+        </li>`;
+      }).join('')
+    : `<p style="color:#94a3b8">${copy.noChecklist}</p>`;
+  const reserveRows = reserves.length
+    ? reserves.map((reserve: any, index: number) => {
+        const statusColor = STATUS_COLORS[reserve.status] ?? '#6b7280';
+        const priorityColor = PRIORITY_COLORS[reserve.priority] ?? '#6b7280';
+        const companyLabel = Array.isArray(reserve.companies) && reserve.companies.length
+          ? reserve.companies.join(', ')
+          : reserve.company ?? common.noValue;
+        return `<tr style="background:${index % 2 === 0 ? '#ffffff' : '#f8fafc'}">
+          <td style="padding:8px 10px;font-weight:800;color:#003082">#${index + 1}</td>
+          <td style="padding:8px 10px;font-weight:700">${escapeHtml(reserve.title)}</td>
+          <td style="padding:8px 10px">${escapeHtml(companyLabel)}</td>
+          <td style="padding:8px 10px">${escapeHtml([reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · ') || common.noValue)}</td>
+          <td style="padding:8px 10px;color:${statusColor};font-weight:700">${statusLabel(reserve.status, lang)}</td>
+          <td style="padding:8px 10px;color:${priorityColor};font-weight:700">${priorityLabel(reserve.priority, lang)}</td>
+          <td style="padding:8px 10px">${escapeHtml(getReserveDescriptionText(reserve.description, reserve.title)).slice(0, 180)}</td>
+        </tr>`;
+      }).join('')
+    : `<tr><td colspan="7" style="padding:14px;color:#94a3b8;text-align:center">${copy.noReserves}</td></tr>`;
+
+  return `<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="UTF-8">
+  <title>${copy.title} - ${escapeHtml(payload.chantierName)}</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background:#fff; color:#1e293b; font-family:Arial, Helvetica, sans-serif; font-size:12px; line-height:1.5; }
+    @page { margin: 15mm 12mm; size: A4; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    table { width:100%; border-collapse:collapse; font-size:10.5px; }
+    .section-title { font-size:11px; color:#64748b; text-transform:uppercase; letter-spacing:.7px; font-weight:800; margin:20px 0 8px; padding-bottom:5px; border-bottom:1.5px solid #e2e8f0; }
+  </style>
+</head>
+<body>
+  <div style="background:linear-gradient(135deg,#003082,#1A6FD8);color:#fff;padding:26px 30px;border-radius:10px;margin-bottom:20px">
+    <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:.78;margin-bottom:6px">BuildTrack · ${copy.title}</div>
+    <div style="font-size:25px;font-weight:900;margin-bottom:4px">${escapeHtml(visit.title ?? copy.visit)}</div>
+    <div style="font-size:14px;opacity:.85">${escapeHtml(payload.chantierName)} · ${visitDate}</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:18px">
+    ${[
+      [copy.project, payload.chantierName],
+      [copy.date, visitDate],
+      [copy.schedule, [visit.start_time, visit.end_time].filter(Boolean).join(' - ') || common.noValue],
+      [copy.manager, visit.conducteur ?? common.noValue],
+      [copy.visit, `${visitType} · ${status}`],
+      [copy.scope, scopeParts.join(' · ') || common.noValue],
+    ].map(([label, value]) => `<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px">
+      <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.6px;font-weight:700">${escapeHtml(label)}</div>
+      <div style="font-size:12px;font-weight:700;margin-top:3px">${escapeHtml(value)}</div>
+    </div>`).join('')}
+  </div>
+
+  <div class="section-title">${copy.companies}</div>
+  <div style="display:flex;gap:6px;flex-wrap:wrap">
+    ${(companyNames.length ? companyNames : [common.allCompanies]).map(name => `<span style="background:#eef2ff;color:#003082;border:1px solid #c7d2fe;border-radius:999px;padding:5px 10px;font-weight:700">${escapeHtml(name)}</span>`).join('')}
+  </div>
+
+  <div class="section-title">${copy.checklist}</div>
+  <ul style="list-style:none">${checklistHtml}</ul>
+
+  <div class="section-title">${copy.notes}</div>
+  <div style="min-height:70px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;white-space:pre-wrap">${escapeHtml(visit.notes || copy.noNotes)}</div>
+
+  <div class="section-title">${copy.reserves}</div>
+  <table style="border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">
+    <thead><tr style="background:#003082">
+      <th style="color:#fff;padding:8px 10px;text-align:left">#</th>
+      <th style="color:#fff;padding:8px 10px;text-align:left">${common.title}</th>
+      <th style="color:#fff;padding:8px 10px;text-align:left">${common.company}</th>
+      <th style="color:#fff;padding:8px 10px;text-align:left">${common.location}</th>
+      <th style="color:#fff;padding:8px 10px;text-align:left">${common.status}</th>
+      <th style="color:#fff;padding:8px 10px;text-align:left">${common.priority}</th>
+      <th style="color:#fff;padding:8px 10px;text-align:left">${common.defect}</th>
+    </tr></thead>
+    <tbody>${reserveRows}</tbody>
+  </table>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:34px">
+    <div style="height:54px;border-bottom:2px solid #1e293b"></div>
+    <div style="height:54px;border-bottom:2px solid #1e293b"></div>
+    <div style="text-align:center;color:#64748b;font-size:10px">${copy.manager}</div>
+    <div style="text-align:center;color:#64748b;font-size:10px">${copy.signature}</div>
+  </div>
+
+  <div style="margin-top:26px;padding-top:12px;border-top:1.5px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8">
+    <span>BuildTrack · ${copy.generated} ${generatedDate}</span>
+    <span>${common.confidential}</span>
+  </div>
+</body>
+</html>`;
+}
+
 function buildReserveRow(r: PdfReserveItem, idx: number, lang: ReportLanguage = 'fr'): string {
   const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
   const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';

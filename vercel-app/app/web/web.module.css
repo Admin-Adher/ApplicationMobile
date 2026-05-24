@@ -930,6 +930,17 @@
   margin-top: auto;
 }
 
+.reportCard select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #dde4ee;
+  border-radius: 10px;
+  padding: 0 12px;
+  background: #f8fafc;
+  color: #1e293b;
+  font-weight: 700;
+}
+
 .reportCard button:disabled {
   opacity: 0.55;
   cursor: not-allowed;

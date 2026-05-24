@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import { useEffect, useMemo, useState } from 'react';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
@@ -89,18 +89,18 @@ const EMPTY_DATA: WebState = {
 };
 
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard', icon: '▦' },
-  { id: 'reserves', label: 'Réserves', icon: '⚠' },
-  { id: 'plans', label: 'Plans', icon: '▤' },
-  { id: 'visites', label: 'Visites', icon: '☑' },
-  { id: 'planning', label: 'Planning', icon: '◷' },
-  { id: 'messages', label: 'Messages', icon: '◌' },
-  { id: 'terrain', label: 'Terrain', icon: '⌁' },
-  { id: 'media', label: 'Médias', icon: '▧' },
-  { id: 'rapports', label: 'Rapports', icon: '▤' },
-  { id: 'equipes', label: 'Équipes', icon: '◎' },
-  { id: 'settings', label: 'Réglages', icon: '☰' },
-  { id: 'admin', label: 'Admin', icon: '⚙' },
+  { id: 'dashboard', label: 'Dashboard', icon: 'â–¦' },
+  { id: 'reserves', label: 'RÃ©serves', icon: 'âš ' },
+  { id: 'plans', label: 'Plans', icon: 'â–¤' },
+  { id: 'visites', label: 'Visites', icon: 'â˜‘' },
+  { id: 'planning', label: 'Planning', icon: 'â—·' },
+  { id: 'messages', label: 'Messages', icon: 'â—Œ' },
+  { id: 'terrain', label: 'Terrain', icon: 'âŒ' },
+  { id: 'media', label: 'MÃ©dias', icon: 'â–§' },
+  { id: 'rapports', label: 'Rapports', icon: 'â–¤' },
+  { id: 'equipes', label: 'Ã‰quipes', icon: 'â—Ž' },
+  { id: 'settings', label: 'RÃ©glages', icon: 'â˜°' },
+  { id: 'admin', label: 'Admin', icon: 'âš™' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -109,8 +109,8 @@ const STATUS_LABELS: Record<string, string> = {
   open: 'Ouvert',
   in_progress: 'En cours',
   waiting: 'En attente',
-  verification: 'Vérification',
-  closed: 'Clôturé',
+  verification: 'VÃ©rification',
+  closed: 'ClÃ´turÃ©',
 };
 
 const PRIORITY_LABELS: Record<string, string> = {
@@ -126,33 +126,33 @@ const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super admin',
   admin: 'Admin',
   conducteur: 'Conducteur de travaux',
-  chef_equipe: "Chef d'équipe",
+  chef_equipe: "Chef d'Ã©quipe",
   sous_traitant: 'Sous-traitant',
   observateur: 'Observateur',
 };
 
 const VISIT_TYPE_LABELS: Record<VisitDraft['visitType'], string> = {
-  controle: 'Contrôle',
+  controle: 'ContrÃ´le',
   opr: 'OPR',
-  securite: 'Sécurité',
-  reception: 'Réception',
-  synthese: 'Synthèse',
+  securite: 'SÃ©curitÃ©',
+  reception: 'RÃ©ception',
+  synthese: 'SynthÃ¨se',
   autre: 'Autre',
 };
 
 const VISIT_STATUS_LABELS: Record<VisitDraft['status'], string> = {
-  planned: 'Planifiée',
+  planned: 'PlanifiÃ©e',
   in_progress: 'En cours',
-  completed: 'Terminée',
+  completed: 'TerminÃ©e',
 };
 
 const VISIT_CHECKLIST_TEMPLATES: Record<VisitDraft['visitType'], string[]> = {
-  controle: ['Avancement des travaux', 'Matériaux et stockages', 'Coordination entreprises', 'Réserves précédentes', 'Sécurité et propreté'],
-  opr: ['Nettoyage final', 'Essais techniques', 'Finitions', 'Plans d’exécution', 'DOE / documents'],
-  securite: ['EPI', 'Signalisation', 'Propreté chantier', 'Installations électriques provisoires', 'Accès et circulations'],
-  reception: ['Nettoyage', 'Mise en service', 'Essais fonctionnels', 'Plans d’exécution', 'Notices et DOE'],
+  controle: ['Avancement des travaux', 'MatÃ©riaux et stockages', 'Coordination entreprises', 'RÃ©serves prÃ©cÃ©dentes', 'SÃ©curitÃ© et propretÃ©'],
+  opr: ['Nettoyage final', 'Essais techniques', 'Finitions', 'Plans dâ€™exÃ©cution', 'DOE / documents'],
+  securite: ['EPI', 'Signalisation', 'PropretÃ© chantier', 'Installations Ã©lectriques provisoires', 'AccÃ¨s et circulations'],
+  reception: ['Nettoyage', 'Mise en service', 'Essais fonctionnels', 'Plans dâ€™exÃ©cution', 'Notices et DOE'],
   synthese: ['Participants', 'Avancement', 'Points bloquants', 'Planning', 'Questions diverses'],
-  autre: ['État constaté', 'Actions à mener', 'Prochaine étape'],
+  autre: ['Ã‰tat constatÃ©', 'Actions Ã  mener', 'Prochaine Ã©tape'],
 };
 
 function isAdmin(profile: Profile | null) {
@@ -182,7 +182,7 @@ function nowFR() {
 }
 
 function prettyDate(value?: string | null, withTime = false) {
-  if (!value) return '—';
+  if (!value) return 'â€”';
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString('fr-FR', {
@@ -418,7 +418,7 @@ export default function BuildTrackWebPage() {
       if (profileError) throw profileError;
       const loadedProfile = (profileRows?.[0] ?? null) as Profile | null;
       if (!loadedProfile) {
-        setError("Profil introuvable. Vérifiez que l'invitation a bien été acceptée.");
+        setError("Profil introuvable. VÃ©rifiez que l'invitation a bien Ã©tÃ© acceptÃ©e.");
         setLoading(false);
         return;
       }
@@ -531,7 +531,7 @@ export default function BuildTrackWebPage() {
     const comments = [...(reserve.comments ?? []), nextComment];
     const history = [
       ...(reserve.history ?? []),
-      makeHistory('Commentaire ajouté depuis le web', userLabel(profile, authUser)),
+      makeHistory('Commentaire ajoutÃ© depuis le web', userLabel(profile, authUser)),
     ];
     setData(prev => ({
       ...prev,
@@ -636,7 +636,7 @@ export default function BuildTrackWebPage() {
     if (!profile || !canEdit(profile)) return;
     const title = reserveDraft.title.trim();
     if (!title) {
-      setError('Le titre de la réserve est obligatoire.');
+      setError('Le titre de la rÃ©serve est obligatoire.');
       return;
     }
     setSaving(true);
@@ -646,8 +646,8 @@ export default function BuildTrackWebPage() {
     const history = [
       ...(existing?.history ?? []),
       reserveModalMode === 'edit'
-        ? makeHistory('Modifiée depuis le web', userLabel(profile, authUser))
-        : makeHistory(reserveDraft.kind === 'observation' ? 'Observation créée depuis le web' : 'Réserve créée depuis le web', userLabel(profile, authUser)),
+        ? makeHistory('ModifiÃ©e depuis le web', userLabel(profile, authUser))
+        : makeHistory(reserveDraft.kind === 'observation' ? 'Observation crÃ©Ã©e depuis le web' : 'RÃ©serve crÃ©Ã©e depuis le web', userLabel(profile, authUser)),
     ];
     const basePayload = {
       kind: reserveDraft.kind,
@@ -847,7 +847,7 @@ export default function BuildTrackWebPage() {
     return data.chantiers.find(project => project.id === selectedProjectId)?.name ?? 'Chantier';
   }
 
-  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve') {
+  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report', options?: { visit?: any }) {
     const selectedProjectName = projectName();
     const reportKey = `${type}-${reportLanguage}`;
     setGeneratingReport(reportKey);
@@ -861,6 +861,19 @@ export default function BuildTrackWebPage() {
             language: reportLanguage,
             generatedAt: new Date().toISOString(),
           }
+        : type === 'visit_report'
+          ? {
+              type,
+              chantierName: selectedProjectName,
+              visit: options?.visit,
+              reserves: projectScoped.reserves.filter((reserve: any) => {
+                const visitReserveIds = options?.visit?.reserve_ids ?? [];
+                return reserve.visite_id === options?.visit?.id || visitReserveIds.includes(reserve.id);
+              }),
+              companies: data.companies,
+              language: reportLanguage,
+              generatedAt: new Date().toISOString(),
+            }
         : {
             type,
             chantierName: selectedProjectName,
@@ -871,7 +884,11 @@ export default function BuildTrackWebPage() {
             generatedAt: new Date().toISOString(),
           };
       if (type === 'individual_reserve' && !selectedReserve) {
-        setError('Sélectionnez une réserve avant de générer sa fiche.');
+        setError('SÃ©lectionnez une rÃ©serve avant de gÃ©nÃ©rer sa fiche.');
+        return;
+      }
+      if (type === 'visit_report' && !options?.visit) {
+        setError('Selectionnez une visite avant de generer son compte rendu.');
         return;
       }
       const response = await fetch('/api/generate-pdf', {
@@ -881,13 +898,13 @@ export default function BuildTrackWebPage() {
       });
       const result = await response.json();
       if (!response.ok || !result.success) {
-        throw new Error(result.error ?? 'Génération PDF impossible.');
+        throw new Error(result.error ?? 'GÃ©nÃ©ration PDF impossible.');
       }
       const filePart = selectedProjectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
-      const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : 'reserve';
+      const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : type === 'visit_report' ? 'visite' : 'reserve';
       toBase64Download(result.pdfBase64, `BuildTrack_${typePart}_${filePart}_${reportLanguage}.pdf`);
     } catch (err: any) {
-      setError(err?.message ?? 'Génération PDF impossible.');
+      setError(err?.message ?? 'GÃ©nÃ©ration PDF impossible.');
     } finally {
       setGeneratingReport(null);
     }
@@ -987,7 +1004,7 @@ export default function BuildTrackWebPage() {
           <div className={styles.brandMark}>B</div>
           <p className={styles.eyebrow}>BuildTrack Web</p>
           <h1>Connectez-vous au cockpit chantier</h1>
-          <p className={styles.muted}>Même base Supabase, mêmes rôles, mêmes réserves que l’application mobile.</p>
+          <p className={styles.muted}>MÃªme base Supabase, mÃªmes rÃ´les, mÃªmes rÃ©serves que lâ€™application mobile.</p>
           <form className={styles.loginForm} onSubmit={handleLogin}>
             <label>Email</label>
             <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required />
@@ -1025,7 +1042,7 @@ export default function BuildTrackWebPage() {
         <div className={styles.userBox}>
           <strong>{profile?.name ?? authUser.email}</strong>
           <span>{profile?.role_label ?? profile?.role ?? 'Utilisateur'}</span>
-          <button onClick={() => supabaseBrowser.auth.signOut()}>Déconnexion</button>
+          <button onClick={() => supabaseBrowser.auth.signOut()}>DÃ©connexion</button>
         </div>
       </aside>
 
@@ -1042,7 +1059,7 @@ export default function BuildTrackWebPage() {
             </select>
             {canEdit(profile) && (
               <>
-                <button type="button" onClick={() => openReserveCreate()}>Nouvelle réserve</button>
+                <button type="button" onClick={() => openReserveCreate()}>Nouvelle rÃ©serve</button>
                 <button type="button" onClick={openVisitCreate}>Nouvelle visite</button>
               </>
             )}
@@ -1055,7 +1072,7 @@ export default function BuildTrackWebPage() {
         {error ? <div className={styles.alert}>{error}</div> : null}
 
         {loading ? (
-          <div className={styles.loadingBlock}>Chargement des données BuildTrack...</div>
+          <div className={styles.loadingBlock}>Chargement des donnÃ©es BuildTrack...</div>
         ) : (
           <>
             {activeTab === 'dashboard' && (
@@ -1203,22 +1220,22 @@ function Dashboard({ stats, data, scoped, setTab }: any) {
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Réserves actives" value={stats.total} hint={`${stats.open} ouvertes`} />
-        <Kpi title="Avancement" value={`${stats.progress}%`} hint={`${stats.closed} levées`} tone="green" />
-        <Kpi title="En retard" value={stats.overdue} hint="Échéance dépassée" tone="red" />
-        <Kpi title="AR manquants" value={stats.ackMissing} hint="Sous-traitants à relancer" tone="amber" />
+        <Kpi title="RÃ©serves actives" value={stats.total} hint={`${stats.open} ouvertes`} />
+        <Kpi title="Avancement" value={`${stats.progress}%`} hint={`${stats.closed} levÃ©es`} tone="green" />
+        <Kpi title="En retard" value={stats.overdue} hint="Ã‰chÃ©ance dÃ©passÃ©e" tone="red" />
+        <Kpi title="AR manquants" value={stats.ackMissing} hint="Sous-traitants Ã  relancer" tone="amber" />
       </div>
       <section className={styles.panel}>
         <div className={styles.sectionHeader}>
           <div>
-            <h2>Vue d’ensemble</h2>
-            <p>Supervision web de toutes les données déjà présentes dans l’application mobile.</p>
+            <h2>Vue dâ€™ensemble</h2>
+            <p>Supervision web de toutes les donnÃ©es dÃ©jÃ  prÃ©sentes dans lâ€™application mobile.</p>
           </div>
         </div>
         <div className={styles.quickGrid}>
           <Quick label="Plans" value={scoped.plans.length} onClick={() => setTab('plans')} />
           <Quick label="Visites" value={scoped.visites.length} onClick={() => setTab('visites')} />
-          <Quick label="Messages récents" value={data.messages.length} onClick={() => setTab('messages')} />
+          <Quick label="Messages rÃ©cents" value={data.messages.length} onClick={() => setTab('messages')} />
           <Quick label="Documents" value={scoped.documents.length} onClick={() => setTab('terrain')} />
         </div>
       </section>
@@ -1267,11 +1284,11 @@ function ReservesView(props: {
     <div className={styles.twoCols}>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
-          <h2>Réserves</h2>
-          {props.editable && <button type="button" onClick={props.onCreate}>Créer</button>}
+          <h2>RÃ©serves</h2>
+          {props.editable && <button type="button" onClick={props.onCreate}>CrÃ©er</button>}
         </div>
         <div className={styles.toolbar}>
-          <input placeholder="Titre, bâtiment, entreprise..." value={props.search} onChange={e => props.setSearch(e.target.value)} />
+          <input placeholder="Titre, bÃ¢timent, entreprise..." value={props.search} onChange={e => props.setSearch(e.target.value)} />
           <select value={props.statusFilter} onChange={e => props.setStatusFilter(e.target.value)}>
             <option value="all">Tous statuts</option>
             {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -1287,12 +1304,12 @@ function ReservesView(props: {
               <span className={`${styles.dot} ${styles[`priority_${reserve.priority}`] ?? ''}`} />
               <div>
                 <strong>{reserve.title}</strong>
-                <small>{[reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · ') || 'Sans localisation'}</small>
+                <small>{[reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' Â· ') || 'Sans localisation'}</small>
               </div>
               <em>{STATUS_LABELS[reserve.status] ?? reserve.status}</em>
             </button>
           ))}
-          {!reserves.length && <p className={styles.empty}>Aucune réserve avec ces filtres.</p>}
+          {!reserves.length && <p className={styles.empty}>Aucune rÃ©serve avec ces filtres.</p>}
         </div>
       </section>
 
@@ -1309,10 +1326,10 @@ function ReservesView(props: {
             <p className={styles.description}>{selectedReserve.description || 'Aucune description.'}</p>
             <dl className={styles.metaGrid}>
               <div><dt>Statut</dt><dd>{STATUS_LABELS[selectedReserve.status] ?? selectedReserve.status}</dd></div>
-              <div><dt>Entreprise</dt><dd>{reserveCompanies(selectedReserve).join(', ') || '—'}</dd></div>
-              <div><dt>Échéance</dt><dd>{prettyDate(selectedReserve.deadline)}</dd></div>
-              <div><dt>Plan</dt><dd>{selectedReserve.plan_id ? 'Épinglée' : 'Non épinglée'}</dd></div>
-              <div><dt>Accusé réception</dt><dd>{selectedReserve.enterprise_acknowledged_at ? prettyDate(selectedReserve.enterprise_acknowledged_at, true) : 'Manquant'}</dd></div>
+              <div><dt>Entreprise</dt><dd>{reserveCompanies(selectedReserve).join(', ') || 'â€”'}</dd></div>
+              <div><dt>Ã‰chÃ©ance</dt><dd>{prettyDate(selectedReserve.deadline)}</dd></div>
+              <div><dt>Plan</dt><dd>{selectedReserve.plan_id ? 'Ã‰pinglÃ©e' : 'Non Ã©pinglÃ©e'}</dd></div>
+              <div><dt>AccusÃ© rÃ©ception</dt><dd>{selectedReserve.enterprise_acknowledged_at ? prettyDate(selectedReserve.enterprise_acknowledged_at, true) : 'Manquant'}</dd></div>
               <div><dt>Archive</dt><dd>{selectedReserve.archived_at ? prettyDate(selectedReserve.archived_at, true) : 'Active'}</dd></div>
             </dl>
             <form
@@ -1339,14 +1356,14 @@ function ReservesView(props: {
                     {label}
                   </button>
                 ))}
-                <button onClick={() => props.onArchive(selectedReserve)}>{selectedReserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
+                <button onClick={() => props.onArchive(selectedReserve)}>{selectedReserve.archived_at ? 'DÃ©sarchiver' : 'Archiver'}</button>
               </div>
             )}
             <HistoryBlock title="Commentaires" rows={selectedReserve.comments ?? []} />
             <HistoryBlock title="Historique" rows={selectedReserve.history ?? []} />
           </div>
         ) : (
-          <p className={styles.empty}>Sélectionnez une réserve.</p>
+          <p className={styles.empty}>SÃ©lectionnez une rÃ©serve.</p>
         )}
       </section>
     </div>
@@ -1362,7 +1379,7 @@ function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
           <strong>{row.author ?? row.action ?? 'Action'}</strong>
           <span>{row.content ?? row.newValue ?? row.createdAt ?? ''}</span>
         </div>
-      )) : <small>Aucun élément.</small>}
+      )) : <small>Aucun Ã©lÃ©ment.</small>}
     </div>
   );
 }
@@ -1388,15 +1405,15 @@ function PlansView({
         <div className={styles.list}>
           {plans.map((plan: any) => (
             <button key={plan.id} className={`${styles.listRow} ${selectedPlan?.id === plan.id ? styles.selectedRow : ''}`} onClick={() => setSelectedPlanId(plan.id)}>
-              <span>▤</span>
+              <span>â–¤</span>
               <div>
                 <strong>{plan.name}</strong>
-                <small>{[plan.building, plan.level, plan.revision_code].filter(Boolean).join(' · ') || 'Plan'}</small>
+                <small>{[plan.building, plan.level, plan.revision_code].filter(Boolean).join(' Â· ') || 'Plan'}</small>
               </div>
               <em>{reserves.filter((r: any) => r.plan_id === plan.id).length}</em>
             </button>
           ))}
-          {!plans.length && <p className={styles.empty}>Aucun plan dans ce périmètre.</p>}
+          {!plans.length && <p className={styles.empty}>Aucun plan dans ce pÃ©rimÃ¨tre.</p>}
         </div>
       </section>
       <section className={styles.panel}>
@@ -1408,20 +1425,20 @@ function PlansView({
                 <h2>{selectedPlan.name}</h2>
               </div>
               <div className={styles.inlineActions}>
-                <button type="button" onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
+                <button type="button" onClick={() => onCreateReserve(selectedPlan)}>CrÃ©er une rÃ©serve</button>
                 {selectedPlan.uri ? <a className={styles.linkButton} href={selectedPlan.uri} target="_blank">Ouvrir le fichier</a> : null}
               </div>
             </div>
             {editable && (
               <div className={styles.pinToolbar}>
                 <div>
-                  <strong>Positionner une épingle</strong>
-                  <span>{pinTarget ? `Cliquez sur le plan pour placer : ${pinTarget.title}` : 'Choisissez une réserve, puis cliquez directement sur le plan.'}</span>
+                  <strong>Positionner une Ã©pingle</strong>
+                  <span>{pinTarget ? `Cliquez sur le plan pour placer : ${pinTarget.title}` : 'Choisissez une rÃ©serve, puis cliquez directement sur le plan.'}</span>
                 </div>
                 <select value={pinModeReserveId ?? ''} onChange={event => setPinModeReserveId(event.target.value || null)}>
-                  <option value="">Choisir une réserve</option>
+                  <option value="">Choisir une rÃ©serve</option>
                   {reserves.filter((reserve: any) => !reserve.archived_at).map((reserve: any) => (
-                    <option key={reserve.id} value={reserve.id}>{reserve.id} · {reserve.title}</option>
+                    <option key={reserve.id} value={reserve.id}>{reserve.id} Â· {reserve.title}</option>
                   ))}
                 </select>
                 {pinModeReserveId && <button type="button" onClick={() => setPinModeReserveId(null)}>Annuler</button>}
@@ -1433,7 +1450,7 @@ function PlansView({
               ) : selectedPlan.uri && selectedPlan.file_type === 'pdf' ? (
                 <iframe src={selectedPlan.uri} title={selectedPlan.name} />
               ) : (
-                <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
+                <div className={styles.planPlaceholder}>AperÃ§u web disponible dÃ¨s que le fichier est accessible.</div>
               )}
               {pinModeReserveId && (
                 <button
@@ -1449,7 +1466,7 @@ function PlansView({
                     );
                   }}
                 >
-                  <span>Cliquer pour placer l’épingle</span>
+                  <span>Cliquer pour placer lâ€™Ã©pingle</span>
                 </button>
               )}
               {planReserves.filter((r: any) => r.plan_x != null && r.plan_y != null).map((reserve: any, idx: number) => (
@@ -1468,7 +1485,7 @@ function PlansView({
                 </button>
               ))}
             </div>
-            <h3>Réserves sur ce plan</h3>
+            <h3>RÃ©serves sur ce plan</h3>
             <div className={styles.compactList}>
               {planReserves.map((reserve: any) => (
                 <button key={reserve.id} onClick={() => { setSelectedReserveId(reserve.id); setTab('reserves'); }}>
@@ -1478,7 +1495,7 @@ function PlansView({
               ))}
             </div>
           </>
-        ) : <p className={styles.empty}>Sélectionnez un plan.</p>}
+        ) : <p className={styles.empty}>SÃ©lectionnez un plan.</p>}
       </section>
     </div>
   );
@@ -1490,12 +1507,12 @@ function VisitesView({ visites, reserves, companies, onCreateVisit, onCreateRese
       <div className={styles.panelHeaderCompact}>
         <div>
           <h2>Visites</h2>
-          <p>Préparez les visites et rattachez des réserves après coup.</p>
+          <p>PrÃ©parez les visites et rattachez des rÃ©serves aprÃ¨s coup.</p>
         </div>
         <button type="button" onClick={onCreateVisit}>Nouvelle visite</button>
       </div>
       <div className={styles.dataTable}>
-        <div className={`${styles.tableHead} ${styles.visitTableHead}`}><span>Visite</span><span>Date</span><span>Périmètre</span><span>Réserves</span><span>Entreprises</span><span>Action</span></div>
+        <div className={`${styles.tableHead} ${styles.visitTableHead}`}><span>Visite</span><span>Date</span><span>PÃ©rimÃ¨tre</span><span>RÃ©serves</span><span>Entreprises</span><span>Action</span></div>
         {visites.map((visit: any) => {
           const visitReserves = reserves.filter((r: any) => r.visite_id === visit.id || (visit.reserve_ids ?? []).includes(r.id));
           const companyNames = (visit.concerned_company_ids ?? [])
@@ -1505,15 +1522,15 @@ function VisitesView({ visites, reserves, companies, onCreateVisit, onCreateRese
             <div key={visit.id} className={`${styles.tableRow} ${styles.visitTableRow}`}>
               <strong>{visit.title}</strong>
               <span>{prettyDate(visit.date)}</span>
-              <span>{[visit.building, visit.level, visit.zone].filter(Boolean).join(' · ') || 'Multi-bâtiments'}</span>
+              <span>{[visit.building, visit.level, visit.zone].filter(Boolean).join(' Â· ') || 'Multi-bÃ¢timents'}</span>
               <span>{visitReserves.length}</span>
-              <span>{companyNames.join(', ') || '—'}</span>
-              <button type="button" className={styles.tableActionBtn} onClick={() => onCreateReserveFromVisit(visit)}>Ajouter réserve</button>
+              <span>{companyNames.join(', ') || 'â€”'}</span>
+              <button type="button" className={styles.tableActionBtn} onClick={() => onCreateReserveFromVisit(visit)}>Ajouter rÃ©serve</button>
             </div>
           );
         })}
       </div>
-      {!visites.length && <p className={styles.empty}>Aucune visite dans ce périmètre.</p>}
+      {!visites.length && <p className={styles.empty}>Aucune visite dans ce pÃ©rimÃ¨tre.</p>}
     </section>
   );
 }
@@ -1537,16 +1554,16 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Tâches" value={tasks.length} hint="Actions planifiées" />
-        <Kpi title="En retard" value={tasks.filter((task: any) => task.deadline && new Date(task.deadline) < now && task.status !== 'done').length} hint="À reprendre vite" tone="red" />
-        <Kpi title="Visites à venir" value={upcomingVisits.length} hint="Planning chantier" tone="green" />
-        <Kpi title="Échéances réserves" value={reserveDeadlines.length} hint="Réserves actives" tone="amber" />
+        <Kpi title="TÃ¢ches" value={tasks.length} hint="Actions planifiÃ©es" />
+        <Kpi title="En retard" value={tasks.filter((task: any) => task.deadline && new Date(task.deadline) < now && task.status !== 'done').length} hint="Ã€ reprendre vite" tone="red" />
+        <Kpi title="Visites Ã  venir" value={upcomingVisits.length} hint="Planning chantier" tone="green" />
+        <Kpi title="Ã‰chÃ©ances rÃ©serves" value={reserveDeadlines.length} hint="RÃ©serves actives" tone="amber" />
       </div>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
-            <h2>Planning opérationnel</h2>
-            <p>Vue web des tâches, visites et échéances de réserves.</p>
+            <h2>Planning opÃ©rationnel</h2>
+            <p>Vue web des tÃ¢ches, visites et Ã©chÃ©ances de rÃ©serves.</p>
           </div>
           <div className={styles.segmented}>
             <button type="button" className={mode === 'week' ? styles.segmentedActive : ''} onClick={() => setMode('week')}>Semaine</button>
@@ -1556,7 +1573,7 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
         </div>
         <div className={styles.timelineGrid}>
           <div>
-            <h3>Tâches</h3>
+            <h3>TÃ¢ches</h3>
             <div className={styles.timelineList}>
               {visibleTasks.slice(0, 18).map((task: any) => {
                 const company = companies.find((item: any) => item.id === task.company || item.name === task.company);
@@ -1564,14 +1581,14 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
                   <article key={task.id} className={styles.timelineCard}>
                     <span className={`${styles.statusDot} ${task.status === 'done' ? styles.dotDone : task.status === 'delayed' ? styles.dotLate : ''}`} />
                     <div>
-                      <strong>{task.title ?? 'Tâche'}</strong>
-                    <small>{company?.name ?? task.company ?? 'Sans entreprise'} · {prettyDate(task.deadline)}</small>
+                      <strong>{task.title ?? 'TÃ¢che'}</strong>
+                    <small>{company?.name ?? task.company ?? 'Sans entreprise'} Â· {prettyDate(task.deadline)}</small>
                     <div className={styles.progressMini}><span style={{ width: `${Math.max(0, Math.min(100, Number(task.progress ?? 0)))}%` }} /></div>
                     {editable && (
                       <div className={styles.quickTaskActions}>
-                        <button type="button" disabled={task.status === 'todo'} onClick={() => onUpdateTask(task, { status: 'todo', progress: Math.min(Number(task.progress ?? 0), 10) })}>À faire</button>
+                        <button type="button" disabled={task.status === 'todo'} onClick={() => onUpdateTask(task, { status: 'todo', progress: Math.min(Number(task.progress ?? 0), 10) })}>Ã€ faire</button>
                         <button type="button" disabled={task.status === 'in_progress'} onClick={() => onUpdateTask(task, { status: 'in_progress', progress: Math.max(Number(task.progress ?? 0), 25) })}>En cours</button>
-                        <button type="button" disabled={task.status === 'done'} onClick={() => onUpdateTask(task, { status: 'done', progress: 100 })}>Terminée</button>
+                        <button type="button" disabled={task.status === 'done'} onClick={() => onUpdateTask(task, { status: 'done', progress: 100 })}>TerminÃ©e</button>
                       </div>
                     )}
                   </div>
@@ -1579,18 +1596,18 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
                   </article>
                 );
               })}
-              {!visibleTasks.length && <p className={styles.empty}>Aucune tâche dans cette vue.</p>}
+              {!visibleTasks.length && <p className={styles.empty}>Aucune tÃ¢che dans cette vue.</p>}
             </div>
           </div>
           <div>
-            <h3>Visites et échéances</h3>
+            <h3>Visites et Ã©chÃ©ances</h3>
             <div className={styles.timelineList}>
               {upcomingVisits.map((visit: any) => (
                 <article key={visit.id} className={styles.timelineCard}>
                   <span className={styles.statusDot} />
                   <div>
                     <strong>{visit.title}</strong>
-                    <small>{prettyDate(visit.date)} · {[visit.building, visit.level].filter(Boolean).join(' · ') || 'Périmètre chantier'}</small>
+                    <small>{prettyDate(visit.date)} Â· {[visit.building, visit.level].filter(Boolean).join(' Â· ') || 'PÃ©rimÃ¨tre chantier'}</small>
                   </div>
                   <em>{VISIT_STATUS_LABELS[visit.status as VisitDraft['status']] ?? visit.status}</em>
                 </article>
@@ -1600,12 +1617,12 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
                   <span className={`${styles.statusDot} ${styles.dotLate}`} />
                   <div>
                     <strong>{reserve.title}</strong>
-                    <small>Échéance réserve · {prettyDate(reserve.deadline)}</small>
+                    <small>Ã‰chÃ©ance rÃ©serve Â· {prettyDate(reserve.deadline)}</small>
                   </div>
                   <em>{STATUS_LABELS[reserve.status] ?? reserve.status}</em>
                 </article>
               ))}
-              {!upcomingVisits.length && !reserveDeadlines.length && <p className={styles.empty}>Aucune échéance proche.</p>}
+              {!upcomingVisits.length && !reserveDeadlines.length && <p className={styles.empty}>Aucune Ã©chÃ©ance proche.</p>}
             </div>
           </div>
         </div>
@@ -1624,10 +1641,10 @@ function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
-            <h2>Médias chantier</h2>
-            <p>Photos, documents et pièces jointes synchronisés depuis le terrain.</p>
+            <h2>MÃ©dias chantier</h2>
+            <p>Photos, documents et piÃ¨ces jointes synchronisÃ©s depuis le terrain.</p>
           </div>
-          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher média, zone, auteur..." />
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher mÃ©dia, zone, auteur..." />
         </div>
       </section>
       <section className={styles.panel}>
@@ -1639,11 +1656,11 @@ function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
               <a key={photo.id ?? url} className={styles.mediaCard} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
                 {url ? <img src={url} alt={photo.comment ?? photo.title ?? 'Photo chantier'} /> : <span>Photo</span>}
                 <strong>{photo.comment ?? photo.title ?? photo.name ?? 'Photo chantier'}</strong>
-                <small>{photo.location ?? photo.building ?? 'Sans localisation'} · {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
+                <small>{photo.location ?? photo.building ?? 'Sans localisation'} Â· {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
               </a>
             );
           })}
-          {!filteredPhotos.length && <p className={styles.empty}>Aucune photo trouvée.</p>}
+          {!filteredPhotos.length && <p className={styles.empty}>Aucune photo trouvÃ©e.</p>}
         </div>
       </section>
       <section className={styles.panel}>
@@ -1656,12 +1673,12 @@ function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
                 <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
                 <div>
                   <strong>{document.title ?? document.name ?? document.file_name ?? 'Document'}</strong>
-                  <small>{document.category ?? 'GED'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
+                  <small>{document.category ?? 'GED'} Â· {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
                 </div>
               </a>
             );
           })}
-          {!filteredDocuments.length && <p className={styles.empty}>Aucun document trouvé.</p>}
+          {!filteredDocuments.length && <p className={styles.empty}>Aucun document trouvÃ©.</p>}
         </div>
       </section>
     </div>
@@ -1682,19 +1699,21 @@ function RapportsView({
   onGenerate,
 }: any) {
   const disabled = Boolean(generatingReport);
+  const [selectedVisitId, setSelectedVisitId] = useState('');
+  const selectedVisit = visites.find((visit: any) => visit.id === selectedVisitId) ?? visites[0] ?? null;
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Réserves exportables" value={reserves.length} hint={`${stats.closed} clôturées`} />
-        <Kpi title="Plans" value={plans.length} hint="Avec réserves et épingles" tone="green" />
+        <Kpi title="RÃ©serves exportables" value={reserves.length} hint={`${stats.closed} clÃ´turÃ©es`} />
+        <Kpi title="Plans" value={plans.length} hint="Avec rÃ©serves et Ã©pingles" tone="green" />
         <Kpi title="Visites" value={visites.length} hint="Comptes rendus" tone="amber" />
-        <Kpi title="Incidents" value={incidents.length} hint="Suivi sécurité" tone="red" />
+        <Kpi title="Incidents" value={incidents.length} hint="Suivi sÃ©curitÃ©" tone="red" />
       </div>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>Exports et rapports</h2>
-            <p>Générez les PDF depuis le web avec les mêmes données Supabase que l’application mobile.</p>
+            <p>GÃ©nÃ©rez les PDF depuis le web avec les mÃªmes donnÃ©es Supabase que lâ€™application mobile.</p>
           </div>
           <div className={styles.segmented}>
             {(['fr', 'en', 'es'] as const).map(lang => (
@@ -1706,33 +1725,45 @@ function RapportsView({
         </div>
         <div className={styles.reportGrid}>
           <ReportCard
-            title="Rapport réserves"
-            text="Liste détaillée, synthèse par statut et par entreprise."
-            meta={`${reserves.length} réserves`}
+            title="Rapport rÃ©serves"
+            text="Liste dÃ©taillÃ©e, synthÃ¨se par statut et par entreprise."
+            meta={`${reserves.length} rÃ©serves`}
             disabled={disabled}
             loading={generatingReport === `global_reserves-${language}`}
             onClick={() => onGenerate('global_reserves')}
           />
           <ReportCard
             title="Rapport plans"
-            text="Plans, épingles et réserves associées."
+            text="Plans, Ã©pingles et rÃ©serves associÃ©es."
             meta={`${plans.length} plans`}
             disabled={disabled}
             loading={generatingReport === `plans-${language}`}
             onClick={() => onGenerate('plans')}
           />
           <ReportCard
-            title="Fiche réserve"
-            text="Export individuel de la réserve sélectionnée."
-            meta={selectedReserve ? selectedReserve.id : 'Aucune réserve sélectionnée'}
+            title="Fiche rÃ©serve"
+            text="Export individuel de la rÃ©serve sÃ©lectionnÃ©e."
+            meta={selectedReserve ? selectedReserve.id : 'Aucune rÃ©serve sÃ©lectionnÃ©e'}
             disabled={disabled || !selectedReserve}
             loading={generatingReport === `individual_reserve-${language}`}
             onClick={() => onGenerate('individual_reserve')}
           />
           <article className={styles.reportCard}>
-            <strong>À venir côté web</strong>
-            <p>Compte rendu de visite complet, journal quotidien et rapport hebdomadaire structurés comme l’app mobile.</p>
-            <small>{tasks.length} tâches · {incidents.length} incidents disponibles</small>
+            <strong>Compte rendu de visite</strong>
+            <p>Export structure avec informations de visite, checklist, notes et reserves rattachees.</p>
+            <select value={selectedVisit?.id ?? ''} onChange={event => setSelectedVisitId(event.target.value)}>
+              {visites.map((visit: any) => (
+                <option key={visit.id} value={visit.id}>{visit.title}</option>
+              ))}
+            </select>
+            <small>{visites.length} visites Â· {tasks.length} taches Â· {incidents.length} incidents</small>
+            <button
+              type="button"
+              disabled={disabled || !selectedVisit}
+              onClick={() => onGenerate('visit_report', { visit: selectedVisit })}
+            >
+              {generatingReport === `visit_report-${language}` ? 'Generation...' : 'Telecharger PDF'}
+            </button>
           </article>
         </div>
       </section>
@@ -1746,7 +1777,7 @@ function ReportCard({ title, text, meta, disabled, loading, onClick }: any) {
       <strong>{title}</strong>
       <p>{text}</p>
       <small>{meta}</small>
-      <button type="button" disabled={disabled} onClick={onClick}>{loading ? 'Génération...' : 'Télécharger PDF'}</button>
+      <button type="button" disabled={disabled} onClick={onClick}>{loading ? 'GÃ©nÃ©ration...' : 'TÃ©lÃ©charger PDF'}</button>
     </article>
   );
 }
@@ -1758,14 +1789,14 @@ function MessagesView({ channels, companies, selectedChannel, setSelectedChannel
         <div className={styles.list}>
           {channels.map((channel: any) => (
             <button key={channel.id} className={`${styles.listRow} ${selectedChannel?.id === channel.id ? styles.selectedRow : ''}`} onClick={() => setSelectedChannelId(channel.id)}>
-              <span>◌</span>
+              <span>â—Œ</span>
               <div>
                 <strong>{channelLabel(channel, companies)}</strong>
                 <small>{channel.type ?? 'canal'}</small>
               </div>
             </button>
           ))}
-          {!channels.length && <p className={styles.empty}>Aucun canal chargé.</p>}
+          {!channels.length && <p className={styles.empty}>Aucun canal chargÃ©.</p>}
         </div>
       </section>
       <section className={styles.panel}>
@@ -1786,7 +1817,7 @@ function MessagesView({ channels, companies, selectedChannel, setSelectedChannel
           {!messages.length && <p className={styles.empty}>Aucun message dans ce canal.</p>}
         </div>
         <form className={styles.messageForm} onSubmit={onSend}>
-          <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Écrire un message..." />
+          <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Ã‰crire un message..." />
           <button disabled={saving || !draft.trim()}>Envoyer</button>
         </form>
       </section>
@@ -1798,15 +1829,15 @@ function TerrainView({ scoped, data }: any) {
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Incidents" value={scoped.incidents.length} hint="Sécurité / terrain" tone="red" />
-        <Kpi title="Tâches" value={scoped.tasks.length} hint="Actions chantier" />
-        <Kpi title="Photos" value={scoped.photos.length} hint="Médias terrain" tone="green" />
+        <Kpi title="Incidents" value={scoped.incidents.length} hint="SÃ©curitÃ© / terrain" tone="red" />
+        <Kpi title="TÃ¢ches" value={scoped.tasks.length} hint="Actions chantier" />
+        <Kpi title="Photos" value={scoped.photos.length} hint="MÃ©dias terrain" tone="green" />
         <Kpi title="Documents" value={scoped.documents.length} hint="GED chantier" tone="amber" />
       </div>
       <section className={styles.panel}>
         <div className={styles.threeCols}>
           <SimpleColumn title="Incidents" rows={scoped.incidents} primary="title" secondary="status" />
-          <SimpleColumn title="Tâches" rows={scoped.tasks} primary="title" secondary="deadline" />
+          <SimpleColumn title="TÃ¢ches" rows={scoped.tasks} primary="title" secondary="deadline" />
           <SimpleColumn title="OPR" rows={scoped.oprs} primary="title" secondary="status" />
         </div>
       </section>
@@ -1814,7 +1845,7 @@ function TerrainView({ scoped, data }: any) {
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>Photos et documents</h2>
-            <p>Accès web rapide aux médias terrain et pièces GED déjà synchronisés.</p>
+            <p>AccÃ¨s web rapide aux mÃ©dias terrain et piÃ¨ces GED dÃ©jÃ  synchronisÃ©s.</p>
           </div>
         </div>
         <div className={styles.mediaGrid}>
@@ -1850,7 +1881,7 @@ function TerrainView({ scoped, data }: any) {
               </a>
             );
           })}
-          {!scoped.photos.length && !scoped.documents.length && <p className={styles.empty}>Aucun média terrain dans ce périmètre.</p>}
+          {!scoped.photos.length && !scoped.documents.length && <p className={styles.empty}>Aucun mÃ©dia terrain dans ce pÃ©rimÃ¨tre.</p>}
         </div>
       </section>
       <section className={styles.panel}>
@@ -1873,16 +1904,16 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Présents" value={totalActual} hint={`${totalPlanned} planifiés`} />
-        <Kpi title="Présence" value={`${presence}%`} hint="Pointage global" tone="green" />
+        <Kpi title="PrÃ©sents" value={totalActual} hint={`${totalPlanned} planifiÃ©s`} />
+        <Kpi title="PrÃ©sence" value={`${presence}%`} hint="Pointage global" tone="green" />
         <Kpi title="Entreprises" value={companies.length} hint="Sous-traitants" tone="amber" />
-        <Kpi title="Actions actives" value={tasks.filter((task: any) => task.status !== 'done').length} hint="Tâches non terminées" />
+        <Kpi title="Actions actives" value={tasks.filter((task: any) => task.status !== 'done').length} hint="TÃ¢ches non terminÃ©es" />
       </div>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
-            <h2>Équipes chantier</h2>
-            <p>Pointage rapide, contacts et réserves ouvertes par entreprise.</p>
+            <h2>Ã‰quipes chantier</h2>
+            <p>Pointage rapide, contacts et rÃ©serves ouvertes par entreprise.</p>
           </div>
         </div>
         <div className={styles.companyGrid}>
@@ -1903,7 +1934,7 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
                 </div>
                 <div className={styles.companyStats}>
                   <label>
-                    <span>Présents</span>
+                    <span>PrÃ©sents</span>
                     <input
                       type="number"
                       min={0}
@@ -1913,7 +1944,7 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
                     />
                   </label>
                   <label>
-                    <span>Planifiés</span>
+                    <span>PlanifiÃ©s</span>
                     <input
                       type="number"
                       min={0}
@@ -1924,7 +1955,7 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
                   </label>
                 </div>
                 <div className={styles.companyFooter}>
-                  <span>{openReserves} réserves ouvertes</span>
+                  <span>{openReserves} rÃ©serves ouvertes</span>
                   {company.email ? <a href={`mailto:${company.email}`}>Email</a> : null}
                   {company.contact ? <a href={`tel:${company.contact}`}>Appeler</a> : null}
                 </div>
@@ -1932,7 +1963,7 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
             );
           })}
         </div>
-        {!companies.length && <p className={styles.empty}>Aucune entreprise chargée.</p>}
+        {!companies.length && <p className={styles.empty}>Aucune entreprise chargÃ©e.</p>}
       </section>
     </div>
   );
@@ -1956,13 +1987,13 @@ function SettingsView({ profile, authUser, preferences, onUpdateNotificationFiel
           <div>
             <p className={styles.eyebrow}>Compte</p>
             <h2>{profile?.name ?? authUser?.email}</h2>
-            <p>{profile?.role_label ?? profile?.role} · {profile?.email ?? authUser?.email}</p>
+            <p>{profile?.role_label ?? profile?.role} Â· {profile?.email ?? authUser?.email}</p>
           </div>
         </div>
         <dl className={styles.metaGrid}>
           <div><dt>ID utilisateur</dt><dd>{profile?.id ?? authUser?.id}</dd></div>
-          <div><dt>Organisation</dt><dd>{profile?.organization_id ?? '—'}</dd></div>
-          <div><dt>Entreprise</dt><dd>{profile?.company_id ?? '—'}</dd></div>
+          <div><dt>Organisation</dt><dd>{profile?.organization_id ?? 'â€”'}</dd></div>
+          <div><dt>Entreprise</dt><dd>{profile?.company_id ?? 'â€”'}</dd></div>
           <div><dt>Langue</dt><dd>{profile?.preferred_language?.toUpperCase() ?? 'Auto'}</dd></div>
         </dl>
       </section>
@@ -1970,14 +2001,14 @@ function SettingsView({ profile, authUser, preferences, onUpdateNotificationFiel
         <div className={styles.sectionHeader}>
           <div>
             <p className={styles.eyebrow}>Notifications</p>
-            <h2>Préférences personnelles</h2>
-            <p>Ces réglages sont stockés dans Supabase et restent cohérents avec l’application mobile.</p>
+            <h2>PrÃ©fÃ©rences personnelles</h2>
+            <p>Ces rÃ©glages sont stockÃ©s dans Supabase et restent cohÃ©rents avec lâ€™application mobile.</p>
           </div>
         </div>
         <div className={styles.toggleList}>
           <ToggleRow label="Notifications app" hint="Alertes visibles dans BuildTrack." checked={!!prefValue(preferences, authUser, 'in_app_enabled')} onChange={value => onUpdateNotificationField('in_app_enabled', value)} />
-          <ToggleRow label="Notifications push" hint="Alertes natives tablette ou téléphone." checked={!!prefValue(preferences, authUser, 'push_enabled')} onChange={value => onUpdateNotificationField('push_enabled', value)} />
-          <ToggleRow label="Notifications email" hint="Emails automatiques réserves et rappels." checked={!!prefValue(preferences, authUser, 'email_enabled')} onChange={value => onUpdateNotificationField('email_enabled', value)} />
+          <ToggleRow label="Notifications push" hint="Alertes natives tablette ou tÃ©lÃ©phone." checked={!!prefValue(preferences, authUser, 'push_enabled')} onChange={value => onUpdateNotificationField('push_enabled', value)} />
+          <ToggleRow label="Notifications email" hint="Emails automatiques rÃ©serves et rappels." checked={!!prefValue(preferences, authUser, 'email_enabled')} onChange={value => onUpdateNotificationField('email_enabled', value)} />
           <ToggleRow label="Messages par email" hint="Recevoir les messages importants par mail." checked={!!prefValue(preferences, authUser, 'messages_email', false)} onChange={value => onUpdateNotificationField('messages_email', value)} />
           <ToggleRow label="Heures calmes" hint="Suspend les push non critiques." checked={!!prefValue(preferences, authUser, 'quiet_hours_enabled', false)} onChange={value => onUpdateNotificationField('quiet_hours_enabled', value)} />
         </div>
@@ -2018,8 +2049,8 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       <form className={styles.modalPanel} onSubmit={onSubmit}>
         <div className={styles.modalHeader}>
           <div>
-            <p className={styles.eyebrow}>{mode === 'edit' ? 'Modification' : 'Création'}</p>
-            <h2>{mode === 'edit' ? 'Modifier la réserve' : 'Nouvelle réserve'}</h2>
+            <p className={styles.eyebrow}>{mode === 'edit' ? 'Modification' : 'CrÃ©ation'}</p>
+            <h2>{mode === 'edit' ? 'Modifier la rÃ©serve' : 'Nouvelle rÃ©serve'}</h2>
           </div>
           <button type="button" onClick={onClose}>Fermer</button>
         </div>
@@ -2027,7 +2058,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
           <label>
             Type
             <select value={draft.kind} onChange={event => setDraft(prev => ({ ...prev, kind: event.target.value as ReserveDraft['kind'] }))}>
-              <option value="reserve">Réserve</option>
+              <option value="reserve">RÃ©serve</option>
               <option value="observation">Observation</option>
             </select>
           </label>
@@ -2048,7 +2079,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                   return { ...prev, title: value, description: shouldMirrorDescription ? value : prev.description };
                 });
               }}
-              placeholder="Ex: Finition mur à reprendre"
+              placeholder="Ex: Finition mur Ã  reprendre"
               required
             />
           </label>
@@ -2057,7 +2088,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
             <textarea value={draft.description} onChange={event => setDraft(prev => ({ ...prev, description: event.target.value }))} rows={4} />
           </label>
           <label>
-            Bâtiment
+            BÃ¢timent
             <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value }))} />
           </label>
           <label>
@@ -2069,11 +2100,11 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
             <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} />
           </label>
           <label>
-            Échéance
+            Ã‰chÃ©ance
             <input type="date" value={draft.deadline} onChange={event => setDraft(prev => ({ ...prev, deadline: event.target.value }))} />
           </label>
           <label>
-            Priorité
+            PrioritÃ©
             <select value={draft.priority} onChange={event => setDraft(prev => ({ ...prev, priority: event.target.value }))}>
               {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
@@ -2085,14 +2116,14 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
             </select>
           </label>
           <label>
-            Plan associé
+            Plan associÃ©
             <select value={draft.planId} onChange={event => setDraft(prev => ({ ...prev, planId: event.target.value }))}>
               <option value="">Aucun plan</option>
               {plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
             </select>
           </label>
           <label>
-            Visite associée
+            Visite associÃ©e
             <select value={draft.visiteId} onChange={event => setDraft(prev => ({ ...prev, visiteId: event.target.value }))}>
               <option value="">Aucune visite</option>
               {visits.map(visit => <option key={visit.id} value={visit.id}>{visit.title}</option>)}
@@ -2102,7 +2133,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
             Lot
             <select value={draft.lotId} onChange={event => setDraft(prev => ({ ...prev, lotId: event.target.value }))}>
               <option value="">Aucun lot</option>
-              {lots.map(lot => <option key={lot.id} value={lot.id}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</option>)}
+              {lots.map(lot => <option key={lot.id} value={lot.id}>{lot.code ? `${lot.code} Â· ${lot.name}` : lot.name}</option>)}
             </select>
           </label>
           <div className={styles.formWide}>
@@ -2123,7 +2154,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
         </div>
         <div className={styles.modalActions}>
           <button type="button" onClick={onClose}>Annuler</button>
-          <button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : mode === 'edit' ? 'Enregistrer' : 'Créer'}</button>
+          <button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : mode === 'edit' ? 'Enregistrer' : 'CrÃ©er'}</button>
         </div>
       </form>
     </div>
@@ -2154,7 +2185,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
         <div className={styles.formGrid}>
           <label className={styles.formWide}>
             Titre
-            <input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Ex: Contrôle S21" required />
+            <input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Ex: ContrÃ´le S21" required />
           </label>
           <label>
             Chantier
@@ -2173,7 +2204,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
             <input type="date" value={draft.date} onChange={event => setDraft(prev => ({ ...prev, date: event.target.value }))} />
           </label>
           <label>
-            Début
+            DÃ©but
             <input type="time" value={draft.startTime} onChange={event => setDraft(prev => ({ ...prev, startTime: event.target.value }))} />
           </label>
           <label>
@@ -2191,7 +2222,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
             <input value={draft.conducteur} onChange={event => setDraft(prev => ({ ...prev, conducteur: event.target.value }))} />
           </label>
           <label>
-            Bâtiment
+            BÃ¢timent
             <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value }))} />
           </label>
           <label>
@@ -2203,7 +2234,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
             <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} />
           </label>
           <label>
-            Délai cible réserves
+            DÃ©lai cible rÃ©serves
             <input type="date" value={draft.reserveDeadlineDate} onChange={event => setDraft(prev => ({ ...prev, reserveDeadlineDate: event.target.value }))} />
           </label>
           <label className={styles.formWide}>
@@ -2211,7 +2242,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
             <textarea value={draft.notes} onChange={event => setDraft(prev => ({ ...prev, notes: event.target.value }))} rows={3} />
           </label>
           <div className={styles.formWide}>
-            <span className={styles.fieldLabel}>Entreprises concernées</span>
+            <span className={styles.fieldLabel}>Entreprises concernÃ©es</span>
             <div className={styles.chipGrid}>
               {data.companies.map(company => (
                 <button
@@ -2228,7 +2259,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
         </div>
         <div className={styles.modalActions}>
           <button type="button" onClick={onClose}>Annuler</button>
-          <button type="submit" disabled={saving}>{saving ? 'Création...' : 'Créer la visite'}</button>
+          <button type="submit" disabled={saving}>{saving ? 'CrÃ©ation...' : 'CrÃ©er la visite'}</button>
         </div>
       </form>
     </div>
@@ -2238,7 +2269,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
 function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => void }) {
   const [query, setQuery] = useState('');
   if (!isAdmin(profile)) {
-    return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux admins et super admins.</p></section>;
+    return <section className={styles.panel}><p className={styles.empty}>AccÃ¨s rÃ©servÃ© aux admins et super admins.</p></section>;
   }
   const q = query.trim().toLowerCase();
   const users = data.profiles.filter(user => !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q));
@@ -2247,19 +2278,19 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
       <div className={styles.kpiGrid}>
         <Kpi title="Utilisateurs" value={data.profiles.length} hint="Profils Supabase" />
         <Kpi title="Entreprises" value={data.companies.length} hint="Sous-traitants" tone="green" />
-        <Kpi title="Préférences notif." value={data.notificationPreferences.length} hint="App / push / email" tone="amber" />
-        <Kpi title="Chantiers" value={data.chantiers.length} hint="Périmètre org." />
+        <Kpi title="PrÃ©fÃ©rences notif." value={data.notificationPreferences.length} hint="App / push / email" tone="amber" />
+        <Kpi title="Chantiers" value={data.chantiers.length} hint="PÃ©rimÃ¨tre org." />
       </div>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>Utilisateurs</h2>
-            <p>Gestion web des rôles et entreprises rattachées.</p>
+            <p>Gestion web des rÃ´les et entreprises rattachÃ©es.</p>
           </div>
           <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher utilisateur..." />
         </div>
         <div className={styles.dataTable}>
-          <div className={`${styles.tableHead} ${styles.adminTableHead}`}><span>Utilisateur</span><span>Rôle</span><span>Entreprise</span><span>Email</span></div>
+          <div className={`${styles.tableHead} ${styles.adminTableHead}`}><span>Utilisateur</span><span>RÃ´le</span><span>Entreprise</span><span>Email</span></div>
           {users.map(user => {
             return (
               <div key={user.id} className={`${styles.tableRow} ${styles.adminTableRow}`}>
@@ -2275,7 +2306,7 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
               </div>
             );
           })}
-          {!users.length && <p className={styles.empty}>Aucun utilisateur trouvé.</p>}
+          {!users.length && <p className={styles.empty}>Aucun utilisateur trouvÃ©.</p>}
         </div>
       </section>
     </div>
@@ -2289,12 +2320,13 @@ function SimpleColumn({ title, rows, primary, secondary }: { title: string; rows
       <div className={styles.compactList}>
         {rows.slice(0, 8).map(row => (
           <button key={row.id}>
-            <span>{row[secondary] ? prettyDate(row[secondary]) : '—'}</span>
+            <span>{row[secondary] ? prettyDate(row[secondary]) : 'â€”'}</span>
             <strong>{row[primary] ?? row.name ?? row.id}</strong>
           </button>
         ))}
-        {!rows.length && <small>Aucun élément.</small>}
+        {!rows.length && <small>Aucun Ã©lÃ©ment.</small>}
       </div>
     </div>
   );
 }
+
