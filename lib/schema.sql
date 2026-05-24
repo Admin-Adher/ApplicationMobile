@@ -753,7 +753,7 @@ create table if not exists public.visites (
   start_time text,
   end_time text,
   reserve_deadline_date text,
-  reserve_ids jsonb not null default '[]',
+  reserve_ids text[] default '{}'::text[],
   conducteur_signature text,
   entreprise_signature text,
   signed_at text,

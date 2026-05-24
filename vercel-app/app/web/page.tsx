@@ -189,6 +189,10 @@ function getChantierId(item: any) {
   return item?.chantier_id ?? item?.chantierId ?? '';
 }
 
+function assetUrl(item: any) {
+  return item?.uri ?? item?.url ?? item?.file_url ?? item?.public_url ?? item?.signed_url ?? item?.photo_uri ?? '';
+}
+
 function reserveCompanies(reserve: any): string[] {
   if (Array.isArray(reserve.companies) && reserve.companies.length) return reserve.companies;
   return reserve.company ? [reserve.company] : [];
@@ -333,6 +337,7 @@ export default function BuildTrackWebPage() {
   const [editingReserveId, setEditingReserveId] = useState<string | null>(null);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [visitDraft, setVisitDraft] = useState<VisitDraft>(() => createVisitDraft('', ''));
+  const [pinModeReserveId, setPinModeReserveId] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
@@ -481,6 +486,49 @@ export default function BuildTrackWebPage() {
     if (archiveError) setError(archiveError.message);
     else setData(prev => ({ ...prev, reserves: prev.reserves.map(r => r.id === reserve.id ? { ...r, ...next } : r) }));
     setSaving(false);
+  }
+
+  async function addReserveComment(reserve: any, content: string) {
+    if (!profile || !content.trim()) return;
+    const nextComment = {
+      id: crypto.randomUUID(),
+      author: userLabel(profile, authUser),
+      content: content.trim(),
+      createdAt: nowFR(),
+    };
+    const comments = [...(reserve.comments ?? []), nextComment];
+    const history = [
+      ...(reserve.history ?? []),
+      makeHistory('Commentaire ajouté depuis le web', userLabel(profile, authUser)),
+    ];
+    setData(prev => ({
+      ...prev,
+      reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, comments, history } : item),
+    }));
+    const { error: commentError } = await supabaseBrowser
+      .from('reserves')
+      .update({ comments, history })
+      .eq('id', reserve.id);
+    if (commentError) setError(commentError.message);
+  }
+
+  async function assignReservePin(reserveId: string, planId: string, x: number, y: number) {
+    if (!canEdit(profile)) return;
+    const payload = {
+      plan_id: planId,
+      plan_x: Math.max(0, Math.min(1, x)),
+      plan_y: Math.max(0, Math.min(1, y)),
+    };
+    setData(prev => ({
+      ...prev,
+      reserves: prev.reserves.map(reserve => reserve.id === reserveId ? { ...reserve, ...payload } : reserve),
+    }));
+    setPinModeReserveId(null);
+    const { error: pinError } = await supabaseBrowser
+      .from('reserves')
+      .update(payload)
+      .eq('id', reserveId);
+    if (pinError) setError(pinError.message);
   }
 
   function currentProjectId() {
@@ -911,6 +959,7 @@ export default function BuildTrackWebPage() {
                 setStatusFilter={setStatusFilter}
                 onStatus={updateReserveStatus}
                 onArchive={toggleArchive}
+                onComment={addReserveComment}
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
                 editable={canEdit(profile)}
@@ -926,6 +975,10 @@ export default function BuildTrackWebPage() {
                 setSelectedReserveId={setSelectedReserveId}
                 setTab={setActiveTab}
                 onCreateReserve={(plan: any) => openReserveCreate({ plan })}
+                onAssignPin={assignReservePin}
+                pinModeReserveId={pinModeReserveId}
+                setPinModeReserveId={setPinModeReserveId}
+                editable={canEdit(profile)}
               />
             )}
             {activeTab === 'visites' && (
@@ -1061,12 +1114,14 @@ function ReservesView(props: {
   setStatusFilter: (value: string) => void;
   onStatus: (id: string, status: string) => void;
   onArchive: (reserve: any) => void;
+  onComment: (reserve: any, content: string) => Promise<void> | void;
   onCreate: () => void;
   onEdit: (reserve: any) => void;
   editable: boolean;
   saving: boolean;
 }) {
   const { reserves, selectedReserve } = props;
+  const [commentText, setCommentText] = useState('');
   return (
     <div className={styles.twoCols}>
       <section className={styles.panel}>
@@ -1119,6 +1174,22 @@ function ReservesView(props: {
               <div><dt>Accusé réception</dt><dd>{selectedReserve.enterprise_acknowledged_at ? prettyDate(selectedReserve.enterprise_acknowledged_at, true) : 'Manquant'}</dd></div>
               <div><dt>Archive</dt><dd>{selectedReserve.archived_at ? prettyDate(selectedReserve.archived_at, true) : 'Active'}</dd></div>
             </dl>
+            <form
+              className={styles.commentForm}
+              onSubmit={async event => {
+                event.preventDefault();
+                if (!commentText.trim()) return;
+                await props.onComment(selectedReserve, commentText);
+                setCommentText('');
+              }}
+            >
+              <input
+                value={commentText}
+                onChange={event => setCommentText(event.target.value)}
+                placeholder="Ajouter un commentaire de suivi..."
+              />
+              <button type="submit" disabled={props.saving || !commentText.trim()}>Ajouter</button>
+            </form>
             {props.editable && (
               <div className={styles.actionBar}>
                 <button type="button" onClick={() => props.onEdit(selectedReserve)}>Modifier</button>
@@ -1155,8 +1226,21 @@ function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
   );
 }
 
-function PlansView({ plans, reserves, selectedPlan, setSelectedPlanId, setSelectedReserveId, setTab, onCreateReserve }: any) {
+function PlansView({
+  plans,
+  reserves,
+  selectedPlan,
+  setSelectedPlanId,
+  setSelectedReserveId,
+  setTab,
+  onCreateReserve,
+  onAssignPin,
+  pinModeReserveId,
+  setPinModeReserveId,
+  editable,
+}: any) {
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
+  const pinTarget = reserves.find((reserve: any) => reserve.id === pinModeReserveId);
   return (
     <div className={styles.twoCols}>
       <section className={styles.panel}>
@@ -1187,6 +1271,21 @@ function PlansView({ plans, reserves, selectedPlan, setSelectedPlanId, setSelect
                 {selectedPlan.uri ? <a className={styles.linkButton} href={selectedPlan.uri} target="_blank">Ouvrir le fichier</a> : null}
               </div>
             </div>
+            {editable && (
+              <div className={styles.pinToolbar}>
+                <div>
+                  <strong>Positionner une épingle</strong>
+                  <span>{pinTarget ? `Cliquez sur le plan pour placer : ${pinTarget.title}` : 'Choisissez une réserve, puis cliquez directement sur le plan.'}</span>
+                </div>
+                <select value={pinModeReserveId ?? ''} onChange={event => setPinModeReserveId(event.target.value || null)}>
+                  <option value="">Choisir une réserve</option>
+                  {reserves.filter((reserve: any) => !reserve.archived_at).map((reserve: any) => (
+                    <option key={reserve.id} value={reserve.id}>{reserve.id} · {reserve.title}</option>
+                  ))}
+                </select>
+                {pinModeReserveId && <button type="button" onClick={() => setPinModeReserveId(null)}>Annuler</button>}
+              </div>
+            )}
             <div className={styles.planCanvas}>
               {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
                 <img src={selectedPlan.uri} alt={selectedPlan.name} />
@@ -1195,13 +1294,31 @@ function PlansView({ plans, reserves, selectedPlan, setSelectedPlanId, setSelect
               ) : (
                 <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
               )}
+              {pinModeReserveId && (
+                <button
+                  type="button"
+                  className={styles.pinClickLayer}
+                  onClick={event => {
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    onAssignPin(
+                      pinModeReserveId,
+                      selectedPlan.id,
+                      (event.clientX - rect.left) / rect.width,
+                      (event.clientY - rect.top) / rect.height,
+                    );
+                  }}
+                >
+                  <span>Cliquer pour placer l’épingle</span>
+                </button>
+              )}
               {planReserves.filter((r: any) => r.plan_x != null && r.plan_y != null).map((reserve: any, idx: number) => (
                 <button
                   key={reserve.id}
                   className={styles.pin}
                   style={{ left: `${Math.max(2, Math.min(98, Number(reserve.plan_x) * 100))}%`, top: `${Math.max(2, Math.min(98, Number(reserve.plan_y) * 100))}%` }}
                   title={reserve.title}
-                  onClick={() => {
+                  onClick={event => {
+                    event.stopPropagation();
                     setSelectedReserveId(reserve.id);
                     setTab('reserves');
                   }}
