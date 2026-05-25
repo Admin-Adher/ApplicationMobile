@@ -210,6 +210,45 @@ function getChantierId(item: any) {
   return item?.chantier_id ?? item?.chantierId ?? '';
 }
 
+function normalizeSearchText(value: any) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toLowerCase();
+}
+
+function getPlanBuildingName(plan: any) {
+  return String(plan?.building_name ?? plan?.building ?? plan?.batiment ?? '').trim() || 'Sans bâtiment';
+}
+
+function getPlanBuildingKey(plan: any) {
+  const id = plan?.building_id ?? plan?.buildingId;
+  if (id) return `id:${id}`;
+  const name = getPlanBuildingName(plan);
+  return name === 'Sans bâtiment' ? '__none__' : `name:${normalizeSearchText(name)}`;
+}
+
+function getPlanLevelName(plan: any) {
+  return String(plan?.level_name ?? plan?.level ?? plan?.niveau ?? '').trim();
+}
+
+function getReserveBuildingKey(reserve: any) {
+  const id = reserve?.building_id ?? reserve?.buildingId;
+  if (id) return `id:${id}`;
+  const name = String(reserve?.building_name ?? reserve?.building ?? reserve?.batiment ?? '').trim();
+  return name ? `name:${normalizeSearchText(name)}` : '__none__';
+}
+
+function parseBuildingFamily(name: string) {
+  const trimmed = name.trim();
+  const match = trimmed.match(/^([^\d]*?[^\d\s])[\s\-_.#]*(\d+.*)$/);
+  if (!match) return null;
+  const label = match[1].trim().replace(/[\s\-_.#]+$/, '');
+  if (!label) return null;
+  return { key: normalizeSearchText(label).replace(/\s+/g, ' '), label };
+}
+
 function assetUrl(item: any) {
   return item?.uri ?? item?.url ?? item?.file_url ?? item?.public_url ?? item?.signed_url ?? item?.photo_uri ?? '';
 }
@@ -1065,7 +1104,7 @@ export default function BuildTrackWebPage() {
         </div>
       </aside>
 
-      <section className={styles.workspace}>
+      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''}`}>
         <header className={styles.topbar}>
           <div>
             <p className={styles.eyebrow}>Cockpit web</p>
@@ -1565,8 +1604,141 @@ function PlansView({
   setPinModeReserveId,
   editable,
 }: any) {
+  const [buildingQuery, setBuildingQuery] = useState('');
+  const [selectedBuildingKey, setSelectedBuildingKey] = useState('all');
+  const [activeFamilyKey, setActiveFamilyKey] = useState('all');
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
   const pinTarget = reserves.find((reserve: any) => reserve.id === pinModeReserveId);
+  const selectedPlanBuildingKey = selectedPlan ? getPlanBuildingKey(selectedPlan) : 'all';
+  const buildingGroups = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      name: string;
+      plans: any[];
+      planIds: Set<string>;
+      levels: Set<string>;
+      reserveCount: number;
+    }>();
+
+    for (const plan of plans) {
+      const key = getPlanBuildingKey(plan);
+      const group = map.get(key) ?? {
+        key,
+        name: getPlanBuildingName(plan),
+        plans: [],
+        planIds: new Set<string>(),
+        levels: new Set<string>(),
+        reserveCount: 0,
+      };
+      group.plans.push(plan);
+      group.planIds.add(plan.id);
+      const level = getPlanLevelName(plan);
+      if (level) group.levels.add(level);
+      map.set(key, group);
+    }
+
+    const reserveIdsByBuilding = new Map<string, Set<string>>();
+    for (const reserve of reserves) {
+      if (reserve.archived_at || reserve.archivedAt) continue;
+      const keys = new Set<string>();
+      if (reserve.plan_id) {
+        const planGroup = [...map.values()].find(group => group.planIds.has(reserve.plan_id));
+        if (planGroup) keys.add(planGroup.key);
+      }
+      keys.add(getReserveBuildingKey(reserve));
+      keys.forEach(key => {
+        if (!map.has(key)) return;
+        const ids = reserveIdsByBuilding.get(key) ?? new Set<string>();
+        ids.add(reserve.id);
+        reserveIdsByBuilding.set(key, ids);
+      });
+    }
+
+    return [...map.values()]
+      .map(group => ({
+        ...group,
+        reserveCount: reserveIdsByBuilding.get(group.key)?.size ?? 0,
+        levels: [...group.levels].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' })),
+        plans: group.plans.sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'fr', { numeric: true, sensitivity: 'base' })),
+      }))
+      .sort((a, b) => {
+        if (a.key === '__none__') return 1;
+        if (b.key === '__none__') return -1;
+        return a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' });
+      });
+  }, [plans, reserves]);
+  const buildingFamilies = useMemo(() => {
+    const buckets = new Map<string, { key: string; label: string; groups: typeof buildingGroups }>();
+    const others: typeof buildingGroups = [];
+
+    for (const group of buildingGroups) {
+      const family = group.key === '__none__' ? null : parseBuildingFamily(group.name);
+      if (!family) {
+        others.push(group);
+        continue;
+      }
+      const bucket = buckets.get(family.key) ?? { key: family.key, label: family.label, groups: [] as typeof buildingGroups };
+      bucket.groups.push(group);
+      buckets.set(family.key, bucket);
+    }
+
+    const realFamilies = [...buckets.values()]
+      .filter(family => family.groups.length >= 2)
+      .sort((a, b) => a.label.localeCompare(b.label, 'fr', { numeric: true, sensitivity: 'base' }));
+    const groupedKeys = new Set(realFamilies.flatMap(family => family.groups.map(group => group.key)));
+    const ungrouped = [
+      ...others,
+      ...[...buckets.values()].flatMap(family => family.groups.filter(group => !groupedKeys.has(group.key))),
+    ].sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' }));
+    const useGrouping = realFamilies.length >= 2 && buildingGroups.length >= 8;
+    return {
+      useGrouping,
+      families: useGrouping
+        ? [
+            ...realFamilies,
+            ...(ungrouped.length ? [{ key: '__others__', label: 'Autres', groups: ungrouped }] : []),
+          ]
+        : [],
+      familyOf: new Map(realFamilies.flatMap(family => family.groups.map(group => [group.key, family.key] as const))),
+    };
+  }, [buildingGroups]);
+  useEffect(() => {
+    if (!buildingFamilies.useGrouping && activeFamilyKey !== 'all') setActiveFamilyKey('all');
+    if (buildingFamilies.useGrouping && activeFamilyKey !== 'all' && !buildingFamilies.families.some(family => family.key === activeFamilyKey)) {
+      setActiveFamilyKey('all');
+    }
+  }, [activeFamilyKey, buildingFamilies]);
+  const filteredBuildingGroups = useMemo(() => {
+    const query = normalizeSearchText(buildingQuery);
+    const familyFiltered = !query && buildingFamilies.useGrouping && activeFamilyKey !== 'all'
+      ? buildingGroups.filter(group => (buildingFamilies.familyOf.get(group.key) ?? '__others__') === activeFamilyKey)
+      : buildingGroups;
+    if (!query) {
+      return familyFiltered.map(group => ({ ...group, displayPlans: group.plans }));
+    }
+    return familyFiltered
+      .map(group => {
+        const groupMatches = normalizeSearchText(group.name).includes(query);
+        const displayPlans = groupMatches
+          ? group.plans
+          : group.plans.filter(plan => normalizeSearchText([
+              plan.name,
+              getPlanBuildingName(plan),
+              getPlanLevelName(plan),
+              plan.revision_code,
+              plan.file_type,
+            ].filter(Boolean).join(' ')).includes(query));
+        return { ...group, displayPlans };
+      })
+      .filter(group => group.displayPlans.length > 0);
+  }, [activeFamilyKey, buildingFamilies, buildingGroups, buildingQuery]);
+  const totalReserveCount = buildingGroups.reduce((sum, group) => sum + group.reserveCount, 0);
+  const handleSelectBuildingGroup = (group: { key: string; plans: any[] }) => {
+    setSelectedBuildingKey(group.key);
+    if (!group.plans.some(plan => plan.id === selectedPlan?.id) && group.plans[0]) {
+      setSelectedPlanId(group.plans[0].id);
+    }
+  };
   const planPins = planReserves
     .map((reserve: any, idx: number) => {
       const rawX = Number(reserve.plan_x);
@@ -1584,17 +1756,102 @@ function PlansView({
   return (
     <div className={`${styles.twoCols} ${styles.plansLayout}`}>
       <section className={`${styles.panel} ${styles.plansListPanel}`}>
-        <div className={`${styles.list} ${styles.plansList}`}>
-          {plans.map((plan: any) => (
-            <button key={plan.id} className={`${styles.listRow} ${selectedPlan?.id === plan.id ? styles.selectedRow : ''}`} onClick={() => setSelectedPlanId(plan.id)}>
-              <span>▤</span>
-              <div>
-                <strong>{plan.name}</strong>
-                <small>{[plan.building, plan.level, plan.revision_code].filter(Boolean).join(' · ') || 'Plan'}</small>
-              </div>
-              <em>{reserves.filter((r: any) => r.plan_id === plan.id).length}</em>
+        <div className={styles.buildingRailHeaderWeb}>
+          <div>
+            <span>Bâtiments</span>
+            <strong>{buildingGroups.length}</strong>
+          </div>
+          <small>Recherche, familles et plans regroupés.</small>
+        </div>
+        <label className={styles.buildingRailSearchWeb}>
+          <span>⌕</span>
+          <input
+            value={buildingQuery}
+            onChange={event => setBuildingQuery(event.target.value)}
+            placeholder="Rechercher bâtiment, niveau, plan..."
+          />
+          {buildingQuery && (
+            <button type="button" onClick={() => setBuildingQuery('')} aria-label="Effacer la recherche">×</button>
+          )}
+        </label>
+        {buildingFamilies.useGrouping && !buildingQuery && (
+          <div className={styles.buildingFamilyRowWeb}>
+            <button
+              type="button"
+              className={activeFamilyKey === 'all' ? styles.buildingFamilyActiveWeb : ''}
+              onClick={() => setActiveFamilyKey('all')}
+            >
+              Tous <em>{buildingGroups.length}</em>
             </button>
-          ))}
+            {buildingFamilies.families.map(family => (
+              <button
+                key={family.key}
+                type="button"
+                className={activeFamilyKey === family.key ? styles.buildingFamilyActiveWeb : ''}
+                onClick={() => setActiveFamilyKey(family.key)}
+              >
+                {family.label} <em>{family.groups.length}</em>
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          type="button"
+          className={`${styles.buildingAllRowWeb} ${selectedBuildingKey === 'all' ? styles.buildingGroupActiveWeb : ''}`}
+          onClick={() => setSelectedBuildingKey('all')}
+        >
+          <span>▦</span>
+          <strong>Tous les bâtiments</strong>
+          <small>{plans.length} plans · {totalReserveCount} réserves</small>
+        </button>
+        <div className={`${styles.list} ${styles.plansList}`}>
+          {filteredBuildingGroups.map((group: any) => {
+            const isSelectedGroup = selectedBuildingKey === group.key || (selectedBuildingKey === 'all' && selectedPlanBuildingKey === group.key);
+            const isExpanded = Boolean(buildingQuery) || isSelectedGroup;
+            return (
+              <article key={group.key} className={`${styles.buildingGroupWeb} ${isSelectedGroup ? styles.buildingGroupActiveWeb : ''}`}>
+                <button type="button" className={styles.buildingGroupButtonWeb} onClick={() => handleSelectBuildingGroup(group)}>
+                  <span className={styles.buildingGroupIconWeb}>{group.key === '__none__' ? '◇' : '▥'}</span>
+                  <div>
+                    <strong>{group.name}</strong>
+                    <small>
+                      {group.plans.length} plans
+                      {group.levels.length ? ` · ${group.levels.slice(0, 3).join(', ')}${group.levels.length > 3 ? '…' : ''}` : ''}
+                    </small>
+                  </div>
+                  <em>{group.reserveCount}</em>
+                </button>
+                {isExpanded && (
+                  <div className={styles.buildingPlanListWeb}>
+                    {group.displayPlans.map((plan: any) => {
+                      const planReserveCount = reserves.filter((reserve: any) => reserve.plan_id === plan.id && !reserve.archived_at && !reserve.archivedAt).length;
+                      return (
+                        <button
+                          key={plan.id}
+                          type="button"
+                          className={`${styles.buildingPlanRowWeb} ${selectedPlan?.id === plan.id ? styles.selectedRow : ''}`}
+                          onClick={() => {
+                            setSelectedBuildingKey(group.key);
+                            setSelectedPlanId(plan.id);
+                          }}
+                        >
+                          <span>▤</span>
+                          <div>
+                            <strong>{plan.name}</strong>
+                            <small>{[getPlanLevelName(plan), plan.revision_code].filter(Boolean).join(' · ') || 'Plan'}</small>
+                          </div>
+                          <em>{planReserveCount}</em>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </article>
+            );
+          })}
+          {filteredBuildingGroups.length === 0 && (
+            <p className={styles.empty}>Aucun bâtiment ou plan ne correspond à cette recherche.</p>
+          )}
           {!plans.length && <p className={styles.empty}>Aucun plan dans ce périmètre.</p>}
         </div>
       </section>
@@ -1626,65 +1883,83 @@ function PlansView({
                 {pinModeReserveId && <button type="button" onClick={() => setPinModeReserveId(null)}>Annuler</button>}
               </div>
             )}
-            <div className={styles.planCanvas}>
-              {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
-                <img src={selectedPlan.uri} alt={selectedPlan.name} />
-              ) : selectedPlan.uri && selectedPlan.file_type === 'pdf' ? (
-                <WebPdfPlan
-                  uri={selectedPlan.uri}
-                  name={selectedPlan.name}
-                  pins={planPins}
-                  pinModeReserveId={pinModeReserveId}
-                  onAssignPin={(x, y) => onAssignPin(pinModeReserveId, selectedPlan.id, x, y)}
-                  onPinClick={(reserveId) => {
-                    setSelectedReserveId(reserveId);
-                    setTab('reserves');
-                  }}
-                />
-              ) : (
-                <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
-              )}
-              {selectedPlan.file_type !== 'pdf' && pinModeReserveId && (
-                <button
-                  type="button"
-                  className={styles.pinClickLayer}
-                  onClick={event => {
-                    const rect = event.currentTarget.getBoundingClientRect();
-                    onAssignPin(
-                      pinModeReserveId,
-                      selectedPlan.id,
-                      ((event.clientX - rect.left) / rect.width) * 100,
-                      ((event.clientY - rect.top) / rect.height) * 100,
-                    );
-                  }}
-                >
-                  <span>Cliquer pour placer l’épingle</span>
-                </button>
-              )}
-              {selectedPlan.file_type !== 'pdf' && planPins.map((pin) => (
-                  <button
-                    key={pin.reserve.id}
-                    className={styles.pin}
-                    style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-                    title={pin.reserve.title}
-                    onClick={event => {
-                      event.stopPropagation();
-                      setSelectedReserveId(pin.reserve.id);
+            <div className={styles.planWorkArea}>
+              <div className={styles.planCanvas}>
+                {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
+                  <img src={selectedPlan.uri} alt={selectedPlan.name} />
+                ) : selectedPlan.uri && selectedPlan.file_type === 'pdf' ? (
+                  <WebPdfPlan
+                    uri={selectedPlan.uri}
+                    name={selectedPlan.name}
+                    pins={planPins}
+                    pinModeReserveId={pinModeReserveId}
+                    onAssignPin={(x, y) => onAssignPin(pinModeReserveId, selectedPlan.id, x, y)}
+                    onPinClick={(reserveId) => {
+                      setSelectedReserveId(reserveId);
                       setTab('reserves');
                     }}
+                  />
+                ) : (
+                  <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
+                )}
+                {selectedPlan.file_type !== 'pdf' && pinModeReserveId && (
+                  <button
+                    type="button"
+                    className={styles.pinClickLayer}
+                    onClick={event => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      onAssignPin(
+                        pinModeReserveId,
+                        selectedPlan.id,
+                        ((event.clientX - rect.left) / rect.width) * 100,
+                        ((event.clientY - rect.top) / rect.height) * 100,
+                      );
+                    }}
                   >
-                    {pin.number}
+                    <span>Cliquer pour placer l’épingle</span>
                   </button>
-                ))}
-            </div>
-            <h3>Réserves sur ce plan</h3>
-            <div className={styles.compactList}>
-              {planReserves.map((reserve: any) => (
-                <button key={reserve.id} onClick={() => { setSelectedReserveId(reserve.id); setTab('reserves'); }}>
-                  <span>{STATUS_LABELS[reserve.status] ?? reserve.status}</span>
-                  <strong>{reserve.title}</strong>
-                </button>
-              ))}
+                )}
+                {selectedPlan.file_type !== 'pdf' && planPins.map((pin) => (
+                    <button
+                      key={pin.reserve.id}
+                      className={styles.pin}
+                      style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
+                      title={pin.reserve.title}
+                      onClick={event => {
+                        event.stopPropagation();
+                        setSelectedReserveId(pin.reserve.id);
+                        setTab('reserves');
+                      }}
+                    >
+                      {pin.number}
+                    </button>
+                  ))}
+              </div>
+              <aside className={styles.planReservePanel}>
+                <div className={styles.planReserveHeader}>
+                  <div>
+                    <h3>Réserves</h3>
+                    <span>{planReserves.length} sur ce plan</span>
+                  </div>
+                  <strong>{planPins.length} épinglées</strong>
+                </div>
+                <div className={styles.planReserveList}>
+                  {planReserves.map((reserve: any, idx: number) => (
+                    <button
+                      key={reserve.id}
+                      className={styles.planReserveRow}
+                      onClick={() => { setSelectedReserveId(reserve.id); setTab('reserves'); }}
+                    >
+                      <span className={styles.planReserveNumber}>{idx + 1}</span>
+                      <span>
+                        <strong>{reserve.title}</strong>
+                        <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company_name, reserve.zone].filter(Boolean).join(' · ')}</small>
+                      </span>
+                    </button>
+                  ))}
+                  {!planReserves.length && <p className={styles.empty}>Aucune réserve sur ce plan.</p>}
+                </div>
+              </aside>
             </div>
           </>
         ) : <p className={styles.empty}>Sélectionnez un plan.</p>}

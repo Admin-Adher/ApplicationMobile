@@ -151,12 +151,14 @@
 .appShell {
   display: grid;
   grid-template-columns: 260px 1fr;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
 }
 
 .sidebar {
-  position: sticky;
-  top: 0;
-  height: 100vh;
+  height: 100%;
+  min-height: 0;
   background: #fff;
   border-right: 1px solid #dde4ee;
   padding: 20px;
@@ -182,8 +184,14 @@
 }
 
 .navList {
+  flex: 1 1 auto;
   display: grid;
+  align-content: start;
   gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
 }
 
 .navList button {
@@ -223,9 +231,17 @@
 
 .workspace {
   min-width: 0;
+  min-height: 0;
+  height: 100%;
   padding: 22px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
+  overflow-y: auto;
+}
+
+.workspacePlans {
+  overflow: hidden;
 }
 
 .topbar {
@@ -336,13 +352,13 @@
   display: grid;
   grid-template-columns: minmax(320px, 0.9fr) minmax(0, 1.4fr);
   gap: 16px;
-  align-items: start;
+  align-items: flex-start;
 }
 
 .plansLayout {
-  height: calc(100vh - 154px);
-  height: calc(100dvh - 154px);
-  min-height: 560px;
+  flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
   align-items: stretch;
   overflow: hidden;
 }
@@ -353,15 +369,217 @@
 }
 
 .plansListPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
   overflow: hidden;
 }
 
 .plansList {
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding-right: 6px;
   scrollbar-gutter: stable;
+}
+
+.buildingRailHeaderWeb {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.buildingRailHeaderWeb div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.buildingRailHeaderWeb span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.buildingRailHeaderWeb strong {
+  color: #003082;
+  font-size: 20px;
+}
+
+.buildingRailHeaderWeb small {
+  color: #64748b;
+  text-align: right;
+}
+
+.buildingRailSearchWeb {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 10px 12px;
+  color: #64748b;
+}
+
+.buildingRailSearchWeb input {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #0f172a;
+  font: inherit;
+}
+
+.buildingRailSearchWeb button {
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 999px;
+  background: #e2e8f0;
+  color: #64748b;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.buildingFamilyRowWeb {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.buildingFamilyRowWeb button {
+  flex: 0 0 auto;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f3f6fb;
+  color: #64748b;
+  padding: 8px 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.buildingFamilyRowWeb em {
+  margin-left: 5px;
+  color: inherit;
+  font-style: normal;
+  opacity: 0.75;
+}
+
+.buildingFamilyActiveWeb {
+  border-color: #003082 !important;
+  background: #003082 !important;
+  color: #fff !important;
+}
+
+.buildingAllRowWeb {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  padding: 12px;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.buildingAllRowWeb span,
+.buildingGroupIconWeb {
+  display: inline-grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: #eef3fa;
+  color: #003082;
+  font-weight: 900;
+}
+
+.buildingAllRowWeb small {
+  color: #64748b;
+  white-space: nowrap;
+}
+
+.buildingGroupWeb {
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.buildingGroupButtonWeb,
+.buildingPlanRowWeb {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 12px;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.buildingGroupButtonWeb strong,
+.buildingPlanRowWeb strong,
+.buildingGroupButtonWeb small,
+.buildingPlanRowWeb small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buildingGroupButtonWeb small,
+.buildingPlanRowWeb small {
+  margin-top: 2px;
+  color: #64748b;
+}
+
+.buildingGroupButtonWeb em,
+.buildingPlanRowWeb em {
+  color: #003082;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.buildingGroupActiveWeb {
+  border-color: #003082 !important;
+  background: #f5f8ff !important;
+}
+
+.buildingGroupActiveWeb .buildingGroupIconWeb,
+.buildingGroupActiveWeb.buildingAllRowWeb span {
+  background: #003082;
+  color: #fff;
+}
+
+.buildingPlanListWeb {
+  display: grid;
+  gap: 6px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.buildingPlanRowWeb {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px;
 }
 
 .plansPreviewPanel {
@@ -370,9 +588,20 @@
   overflow: hidden;
 }
 
-.plansPreviewPanel .planCanvas {
+.planWorkArea {
   flex: 1 1 0;
-  min-height: 360px;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 14px;
+  align-items: stretch;
+  overflow: hidden;
+}
+
+.planWorkArea .planCanvas {
+  min-height: 0;
+  height: 100%;
+  margin-bottom: 0;
 }
 
 .plansPreviewPanel .webPdfShell,
@@ -388,11 +617,94 @@
   height: 100%;
 }
 
-.plansPreviewPanel .compactList {
-  max-height: 170px;
+.planReservePanel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  border: 1px solid #dde4ee;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.planReserveHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.planReserveHeader h3 {
+  margin: 0;
+}
+
+.planReserveHeader span,
+.planReserveRow small {
+  color: #64748b;
+}
+
+.planReserveHeader strong {
+  border-radius: 999px;
+  background: #eef3fa;
+  color: #003082;
+  padding: 5px 8px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.planReserveList {
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  display: grid;
+  align-content: start;
+  gap: 8px;
   padding-right: 4px;
+}
+
+.planReserveRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: flex-start;
+  width: 100%;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.planReserveRow:hover {
+  border-color: #003082;
+  background: #f5f8ff;
+}
+
+.planReserveRow strong,
+.planReserveRow small {
+  display: block;
+  min-width: 0;
+}
+
+.planReserveRow strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planReserveNumber {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #003082;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .toolbar {
@@ -1353,17 +1665,24 @@
 @media (max-width: 980px) {
   .appShell {
     grid-template-columns: 1fr;
+    height: auto;
+    min-height: 100vh;
+    min-height: 100dvh;
+    overflow: visible;
   }
 
   .sidebar {
     position: static;
     height: auto;
+    overflow: visible;
     border-right: 0;
     border-bottom: 1px solid #dde4ee;
   }
 
   .navList {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+    overflow: visible;
+    padding-right: 0;
   }
 
   .userBox {
@@ -1384,6 +1703,12 @@
     overflow: visible;
   }
 
+  .workspace,
+  .workspacePlans {
+    height: auto;
+    overflow: visible;
+  }
+
   .plansListPanel,
   .plansPreviewPanel {
     overflow: visible;
@@ -1395,10 +1720,18 @@
     padding-right: 0;
   }
 
-  .plansPreviewPanel .compactList {
-    max-height: none;
+  .planWorkArea {
+    grid-template-columns: 1fr;
     overflow: visible;
-    padding-right: 0;
+  }
+
+  .planReservePanel,
+  .planReserveList {
+    overflow: visible;
+  }
+
+  .plansPreviewPanel .planCanvas {
+    min-height: 420px;
   }
 
   .topbar,
