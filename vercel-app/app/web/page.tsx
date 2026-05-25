@@ -794,6 +794,29 @@ function toPdfPlanItem(plan: any) {
   };
 }
 
+async function toPdfPlanItemsForReport(plans: any[], reserves: any[]) {
+  const activePlanIds = new Set(
+    reserves
+      .map(reserve => getReservePlanId(reserve))
+      .filter(Boolean),
+  );
+
+  const items: any[] = [];
+  for (const plan of plans) {
+    const item = toPdfPlanItem(plan);
+    if (!activePlanIds.has(item.id) || !item.uri || !isPdfPlan(plan, item.uri)) {
+      items.push(item);
+      continue;
+    }
+
+    const renderedUri = await preRenderPdfPageToDataUrl(item.uri, 720);
+    items.push(renderedUri
+      ? { ...item, uri: renderedUri, fileType: 'image' }
+      : item);
+  }
+  return items;
+}
+
 function getPlanReportUri(plan: any) {
   return assetUrl(plan, 'documents') || String(plan?.uri ?? plan?.url ?? '').trim();
 }
@@ -2010,6 +2033,9 @@ export default function BuildTrackWebPage() {
       const reservePlanImageUri = type === 'individual_reserve' && reservePlan
         ? await getPlanImageForReserveReport(reservePlan)
         : null;
+      const reportPlans = type === 'plans'
+        ? await toPdfPlanItemsForReport(targetPlans, targetReserves)
+        : targetPlans.map(toPdfPlanItem);
       const payload = type === 'individual_reserve'
         ? {
             type,
@@ -2043,7 +2069,7 @@ export default function BuildTrackWebPage() {
             reserves: type === 'plans'
               ? targetReserves.map((reserve, index) => toPdfReserveItem(reserve, index))
               : targetReserves,
-            plans: targetPlans.map(toPdfPlanItem),
+            plans: reportPlans,
             companyFilter: [options?.companyFilter, options?.statusFilter].filter(Boolean).join(' · ') || null,
             statusFilter: options?.statusFilter ?? null,
             language,
