@@ -382,6 +382,8 @@
   overscroll-behavior: contain;
   padding-right: 6px;
   scrollbar-gutter: stable;
+  align-content: start;
+  grid-auto-rows: max-content;
 }
 
 .buildingRailHeaderWeb {
@@ -449,14 +451,20 @@
 
 .buildingFamilyRowWeb {
   display: flex;
+  align-items: center;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 2px;
+  min-height: 42px;
+  padding-bottom: 6px;
   scrollbar-width: thin;
 }
 
 .buildingFamilyRowWeb button {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
   border: 1px solid #d8e0ec;
   border-radius: 999px;
   background: #f3f6fb;
@@ -484,6 +492,7 @@
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: 10px;
+  min-height: 62px;
   border: 1px solid #d8e0ec;
   border-radius: 12px;
   background: #fff;
@@ -491,6 +500,7 @@
   color: #0f172a;
   text-align: left;
   cursor: pointer;
+  outline: none;
 }
 
 .buildingAllRowWeb span,
@@ -511,6 +521,7 @@
 }
 
 .buildingGroupWeb {
+  min-height: 62px;
   border: 1px solid #e2e8f0;
   border-radius: 14px;
   background: #fff;
@@ -528,8 +539,14 @@
   background: transparent;
   padding: 12px;
   color: #0f172a;
+  font: inherit;
   text-align: left;
   cursor: pointer;
+  outline: none;
+}
+
+.buildingGroupButtonWeb {
+  min-height: 62px;
 }
 
 .buildingGroupButtonWeb strong,
@@ -580,6 +597,14 @@
   border-radius: 10px;
   background: #fff;
   padding: 10px;
+  min-height: 54px;
+}
+
+.buildingAllRowWeb:focus-visible,
+.buildingGroupButtonWeb:focus-visible,
+.buildingPlanRowWeb:focus-visible,
+.buildingFamilyRowWeb button:focus-visible {
+  box-shadow: 0 0 0 3px rgba(0, 48, 130, 0.12);
 }
 
 .plansPreviewPanel {
