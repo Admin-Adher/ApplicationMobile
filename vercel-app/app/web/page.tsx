@@ -389,6 +389,56 @@ function hasEnterpriseAck(reserve: any) {
   return Boolean(reserve?.enterprise_acknowledged_at ?? reserve?.enterpriseAcknowledgedAt);
 }
 
+function parseDateSafe(value?: string | null) {
+  if (!value) return null;
+  const frenchMatch = String(value).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  if (frenchMatch) {
+    const parsed = new Date(Number(frenchMatch[3]), Number(frenchMatch[2]) - 1, Number(frenchMatch[1]));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function getWeekStart(date: Date) {
+  const copy = new Date(date);
+  copy.setHours(0, 0, 0, 0);
+  const day = copy.getDay() || 7;
+  copy.setDate(copy.getDate() - day + 1);
+  return copy;
+}
+
+function getWeekKey(date: Date) {
+  return getWeekStart(date).toISOString().slice(0, 10);
+}
+
+function getWeekLabel(date: Date) {
+  const start = getWeekStart(date);
+  return `${String(start.getDate()).padStart(2, '0')}/${String(start.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getReserveCreatedDate(reserve: any) {
+  return parseDateSafe(reserve?.created_at ?? reserve?.createdAt ?? reserve?.created);
+}
+
+function getReserveClosedDate(reserve: any) {
+  return parseDateSafe(reserve?.closed_at ?? reserve?.closedAt);
+}
+
+function isTaskLateWeb(task: any) {
+  if (['done', 'completed', 'closed'].includes(String(task?.status ?? ''))) return false;
+  if (String(task?.status ?? '') === 'delayed') return true;
+  const deadline = parseDateSafe(task?.deadline);
+  if (!deadline) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return deadline < today;
+}
+
+function isIncidentOpenWeb(incident: any) {
+  return !['resolved', 'closed', 'done'].includes(String(incident?.status ?? '').toLowerCase());
+}
+
 function sameName(a?: string | null, b?: string | null) {
   return String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
 }
@@ -1913,7 +1963,18 @@ export default function BuildTrackWebPage() {
         ) : (
           <>
             {activeTab === 'dashboard' && (
-              <Dashboard stats={stats} data={data} scoped={projectScoped} setTab={setActiveTab} />
+              <Dashboard
+                stats={stats}
+                data={data}
+                scoped={projectScoped}
+                profile={profile}
+                authUser={authUser}
+                selectedProjectId={selectedProjectId}
+                canCreate={canEdit(profile)}
+                setTab={setActiveTab}
+                onCreateReserve={() => openReserveCreate()}
+                onCreateVisit={openVisitCreate}
+              />
             )}
             {activeTab === 'reserves' && (
               <ReservesView
@@ -2074,20 +2135,295 @@ export default function BuildTrackWebPage() {
   );
 }
 
-function Dashboard({ stats, data, scoped, setTab }: any) {
+function Dashboard({
+  stats,
+  data,
+  scoped,
+  profile,
+  authUser,
+  selectedProjectId,
+  canCreate,
+  setTab,
+  onCreateReserve,
+  onCreateVisit,
+}: any) {
+  const activeReserves = scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve));
+  const openCount = activeReserves.filter((reserve: any) => reserve.status === 'open').length;
+  const inProgressCount = activeReserves.filter((reserve: any) => reserve.status === 'in_progress').length;
+  const waitingCount = activeReserves.filter((reserve: any) => reserve.status === 'waiting').length;
+  const verificationCount = activeReserves.filter((reserve: any) => reserve.status === 'verification').length;
+  const closedCount = activeReserves.filter((reserve: any) => reserve.status === 'closed').length;
+  const totalCount = activeReserves.length;
+  const progress = totalCount ? Math.round((closedCount / totalCount) * 100) : 0;
+  const criticalReserves = activeReserves.filter((reserve: any) => reserve.priority === 'critical' && reserve.status !== 'closed');
+  const overdueReserves = activeReserves.filter((reserve: any) => reserve.priority !== 'critical' && isReserveOverdue(reserve));
+  const lateTasks = scoped.tasks.filter(isTaskLateWeb);
+  const openIncidents = scoped.incidents.filter(isIncidentOpenWeb);
+  const project = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
+  const firstName = String(profile?.name ?? authUser?.email ?? 'BuildTrack').split(' ')[0];
+  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const weekStats = (() => {
+    const now = new Date();
+    const weeks = new Map<string, { label: string; created: number; closed: number }>();
+    for (let i = 7; i >= 0; i -= 1) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - (i * 7));
+      weeks.set(getWeekKey(date), { label: getWeekLabel(date), created: 0, closed: 0 });
+    }
+    for (const reserve of activeReserves) {
+      const created = getReserveCreatedDate(reserve);
+      const closed = getReserveClosedDate(reserve);
+      if (created) {
+        const bucket = weeks.get(getWeekKey(created));
+        if (bucket) bucket.created += 1;
+      }
+      if (closed) {
+        const bucket = weeks.get(getWeekKey(closed));
+        if (bucket) bucket.closed += 1;
+      }
+    }
+    return Array.from(weeks.values());
+  })();
+
+  const companyStats = data.companies
+    .map((company: any) => {
+      const companyReserves = activeReserves.filter((reserve: any) => reserveCompanies(reserve).some(name => sameName(name, company.name)));
+      const total = companyReserves.length;
+      const closed = companyReserves.filter((reserve: any) => reserve.status === 'closed').length;
+      const overdue = companyReserves.filter(isReserveOverdue).length;
+      return {
+        id: company.id,
+        name: company.name,
+        shortName: company.short_name ?? company.shortName ?? company.name,
+        color: company.color ?? '#003082',
+        total,
+        closed,
+        overdue,
+        rate: total ? Math.round((closed / total) * 100) : 0,
+        actualWorkers: Number(company.actual_workers ?? company.actualWorkers ?? 0),
+        plannedWorkers: Number(company.planned_workers ?? company.plannedWorkers ?? 0),
+      };
+    })
+    .filter((company: any) => company.total > 0 || company.actualWorkers > 0 || company.plannedWorkers > 0)
+    .sort((a: any, b: any) => b.rate - a.rate);
+
+  const totalActualWorkers = companyStats.reduce((sum: number, company: any) => sum + company.actualWorkers, 0);
+  const totalPlannedWorkers = companyStats.reduce((sum: number, company: any) => sum + company.plannedWorkers, 0);
+  const projectCards = selectedProjectId === 'all'
+    ? data.chantiers.map((chantier: any) => {
+      const reserves = data.reserves.filter((reserve: any) => getChantierId(reserve) === chantier.id && !isReserveArchived(reserve));
+      const closed = reserves.filter((reserve: any) => reserve.status === 'closed').length;
+      return {
+        id: chantier.id,
+        name: chantier.name,
+        total: reserves.length,
+        progress: reserves.length ? Math.round((closed / reserves.length) * 100) : 0,
+        overdue: reserves.filter(isReserveOverdue).length,
+      };
+    })
+    : [];
+
   return (
-    <div className={styles.stack}>
-      <div className={styles.kpiGrid}>
-        <Kpi title="Réserves actives" value={stats.total} hint={`${stats.open} ouvertes`} />
-        <Kpi title="Avancement" value={`${stats.progress}%`} hint={`${stats.closed} levées`} tone="green" />
-        <Kpi title="En retard" value={stats.overdue} hint="Échéance dépassée" tone="red" />
-        <Kpi title="AR manquants" value={stats.ackMissing} hint="Sous-traitants à relancer" tone="amber" />
+    <div className={styles.dashboardStack}>
+      <section className={styles.dashboardHero}>
+        <div className={styles.dashboardGreeting}>
+          <div className={styles.dashboardLogo}>B</div>
+          <div>
+            <p className={styles.eyebrow}>Dashboard</p>
+            <h2>Bonjour, {firstName}</h2>
+            <span>{today}</span>
+          </div>
+        </div>
+        <div className={styles.dashboardHeroActions}>
+          <div className={styles.dashboardProjectPill}>
+            <span />
+            {project?.name ?? (selectedProjectId === 'all' ? 'Tous les chantiers' : 'Chantier')}
+          </div>
+          {canCreate && (
+            <div className={styles.dashboardQuickActions}>
+              <button type="button" onClick={onCreateReserve}>Nouvelle réserve</button>
+              <button type="button" onClick={onCreateVisit}>Nouvelle visite</button>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {projectCards.length > 1 && (
+        <section className={styles.panel}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <h2>Vue portefeuille</h2>
+              <p>Synthèse multi-chantiers comme le mode portefeuille mobile.</p>
+            </div>
+          </div>
+          <div className={styles.dashboardProjectGrid}>
+            {projectCards.map((chantier: any) => (
+              <article key={chantier.id} className={styles.dashboardProjectCard}>
+                <strong>{chantier.name}</strong>
+                <span>{chantier.total} réserves · {chantier.overdue} en retard</span>
+                <div className={styles.dashboardProgressTrack}>
+                  <i style={{ width: `${chantier.progress}%` }} />
+                </div>
+                <em>{chantier.progress}%</em>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <div className={styles.dashboardKpiGrid}>
+        <DashboardKpi title="Total réserves" value={totalCount} hint="Toutes les réserves actives" tone="blue" icon="☷" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="Actives" value={openCount + inProgressCount} hint={`${openCount} ouvertes · ${inProgressCount} en cours`} tone="amber" icon="!" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="Critiques" value={criticalReserves.length} hint="Priorité critique non clôturée" tone="red" icon="△" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="Clôturées" value={closedCount} hint={`${progress}% d’avancement`} tone="green" icon="✓" onClick={() => setTab('reserves')} />
       </div>
+
+      <div className={styles.dashboardWideGrid}>
+        <button type="button" className={`${styles.dashboardWideMetric} ${lateTasks.length ? styles.dashboardWideAmber : styles.dashboardWideGreen}`} onClick={() => setTab('planning')}>
+          <span>◷</span>
+          <strong>{lateTasks.length}</strong>
+          <small>{lateTasks.length ? `${lateTasks.length} tâche${lateTasks.length > 1 ? 's' : ''} en retard` : 'Aucune tâche en retard'}</small>
+          <em>Planning</em>
+        </button>
+        <button type="button" className={`${styles.dashboardWideMetric} ${openIncidents.length ? styles.dashboardWideRed : styles.dashboardWideGreen}`} onClick={() => setTab('terrain')}>
+          <span>◇</span>
+          <strong>{openIncidents.length}</strong>
+          <small>{openIncidents.length ? `${openIncidents.length} incident${openIncidents.length > 1 ? 's' : ''} ouvert${openIncidents.length > 1 ? 's' : ''}` : 'Aucun incident ouvert'}</small>
+          <em>Terrain</em>
+        </button>
+      </div>
+
+      {totalCount > 0 && (
+        <section className={styles.panel}>
+          <div className={styles.dashboardProgressHeader}>
+            <div>
+              <h2>Avancement global</h2>
+              <p>{closedCount} levée{closedCount > 1 ? 's' : ''} sur {totalCount} réserve{totalCount > 1 ? 's' : ''}.</p>
+            </div>
+            <strong>{progress}%</strong>
+          </div>
+          <div className={styles.dashboardProgressTrack}>
+            <i style={{ width: `${progress}%` }} />
+          </div>
+        </section>
+      )}
+
+      {totalCount > 0 && (
+        <div className={styles.dashboardTwoColumns}>
+          <section className={styles.panel}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <h2>Répartition des réserves</h2>
+                <p>Même ventilation que le dashboard mobile.</p>
+              </div>
+            </div>
+            <div className={styles.dashboardStatusList}>
+              <DashboardStatusBar label="Ouvert" count={openCount} total={totalCount} tone="amber" />
+              <DashboardStatusBar label="En cours" count={inProgressCount} total={totalCount} tone="blue" />
+              <DashboardStatusBar label="En attente" count={waitingCount} total={totalCount} tone="amber" />
+              <DashboardStatusBar label="Vérification" count={verificationCount} total={totalCount} tone="purple" />
+              <DashboardStatusBar label="Clôturé" count={closedCount} total={totalCount} tone="green" />
+            </div>
+          </section>
+
+          <section className={styles.panel}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <h2>Personnel aujourd’hui</h2>
+                <p>{totalActualWorkers} présent{totalActualWorkers > 1 ? 's' : ''} / {totalPlannedWorkers} planifié{totalPlannedWorkers > 1 ? 's' : ''}</p>
+              </div>
+            </div>
+            <div className={styles.dashboardCompanyList}>
+              {companyStats.slice(0, 8).map((company: any) => {
+                const percent = company.plannedWorkers ? Math.min(100, Math.round((company.actualWorkers / company.plannedWorkers) * 100)) : 0;
+                return (
+                  <div key={company.id} className={styles.dashboardCompanyRow}>
+                    <span style={{ background: company.color }} />
+                    <strong>{company.shortName}</strong>
+                    <div><i style={{ width: `${percent}%`, background: company.color }} /></div>
+                    <em>{company.actualWorkers}/{company.plannedWorkers}</em>
+                  </div>
+                );
+              })}
+              {!companyStats.length && <p className={styles.empty}>Aucune entreprise active aujourd’hui.</p>}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {totalCount > 0 && (
+        <div className={styles.dashboardTwoColumns}>
+          <section className={styles.panel}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <h2>Analytics</h2>
+                <p>Réserves créées et clôturées sur les 8 dernières semaines.</p>
+              </div>
+            </div>
+            <DashboardWeekTrend weeks={weekStats} />
+          </section>
+
+          <section className={styles.panel}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <h2>Entreprises</h2>
+                <p>Taux de clôture et retards par entreprise.</p>
+              </div>
+            </div>
+            <div className={styles.dashboardCompanyClosureList}>
+              {companyStats.filter((company: any) => company.total > 0).slice(0, 8).map((company: any) => (
+                <div key={company.id} className={styles.dashboardCompanyClosureRow}>
+                  <span style={{ background: company.color }} />
+                  <strong>{company.name}</strong>
+                  <div><i style={{ width: `${company.rate}%`, background: company.rate >= 70 ? '#16a34a' : company.rate >= 40 ? '#003082' : '#f59e0b' }} /></div>
+                  <em>{company.rate}%</em>
+                  {company.overdue > 0 ? <small>{company.overdue} retard</small> : null}
+                </div>
+              ))}
+              {!companyStats.some((company: any) => company.total > 0) && <p className={styles.empty}>Aucune donnée entreprise.</p>}
+            </div>
+          </section>
+        </div>
+      )}
+
+      {(criticalReserves.length > 0 || overdueReserves.length > 0 || lateTasks.length > 0) && (
+        <div className={styles.dashboardAlertGrid}>
+          <DashboardAlertList
+            title="Alertes critiques"
+            tone="red"
+            items={criticalReserves}
+            empty="Aucune réserve critique."
+            getTitle={(item: any) => item.title}
+            getMeta={(item: any) => [item.building, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
+            onOpen={() => setTab('reserves')}
+          />
+          <DashboardAlertList
+            title="Réserves en retard"
+            tone="amber"
+            items={overdueReserves}
+            empty="Aucune réserve non critique en retard."
+            getTitle={(item: any) => item.title}
+            getMeta={(item: any) => [item.building, PRIORITY_LABELS[item.priority] ?? item.priority, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
+            onOpen={() => setTab('reserves')}
+          />
+          <DashboardAlertList
+            title="Tâches en retard"
+            tone="amber"
+            items={lateTasks}
+            empty="Aucune tâche en retard."
+            getTitle={(item: any) => item.title}
+            getMeta={(item: any) => [item.company, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
+            onOpen={() => setTab('planning')}
+          />
+        </div>
+      )}
+
       <section className={styles.panel}>
         <div className={styles.sectionHeader}>
           <div>
-            <h2>Vue d’ensemble</h2>
-            <p>Supervision web de toutes les données déjà présentes dans l’application mobile.</p>
+            <h2>Accès rapide</h2>
+            <p>Les mêmes entrées de pilotage que sur mobile, adaptées au cockpit web.</p>
           </div>
         </div>
         <div className={styles.quickGrid}>
@@ -2098,6 +2434,73 @@ function Dashboard({ stats, data, scoped, setTab }: any) {
         </div>
       </section>
     </div>
+  );
+}
+
+function DashboardKpi({ title, value, hint, tone, icon, onClick }: { title: string; value: number | string; hint: string; tone: string; icon: string; onClick: () => void }) {
+  return (
+    <button type="button" className={`${styles.dashboardKpi} ${styles[`dashboardTone_${tone}`] ?? ''}`} onClick={onClick}>
+      <span>{icon}</span>
+      <strong>{value}</strong>
+      <em>{title}</em>
+      <small>{hint}</small>
+    </button>
+  );
+}
+
+function DashboardStatusBar({ label, count, total, tone }: { label: string; count: number; total: number; tone: string }) {
+  const width = total ? Math.round((count / total) * 100) : 0;
+  return (
+    <div className={`${styles.dashboardStatusRow} ${styles[`dashboardTone_${tone}`] ?? ''}`}>
+      <span />
+      <strong>{label}</strong>
+      <div><i style={{ width: `${width}%` }} /></div>
+      <em>{count}</em>
+    </div>
+  );
+}
+
+function DashboardWeekTrend({ weeks }: { weeks: Array<{ label: string; created: number; closed: number }> }) {
+  const max = Math.max(...weeks.map(week => Math.max(week.created, week.closed)), 1);
+  return (
+    <div className={styles.dashboardChart}>
+      <div className={styles.dashboardChartLegend}>
+        <span><i /> Créées</span>
+        <span><i /> Clôturées</span>
+      </div>
+      <div className={styles.dashboardBars}>
+        {weeks.map((week) => (
+          <div key={week.label} className={styles.dashboardBarGroup}>
+            <div>
+              <i style={{ height: `${Math.max(4, (week.created / max) * 100)}%` }} />
+              <b style={{ height: `${Math.max(4, (week.closed / max) * 100)}%` }} />
+            </div>
+            <span>{week.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DashboardAlertList({ title, tone, items, empty, getTitle, getMeta, onOpen }: any) {
+  return (
+    <section className={`${styles.dashboardAlertCard} ${styles[`dashboardAlert_${tone}`] ?? ''}`}>
+      <div className={styles.dashboardAlertHeader}>
+        <strong>{title}</strong>
+        <span>{items.length}</span>
+      </div>
+      {items.length ? items.slice(0, 5).map((item: any) => (
+        <button key={item.id} type="button" onClick={onOpen}>
+          <i />
+          <span>
+            <strong>{getTitle(item)}</strong>
+            <small>{getMeta(item)}</small>
+          </span>
+          <em>›</em>
+        </button>
+      )) : <p>{empty}</p>}
+    </section>
   );
 }
 
