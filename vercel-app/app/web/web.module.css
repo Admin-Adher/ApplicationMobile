@@ -163,14 +163,15 @@
 
 .sidebar {
   position: relative;
+  box-sizing: border-box;
   height: 100%;
   min-height: 0;
   background: #fff;
   border-right: 1px solid #dde4ee;
-  padding: 20px;
+  padding: 20px 18px 18px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   transition: padding 0.18s ease;
 }
 
@@ -275,11 +276,30 @@
   flex: 1 1 auto;
   display: grid;
   align-content: start;
-  gap: 6px;
+  gap: 16px;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding-right: 4px;
+  padding: 2px 4px 8px 0;
+}
+
+.navSection {
+  display: grid;
+  gap: 6px;
+}
+
+.navSectionLabel {
+  padding: 0 12px;
+  color: #94a3b8;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.navSectionItems {
+  display: grid;
+  gap: 4px;
 }
 
 .navList button {
@@ -290,11 +310,21 @@
   border: 0;
   background: transparent;
   color: #64748b;
-  border-radius: 10px;
-  padding: 11px 12px;
+  border-radius: 12px;
+  padding: 10px 12px;
   font-weight: 800;
   text-align: left;
   cursor: pointer;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.navList button:hover {
+  background: #f4f7fb;
+  color: #003082;
+  transform: translateX(2px);
 }
 
 .navIcon {
@@ -312,37 +342,63 @@
 
 .sidebarCollapsed .navList {
   width: 100%;
-  padding-right: 0;
+  gap: 8px;
+  padding: 4px 0 8px;
+}
+
+.sidebarCollapsed .navSection {
+  gap: 4px;
+}
+
+.sidebarCollapsed .navSectionLabel {
+  display: none;
+}
+
+.sidebarCollapsed .navSectionItems {
+  gap: 4px;
 }
 
 .sidebarCollapsed .navList button {
   justify-content: center;
   gap: 0;
-  padding: 12px;
+  padding: 12px 0;
 }
 
 .sidebarCollapsed .navLabel {
   display: none;
 }
 
-.navList button:hover,
+.sidebarCollapsed .navActive {
+  box-shadow: none;
+}
+
 .navActive {
-  background: #eef3fa !important;
+  position: relative;
+  background: linear-gradient(90deg, #eef3fa 0%, #f8fbff 100%) !important;
   color: #003082 !important;
+  box-shadow: inset 3px 0 0 #003082;
+  transform: none !important;
 }
 
 .userBox {
-  margin-top: auto;
+  flex: 0 0 auto;
+  margin-top: 0;
   display: grid;
   gap: 8px;
   border: 1px solid #dde4ee;
   border-radius: 12px;
-  padding: 12px;
+  padding: 10px;
+  background: #fff;
 }
 
 .userBox span {
   color: #64748b;
   font-size: 12px;
+}
+
+.userBox button {
+  min-height: 40px;
+  line-height: 1.1;
 }
 
 .logoutIcon {
@@ -2019,6 +2075,10 @@
     padding: 11px 12px;
   }
 
+  .sidebarCollapsed .navSectionLabel {
+    display: block;
+  }
+
   .sidebarCollapsed .navLabel,
   .sidebarCollapsed .userBox strong,
   .sidebarCollapsed .userBox > span,
@@ -2041,9 +2101,14 @@
   }
 
   .navList {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    gap: 12px;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .navSectionItems {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .userBox {

@@ -114,6 +114,12 @@ const TABS = [
 
 type TabId = typeof TABS[number]['id'];
 
+const NAV_GROUPS: { label: string; items: TabId[] }[] = [
+  { label: 'Pilotage', items: ['dashboard', 'reserves', 'plans', 'visites', 'planning'] },
+  { label: 'Collaboration', items: ['messages', 'terrain', 'media', 'rapports'] },
+  { label: 'Administration', items: ['equipes', 'settings', 'admin'] },
+];
+
 const STATUS_LABELS: Record<string, string> = {
   open: 'Ouvert',
   in_progress: 'En cours',
@@ -1106,18 +1112,28 @@ export default function BuildTrackWebPage() {
         >
           <span className={styles.sidebarToggleChevron} aria-hidden="true" />
         </button>
-        <nav className={styles.navList}>
-          {TABS.map(tab => (
-            <button
-              key={tab.id}
-              className={activeTab === tab.id ? styles.navActive : ''}
-              onClick={() => setActiveTab(tab.id)}
-              title={sidebarCollapsed ? tab.label : undefined}
-              aria-label={tab.label}
-            >
-              <span className={styles.navIcon}>{tab.icon}</span>
-              <span className={styles.navLabel}>{tab.label}</span>
-            </button>
+        <nav className={styles.navList} aria-label="Menu principal">
+          {NAV_GROUPS.map(group => (
+            <div key={group.label} className={styles.navSection}>
+              <span className={styles.navSectionLabel}>{group.label}</span>
+              <div className={styles.navSectionItems}>
+                {group.items.map(tabId => {
+                  const tab = TABS.find(item => item.id === tabId)!;
+                  return (
+                    <button
+                      key={tab.id}
+                      className={activeTab === tab.id ? styles.navActive : ''}
+                      onClick={() => setActiveTab(tab.id)}
+                      title={sidebarCollapsed ? tab.label : undefined}
+                      aria-label={tab.label}
+                    >
+                      <span className={styles.navIcon}>{tab.icon}</span>
+                      <span className={styles.navLabel}>{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           ))}
         </nav>
         <div className={styles.userBox}>
