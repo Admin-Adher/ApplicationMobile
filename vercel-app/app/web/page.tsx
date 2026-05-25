@@ -136,6 +136,12 @@ const PRIORITY_LABELS: Record<string, string> = {
 };
 
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS);
+const RESERVE_FILTER_OPTIONS = [
+  { key: 'all', label: 'Tous' },
+  ...STATUS_OPTIONS.map(([key, label]) => ({ key, label })),
+  { key: 'overdue', label: 'En retard' },
+  { key: 'archived', label: 'Archivées' },
+] as const;
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super admin',
@@ -206,6 +212,16 @@ function prettyDate(value?: string | null, withTime = false) {
     year: 'numeric',
     ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}),
   });
+}
+
+function isReserveArchived(reserve: any) {
+  return Boolean(reserve?.archived_at ?? reserve?.archivedAt);
+}
+
+function isReserveOverdue(reserve: any) {
+  if (!reserve?.deadline || ['closed', 'verification'].includes(String(reserve?.status ?? ''))) return false;
+  const deadline = new Date(reserve.deadline);
+  return !Number.isNaN(deadline.getTime()) && deadline < new Date();
 }
 
 function sameName(a?: string | null, b?: string | null) {
@@ -1031,14 +1047,26 @@ export default function BuildTrackWebPage() {
   const filteredReserves = useMemo(() => {
     const q = search.trim().toLowerCase();
     return projectScoped.reserves.filter(r => {
-      if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+      if (statusFilter === 'archived') {
+        if (!isReserveArchived(r)) return false;
+      } else {
+        if (isReserveArchived(r)) return false;
+        if (statusFilter === 'overdue') {
+          if (!isReserveOverdue(r)) return false;
+        } else if (statusFilter !== 'all' && r.status !== statusFilter) {
+          return false;
+        }
+      }
       if (!q) return true;
       const haystack = [
+        r.id,
         r.title,
         r.description,
         r.building,
         r.level,
         r.zone,
+        STATUS_LABELS[r.status] ?? r.status,
+        PRIORITY_LABELS[r.priority] ?? r.priority,
         ...(reserveCompanies(r)),
       ].join(' ').toLowerCase();
       return haystack.includes(q);
@@ -1046,6 +1074,7 @@ export default function BuildTrackWebPage() {
   }, [projectScoped.reserves, search, statusFilter]);
 
   const selectedReserve = data.reserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
+  const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedPlan = data.sitePlans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
   const selectedChannel = data.channels.find(c => c.id === selectedChannelId) ?? data.channels[0] ?? null;
   const selectedChannelMessages = selectedChannel
@@ -1146,7 +1175,7 @@ export default function BuildTrackWebPage() {
         </div>
       </aside>
 
-      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''}`}>
+      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''}`}>
         <header className={styles.topbar}>
           <div>
             <p className={styles.eyebrow}>Cockpit web</p>
@@ -1180,8 +1209,9 @@ export default function BuildTrackWebPage() {
             )}
             {activeTab === 'reserves' && (
               <ReservesView
+                allReserves={projectScoped.reserves}
                 reserves={filteredReserves}
-                selectedReserve={selectedReserve}
+                selectedReserve={selectedFilteredReserve}
                 setSelectedReserveId={setSelectedReserveId}
                 search={search}
                 setSearch={setSearch}
@@ -1363,6 +1393,7 @@ function Quick({ label, value, onClick }: { label: string; value: number; onClic
 }
 
 function ReservesView(props: {
+  allReserves: any[];
   reserves: any[];
   selectedReserve: any;
   setSelectedReserveId: (id: string) => void;
@@ -1378,51 +1409,95 @@ function ReservesView(props: {
   editable: boolean;
   saving: boolean;
 }) {
-  const { reserves, selectedReserve } = props;
+  const { allReserves, reserves, selectedReserve } = props;
   const [commentText, setCommentText] = useState('');
+  const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
+  const filterCounts = RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
+    acc[option.key] =
+      option.key === 'all'
+        ? activeReserves.length
+        : option.key === 'archived'
+          ? allReserves.filter(isReserveArchived).length
+          : option.key === 'overdue'
+            ? activeReserves.filter(isReserveOverdue).length
+            : activeReserves.filter(reserve => reserve.status === option.key).length;
+    return acc;
+  }, {});
+
   return (
-    <div className={styles.twoCols}>
-      <section className={styles.panel}>
-        <div className={styles.panelHeaderCompact}>
-          <h2>Réserves</h2>
+    <div className={styles.reservesLayout}>
+      <section className={`${styles.panel} ${styles.reservesListPanel}`}>
+        <div className={styles.reservePanelHeader}>
+          <div>
+            <p className={styles.eyebrow}>Suivi chantier</p>
+            <h2>Réserves</h2>
+          </div>
           {props.editable && <button type="button" onClick={props.onCreate}>Créer</button>}
         </div>
-        <div className={styles.toolbar}>
-          <input placeholder="Titre, bâtiment, entreprise..." value={props.search} onChange={e => props.setSearch(e.target.value)} />
-          <select value={props.statusFilter} onChange={e => props.setStatusFilter(e.target.value)}>
-            <option value="all">Tous statuts</option>
-            {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
+        <div className={styles.reserveFilterRail}>
+          {RESERVE_FILTER_OPTIONS.map(option => {
+            const active = props.statusFilter === option.key;
+            return (
+              <button
+                key={option.key}
+                type="button"
+                className={active ? styles.reserveFilterChipActive : ''}
+                onClick={() => props.setStatusFilter(option.key)}
+              >
+                <span>{option.label}</span>
+                <em>{filterCounts[option.key] ?? 0}</em>
+              </button>
+            );
+          })}
         </div>
-        <div className={styles.list}>
+        <div className={styles.reserveSearchRow}>
+          <span>⌕</span>
+          <input placeholder="Titre, bâtiment, entreprise, lot..." value={props.search} onChange={e => props.setSearch(e.target.value)} />
+          {props.search.trim() && (
+            <button type="button" onClick={() => props.setSearch('')} aria-label="Effacer la recherche">×</button>
+          )}
+        </div>
+        <div className={styles.reserveListMeta}>
+          <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
+          <span>{activeReserves.length} active{activeReserves.length > 1 ? 's' : ''}</span>
+        </div>
+        <div className={styles.reserveList}>
           {reserves.map(reserve => (
             <button
               key={reserve.id}
-              className={`${styles.listRow} ${selectedReserve?.id === reserve.id ? styles.selectedRow : ''}`}
+              className={`${styles.reserveRow} ${selectedReserve?.id === reserve.id ? styles.reserveRowActive : ''}`}
               onClick={() => props.setSelectedReserveId(reserve.id)}
             >
-              <span className={`${styles.dot} ${styles[`priority_${reserve.priority}`] ?? ''}`} />
+              <div>
+                <span className={`${styles.dot} ${styles[`priority_${reserve.priority}`] ?? ''}`} />
+                <strong>{reserve.id}</strong>
+              </div>
               <div>
                 <strong>{reserve.title}</strong>
                 <small>{[reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · ') || 'Sans localisation'}</small>
+                <span>{reserveCompanies(reserve).join(', ') || 'Sans entreprise'}</span>
               </div>
-              <em>{STATUS_LABELS[reserve.status] ?? reserve.status}</em>
+              <em className={isReserveOverdue(reserve) ? styles.reserveStatusOverdue : ''}>
+                {isReserveArchived(reserve) ? 'Archivée' : isReserveOverdue(reserve) ? 'En retard' : STATUS_LABELS[reserve.status] ?? reserve.status}
+              </em>
             </button>
           ))}
           {!reserves.length && <p className={styles.empty}>Aucune réserve avec ces filtres.</p>}
         </div>
       </section>
 
-      <section className={styles.panel}>
+      <section className={`${styles.panel} ${styles.reservesDetailPanel}`}>
         {selectedReserve ? (
-          <div className={styles.detail}>
-            <div className={styles.sectionHeader}>
+          <>
+            <div className={styles.reserveDetailHeader}>
               <div>
                 <p className={styles.eyebrow}>{selectedReserve.id}</p>
                 <h2>{selectedReserve.title}</h2>
+                <span>{[selectedReserve.building, selectedReserve.level, selectedReserve.zone].filter(Boolean).join(' · ') || 'Sans localisation'}</span>
               </div>
               <span className={styles.badge}>{PRIORITY_LABELS[selectedReserve.priority] ?? selectedReserve.priority}</span>
             </div>
+            <div className={styles.reserveDetailBody}>
             <p className={styles.description}>{selectedReserve.description || 'Aucune description.'}</p>
             <dl className={styles.metaGrid}>
               <div><dt>Statut</dt><dd>{STATUS_LABELS[selectedReserve.status] ?? selectedReserve.status}</dd></div>
@@ -1452,16 +1527,17 @@ function ReservesView(props: {
               <div className={styles.actionBar}>
                 <button type="button" onClick={() => props.onEdit(selectedReserve)}>Modifier</button>
                 {STATUS_OPTIONS.map(([value, label]) => (
-                  <button key={value} disabled={props.saving || selectedReserve.status === value} onClick={() => props.onStatus(selectedReserve.id, value)}>
+                  <button type="button" key={value} disabled={props.saving || selectedReserve.status === value} onClick={() => props.onStatus(selectedReserve.id, value)}>
                     {label}
                   </button>
                 ))}
-                <button onClick={() => props.onArchive(selectedReserve)}>{selectedReserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
+                <button type="button" onClick={() => props.onArchive(selectedReserve)}>{selectedReserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
               </div>
             )}
             <HistoryBlock title="Commentaires" rows={selectedReserve.comments ?? []} />
             <HistoryBlock title="Historique" rows={selectedReserve.history ?? []} />
-          </div>
+            </div>
+          </>
         ) : (
           <p className={styles.empty}>Sélectionnez une réserve.</p>
         )}
