@@ -646,7 +646,7 @@
 .planReservePanel {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   border: 1px solid #dde4ee;
   border-radius: 14px;
@@ -709,6 +709,11 @@
   background: #f5f8ff;
 }
 
+.planReserveRowActive {
+  border-color: #003082;
+  background: #f5f8ff;
+}
+
 .planReserveRow strong,
 .planReserveRow small {
   display: block;
@@ -754,6 +759,91 @@
   max-width: 220px;
   font-size: 13px;
   line-height: 1.45;
+}
+
+.planReserveQuickCard {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #003082;
+  border-radius: 14px;
+  background: #f5f8ff;
+  padding: 12px;
+  box-shadow: 0 12px 28px rgba(0, 48, 130, 0.1);
+}
+
+.planReserveQuickHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.planReserveQuickHeader strong,
+.planReserveQuickHeader small {
+  display: block;
+  min-width: 0;
+}
+
+.planReserveQuickHeader strong {
+  overflow: hidden;
+  color: #0f172a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planReserveQuickHeader small,
+.planReserveQuickCard p {
+  color: #64748b;
+}
+
+.planReserveQuickHeader button {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.planReserveQuickCard p {
+  margin: 0;
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.planReserveQuickActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.planReserveQuickActions button {
+  border: 1px solid #003082;
+  border-radius: 10px;
+  background: #003082;
+  color: #fff;
+  padding: 10px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.planReserveQuickActions button:nth-child(2) {
+  background: #fff;
+  color: #003082;
+}
+
+.planReserveQuickActions button:disabled {
+  border-color: #d8e0ec;
+  background: #eef2f7;
+  color: #94a3b8;
+  cursor: not-allowed;
 }
 
 .toolbar {
@@ -1007,6 +1097,23 @@
   align-items: center;
   justify-content: center;
   padding: 0;
+}
+
+.pinFocused {
+  z-index: 30;
+  border-color: #fbbf24;
+  animation: webPinPulse 1.05s ease-in-out infinite;
+  box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.32), 0 0 14px rgba(251, 191, 36, 0.72), 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+@keyframes webPinPulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.32), 0 2px 8px rgba(0, 0, 0, 0.42);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(251, 191, 36, 0.18), 0 0 14px rgba(251, 191, 36, 0.55), 0 2px 8px rgba(0, 0, 0, 0.42);
+  }
 }
 
 .pinToolbar {

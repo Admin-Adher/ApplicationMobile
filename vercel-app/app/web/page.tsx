@@ -1446,6 +1446,7 @@ function WebPdfPlan({
   uri,
   name,
   pins,
+  focusedReserveId,
   pinModeReserveId,
   onAssignPin,
   onPinClick,
@@ -1453,6 +1454,7 @@ function WebPdfPlan({
   uri: string;
   name: string;
   pins: PlanPin[];
+  focusedReserveId?: string | null;
   pinModeReserveId?: string | null;
   onAssignPin: (x: number, y: number) => void;
   onPinClick: (reserveId: string) => void;
@@ -1460,6 +1462,7 @@ function WebPdfPlan({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderTaskRef = useRef<any>(null);
+  const lastFocusZoomRef = useRef('');
   const [scale, setScale] = useState(0);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(false);
@@ -1469,7 +1472,33 @@ function WebPdfPlan({
     setScale(0);
     setPageSize({ width: 0, height: 0 });
     setError('');
+    lastFocusZoomRef.current = '';
   }, [uri]);
+
+  useEffect(() => {
+    if (!focusedReserveId || !scale) return;
+    const key = `${uri}:${focusedReserveId}`;
+    if (lastFocusZoomRef.current === key) return;
+    lastFocusZoomRef.current = key;
+    setScale(value => {
+      const current = value || scale || 1;
+      return Math.min(3, Number((current * 1.8).toFixed(2)));
+    });
+  }, [focusedReserveId, scale, uri]);
+
+  useEffect(() => {
+    if (!focusedReserveId || !pageSize.width || !pageSize.height || !viewportRef.current) return;
+    const pin = pins.find(item => item.reserve.id === focusedReserveId);
+    if (!pin) return;
+    const viewport = viewportRef.current;
+    const left = (pin.x / 100) * pageSize.width;
+    const top = (pin.y / 100) * pageSize.height;
+    viewport.scrollTo({
+      left: Math.max(0, left - viewport.clientWidth / 2),
+      top: Math.max(0, top - viewport.clientHeight / 2),
+      behavior: 'smooth',
+    });
+  }, [focusedReserveId, pageSize.height, pageSize.width, pins]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1577,7 +1606,7 @@ function WebPdfPlan({
           {pins.map((pin) => (
             <button
               key={pin.reserve.id}
-              className={styles.pin}
+              className={`${styles.pin} ${focusedReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
               style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
               title={pin.reserve.title}
               onClick={event => {
@@ -1610,7 +1639,10 @@ function PlansView({
   const [buildingQuery, setBuildingQuery] = useState('');
   const [selectedBuildingKey, setSelectedBuildingKey] = useState('all');
   const [activeFamilyKey, setActiveFamilyKey] = useState('all');
+  const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
+  const [focusedPlanReserveId, setFocusedPlanReserveId] = useState<string | null>(null);
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
+  const selectedPlanReserve = planReserves.find((reserve: any) => reserve.id === selectedPlanReserveId) ?? null;
   const pinTarget = reserves.find((reserve: any) => reserve.id === pinModeReserveId);
   const selectedPlanBuildingKey = selectedPlan ? getPlanBuildingKey(selectedPlan) : 'all';
   const buildingGroups = useMemo(() => {
@@ -1736,6 +1768,15 @@ function PlansView({
       .filter(group => group.displayPlans.length > 0);
   }, [activeFamilyKey, buildingFamilies, buildingGroups, buildingQuery]);
   const totalReserveCount = buildingGroups.reduce((sum, group) => sum + group.reserveCount, 0);
+  useEffect(() => {
+    setSelectedPlanReserveId(null);
+    setFocusedPlanReserveId(null);
+  }, [selectedPlan?.id]);
+  useEffect(() => {
+    if (!focusedPlanReserveId) return;
+    const timer = window.setTimeout(() => setFocusedPlanReserveId(null), 7000);
+    return () => window.clearTimeout(timer);
+  }, [focusedPlanReserveId]);
   const handleSelectBuildingGroup = (group: { key: string; plans: any[] }) => {
     setSelectedBuildingKey(group.key);
     if (!group.plans.some(plan => plan.id === selectedPlan?.id) && group.plans[0]) {
@@ -1895,11 +1936,12 @@ function PlansView({
                     uri={selectedPlan.uri}
                     name={selectedPlan.name}
                     pins={planPins}
+                    focusedReserveId={focusedPlanReserveId}
                     pinModeReserveId={pinModeReserveId}
                     onAssignPin={(x, y) => onAssignPin(pinModeReserveId, selectedPlan.id, x, y)}
                     onPinClick={(reserveId) => {
-                      setSelectedReserveId(reserveId);
-                      setTab('reserves');
+                      setSelectedPlanReserveId(reserveId);
+                      setFocusedPlanReserveId(reserveId);
                     }}
                   />
                 ) : (
@@ -1950,8 +1992,8 @@ function PlansView({
                   {planReserves.map((reserve: any, idx: number) => (
                     <button
                       key={reserve.id}
-                      className={styles.planReserveRow}
-                      onClick={() => { setSelectedReserveId(reserve.id); setTab('reserves'); }}
+                      className={`${styles.planReserveRow} ${selectedPlanReserveId === reserve.id ? styles.planReserveRowActive : ''}`}
+                      onClick={() => setSelectedPlanReserveId(reserve.id)}
                     >
                       <span className={styles.planReserveNumber}>{idx + 1}</span>
                       <span>
@@ -1967,6 +2009,41 @@ function PlansView({
                     </div>
                   )}
                 </div>
+                {selectedPlanReserve && (
+                  <div className={styles.planReserveQuickCard}>
+                    <div className={styles.planReserveQuickHeader}>
+                      <span className={styles.planReserveNumber}>
+                        {planReserves.findIndex((reserve: any) => reserve.id === selectedPlanReserve.id) + 1}
+                      </span>
+                      <div>
+                        <strong>{selectedPlanReserve.title}</strong>
+                        <small>{[STATUS_LABELS[selectedPlanReserve.status] ?? selectedPlanReserve.status, selectedPlanReserve.company_name, selectedPlanReserve.level].filter(Boolean).join(' · ')}</small>
+                      </div>
+                      <button type="button" onClick={() => setSelectedPlanReserveId(null)} aria-label="Fermer">×</button>
+                    </div>
+                    {selectedPlanReserve.description && (
+                      <p>{selectedPlanReserve.description}</p>
+                    )}
+                    <div className={styles.planReserveQuickActions}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedReserveId(selectedPlanReserve.id);
+                          setTab('reserves');
+                        }}
+                      >
+                        Voir la réserve
+                      </button>
+                      <button
+                        type="button"
+                        disabled={selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null}
+                        onClick={() => setFocusedPlanReserveId(selectedPlanReserve.id)}
+                      >
+                        {selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null ? 'Pas d’épingle' : 'Voir sur le plan'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </aside>
             </div>
           </>
