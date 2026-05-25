@@ -1823,11 +1823,9 @@
 .buildingFamilyRowWeb {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
-  min-height: 42px;
-  padding-bottom: 6px;
-  scrollbar-width: thin;
+  overflow: visible;
 }
 
 .buildingFamilyRowWeb button {
@@ -1842,6 +1840,8 @@
   color: #64748b;
   padding: 8px 11px;
   font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
