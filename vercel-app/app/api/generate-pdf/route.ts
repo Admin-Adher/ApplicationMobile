@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { normalizeEmailLanguage, type EmailLanguage } from '@/lib/templates';
 
 export const maxDuration = 60;
+export const runtime = 'nodejs';
 
 const ALLOWED_ORIGINS = [
   'https://buildtrack-mobile.vercel.app',
@@ -49,6 +50,70 @@ function getServiceClient() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return null;
   return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+function isChromiumRuntimeError(error: any) {
+  const message = String(error?.message ?? error ?? '');
+  return /libnss3|shared libraries|Failed to launch|TROUBLESHOOTING|executable doesn't exist|spawn/i.test(message);
+}
+
+function pdfRuntimeErrorMessage(error: any) {
+  if (isChromiumRuntimeError(error)) {
+    return "Le moteur PDF serveur n'est pas disponible sur cet environnement. Utilisez l'impression PDF du navigateur.";
+  }
+  return error?.message ?? 'Generation PDF impossible.';
+}
+
+async function renderPdfBuffer(html: string): Promise<Buffer> {
+  let browser: any = null;
+
+  try {
+    let chromium: typeof import('@sparticuz/chromium-min');
+    let puppeteer: typeof import('puppeteer-core');
+
+    try {
+      chromium = (await import('@sparticuz/chromium-min')).default as any;
+      puppeteer = (await import('puppeteer-core')).default as any;
+    } catch (importErr: any) {
+      console.error('[generate-pdf] Import error:', importErr?.message);
+      throw new Error('Puppeteer non disponible sur ce runtime');
+    }
+
+    const chromiumUrl =
+      process.env.CHROMIUM_PACK_URL ??
+      'https://github.com/Sparticuz/chromium/releases/download/v123.0.0/chromium-v123.0.0-pack.tar';
+
+    const executablePath =
+      process.env.PUPPETEER_EXECUTABLE_PATH ||
+      await (chromium as any).executablePath(chromiumUrl);
+
+    browser = await (puppeteer as any).launch({
+      args: [
+        ...(chromium as any).args,
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--no-sandbox',
+      ],
+      defaultViewport: (chromium as any).defaultViewport,
+      executablePath,
+      headless: true,
+    });
+
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+
+    return await page.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' },
+    });
+  } finally {
+    if (browser) {
+      await browser.close().catch((closeError: any) => {
+        console.warn('[generate-pdf] Browser close error:', closeError?.message ?? closeError);
+      });
+    }
+  }
 }
 
 async function resolveRecipientLanguage(email: string, fallback?: string | null): Promise<EmailLanguage> {
@@ -185,43 +250,30 @@ export async function POST(req: NextRequest) {
       html = buildGlobalReportHtml(plansPayload);
     }
 
-    let chromium: typeof import('@sparticuz/chromium-min');
-    let puppeteer: typeof import('puppeteer-core');
-
+    let pdfBuffer: Buffer;
     try {
-      chromium = (await import('@sparticuz/chromium-min')).default as any;
-      puppeteer = (await import('puppeteer-core')).default as any;
-    } catch (importErr: any) {
-      console.error('[generate-pdf] Import error:', importErr?.message);
+      pdfBuffer = await renderPdfBuffer(html);
+    } catch (pdfError: any) {
+      const friendlyError = pdfRuntimeErrorMessage(pdfError);
+      console.error('[generate-pdf] PDF runtime unavailable:', pdfError?.message ?? pdfError);
+
+      if (!payload.sendByEmail) {
+        return NextResponse.json(
+          {
+            success: true,
+            fallback: 'browser_print',
+            printHtml: html,
+            message: friendlyError,
+          },
+          { headers }
+        );
+      }
+
       return NextResponse.json(
-        { success: false, error: 'Puppeteer non disponible sur ce runtime' },
+        { success: false, error: friendlyError },
         { status: 503, headers }
       );
     }
-
-    const chromiumUrl =
-      process.env.CHROMIUM_PACK_URL ??
-      'https://github.com/Sparticuz/chromium/releases/download/v123.0.0/chromium-v123.0.0-pack.tar';
-
-    const executablePath = await (chromium as any).executablePath(chromiumUrl);
-
-    const browser = await (puppeteer as any).launch({
-      args: (chromium as any).args,
-      defaultViewport: (chromium as any).defaultViewport,
-      executablePath,
-      headless: true,
-    });
-
-    const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
-
-    const pdfBuffer: Buffer = await page.pdf({
-      format: 'A4',
-      printBackground: true,
-      margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' },
-    });
-
-    await browser.close();
 
     if (payload.sendByEmail && Array.isArray(payload.recipients) && payload.recipients.length > 0) {
       await Promise.allSettled(

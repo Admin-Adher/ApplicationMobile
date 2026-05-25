@@ -670,6 +670,56 @@ function toBase64Download(pdfBase64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function printHtmlReport(html: string, filename: string) {
+  if (typeof window === 'undefined') return;
+
+  const frame = document.createElement('iframe');
+  frame.title = filename;
+  frame.style.position = 'fixed';
+  frame.style.width = '1px';
+  frame.style.height = '1px';
+  frame.style.opacity = '0';
+  frame.style.pointerEvents = 'none';
+  frame.style.right = '0';
+  frame.style.bottom = '0';
+  frame.style.border = '0';
+
+  const cleanup = () => {
+    window.setTimeout(() => frame.remove(), 1500);
+  };
+
+  frame.onload = () => {
+    window.setTimeout(() => {
+      try {
+        frame.contentWindow?.focus();
+        frame.contentWindow?.print();
+      } catch {
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename.replace(/\.pdf$/i, '.html');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      } finally {
+        cleanup();
+      }
+    }, 250);
+  };
+
+  document.body.appendChild(frame);
+  const doc = frame.contentDocument ?? frame.contentWindow?.document;
+  if (!doc) {
+    frame.remove();
+    return;
+  }
+  doc.open();
+  doc.write(html);
+  doc.close();
+}
+
 function reserveCompanies(reserve: any): string[] {
   if (Array.isArray(reserve.companies) && reserve.companies.length) return reserve.companies;
   return reserve.company ? [reserve.company] : [];
@@ -1834,7 +1884,14 @@ export default function BuildTrackWebPage() {
       }
       const filePart = selectedProjectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
       const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : type === 'visit_report' ? 'visite' : 'reserve';
-      toBase64Download(result.pdfBase64, `BuildTrack_${typePart}_${filePart}_${language}.pdf`);
+      const filename = `BuildTrack_${typePart}_${filePart}_${language}.pdf`;
+      if (result.pdfBase64) {
+        toBase64Download(result.pdfBase64, filename);
+      } else if (result.printHtml) {
+        printHtmlReport(result.printHtml, filename);
+      } else {
+        throw new Error('Génération PDF impossible.');
+      }
     } catch (err: any) {
       setError(err?.message ?? 'Génération PDF impossible.');
     } finally {
