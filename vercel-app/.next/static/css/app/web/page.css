@@ -83,6 +83,9 @@
 .web_formGrid__FtO4s input,
 .web_formGrid__FtO4s select,
 .web_formGrid__FtO4s textarea,
+.web_reserveModalGrid__j7BrC input,
+.web_reserveModalGrid__j7BrC select,
+.web_reserveModalGrid__j7BrC textarea,
 .web_companyStats__XZJ_F input,
 .web_tableRow__o1Vct select {
   width: 100%;
@@ -105,6 +108,9 @@
 .web_formGrid__FtO4s input:focus,
 .web_formGrid__FtO4s select:focus,
 .web_formGrid__FtO4s textarea:focus,
+.web_reserveModalGrid__j7BrC input:focus,
+.web_reserveModalGrid__j7BrC select:focus,
+.web_reserveModalGrid__j7BrC textarea:focus,
 .web_companyStats__XZJ_F input:focus,
 .web_tableRow__o1Vct select:focus {
   border-color: #003082;
@@ -2147,6 +2153,10 @@
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
 }
 
+.web_reserveModalPanel__Lw9Ks {
+  width: min(1040px, 100%);
+}
+
 .web_modalHeader__VHyPf {
   position: -webkit-sticky;
   position: sticky;
@@ -2166,6 +2176,13 @@
 .web_modalHeader__VHyPf h2,
 .web_modalHeader__VHyPf p {
   margin: 0;
+}
+
+.web_modalHeader__VHyPf span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .web_modalHeader__VHyPf button {
@@ -2202,6 +2219,221 @@
 
 .web_formWide__IeRsl {
   grid-column: 1 / -1;
+}
+
+.web_reserveModalBody__K5vqv {
+  display: grid;
+  grid-gap: 14px;
+  gap: 14px;
+  padding: 18px 20px 8px;
+  background: #f8fafc;
+}
+
+.web_reserveFormSection__FQ_gE {
+  display: grid;
+  grid-gap: 14px;
+  gap: 14px;
+  border: 1px solid #dce4ef;
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+}
+
+.web_reserveFormSectionHeader__1U52_ {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.web_reserveFormSectionHeader__1U52_ strong {
+  display: block;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.web_reserveFormSectionHeader__1U52_ span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.web_reserveModalGrid__j7BrC {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-gap: 14px;
+  gap: 14px;
+}
+
+.web_reserveModalGrid__j7BrC label {
+  display: grid;
+  grid-gap: 7px;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.web_reserveModalGrid__j7BrC textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.web_reserveLabelRow__KS75R {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.web_reserveLabelRow__KS75R button {
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #003082;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.web_reserveNotice__SX1S4,
+.web_reserveNoticeWarning__9WE2S {
+  display: grid;
+  grid-gap: 4px;
+  gap: 4px;
+  border-radius: 13px;
+  padding: 12px 14px;
+}
+
+.web_reserveNotice__SX1S4 {
+  border: 1px solid #c7d7fe;
+  background: #eff6ff;
+  color: #003082;
+}
+
+.web_reserveNoticeWarning__9WE2S {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.web_reserveNotice__SX1S4 strong {
+  font-size: 13px;
+}
+
+.web_reserveNotice__SX1S4 span {
+  font-size: 13px;
+  color: #334155;
+}
+
+.web_reservePinFollowUp__YQ8u3 {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  border: 1px solid #c7d7fe;
+  border-radius: 14px;
+  background: #f5f8ff;
+  padding: 12px 14px;
+}
+
+.web_reservePinFollowUp__YQ8u3 input {
+  width: 20px;
+  height: 20px;
+  accent-color: #003082;
+}
+
+.web_reservePinFollowUp__YQ8u3 strong,
+.web_reservePinFollowUp__YQ8u3 small {
+  display: block;
+}
+
+.web_reservePinFollowUp__YQ8u3 strong {
+  color: #003082;
+  font-size: 14px;
+}
+
+.web_reservePinFollowUp__YQ8u3 small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.web_reserveCountPill__hSLhn {
+  border-radius: 999px;
+  background: #eef3fa;
+  color: #003082 !important;
+  padding: 6px 9px;
+  font-size: 12px !important;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.web_reserveCompanyGrid__7pzZm {
+  max-height: 240px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-gap: 8px;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.web_reserveCompanyChip__7iKYZ,
+.web_reserveCompanyChipActive__sfQmj {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  grid-column-gap: 8px;
+  column-gap: 8px;
+  grid-row-gap: 2px;
+  row-gap: 2px;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #fff;
+  color: #0f172a;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.web_reserveCompanyChip__7iKYZ > span,
+.web_reserveCompanyChipActive__sfQmj > span {
+  grid-row: span 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.web_reserveCompanyChip__7iKYZ strong,
+.web_reserveCompanyChip__7iKYZ small,
+.web_reserveCompanyChipActive__sfQmj strong,
+.web_reserveCompanyChipActive__sfQmj small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web_reserveCompanyChip__7iKYZ strong,
+.web_reserveCompanyChipActive__sfQmj strong {
+  font-size: 13px;
+}
+
+.web_reserveCompanyChip__7iKYZ small,
+.web_reserveCompanyChipActive__sfQmj small {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.web_reserveCompanyChipActive__sfQmj {
+  border-color: #003082;
+  background: #f5f8ff;
+  box-shadow: 0 0 0 2px rgba(0, 48, 130, 0.08);
 }
 
 .web_fieldLabel__jLo5C {
@@ -2517,6 +2749,7 @@
   .web_commentForm__bdysX,
   .web_metaGrid__ti_t4,
   .web_formGrid__FtO4s,
+  .web_reserveModalGrid__j7BrC,
   .web_companyStats__XZJ_F {
     grid-template-columns: 1fr;
   }
@@ -2527,7 +2760,8 @@
 
   .web_panelHeaderCompact__wBPMv,
   .web_sectionHeader__sJ6dB,
-  .web_modalHeader__VHyPf {
+  .web_modalHeader__VHyPf,
+  .web_reserveFormSectionHeader__1U52_ {
     flex-direction: column;
   }
 
@@ -2552,6 +2786,19 @@
   .web_modalPanel__U5eKL {
     max-height: 92vh;
     border-radius: 18px 18px 12px 12px;
+  }
+
+  .web_reserveModalBody__K5vqv {
+    padding: 12px;
+  }
+
+  .web_reserveFormSection__FQ_gE {
+    padding: 14px;
+  }
+
+  .web_reserveCompanyGrid__7pzZm {
+    grid-template-columns: 1fr;
+    max-height: 210px;
   }
 }
 

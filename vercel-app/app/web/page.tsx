@@ -42,7 +42,9 @@ type ReserveDraft = {
   description: string;
   chantierId: string;
   building: string;
+  buildingId: string;
   level: string;
+  levelId: string;
   zone: string;
   priority: string;
   status: string;
@@ -51,6 +53,7 @@ type ReserveDraft = {
   lotId: string;
   visiteId: string;
   companies: string[];
+  placePinAfterCreate: boolean;
 };
 
 type PlanPin = {
@@ -255,6 +258,61 @@ function getPlanLevelName(plan: any) {
   return String(plan?.level_name ?? plan?.level ?? plan?.niveau ?? '').trim();
 }
 
+function projectBuildings(project?: any | null): any[] {
+  return Array.isArray(project?.buildings) ? project.buildings : [];
+}
+
+function getPlanBuildingId(plan: any) {
+  return String(plan?.building_id ?? plan?.buildingId ?? '').trim();
+}
+
+function getPlanLevelId(plan: any) {
+  return String(plan?.level_id ?? plan?.levelId ?? '').trim();
+}
+
+function getBuildingNameById(project: any, buildingId?: string | null) {
+  if (!buildingId) return '';
+  return projectBuildings(project).find((building: any) => building.id === buildingId)?.name ?? '';
+}
+
+function getLevelNameById(project: any, buildingId?: string | null, levelId?: string | null) {
+  if (!buildingId || !levelId) return '';
+  const building = projectBuildings(project).find((item: any) => item.id === buildingId);
+  return (building?.levels ?? []).find((level: any) => level.id === levelId)?.name ?? '';
+}
+
+function getPlanDisplayLocation(plan: any, project?: any | null) {
+  const buildingId = getPlanBuildingId(plan);
+  const levelId = getPlanLevelId(plan);
+  const building = getBuildingNameById(project, buildingId) || getPlanBuildingName(plan);
+  const level = getLevelNameById(project, buildingId, levelId) || getPlanLevelName(plan);
+  return { building, buildingId, level, levelId };
+}
+
+function getVisitCompanyIds(visit: any): string[] {
+  return Array.isArray(visit?.concerned_company_ids)
+    ? visit.concerned_company_ids
+    : Array.isArray(visit?.concernedCompanyIds)
+      ? visit.concernedCompanyIds
+      : [];
+}
+
+function getVisitLocations(visit: any): any[] {
+  return Array.isArray(visit?.visited_locations)
+    ? visit.visited_locations
+    : Array.isArray(visit?.visitedLocations)
+      ? visit.visitedLocations
+      : [];
+}
+
+function getVisitDefaultPlanId(visit: any) {
+  return String(visit?.default_plan_id ?? visit?.defaultPlanId ?? '').trim();
+}
+
+function getVisitReserveDeadline(visit: any) {
+  return String(visit?.reserve_deadline_date ?? visit?.reserveDeadlineDate ?? '').trim();
+}
+
 function getReserveBuildingKey(reserve: any) {
   const id = reserve?.building_id ?? reserve?.buildingId;
   if (id) return `id:${id}`;
@@ -341,21 +399,25 @@ function generateReserveId(reserves: any[], lots: any[], lotId?: string) {
 }
 
 function createReserveDraft(projectId: string, plan?: any | null, visit?: any | null): ReserveDraft {
+  const firstVisitLocation = getVisitLocations(visit)[0] ?? null;
   return {
     kind: 'reserve',
     title: '',
     description: '',
-    chantierId: visit?.chantier_id ?? plan?.chantier_id ?? projectId,
-    building: visit?.building ?? plan?.building ?? '',
+    chantierId: getChantierId(visit) || getChantierId(plan) || projectId,
+    building: firstVisitLocation?.buildingName ?? firstVisitLocation?.building_name ?? visit?.building ?? plan?.building ?? '',
+    buildingId: firstVisitLocation?.buildingId ?? firstVisitLocation?.building_id ?? getPlanBuildingId(plan) ?? '',
     level: visit?.level ?? plan?.level ?? '',
+    levelId: getPlanLevelId(plan) ?? '',
     zone: visit?.zone ?? '',
     priority: 'medium',
     status: 'open',
-    deadline: visit?.reserve_deadline_date ?? '',
-    planId: visit?.default_plan_id ?? plan?.id ?? '',
+    deadline: getVisitReserveDeadline(visit),
+    planId: firstVisitLocation?.defaultPlanId ?? firstVisitLocation?.default_plan_id ?? getVisitDefaultPlanId(visit) ?? plan?.id ?? '',
     lotId: '',
     visiteId: visit?.id ?? '',
     companies: [],
+    placePinAfterCreate: Boolean(plan?.id),
   };
 }
 
@@ -366,7 +428,9 @@ function reserveToDraft(reserve: any): ReserveDraft {
     description: reserve.description ?? '',
     chantierId: reserve.chantier_id ?? '',
     building: reserve.building ?? '',
+    buildingId: reserve.building_id ?? reserve.buildingId ?? '',
     level: reserve.level ?? '',
+    levelId: reserve.level_id ?? reserve.levelId ?? '',
     zone: reserve.zone ?? '',
     priority: reserve.priority ?? 'medium',
     status: reserve.status ?? 'open',
@@ -375,6 +439,7 @@ function reserveToDraft(reserve: any): ReserveDraft {
     lotId: reserve.lot_id ?? '',
     visiteId: reserve.visite_id ?? '',
     companies: reserveCompanies(reserve),
+    placePinAfterCreate: false,
   };
 }
 
@@ -659,7 +724,22 @@ export default function BuildTrackWebPage() {
   function openReserveCreate(prefill?: { plan?: any; visit?: any }) {
     setError('');
     setEditingReserveId(null);
-    setReserveDraft(createReserveDraft(currentProjectId(), prefill?.plan, prefill?.visit));
+    const baseDraft = createReserveDraft(currentProjectId(), prefill?.plan, prefill?.visit);
+    const project = data.chantiers.find(item => item.id === baseDraft.chantierId);
+    const selectedPlan = prefill?.plan ?? data.sitePlans.find(plan => plan.id === baseDraft.planId);
+    const planLocation = selectedPlan ? getPlanDisplayLocation(selectedPlan, project) : null;
+    const visitCompanyNames = getVisitCompanyIds(prefill?.visit)
+      .map(companyId => data.companies.find(company => company.id === companyId)?.name)
+      .filter((name): name is string => !!name);
+    setReserveDraft({
+      ...baseDraft,
+      building: planLocation?.building || baseDraft.building,
+      buildingId: planLocation?.buildingId || baseDraft.buildingId,
+      level: planLocation?.level || baseDraft.level,
+      levelId: planLocation?.levelId || baseDraft.levelId,
+      companies: visitCompanyNames,
+      placePinAfterCreate: Boolean(baseDraft.planId),
+    });
     setReserveModalMode('create');
   }
 
@@ -728,6 +808,18 @@ export default function BuildTrackWebPage() {
       setError('Le titre de la réserve est obligatoire.');
       return;
     }
+    if (!reserveDraft.companies.length) {
+      setError('Sélectionnez au moins une entreprise responsable.');
+      return;
+    }
+    if (!reserveDraft.building.trim()) {
+      setError('Le bâtiment est obligatoire.');
+      return;
+    }
+    if (!reserveDraft.level.trim()) {
+      setError('Le niveau est obligatoire.');
+      return;
+    }
     setSaving(true);
     setError('');
     const existing = editingReserveId ? data.reserves.find(r => r.id === editingReserveId) : null;
@@ -743,8 +835,10 @@ export default function BuildTrackWebPage() {
       title,
       description: reserveDraft.description.trim() || title,
       building: reserveDraft.building.trim(),
+      building_id: reserveDraft.buildingId || null,
       zone: reserveDraft.zone.trim(),
       level: reserveDraft.level.trim(),
+      level_id: reserveDraft.levelId || null,
       company: companies[0] ?? '',
       companies,
       priority: reserveDraft.priority,
@@ -801,6 +895,11 @@ export default function BuildTrackWebPage() {
         setData(prev => ({ ...prev, reserves: [inserted ?? insertPayload, ...prev.reserves] }));
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
         setSelectedReserveId(id);
+        if (reserveDraft.planId && reserveDraft.placePinAfterCreate) {
+          setSelectedPlanId(reserveDraft.planId);
+          setActiveTab('plans');
+          setPinModeReserveId(id);
+        }
         closeReserveModal();
       }
     }
@@ -2711,116 +2810,388 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
   onToggleCompany: (companyName: string) => void;
 }) {
   const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
+  const project = data.chantiers.find(item => item.id === projectId) ?? null;
   const plans = data.sitePlans.filter(plan => getChantierId(plan) === projectId);
   const visits = data.visites.filter(visit => getChantierId(visit) === projectId);
-  const lots = data.lots.filter(lot => !lot.chantier_id || getChantierId(lot) === projectId);
+  const lots = data.lots.filter(lot => {
+    const lotProjectId = getChantierId(lot);
+    return !lotProjectId || lotProjectId === projectId;
+  });
+  const selectedVisit = visits.find(visit => visit.id === draft.visiteId) ?? null;
+  const visitLocations = getVisitLocations(selectedVisit);
+  const visitScopedBuildingIds = new Set(visitLocations.map(location => location.buildingId ?? location.building_id).filter(Boolean));
+  const visitScopedBuildingNames = new Set(visitLocations.map(location => location.buildingName ?? location.building_name).filter(Boolean));
+  const buildings = projectBuildings(project);
+  const buildingOptions = visitLocations.length
+    ? buildings.filter(building => visitScopedBuildingIds.has(building.id) || visitScopedBuildingNames.has(building.name))
+    : buildings;
+  const selectedBuilding = buildingOptions.find(building =>
+    (draft.buildingId && building.id === draft.buildingId) || sameName(building.name, draft.building)
+  ) ?? null;
+  const visitLocationForBuilding = visitLocations.find(location =>
+    (selectedBuilding?.id && (location.buildingId === selectedBuilding.id || location.building_id === selectedBuilding.id)) ||
+    sameName(location.buildingName ?? location.building_name, selectedBuilding?.name ?? draft.building)
+  );
+  const allowedLevelIds = new Set((visitLocationForBuilding?.levelIds ?? visitLocationForBuilding?.level_ids ?? []).filter(Boolean));
+  const levelOptions = selectedBuilding?.levels
+    ? selectedBuilding.levels.filter((level: any) => allowedLevelIds.size === 0 || allowedLevelIds.has(level.id))
+    : [];
+  const selectedLot = lots.find(lot => lot.id === draft.lotId) ?? null;
+  const selectedPlan = plans.find(plan => plan.id === draft.planId) ?? null;
+  const filteredPlans = plans.filter(plan => {
+    const location = getPlanDisplayLocation(plan, project);
+    if (visitLocations.length > 0 && location.building) {
+      const inScope = (location.buildingId && visitScopedBuildingIds.has(location.buildingId)) || visitScopedBuildingNames.has(location.building);
+      if (!inScope) return false;
+    }
+    if (!draft.building && !draft.level) return true;
+    const matchesBuilding = !location.building || !draft.building
+      ? true
+      : location.buildingId && draft.buildingId
+        ? location.buildingId === draft.buildingId
+        : sameName(location.building, draft.building);
+    const matchesLevel = !location.level || !draft.level
+      ? true
+      : location.levelId && draft.levelId
+        ? location.levelId === draft.levelId
+        : sameName(location.level, draft.level);
+    return matchesBuilding && matchesLevel;
+  });
+  const previewId = mode === 'edit'
+    ? draft.title ? 'Réserve existante' : 'Modification'
+    : generateReserveId(data.reserves, data.lots, draft.lotId);
+  const selectedCompanyCount = draft.companies.length;
+
+  function updateTitle(value: string) {
+    setDraft(prev => {
+      const shouldMirrorDescription = !prev.description.trim() || prev.description === prev.title;
+      return { ...prev, title: value, description: shouldMirrorDescription ? value : prev.description };
+    });
+  }
+
+  function reuseTitleAsDescription() {
+    setDraft(prev => ({ ...prev, description: prev.title.trim() }));
+  }
+
+  function applyBuilding(buildingId: string) {
+    const building = buildingOptions.find(item => item.id === buildingId);
+    setDraft(prev => ({
+      ...prev,
+      buildingId,
+      building: building?.name ?? '',
+      level: '',
+      levelId: '',
+      planId: '',
+      placePinAfterCreate: false,
+    }));
+  }
+
+  function applyLevel(levelId: string) {
+    const level = levelOptions.find((item: any) => item.id === levelId);
+    setDraft(prev => ({
+      ...prev,
+      levelId,
+      level: level?.name ?? '',
+      planId: '',
+      placePinAfterCreate: false,
+    }));
+  }
+
+  function applyPlan(planId: string) {
+    const plan = plans.find(item => item.id === planId);
+    const location = plan ? getPlanDisplayLocation(plan, project) : null;
+    setDraft(prev => ({
+      ...prev,
+      planId,
+      building: location?.building || prev.building,
+      buildingId: location?.buildingId || prev.buildingId,
+      level: location?.level || prev.level,
+      levelId: location?.levelId || prev.levelId,
+      placePinAfterCreate: mode === 'create' && !!planId ? true : prev.placePinAfterCreate,
+    }));
+  }
+
+  function applyVisit(visitId: string) {
+    const visit = visits.find(item => item.id === visitId);
+    if (!visit) {
+      setDraft(prev => ({ ...prev, visiteId: '', deadline: '', planId: '', placePinAfterCreate: false }));
+      return;
+    }
+    const visitCompanyNames = getVisitCompanyIds(visit)
+      .map(companyId => data.companies.find(company => company.id === companyId)?.name)
+      .filter((name): name is string => !!name);
+    const locations = getVisitLocations(visit);
+    const singleLocation = locations.length === 1 ? locations[0] : null;
+    const buildingId = singleLocation?.buildingId ?? singleLocation?.building_id ?? '';
+    const buildingName = singleLocation?.buildingName ?? singleLocation?.building_name ?? visit.building ?? '';
+    const defaultPlanId = singleLocation?.defaultPlanId ?? singleLocation?.default_plan_id ?? getVisitDefaultPlanId(visit);
+    const defaultPlan = plans.find(plan => plan.id === defaultPlanId);
+    const defaultLocation = defaultPlan ? getPlanDisplayLocation(defaultPlan, project) : null;
+    setDraft(prev => ({
+      ...prev,
+      visiteId: visit.id,
+      deadline: getVisitReserveDeadline(visit) || prev.deadline,
+      companies: visitCompanyNames.length ? visitCompanyNames : prev.companies,
+      building: defaultLocation?.building || buildingName || (locations.length > 1 ? '' : visit.building || prev.building),
+      buildingId: defaultLocation?.buildingId || buildingId || (locations.length > 1 ? '' : prev.buildingId),
+      level: defaultLocation?.level || (locations.length > 1 ? '' : visit.level || prev.level),
+      levelId: defaultLocation?.levelId || (locations.length > 1 ? '' : prev.levelId),
+      zone: visit.zone ?? prev.zone,
+      planId: defaultPlanId || prev.planId,
+      placePinAfterCreate: mode === 'create' && Boolean(defaultPlanId),
+    }));
+  }
+
+  function applyLot(lotId: string) {
+    const lot = lots.find(item => item.id === lotId);
+    const companyId = lot?.company_id ?? lot?.companyId;
+    const companyName = companyId ? data.companies.find(company => company.id === companyId)?.name : '';
+    setDraft(prev => ({
+      ...prev,
+      lotId,
+      companies: companyName ? [companyName] : prev.companies,
+    }));
+  }
+
+  function applyDeadlinePreset(days: number) {
+    const date = new Date();
+    date.setDate(date.getDate() + days);
+    setDraft(prev => ({ ...prev, deadline: date.toISOString().slice(0, 10) }));
+  }
+
   return (
     <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
-      <form className={styles.modalPanel} onSubmit={onSubmit}>
+      <form className={`${styles.modalPanel} ${styles.reserveModalPanel}`} onSubmit={onSubmit}>
         <div className={styles.modalHeader}>
           <div>
             <p className={styles.eyebrow}>{mode === 'edit' ? 'Modification' : 'Création'}</p>
             <h2>{mode === 'edit' ? 'Modifier la réserve' : 'Nouvelle réserve'}</h2>
+            <span>{project?.name ?? 'Chantier'} · {previewId}</span>
           </div>
           <button type="button" onClick={onClose}>Fermer</button>
         </div>
-        <div className={styles.formGrid}>
-          <label>
-            Type
-            <select value={draft.kind} onChange={event => setDraft(prev => ({ ...prev, kind: event.target.value as ReserveDraft['kind'] }))}>
-              <option value="reserve">Réserve</option>
-              <option value="observation">Observation</option>
-            </select>
-          </label>
-          <label>
-            Chantier
-            <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value, planId: '', visiteId: '' }))}>
-              {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-            </select>
-          </label>
-          <label className={styles.formWide}>
-            Titre
-            <input
-              value={draft.title}
-              onChange={event => {
-                const value = event.target.value;
-                setDraft(prev => {
-                  const shouldMirrorDescription = !prev.description.trim() || prev.description === prev.title;
-                  return { ...prev, title: value, description: shouldMirrorDescription ? value : prev.description };
-                });
-              }}
-              placeholder="Ex: Finition mur à reprendre"
-              required
-            />
-          </label>
-          <label className={styles.formWide}>
-            Description
-            <textarea value={draft.description} onChange={event => setDraft(prev => ({ ...prev, description: event.target.value }))} rows={4} />
-          </label>
-          <label>
-            Bâtiment
-            <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value }))} />
-          </label>
-          <label>
-            Niveau
-            <input value={draft.level} onChange={event => setDraft(prev => ({ ...prev, level: event.target.value }))} />
-          </label>
-          <label>
-            Zone
-            <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} />
-          </label>
-          <label>
-            Échéance
-            <input type="date" value={draft.deadline} onChange={event => setDraft(prev => ({ ...prev, deadline: event.target.value }))} />
-          </label>
-          <label>
-            Priorité
-            <select value={draft.priority} onChange={event => setDraft(prev => ({ ...prev, priority: event.target.value }))}>
-              {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>
-            Statut
-            <select value={draft.status} onChange={event => setDraft(prev => ({ ...prev, status: event.target.value }))}>
-              {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>
-            Plan associé
-            <select value={draft.planId} onChange={event => setDraft(prev => ({ ...prev, planId: event.target.value }))}>
-              <option value="">Aucun plan</option>
-              {plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Visite associée
-            <select value={draft.visiteId} onChange={event => setDraft(prev => ({ ...prev, visiteId: event.target.value }))}>
-              <option value="">Aucune visite</option>
-              {visits.map(visit => <option key={visit.id} value={visit.id}>{visit.title}</option>)}
-            </select>
-          </label>
-          <label>
-            Lot
-            <select value={draft.lotId} onChange={event => setDraft(prev => ({ ...prev, lotId: event.target.value }))}>
-              <option value="">Aucun lot</option>
-              {lots.map(lot => <option key={lot.id} value={lot.id}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</option>)}
-            </select>
-          </label>
-          <div className={styles.formWide}>
-            <span className={styles.fieldLabel}>Entreprises responsables</span>
-            <div className={styles.chipGrid}>
-              {data.companies.map(company => (
-                <button
-                  key={company.id}
-                  type="button"
-                  className={draft.companies.includes(company.name) ? styles.chipActive : styles.chip}
-                  onClick={() => onToggleCompany(company.name)}
-                >
-                  {company.short_name ?? company.shortName ?? company.name}
-                </button>
-              ))}
+        <div className={styles.reserveModalBody}>
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Constat</strong>
+                <span>Titre, description et type de saisie.</span>
+              </div>
+              <div className={styles.segmented}>
+                {[
+                  ['reserve', 'Réserve'],
+                  ['observation', 'Observation'],
+                ].map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    className={draft.kind === value ? styles.segmentedActive : ''}
+                    onClick={() => setDraft(prev => ({ ...prev, kind: value as ReserveDraft['kind'] }))}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+            <div className={styles.reserveModalGrid}>
+              <label className={styles.formWide}>
+                Titre *
+                <input value={draft.title} onChange={event => updateTitle(event.target.value)} placeholder="Ex: Finition mur à reprendre" required />
+              </label>
+              <label className={styles.formWide}>
+                <span className={styles.reserveLabelRow}>
+                  Description
+                  {draft.title.trim() && draft.description.trim() !== draft.title.trim() ? (
+                    <button type="button" onClick={reuseTitleAsDescription}>Copier le titre</button>
+                  ) : null}
+                </span>
+                <textarea value={draft.description} onChange={event => setDraft(prev => ({ ...prev, description: event.target.value }))} rows={4} />
+              </label>
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Contexte chantier</strong>
+                <span>La visite peut limiter les bâtiments et reprendre l’échéance.</span>
+              </div>
+            </div>
+            <div className={styles.reserveModalGrid}>
+              <label>
+                Chantier
+                <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value, building: '', buildingId: '', level: '', levelId: '', planId: '', visiteId: '', placePinAfterCreate: false }))}>
+                  {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Visite associée
+                <select value={draft.visiteId} onChange={event => applyVisit(event.target.value)}>
+                  <option value="">Aucune visite</option>
+                  {visits.map(visit => <option key={visit.id} value={visit.id}>{visit.title}</option>)}
+                </select>
+              </label>
+              {visitLocations.length > 0 ? (
+                <div className={styles.formWide}>
+                  <div className={styles.reserveNotice}>
+                    <strong>Périmètre de visite</strong>
+                    <span>{visitLocations.length} bâtiment{visitLocations.length > 1 ? 's' : ''} autorisé{visitLocations.length > 1 ? 's' : ''}. Les autres bâtiments sont masqués, comme sur mobile.</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Localisation et plan</strong>
+                <span>Le plan est filtré selon le bâtiment et le niveau sélectionnés.</span>
+              </div>
+            </div>
+            <div className={styles.reserveModalGrid}>
+              {buildingOptions.length ? (
+                <label>
+                  Bâtiment *
+                  <select value={draft.buildingId || selectedBuilding?.id || ''} onChange={event => applyBuilding(event.target.value)}>
+                    <option value="">Sélectionner...</option>
+                    {buildingOptions.map(building => <option key={building.id} value={building.id}>{building.name}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <label>
+                  Bâtiment *
+                  <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value, buildingId: '' }))} />
+                </label>
+              )}
+              {levelOptions.length ? (
+                <label>
+                  Niveau *
+                  <select value={draft.levelId || ''} onChange={event => applyLevel(event.target.value)}>
+                    <option value="">Sélectionner...</option>
+                    {levelOptions.map((level: any) => <option key={level.id} value={level.id}>{level.name}</option>)}
+                  </select>
+                </label>
+              ) : (
+                <label>
+                  Niveau *
+                  <input value={draft.level} onChange={event => setDraft(prev => ({ ...prev, level: event.target.value, levelId: '' }))} />
+                </label>
+              )}
+              <label>
+                Zone
+                <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} placeholder="Ex: couloir, local, façade..." />
+              </label>
+              <label>
+                Plan associé
+                <select value={draft.planId} onChange={event => applyPlan(event.target.value)}>
+                  <option value="">Aucun plan</option>
+                  {filteredPlans.map(plan => {
+                    const location = getPlanDisplayLocation(plan, project);
+                    return (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name}{location.building ? ` · ${location.building}${location.level ? ` / ${location.level}` : ''}` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+              </label>
+              {draft.planId ? (
+                <label className={`${styles.formWide} ${styles.reservePinFollowUp}`}>
+                  <input
+                    type="checkbox"
+                    checked={mode === 'create' && draft.placePinAfterCreate}
+                    disabled={mode === 'edit'}
+                    onChange={event => setDraft(prev => ({ ...prev, placePinAfterCreate: event.target.checked }))}
+                  />
+                  <span>
+                    <strong>Positionner l’épingle après création</strong>
+                    <small>{selectedPlan?.name ?? 'Le plan associé'} s’ouvrira directement avec cette réserve sélectionnée.</small>
+                  </span>
+                </label>
+              ) : (
+                <div className={styles.formWide}>
+                  <div className={styles.reserveNoticeWarning}>
+                    Sans plan associé, la réserve sera créée hors plan et pourra être épinglée plus tard.
+                  </div>
+                </div>
+              )}
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Responsables et suivi</strong>
+                <span>Entreprise, lot, priorité et délai cible.</span>
+              </div>
+              <span className={styles.reserveCountPill}>{selectedCompanyCount} sélectionnée{selectedCompanyCount > 1 ? 's' : ''}</span>
+            </div>
+            <div className={styles.reserveModalGrid}>
+              <label>
+                Lot
+                <select value={draft.lotId} onChange={event => applyLot(event.target.value)}>
+                  <option value="">Aucun lot</option>
+                  {lots.map(lot => <option key={lot.id} value={lot.id}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Échéance
+                <input type="date" value={draft.deadline} onChange={event => setDraft(prev => ({ ...prev, deadline: event.target.value }))} />
+              </label>
+              <div className={styles.formWide}>
+                <span className={styles.fieldLabel}>Priorité</span>
+                <div className={styles.chipGrid}>
+                  {Object.entries(PRIORITY_LABELS).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      className={draft.priority === value ? styles.chipActive : styles.chip}
+                      onClick={() => setDraft(prev => ({ ...prev, priority: value }))}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className={styles.formWide}>
+                <span className={styles.fieldLabel}>Délai rapide</span>
+                <div className={styles.chipGrid}>
+                  {[7, 15, 30, 60].map(days => (
+                    <button key={days} type="button" className={styles.chip} onClick={() => applyDeadlinePreset(days)}>
+                      {days} j
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {mode === 'edit' ? (
+                <label>
+                  Statut
+                  <select value={draft.status} onChange={event => setDraft(prev => ({ ...prev, status: event.target.value }))}>
+                    {STATUS_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+              ) : null}
+              <div className={styles.formWide}>
+                <span className={styles.fieldLabel}>Entreprises responsables *</span>
+                <div className={styles.reserveCompanyGrid}>
+                  {data.companies.map(company => (
+                    <button
+                      key={company.id}
+                      type="button"
+                      className={draft.companies.includes(company.name) ? styles.reserveCompanyChipActive : styles.reserveCompanyChip}
+                      onClick={() => onToggleCompany(company.name)}
+                    >
+                      <span style={{ background: company.color ?? '#94a3b8' }} />
+                      <strong>{company.short_name ?? company.shortName ?? company.name}</strong>
+                      <small>{company.name}</small>
+                    </button>
+                  ))}
+                </div>
+                {!data.companies.length ? <p className={styles.empty}>Aucune entreprise configurée.</p> : null}
+              </div>
+            </div>
+          </section>
         </div>
         <div className={styles.modalActions}>
           <button type="button" onClick={onClose}>Annuler</button>

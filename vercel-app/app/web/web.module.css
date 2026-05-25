@@ -79,6 +79,9 @@
 .formGrid input,
 .formGrid select,
 .formGrid textarea,
+.reserveModalGrid input,
+.reserveModalGrid select,
+.reserveModalGrid textarea,
 .companyStats input,
 .tableRow select {
   width: 100%;
@@ -101,6 +104,9 @@
 .formGrid input:focus,
 .formGrid select:focus,
 .formGrid textarea:focus,
+.reserveModalGrid input:focus,
+.reserveModalGrid select:focus,
+.reserveModalGrid textarea:focus,
 .companyStats input:focus,
 .tableRow select:focus {
   border-color: #003082;
@@ -2099,6 +2105,10 @@
   box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
 }
 
+.reserveModalPanel {
+  width: min(1040px, 100%);
+}
+
 .modalHeader {
   position: sticky;
   top: 0;
@@ -2116,6 +2126,13 @@
 .modalHeader h2,
 .modalHeader p {
   margin: 0;
+}
+
+.modalHeader span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 13px;
 }
 
 .modalHeader button {
@@ -2150,6 +2167,213 @@
 
 .formWide {
   grid-column: 1 / -1;
+}
+
+.reserveModalBody {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px 8px;
+  background: #f8fafc;
+}
+
+.reserveFormSection {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dce4ef;
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+}
+
+.reserveFormSectionHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.reserveFormSectionHeader strong {
+  display: block;
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.reserveFormSectionHeader span {
+  display: block;
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.reserveModalGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.reserveModalGrid label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.reserveModalGrid textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.reserveLabelRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reserveLabelRow button {
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #003082;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reserveNotice,
+.reserveNoticeWarning {
+  display: grid;
+  gap: 4px;
+  border-radius: 13px;
+  padding: 12px 14px;
+}
+
+.reserveNotice {
+  border: 1px solid #c7d7fe;
+  background: #eff6ff;
+  color: #003082;
+}
+
+.reserveNoticeWarning {
+  border: 1px solid #fde68a;
+  background: #fffbeb;
+  color: #92400e;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.reserveNotice strong {
+  font-size: 13px;
+}
+
+.reserveNotice span {
+  font-size: 13px;
+  color: #334155;
+}
+
+.reservePinFollowUp {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  border: 1px solid #c7d7fe;
+  border-radius: 14px;
+  background: #f5f8ff;
+  padding: 12px 14px;
+}
+
+.reservePinFollowUp input {
+  width: 20px;
+  height: 20px;
+  accent-color: #003082;
+}
+
+.reservePinFollowUp strong,
+.reservePinFollowUp small {
+  display: block;
+}
+
+.reservePinFollowUp strong {
+  color: #003082;
+  font-size: 14px;
+}
+
+.reservePinFollowUp small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reserveCountPill {
+  border-radius: 999px;
+  background: #eef3fa;
+  color: #003082 !important;
+  padding: 6px 9px;
+  font-size: 12px !important;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.reserveCompanyGrid {
+  max-height: 240px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.reserveCompanyChip,
+.reserveCompanyChipActive {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #fff;
+  color: #0f172a;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reserveCompanyChip > span,
+.reserveCompanyChipActive > span {
+  grid-row: span 2;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+}
+
+.reserveCompanyChip strong,
+.reserveCompanyChip small,
+.reserveCompanyChipActive strong,
+.reserveCompanyChipActive small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reserveCompanyChip strong,
+.reserveCompanyChipActive strong {
+  font-size: 13px;
+}
+
+.reserveCompanyChip small,
+.reserveCompanyChipActive small {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.reserveCompanyChipActive {
+  border-color: #003082;
+  background: #f5f8ff;
+  box-shadow: 0 0 0 2px rgba(0, 48, 130, 0.08);
 }
 
 .fieldLabel {
@@ -2456,6 +2680,7 @@
   .commentForm,
   .metaGrid,
   .formGrid,
+  .reserveModalGrid,
   .companyStats {
     grid-template-columns: 1fr;
   }
@@ -2466,7 +2691,8 @@
 
   .panelHeaderCompact,
   .sectionHeader,
-  .modalHeader {
+  .modalHeader,
+  .reserveFormSectionHeader {
     flex-direction: column;
   }
 
@@ -2491,5 +2717,18 @@
   .modalPanel {
     max-height: 92vh;
     border-radius: 18px 18px 12px 12px;
+  }
+
+  .reserveModalBody {
+    padding: 12px;
+  }
+
+  .reserveFormSection {
+    padding: 14px;
+  }
+
+  .reserveCompanyGrid {
+    grid-template-columns: 1fr;
+    max-height: 210px;
   }
 }
