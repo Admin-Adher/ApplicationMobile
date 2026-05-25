@@ -2155,6 +2155,8 @@ function ReservesView(props: {
   const [commentText, setCommentText] = useState('');
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
   const [assistantScope, setAssistantScope] = useState<'view' | 'project'>('view');
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [assistantOpen, setAssistantOpen] = useState(false);
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
   const assistantTargets = assistantScope === 'project' ? activeReserves : reserves;
   const assistantMissingDescriptionCount = assistantTargets.filter(reserve => reserve.title?.trim() && isReserveDescriptionMissing(reserve.description)).length;
@@ -2179,9 +2181,24 @@ function ReservesView(props: {
                 ? activeReserves.filter(needsEnterpriseAck).length
                 : option.key === 'ack_received'
                   ? activeReserves.filter(hasEnterpriseAck).length
-                  : activeReserves.filter(reserve => reserve.status === option.key).length;
+                : activeReserves.filter(reserve => reserve.status === option.key).length;
     return acc;
   }, {});
+  const quickStatusKeys = new Set(['all', 'open', 'in_progress', 'waiting']);
+  const quickStatusOptions = RESERVE_FILTER_OPTIONS.filter(option => quickStatusKeys.has(option.key) || option.key === props.statusFilter);
+  const advancedStatusOptions = RESERVE_FILTER_OPTIONS.filter(option => !quickStatusKeys.has(option.key));
+  const advancedFilterCount = [
+    props.priorityFilter,
+    props.companyFilter,
+    props.buildingFilter,
+    props.pinFilter,
+  ].filter(value => value !== 'all').length + (quickStatusKeys.has(props.statusFilter) ? 0 : 1);
+
+  useEffect(() => {
+    if (advancedFilterActive || !quickStatusKeys.has(props.statusFilter)) {
+      setShowAdvancedFilters(true);
+    }
+  }, [advancedFilterActive, props.statusFilter]);
 
   return (
     <div className={styles.reservesLayout}>
@@ -2193,22 +2210,6 @@ function ReservesView(props: {
           </div>
           {props.editable && <button type="button" onClick={props.onCreate}>Créer</button>}
         </div>
-        <div className={styles.reserveFilterRail}>
-          {RESERVE_FILTER_OPTIONS.map(option => {
-            const active = props.statusFilter === option.key;
-            return (
-              <button
-                key={option.key}
-                type="button"
-                className={active ? styles.reserveFilterChipActive : ''}
-                onClick={() => props.setStatusFilter(option.key)}
-              >
-                <span>{option.label}</span>
-                <em>{filterCounts[option.key] ?? 0}</em>
-              </button>
-            );
-          })}
-        </div>
         <div className={styles.reserveSearchRow}>
           <span>⌕</span>
           <input placeholder="Titre, bâtiment, entreprise, lot..." value={props.search} onChange={e => props.setSearch(e.target.value)} />
@@ -2216,79 +2217,133 @@ function ReservesView(props: {
             <button type="button" onClick={() => props.setSearch('')} aria-label="Effacer la recherche">×</button>
           )}
         </div>
-        <div className={styles.reserveAdvancedFiltersWeb}>
-          <select value={props.priorityFilter} onChange={event => props.setPriorityFilter(event.target.value)} aria-label="Filtrer par priorité">
-            <option value="all">Toutes priorités</option>
-            {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-          </select>
-          <select value={props.companyFilter} onChange={event => props.setCompanyFilter(event.target.value)} aria-label="Filtrer par entreprise">
-            <option value="all">Toutes entreprises</option>
-            {props.structuredFilters.companies.map(company => <option key={company} value={company}>{company}</option>)}
-          </select>
-          <select value={props.buildingFilter} onChange={event => props.setBuildingFilter(event.target.value)} aria-label="Filtrer par bâtiment">
-            <option value="all">Tous bâtiments</option>
-            {props.structuredFilters.buildings.map(building => <option key={building} value={building}>{building}</option>)}
-          </select>
-          <select value={props.pinFilter} onChange={event => props.setPinFilter(event.target.value)} aria-label="Filtrer par épingle">
-            <option value="all">Toutes localisations</option>
-            <option value="pinned">Épinglées</option>
-            <option value="unpinned">Non épinglées</option>
-          </select>
-          {advancedFilterActive && (
-            <button
-              type="button"
-              onClick={() => {
-                props.setPriorityFilter('all');
-                props.setCompanyFilter('all');
-                props.setBuildingFilter('all');
-                props.setPinFilter('all');
-              }}
-            >
-              Réinitialiser
-            </button>
-          )}
+        <div className={styles.reserveCompactToolbar}>
+          <div className={styles.reserveFilterRail}>
+            {quickStatusOptions.map(option => {
+              const active = props.statusFilter === option.key;
+              return (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={active ? styles.reserveFilterChipActive : ''}
+                  onClick={() => props.setStatusFilter(option.key)}
+                >
+                  <span>{option.label}</span>
+                  <em>{filterCounts[option.key] ?? 0}</em>
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className={`${styles.reserveFilterToggle} ${showAdvancedFilters ? styles.reserveFilterToggleActive : ''}`}
+            onClick={() => setShowAdvancedFilters(value => !value)}
+          >
+            Filtres
+            {advancedFilterCount > 0 && <em>{advancedFilterCount}</em>}
+          </button>
         </div>
+        {showAdvancedFilters && (
+          <div className={styles.reserveAdvancedPanel}>
+            <div className={styles.reserveAdvancedStatusGrid}>
+              {advancedStatusOptions.map(option => {
+                const active = props.statusFilter === option.key;
+                return (
+                  <button
+                    key={option.key}
+                    type="button"
+                    className={active ? styles.reserveFilterChipActive : ''}
+                    onClick={() => props.setStatusFilter(option.key)}
+                  >
+                    <span>{option.label}</span>
+                    <em>{filterCounts[option.key] ?? 0}</em>
+                  </button>
+                );
+              })}
+            </div>
+            <div className={styles.reserveAdvancedFiltersWeb}>
+              <select value={props.priorityFilter} onChange={event => props.setPriorityFilter(event.target.value)} aria-label="Filtrer par priorité">
+                <option value="all">Toutes priorités</option>
+                {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <select value={props.companyFilter} onChange={event => props.setCompanyFilter(event.target.value)} aria-label="Filtrer par entreprise">
+                <option value="all">Toutes entreprises</option>
+                {props.structuredFilters.companies.map(company => <option key={company} value={company}>{company}</option>)}
+              </select>
+              <select value={props.buildingFilter} onChange={event => props.setBuildingFilter(event.target.value)} aria-label="Filtrer par bâtiment">
+                <option value="all">Tous bâtiments</option>
+                {props.structuredFilters.buildings.map(building => <option key={building} value={building}>{building}</option>)}
+              </select>
+              <select value={props.pinFilter} onChange={event => props.setPinFilter(event.target.value)} aria-label="Filtrer par épingle">
+                <option value="all">Toutes localisations</option>
+                <option value="pinned">Épinglées</option>
+                <option value="unpinned">Non épinglées</option>
+              </select>
+              {(advancedFilterActive || props.statusFilter !== 'all') && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    props.setStatusFilter('all');
+                    props.setPriorityFilter('all');
+                    props.setCompanyFilter('all');
+                    props.setBuildingFilter('all');
+                    props.setPinFilter('all');
+                  }}
+                >
+                  Réinitialiser
+                </button>
+              )}
+            </div>
+          </div>
+        )}
         <div className={styles.reserveListMeta}>
           <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
           <span>{activeReserves.length} active{activeReserves.length > 1 ? 's' : ''}</span>
         </div>
         {props.canUseAssistant && (
           <div className={styles.reserveAssistantPanel}>
-            <div>
-              <strong>Assistant réserves</strong>
-              <span>{assistantMissingDescriptionCount} description{assistantMissingDescriptionCount > 1 ? 's' : ''} à compléter dans {assistantScope === 'project' ? 'le chantier' : 'cette vue'}.</span>
-            </div>
-            <select
-              value={assistantScope}
-              onChange={event => setAssistantScope(event.target.value as 'view' | 'project')}
-              disabled={props.saving}
-              aria-label="Périmètre assistant"
-            >
-              <option value="view">Vue</option>
-              <option value="project">Chantier</option>
-            </select>
-            <button
-              type="button"
-              disabled={props.saving || assistantMissingDescriptionCount === 0}
-              onClick={() => props.onFillDescriptions(assistantTargets)}
-            >
-              Compléter
+            <button type="button" className={styles.reserveAssistantSummary} onClick={() => setAssistantOpen(value => !value)}>
+              <span>
+                <strong>Assistant réserves</strong>
+                <small>{assistantMissingDescriptionCount} description{assistantMissingDescriptionCount > 1 ? 's' : ''} à compléter · traduction groupée</small>
+              </span>
+              <em>{assistantOpen ? 'Masquer' : 'Ouvrir'}</em>
             </button>
-            <select
-              value={assistantLanguage}
-              onChange={event => setAssistantLanguage(event.target.value as TextLang)}
-              disabled={props.saving}
-              aria-label="Langue de traduction"
-            >
-              {TEXT_LANG_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </select>
-            <button
-              type="button"
-              disabled={props.saving || assistantTargets.length === 0}
-              onClick={() => props.onTranslateReserves(assistantTargets, assistantLanguage)}
-            >
-              Traduire
-            </button>
+            {assistantOpen && (
+              <div className={styles.reserveAssistantControls}>
+                <select
+                  value={assistantScope}
+                  onChange={event => setAssistantScope(event.target.value as 'view' | 'project')}
+                  disabled={props.saving}
+                  aria-label="Périmètre assistant"
+                >
+                  <option value="view">Vue actuelle</option>
+                  <option value="project">Tout le chantier</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={props.saving || assistantMissingDescriptionCount === 0}
+                  onClick={() => props.onFillDescriptions(assistantTargets)}
+                >
+                  Compléter les descriptions
+                </button>
+                <select
+                  value={assistantLanguage}
+                  onChange={event => setAssistantLanguage(event.target.value as TextLang)}
+                  disabled={props.saving}
+                  aria-label="Langue de traduction"
+                >
+                  {TEXT_LANG_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                </select>
+                <button
+                  type="button"
+                  disabled={props.saving || assistantTargets.length === 0}
+                  onClick={() => props.onTranslateReserves(assistantTargets, assistantLanguage)}
+                >
+                  Traduire les textes
+                </button>
+              </div>
+            )}
           </div>
         )}
         <div className={styles.reserveList}>
