@@ -160,6 +160,57 @@ function getServiceClient() {
   return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
 
+function publicAssetUrl(raw: any, bucket: 'photos', supabase: any) {
+  if (typeof raw !== 'string') return '';
+  const value = raw.trim();
+  if (!value || /^file:\/\//i.test(value)) return '';
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  const path = value
+    .replace(/^\/+/, '')
+    .replace(new RegExp(`^${bucket}/`, 'i'), '');
+  if (!path) return '';
+  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  return data?.publicUrl ?? '';
+}
+
+function publicPhotoUrl(photo: any, supabase: any) {
+  const raw =
+    photo?.uri ??
+    photo?.photoUri ??
+    photo?.photo_uri ??
+    photo?.url ??
+    photo?.public_url ??
+    photo?.publicUrl ??
+    photo?.signed_url ??
+    photo?.signedUrl ??
+    photo?.download_url ??
+    photo?.downloadUrl ??
+    photo?.storage_path ??
+    photo?.storagePath ??
+    photo?.file_path ??
+    photo?.filePath ??
+    photo?.path ??
+    '';
+  return publicAssetUrl(raw, 'photos', supabase);
+}
+
+function publicReservePhotoItems(reserve: any, photoRows: any[] = [], supabase: any) {
+  const embeddedPhotos = Array.isArray(reserve?.photos) ? reserve.photos : [];
+  const legacyUri = reserve?.photo_uri ?? reserve?.photoUri;
+  const legacyPhotos = legacyUri ? [{ id: `${reserve.id}-legacy`, uri: legacyUri, comment: 'Photo' }] : [];
+  const tablePhotos = photoRows.filter(photo => {
+    const reserveId = photo.reserve_id ?? photo.reserveId;
+    return !reserveId || String(reserveId) === String(reserve.id);
+  });
+  const byKey = new Map<string, any>();
+  [...embeddedPhotos, ...legacyPhotos, ...tablePhotos].forEach(photo => {
+    const uri = publicPhotoUrl(photo, supabase);
+    if (!uri) return;
+    byKey.set(String(photo.id ?? uri), { ...photo, uri });
+  });
+  return Array.from(byKey.values());
+}
+
 function fmtDate(iso?: string | null, lang: PublicLang = 'fr'): string {
   if (!iso) return '—';
   try {
@@ -243,7 +294,7 @@ export default async function ReservePublicPage({
 
   const { data: reserve } = await supabase
     .from('reserves')
-    .select('id, title, description, building, level, zone, company, companies, priority, status, deadline, created_at, chantier_id, comments, history')
+    .select('id, title, description, building, level, zone, company, companies, priority, status, deadline, created_at, chantier_id, comments, history, photo_uri, photos')
     .eq('id', id)
     .maybeSingle();
 
@@ -251,17 +302,18 @@ export default async function ReservePublicPage({
     return <ErrorPage lang={lang} title={c.notFoundTitle} message={c.notFoundText} />;
   }
 
-  const [{ data: chantier }, { data: photos }] = await Promise.all([
+  const [{ data: chantier }, { data: photoRows }] = await Promise.all([
     reserve.chantier_id
       ? supabase.from('chantiers').select('id, name').eq('id', reserve.chantier_id).maybeSingle()
       : Promise.resolve({ data: null as any }),
     supabase
       .from('photos')
-      .select('id, comment, location, taken_at, taken_by, uri')
+      .select('*')
       .eq('reserve_id', id)
       .order('taken_at', { ascending: false })
       .limit(20),
   ]);
+  const photos = publicReservePhotoItems(reserve, photoRows ?? [], supabase);
 
   const prio = {
     label: labelFor(c.priorityLabels, reserve.priority),
@@ -344,7 +396,7 @@ export default async function ReservePublicPage({
                 gap: 8,
               }}>
                 {photos.map((p: any) => (
-                  <a key={p.id} href={p.uri} target="_blank" rel="noopener noreferrer"
+                  <a key={p.id ?? p.uri} href={p.uri} target="_blank" rel="noopener noreferrer"
                      style={{ display: 'block', aspectRatio: '1 / 1', overflow: 'hidden', borderRadius: 6, background: '#E5EAF1' }}>
                     {p.uri && (
                       // eslint-disable-next-line @next/next/no-img-element

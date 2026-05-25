@@ -504,24 +504,57 @@ function parseBuildingFamily(name: string) {
   return { key: normalizeSearchText(label).replace(/\s+/g, ' '), label };
 }
 
-function assetUrl(item: any) {
-  return item?.uri ?? item?.url ?? item?.file_url ?? item?.public_url ?? item?.signed_url ?? item?.photo_uri ?? '';
+function storagePublicUrl(raw: any, bucket: 'photos' | 'documents') {
+  if (typeof raw !== 'string') return '';
+  const value = raw.trim();
+  if (!value || /^file:\/\//i.test(value)) return '';
+  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  const path = value
+    .replace(/^\/+/, '')
+    .replace(new RegExp(`^${bucket}/`, 'i'), '');
+  if (!path) return '';
+  const { data } = supabaseBrowser.storage.from(bucket).getPublicUrl(path);
+  return data.publicUrl;
+}
+
+function assetUrl(item: any, bucket: 'photos' | 'documents' = 'photos') {
+  const raw =
+    item?.uri ??
+    item?.photoUri ??
+    item?.url ??
+    item?.file_url ??
+    item?.fileUrl ??
+    item?.public_url ??
+    item?.publicUrl ??
+    item?.signed_url ??
+    item?.signedUrl ??
+    item?.download_url ??
+    item?.downloadUrl ??
+    item?.photo_uri ??
+    item?.src ??
+    item?.storage_path ??
+    item?.storagePath ??
+    item?.file_path ??
+    item?.filePath ??
+    item?.path ??
+    '';
+  return storagePublicUrl(raw, bucket);
 }
 
 function reservePhotoItems(reserve: any, photos: any[]) {
   if (!reserve) return [];
-  const fromReserve = Array.isArray(reserve.photos)
-    ? reserve.photos
-    : reserve.photo_uri
-      ? [{ id: `${reserve.id}-legacy`, uri: reserve.photo_uri, comment: 'Photo' }]
-      : [];
+  const fromReserve = Array.isArray(reserve.photos) ? reserve.photos : [];
+  const legacyPhotoUri = reserve.photo_uri ?? reserve.photoUri;
+  const legacyReservePhotos = legacyPhotoUri
+    ? [{ id: `${reserve.id}-legacy`, uri: legacyPhotoUri, comment: 'Photo' }]
+    : [];
   const fromTable = photos.filter(photo => {
     const reserveId = photo.reserve_id ?? photo.reserveId;
     return reserveId && String(reserveId) === String(reserve.id);
   });
   const byKey = new Map<string, any>();
-  [...fromReserve, ...fromTable].forEach(photo => {
-    const uri = assetUrl(photo);
+  [...fromReserve, ...legacyReservePhotos, ...fromTable].forEach(photo => {
+    const uri = assetUrl(photo, 'photos');
     if (!uri) return;
     byKey.set(String(photo.id ?? uri), { ...photo, uri });
   });
@@ -702,13 +735,19 @@ function reserveToDraft(reserve: any): ReserveDraft {
     photos: Array.isArray(reserve.photos)
       ? reserve.photos.map((photo: any) => ({
           id: String(photo.id ?? crypto.randomUUID()),
-          uri: String(photo.uri ?? photo.url ?? ''),
+          uri: assetUrl(photo, 'photos'),
           name: photo.name ?? 'Photo',
           kind: photo.kind === 'resolution' ? 'resolution' : 'defect',
           existing: true,
         })).filter((photo: WebPhotoDraft) => !!photo.uri)
-      : reserve.photo_uri
-        ? [{ id: 'legacy', uri: reserve.photo_uri, name: 'Photo', kind: 'defect', existing: true }]
+      : (reserve.photo_uri ?? reserve.photoUri)
+        ? [{
+            id: 'legacy',
+            uri: assetUrl({ uri: reserve.photo_uri ?? reserve.photoUri }, 'photos'),
+            name: 'Photo',
+            kind: 'defect',
+            existing: true,
+          }].filter((photo: WebPhotoDraft) => !!photo.uri)
         : [],
   };
 }
@@ -3204,7 +3243,7 @@ function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
         <h2>Photos</h2>
         <div className={styles.mediaGrid}>
           {filteredPhotos.map((photo: any) => {
-            const url = assetUrl(photo);
+            const url = assetUrl(photo, 'photos');
             return (
               <a key={photo.id ?? url} className={styles.mediaCard} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
                 {url ? <img src={url} alt={photo.comment ?? photo.title ?? 'Photo chantier'} /> : <span>Photo</span>}
@@ -3220,7 +3259,7 @@ function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
         <h2>Documents</h2>
         <div className={styles.documentList}>
           {filteredDocuments.map((document: any) => {
-            const url = assetUrl(document);
+            const url = assetUrl(document, 'documents');
             return (
               <a key={document.id ?? url} className={styles.documentRow} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
                 <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
@@ -3403,7 +3442,7 @@ function TerrainView({ scoped, data }: any) {
         </div>
         <div className={styles.mediaGrid}>
           {scoped.photos.slice(0, 12).map((photo: any) => {
-            const url = assetUrl(photo);
+            const url = assetUrl(photo, 'photos');
             return (
               <a
                 key={photo.id ?? url}
@@ -3419,7 +3458,7 @@ function TerrainView({ scoped, data }: any) {
             );
           })}
           {scoped.documents.slice(0, 12).map((document: any) => {
-            const url = assetUrl(document);
+            const url = assetUrl(document, 'documents');
             return (
               <a
                 key={document.id ?? url}
