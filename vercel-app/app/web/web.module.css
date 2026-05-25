@@ -2052,6 +2052,70 @@
   min-width: 980px;
 }
 
+.visitGroup {
+  min-width: 980px;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.visitGroup .visitTableRow {
+  border-bottom: 0;
+}
+
+.visitReserveStrip {
+  display: grid;
+  gap: 8px;
+  padding: 0 10px 14px 10px;
+}
+
+.visitReserveCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 10px 12px;
+}
+
+.visitReserveCard div:first-child {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.visitReserveCard span,
+.visitReserveCard small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitReserveCard small {
+  color: #64748b;
+}
+
+.visitReserveActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.visitReserveActions button {
+  border: 1px solid #d8e0ec;
+  background: #fff;
+  color: #003082;
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.visitReserveMore {
+  color: #64748b;
+  font-weight: 800;
+}
+
 .adminTableHead,
 .adminTableRow {
   grid-template-columns: 1.2fr 1fr 1fr 1.4fr;

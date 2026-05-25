@@ -1163,6 +1163,43 @@ export default function BuildTrackWebPage() {
     }
   }
 
+  async function unlinkReserveFromVisitWeb(visit: any, reserve: any) {
+    if (!canEdit(profile) || !visit?.id || !reserve?.id) return;
+    const confirmed = window.confirm(`Délier la réserve ${reserve.id} de la visite "${visit.title}" ? La réserve restera disponible dans l'onglet Réserves.`);
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError('');
+    let unlinkError: any = null;
+    const rpcResult = await (supabaseBrowser as any).rpc('unlink_reserves_from_visite', {
+      p_visite_id: visit.id,
+      p_reserve_ids: [reserve.id],
+    });
+    unlinkError = rpcResult?.error ?? null;
+
+    if (unlinkError) {
+      const reserveIds = (visit.reserve_ids ?? []).filter((id: string) => id !== reserve.id);
+      const [visitResult, reserveResult] = await Promise.all([
+        supabaseBrowser.from('visites').update({ reserve_ids: reserveIds }).eq('id', visit.id),
+        supabaseBrowser.from('reserves').update({ visite_id: null }).eq('id', reserve.id).eq('visite_id', visit.id),
+      ]);
+      unlinkError = visitResult.error ?? reserveResult.error ?? null;
+    }
+
+    if (unlinkError) {
+      setError(unlinkError.message ?? 'Impossible de délier cette réserve de la visite.');
+    } else {
+      setData(prev => ({
+        ...prev,
+        visites: prev.visites.map(item => item.id === visit.id
+          ? { ...item, reserve_ids: (item.reserve_ids ?? []).filter((id: string) => id !== reserve.id) }
+          : item),
+        reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, visite_id: null } : item),
+      }));
+    }
+    setSaving(false);
+  }
+
   async function buildReservePhotoPatch(reserveId: string, draft: ReserveDraft) {
     const existingPhotos = draft.photos
       .filter(photo => photo.existing && photo.uri)
@@ -1870,6 +1907,13 @@ export default function BuildTrackWebPage() {
                 companies={data.companies}
                 onCreateVisit={openVisitCreate}
                 onCreateReserveFromVisit={(visit: any) => openReserveCreate({ visit })}
+                onOpenReserve={(reserve: any) => {
+                  setSelectedReserveId(reserve.id);
+                  setActiveTab('reserves');
+                }}
+                onUnlinkReserve={unlinkReserveFromVisitWeb}
+                onArchiveReserve={toggleArchive}
+                editable={canEdit(profile)}
               />
             )}
             {activeTab === 'planning' && (
@@ -2975,7 +3019,17 @@ function PlansView({
   );
 }
 
-function VisitesView({ visites, reserves, companies, onCreateVisit, onCreateReserveFromVisit }: any) {
+function VisitesView({
+  visites,
+  reserves,
+  companies,
+  onCreateVisit,
+  onCreateReserveFromVisit,
+  onOpenReserve,
+  onUnlinkReserve,
+  onArchiveReserve,
+  editable,
+}: any) {
   return (
     <section className={styles.panel}>
       <div className={styles.panelHeaderCompact}>
@@ -2993,13 +3047,38 @@ function VisitesView({ visites, reserves, companies, onCreateVisit, onCreateRese
             .map((id: string) => companies.find((c: any) => c.id === id)?.name)
             .filter(Boolean);
           return (
-            <div key={visit.id} className={`${styles.tableRow} ${styles.visitTableRow}`}>
-              <strong>{visit.title}</strong>
-              <span>{prettyDate(visit.date)}</span>
-              <span>{[visit.building, visit.level, visit.zone].filter(Boolean).join(' · ') || 'Multi-bâtiments'}</span>
-              <span>{visitReserves.length}</span>
-              <span>{companyNames.join(', ') || '—'}</span>
-              <button type="button" className={styles.tableActionBtn} onClick={() => onCreateReserveFromVisit(visit)}>Ajouter réserve</button>
+            <div key={visit.id} className={styles.visitGroup}>
+              <div className={`${styles.tableRow} ${styles.visitTableRow}`}>
+                <strong>{visit.title}</strong>
+                <span>{prettyDate(visit.date)}</span>
+                <span>{[visit.building, visit.level, visit.zone].filter(Boolean).join(' · ') || 'Multi-bâtiments'}</span>
+                <span>{visitReserves.length}</span>
+                <span>{companyNames.join(', ') || '—'}</span>
+                <button type="button" className={styles.tableActionBtn} onClick={() => onCreateReserveFromVisit(visit)}>Ajouter réserve</button>
+              </div>
+              {visitReserves.length ? (
+                <div className={styles.visitReserveStrip}>
+                  {visitReserves.slice(0, 8).map((reserve: any) => (
+                    <article key={reserve.id} className={styles.visitReserveCard}>
+                      <div>
+                        <strong>{reserve.id}</strong>
+                        <span>{reserve.title}</span>
+                        <small>{STATUS_LABELS[reserve.status] ?? reserve.status} · {reserve.archived_at ? 'Archivée' : 'Active'}</small>
+                      </div>
+                      <div className={styles.visitReserveActions}>
+                        <button type="button" onClick={() => onOpenReserve(reserve)}>Ouvrir</button>
+                        {editable && (
+                          <>
+                            <button type="button" onClick={() => onUnlinkReserve(visit, reserve)}>Délier</button>
+                            <button type="button" onClick={() => onArchiveReserve(reserve)}>{reserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
+                          </>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                  {visitReserves.length > 8 ? <small className={styles.visitReserveMore}>+ {visitReserves.length - 8} autres réserves</small> : null}
+                </div>
+              ) : null}
             </div>
           );
         })}
