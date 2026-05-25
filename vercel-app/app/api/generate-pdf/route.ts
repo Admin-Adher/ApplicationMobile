@@ -64,6 +64,164 @@ function pdfRuntimeErrorMessage(error: any) {
   return error?.message ?? 'Generation PDF impossible.';
 }
 
+const PDF_REMOTE_IMAGE_LIMIT = 160;
+const PDF_REMOTE_IMAGE_TIMEOUT_MS = 10000;
+const PDF_REMOTE_IMAGE_SOURCE_MAX_BYTES = 24 * 1024 * 1024;
+const PDF_REMOTE_IMAGE_TOTAL_MAX_BYTES = 40 * 1024 * 1024;
+const PDF_REMOTE_IMAGE_RENDER_WIDTH = 900;
+
+function decodeHtmlAttribute(value: string) {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function escapeHtmlAttribute(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+async function optimizeImageBufferForPdf(buffer: Buffer, contentType: string) {
+  const mime = String(contentType || '').split(';')[0].trim().toLowerCase();
+
+  if (mime === 'image/svg+xml') {
+    return { buffer, mime: mime || 'image/svg+xml' };
+  }
+
+  try {
+    const sharpModule = await import('sharp');
+    const sharp = sharpModule.default ?? sharpModule;
+    const optimized = await sharp(buffer)
+      .rotate()
+      .resize({
+        width: PDF_REMOTE_IMAGE_RENDER_WIDTH,
+        withoutEnlargement: true,
+      })
+      .jpeg({
+        quality: 68,
+        mozjpeg: true,
+      })
+      .toBuffer();
+
+    return { buffer: optimized, mime: 'image/jpeg' };
+  } catch (error: any) {
+    console.warn('[generate-pdf] Image optimization skipped:', error?.message ?? error);
+    return { buffer, mime: mime || 'image/jpeg' };
+  }
+}
+
+async function fetchRemoteImageAsDataUrl(url: string, remainingBudget: number) {
+  if (remainingBudget <= 0) return null;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PDF_REMOTE_IMAGE_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'user-agent': 'BuildTrack PDF Renderer',
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.toLowerCase().startsWith('image/')) {
+      throw new Error(`Unsupported content-type: ${contentType || 'unknown'}`);
+    }
+
+    const contentLength = Number(response.headers.get('content-length') || 0);
+    if (contentLength > PDF_REMOTE_IMAGE_SOURCE_MAX_BYTES) {
+      throw new Error(`Image too large: ${contentLength} bytes`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > PDF_REMOTE_IMAGE_SOURCE_MAX_BYTES) {
+      throw new Error(`Image too large: ${arrayBuffer.byteLength} bytes`);
+    }
+
+    const optimized = await optimizeImageBufferForPdf(Buffer.from(arrayBuffer), contentType);
+    if (optimized.buffer.byteLength > remainingBudget) {
+      throw new Error(`Optimized image too large: ${optimized.buffer.byteLength} bytes`);
+    }
+
+    return {
+      dataUrl: `data:${optimized.mime};base64,${optimized.buffer.toString('base64')}`,
+      byteLength: optimized.buffer.byteLength,
+    };
+  } catch (error: any) {
+    console.warn('[generate-pdf] Remote image not embedded:', error?.message ?? error);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function inlineRemoteImagesForPdf(html: string) {
+  const srcRegex = /\bsrc="(https?:\/\/[^"]+)"/gi;
+  const matches = Array.from(html.matchAll(srcRegex));
+  const attributes = Array.from(new Set(matches.map(match => match[1]).filter(Boolean))).slice(0, PDF_REMOTE_IMAGE_LIMIT);
+
+  if (attributes.length === 0) return html;
+
+  const replacements = new Map<string, string>();
+  let budget = PDF_REMOTE_IMAGE_TOTAL_MAX_BYTES;
+
+  for (const attrValue of attributes) {
+    const url = decodeHtmlAttribute(attrValue);
+    const result = await fetchRemoteImageAsDataUrl(url, budget);
+    if (!result) continue;
+    replacements.set(attrValue, result.dataUrl);
+    budget -= result.byteLength;
+    if (budget <= 0) break;
+  }
+
+  if (replacements.size === 0) return html;
+
+  return html.replace(srcRegex, (fullMatch, attrValue: string) => {
+    const replacement = replacements.get(attrValue);
+    return replacement ? `src="${escapeHtmlAttribute(replacement)}"` : fullMatch;
+  });
+}
+
+async function waitForPdfImages(page: any) {
+  try {
+    await page.evaluate(async () => {
+      const images = Array.from(document.images);
+      await Promise.all(images.map(image => {
+        if (image.complete && image.naturalWidth > 0) {
+          return image.decode?.().catch(() => undefined) ?? Promise.resolve();
+        }
+
+        return new Promise(resolve => {
+          const done = () => resolve(undefined);
+          const timer = window.setTimeout(done, 9000);
+          image.addEventListener('load', () => {
+            window.clearTimeout(timer);
+            done();
+          }, { once: true });
+          image.addEventListener('error', () => {
+            window.clearTimeout(timer);
+            done();
+          }, { once: true });
+        }).then(() => image.decode?.().catch(() => undefined));
+      }));
+    });
+  } catch (error: any) {
+    console.warn('[generate-pdf] Image wait skipped:', error?.message ?? error);
+  }
+}
+
 async function renderPdfBuffer(html: string): Promise<Buffer> {
   let browser: any = null;
 
@@ -100,7 +258,9 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
     });
 
     const page = await browser.newPage();
-    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+    const pdfHtml = await inlineRemoteImagesForPdf(html);
+    await page.setContent(pdfHtml, { waitUntil: 'networkidle0', timeout: 30000 });
+    await waitForPdfImages(page);
 
     return await page.pdf({
       format: 'A4',
