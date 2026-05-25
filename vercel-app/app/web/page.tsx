@@ -433,6 +433,15 @@ export default function BuildTrackWebPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('buildtrack-web-sidebar-collapsed') === '1';
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('buildtrack-web-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     let alive = true;
@@ -1077,14 +1086,25 @@ export default function BuildTrackWebPage() {
   }
 
   return (
-    <main className={styles.appShell}>
-      <aside className={styles.sidebar}>
-        <div className={styles.sidebarBrand}>
-          <span className={styles.brandMarkSmall}>B</span>
-          <div>
-            <strong>BuildTrack</strong>
-            <span>Web</span>
+    <main className={`${styles.appShell} ${sidebarCollapsed ? styles.appShellCollapsed : ''}`}>
+      <aside className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : ''}`}>
+        <div className={styles.sidebarBrandRow}>
+          <div className={styles.sidebarBrand}>
+            <span className={styles.brandMarkSmall}>B</span>
+            <div>
+              <strong>BuildTrack</strong>
+              <span>Web</span>
+            </div>
           </div>
+          <button
+            type="button"
+            className={styles.sidebarToggle}
+            onClick={() => setSidebarCollapsed(value => !value)}
+            aria-label={sidebarCollapsed ? 'Déplier le menu principal' : 'Plier le menu principal'}
+            title={sidebarCollapsed ? 'Déplier le menu' : 'Plier le menu'}
+          >
+            {sidebarCollapsed ? '>' : '<'}
+          </button>
         </div>
         <nav className={styles.navList}>
           {TABS.map(tab => (
@@ -1092,15 +1112,21 @@ export default function BuildTrackWebPage() {
               key={tab.id}
               className={activeTab === tab.id ? styles.navActive : ''}
               onClick={() => setActiveTab(tab.id)}
+              title={sidebarCollapsed ? tab.label : undefined}
+              aria-label={tab.label}
             >
-              <span>{tab.icon}</span>{tab.label}
+              <span className={styles.navIcon}>{tab.icon}</span>
+              <span className={styles.navLabel}>{tab.label}</span>
             </button>
           ))}
         </nav>
         <div className={styles.userBox}>
           <strong>{profile?.name ?? authUser.email}</strong>
           <span>{profile?.role_label ?? profile?.role ?? 'Utilisateur'}</span>
-          <button onClick={() => supabaseBrowser.auth.signOut()}>Déconnexion</button>
+          <button onClick={() => supabaseBrowser.auth.signOut()} title="Déconnexion">
+            <span className={styles.logoutIcon}>⎋</span>
+            <span className={styles.logoutLabel}>Déconnexion</span>
+          </button>
         </div>
       </aside>
 

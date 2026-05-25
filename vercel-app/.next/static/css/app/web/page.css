@@ -154,13 +154,19 @@
 
 .web_appShell__aYk7g {
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+  transition: grid-template-columns 0.18s ease;
+}
+
+.web_appShellCollapsed___ckSv {
+  grid-template-columns: 78px minmax(0, 1fr);
 }
 
 .web_sidebar___iQK0 {
+  position: relative;
   height: 100%;
   min-height: 0;
   background: #fff;
@@ -169,6 +175,20 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
+  transition: padding 0.18s ease;
+}
+
+.web_sidebarCollapsed__zub4Z {
+  align-items: center;
+  padding: 20px 12px;
+}
+
+.web_sidebarBrandRow__aK0Kh {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
 }
 
 .web_sidebarBrand__K3UHA {
@@ -185,6 +205,42 @@
 
 .web_sidebarBrand__K3UHA span:last-child {
   color: #64748b;
+  font-size: 12px;
+}
+
+.web_sidebarToggle__YMN4W {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #003082;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.web_sidebarToggle__YMN4W:hover {
+  background: #eef3fa;
+}
+
+.web_sidebarCollapsed__zub4Z .web_sidebarBrandRow__aK0Kh {
+  justify-content: center;
+}
+
+.web_sidebarCollapsed__zub4Z .web_sidebarBrand__K3UHA div {
+  display: none;
+}
+
+.web_sidebarCollapsed__zub4Z .web_sidebarToggle__YMN4W {
+  position: absolute;
+  top: 64px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  padding: 0;
   font-size: 12px;
 }
 
@@ -215,6 +271,34 @@
   cursor: pointer;
 }
 
+.web_navIcon__vjuTz {
+  flex: 0 0 18px;
+  width: 18px;
+  text-align: center;
+}
+
+.web_navLabel__NbWUF {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web_sidebarCollapsed__zub4Z .web_navList__59ezz {
+  width: 100%;
+  padding-right: 0;
+}
+
+.web_sidebarCollapsed__zub4Z .web_navList__59ezz button {
+  justify-content: center;
+  gap: 0;
+  padding: 12px;
+}
+
+.web_sidebarCollapsed__zub4Z .web_navLabel__NbWUF {
+  display: none;
+}
+
 .web_navList__59ezz button:hover,
 .web_navActive__4Cj0i {
   background: #eef3fa !important;
@@ -234,6 +318,36 @@
 .web_userBox__6NUaS span {
   color: #64748b;
   font-size: 12px;
+}
+
+.web_logoutIcon__yIQmy {
+  display: none;
+}
+
+.web_sidebarCollapsed__zub4Z .web_userBox__6NUaS {
+  width: 100%;
+  place-items: center;
+  padding: 10px;
+}
+
+.web_sidebarCollapsed__zub4Z .web_userBox__6NUaS strong,
+.web_sidebarCollapsed__zub4Z .web_userBox__6NUaS > span,
+.web_sidebarCollapsed__zub4Z .web_logoutLabel__1Lz18 {
+  display: none;
+}
+
+.web_sidebarCollapsed__zub4Z .web_logoutIcon__yIQmy {
+  display: inline;
+  color: inherit;
+  font-size: 16px;
+}
+
+.web_sidebarCollapsed__zub4Z .web_userBox__6NUaS button {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
 }
 
 .web_workspace___Z8fK {
@@ -1891,7 +2005,8 @@
 }
 
 @media (max-width: 980px) {
-  .web_appShell__aYk7g {
+  .web_appShell__aYk7g,
+  .web_appShellCollapsed___ckSv {
     grid-template-columns: 1fr;
     height: auto;
     min-height: 100vh;
@@ -1905,6 +2020,46 @@
     overflow: visible;
     border-right: 0;
     border-bottom: 1px solid #dde4ee;
+  }
+
+  .web_sidebarCollapsed__zub4Z {
+    align-items: stretch;
+    padding: 20px;
+  }
+
+  .web_sidebarToggle__YMN4W {
+    display: none;
+  }
+
+  .web_sidebarCollapsed__zub4Z .web_sidebarBrand__K3UHA div {
+    display: grid;
+  }
+
+  .web_sidebarCollapsed__zub4Z .web_navList__59ezz button {
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 11px 12px;
+  }
+
+  .web_sidebarCollapsed__zub4Z .web_navLabel__NbWUF,
+  .web_sidebarCollapsed__zub4Z .web_userBox__6NUaS strong,
+  .web_sidebarCollapsed__zub4Z .web_userBox__6NUaS > span,
+  .web_sidebarCollapsed__zub4Z .web_logoutLabel__1Lz18 {
+    display: inline;
+  }
+
+  .web_sidebarCollapsed__zub4Z .web_userBox__6NUaS {
+    place-items: stretch;
+  }
+
+  .web_sidebarCollapsed__zub4Z .web_logoutIcon__yIQmy {
+    display: none;
+  }
+
+  .web_sidebarCollapsed__zub4Z .web_userBox__6NUaS button {
+    width: auto;
+    height: auto;
+    padding: 11px 14px;
   }
 
   .web_navList__59ezz {
