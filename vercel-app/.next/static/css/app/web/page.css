@@ -441,14 +441,16 @@
 }
 
 .web_workspace___Z8fK {
+  box-sizing: border-box;
   min-width: 0;
   min-height: 0;
   height: 100%;
-  padding: 22px;
+  padding: 22px 22px 34px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   overflow-y: auto;
+  scroll-padding-bottom: 34px;
 }
 
 .web_workspacePlans__u35ba {
@@ -833,9 +835,11 @@
 }
 
 .web_plansLayout__cifca {
+  box-sizing: border-box;
   flex: 1 1;
   height: 100%;
   min-height: 0;
+  padding-bottom: 12px;
   align-items: stretch;
   overflow: hidden;
 }
