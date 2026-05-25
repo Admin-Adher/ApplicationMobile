@@ -54,10 +54,10 @@ export function usePhotos() {
 
       // Try online fetch; merge with cache to keep local-only (offline-created) items.
       try {
-        let q = ((supabase as any).from('photos') as any).select('*').order('taken_at', { ascending: false });
-        if (user!.role !== 'super_admin' && user!.organizationId) {
-          q = q.eq('organization_id', user!.organizationId);
-        }
+        // RLS already scopes photos by organization and by linked reserve.
+        // Avoid a direct organization_id filter so legacy reserve photos with a
+        // null organization_id still sync correctly.
+        const q = ((supabase as any).from('photos') as any).select('*').order('taken_at', { ascending: false });
         const { data, error } = await q;
         if (error) throw error;
         const fresh = (data ?? []).map(toPhoto);

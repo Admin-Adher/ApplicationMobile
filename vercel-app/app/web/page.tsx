@@ -561,6 +561,28 @@ function reservePhotoItems(reserve: any, photos: any[]) {
   return Array.from(byKey.values());
 }
 
+function localOnlyPhotoCount(reserve: any, photos: any[]) {
+  if (!reserve) return 0;
+  const rawPhotoUrl = (photo: any) => String(
+    photo?.uri ??
+    photo?.photoUri ??
+    photo?.photo_uri ??
+    photo?.url ??
+    photo?.path ??
+    '',
+  ).trim();
+  const fromReserve = Array.isArray(reserve.photos) ? reserve.photos : [];
+  const legacyPhotoUri = reserve.photo_uri ?? reserve.photoUri;
+  const legacyReservePhotos = legacyPhotoUri ? [{ uri: legacyPhotoUri }] : [];
+  const fromTable = photos.filter(photo => {
+    const reserveId = photo.reserve_id ?? photo.reserveId;
+    return reserveId && String(reserveId) === String(reserve.id);
+  });
+  return [...fromReserve, ...legacyReservePhotos, ...fromTable]
+    .filter(photo => /^file:\/\//i.test(rawPhotoUrl(photo)))
+    .length;
+}
+
 function clampPercent(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
@@ -745,7 +767,7 @@ function reserveToDraft(reserve: any): ReserveDraft {
             id: 'legacy',
             uri: assetUrl({ uri: reserve.photo_uri ?? reserve.photoUri }, 'photos'),
             name: 'Photo',
-            kind: 'defect',
+            kind: 'defect' as const,
             existing: true,
           }].filter((photo: WebPhotoDraft) => !!photo.uri)
         : [],
@@ -928,7 +950,7 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('tasks', loadedProfile, { order: 'created_at' }),
         fetchScopedTable('incidents', loadedProfile, { order: 'created_at' }),
         fetchScopedTable('documents', loadedProfile, { order: 'uploaded_at' }),
-        fetchScopedTable('photos', loadedProfile, { order: 'taken_at' }),
+        fetchScopedTable('photos', loadedProfile, { order: 'taken_at', scoped: false }),
         fetchScopedTable('oprs', loadedProfile, { order: 'created_at' }),
         fetchScopedTable('notification_preferences', loadedProfile, { scoped: false }),
       ]);
@@ -2142,6 +2164,7 @@ function ReservesView(props: {
     props.buildingFilter !== 'all' ||
     props.pinFilter !== 'all';
   const selectedPhotos = reservePhotoItems(selectedReserve, props.photos);
+  const selectedLocalOnlyPhotos = localOnlyPhotoCount(selectedReserve, props.photos);
   const filterCounts = RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
     acc[option.key] =
       option.key === 'all'
@@ -2328,6 +2351,14 @@ function ReservesView(props: {
                     </a>
                   ))}
                 </div>
+              </div>
+            ) : selectedLocalOnlyPhotos ? (
+              <div className={styles.reserveDetailPhotoNotice}>
+                <strong>Photos en attente de synchronisation</strong>
+                <span>
+                  {selectedLocalOnlyPhotos} photo{selectedLocalOnlyPhotos > 1 ? 's' : ''} visible{selectedLocalOnlyPhotos > 1 ? 's' : ''} sur mobile
+                  {selectedLocalOnlyPhotos > 1 ? ' ne sont' : " n'est"} pas encore disponible{selectedLocalOnlyPhotos > 1 ? 's' : ''} sur le web.
+                </span>
               </div>
             ) : null}
             <form

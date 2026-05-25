@@ -1555,6 +1555,27 @@
   background: #f8fbff;
 }
 
+.reserveDetailPhotoNotice {
+  margin-top: 16px;
+  display: grid;
+  gap: 4px;
+  border: 1px solid #f4d88c;
+  border-radius: 14px;
+  background: #fff8e6;
+  color: #7c4a03;
+  padding: 12px 14px;
+}
+
+.reserveDetailPhotoNotice strong {
+  color: #7c4a03;
+}
+
+.reserveDetailPhotoNotice span {
+  color: #8a5b12;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .reserveDetailPhotos > div:first-child {
   display: flex;
   justify-content: space-between;
