@@ -1815,6 +1815,10 @@
   width: min(720px, 100%);
 }
 
+.plansPdfModalWeb {
+  width: min(820px, 100%);
+}
+
 .reservePdfBodyWeb {
   display: grid;
   gap: 12px;
@@ -1930,6 +1934,47 @@
   background: #eef4ff !important;
 }
 
+.plansPdfScopeGridWeb {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.plansPdfModeGridWeb {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.plansPdfModeGridWeb button {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #fff;
+  color: #003082;
+  padding: 0 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.plansPdfModeGridWeb button:disabled,
+.plansPdfStatusGridWeb button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plansPdfModeGridWeb em {
+  border-radius: 999px;
+  background: #eef3fa;
+  color: inherit;
+  padding: 4px 8px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .reservePdfCompanyGridWeb {
   max-height: 240px;
   overflow-y: auto;
@@ -1974,9 +2019,13 @@
 }
 
 .reservePdfCompanyGridWeb em {
+  max-width: 120px;
+  overflow: hidden;
   color: #64748b;
   font-style: normal;
   font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reservePdfCompanyActiveWeb {
@@ -1987,6 +2036,23 @@
 .reservePdfCompanyActiveWeb span {
   border-color: #003082 !important;
   background: #003082 !important;
+}
+
+.plansPdfStatusGridWeb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.plansPdfStatusGridWeb button {
+  min-height: 36px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #003082;
+  padding: 0 13px;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .reservePdfLangRowWeb {
@@ -4802,6 +4868,11 @@
   font-weight: 900;
 }
 
+.dictationPanelWeb {
+  display: grid;
+  gap: 7px;
+}
+
 .dictationPicker {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4841,6 +4912,18 @@
   font-size: 10px;
   font-weight: 700;
   opacity: 0.75;
+}
+
+.dictationStartButtonWeb {
+  min-height: 36px;
+  border: 1px solid #003082;
+  border-radius: 12px;
+  background: #003082;
+  color: #fff;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
 }
 
 .translationPickerWeb {

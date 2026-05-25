@@ -736,8 +736,119 @@ function printHtmlReport(html: string, filename: string) {
 }
 
 function reserveCompanies(reserve: any): string[] {
-  if (Array.isArray(reserve.companies) && reserve.companies.length) return reserve.companies;
-  return reserve.company ? [reserve.company] : [];
+  const names = [
+    ...(Array.isArray(reserve?.companies) ? reserve.companies : []),
+    reserve?.company,
+    reserve?.company_name,
+    reserve?.companyName,
+  ]
+    .map(name => String(name ?? '').trim())
+    .filter(Boolean);
+  return Array.from(new Set(names));
+}
+
+function getReservePlanId(reserve: any) {
+  return String(reserve?.plan_id ?? reserve?.planId ?? '').trim();
+}
+
+function reserveMatchesCompanyName(reserve: any, companyName?: string | null) {
+  const target = String(companyName ?? '').trim();
+  if (!target) return false;
+  return reserveCompanies(reserve).some(name => sameName(name, target));
+}
+
+function toPdfReserveItem(reserve: any, index = 0) {
+  const photos = Array.isArray(reserve?.photos)
+    ? reserve.photos
+        .map((photo: any) => assetUrl(photo, 'photos') || String(photo?.uri ?? '').trim())
+        .filter(Boolean)
+        .map((uri: string) => ({ uri }))
+    : [];
+
+  return {
+    id: String(reserve?.id ?? `reserve-${index + 1}`),
+    num: index + 1,
+    title: String(reserve?.title ?? reserve?.description ?? 'Reserve'),
+    company: reserveCompanies(reserve).join(', '),
+    building: String(reserve?.building_name ?? reserve?.building ?? reserve?.batiment ?? '').trim(),
+    level: String(reserve?.level_name ?? reserve?.level ?? reserve?.niveau ?? '').trim(),
+    status: String(reserve?.status ?? 'open'),
+    priority: String(reserve?.priority ?? 'medium'),
+    deadline: String(reserve?.deadline ?? reserve?.due_date ?? reserve?.dueDate ?? '').trim(),
+    description: String(reserve?.description ?? '').trim(),
+    planId: getReservePlanId(reserve),
+    planX: normalizePlanPercent(reserve?.plan_x ?? reserve?.planX),
+    planY: normalizePlanPercent(reserve?.plan_y ?? reserve?.planY),
+    photos,
+  };
+}
+
+function toPdfPlanItem(plan: any) {
+  return {
+    id: String(plan?.id ?? ''),
+    name: String(plan?.name ?? 'Plan'),
+    building: getPlanBuildingName(plan),
+    level: getPlanLevelName(plan),
+    uri: assetUrl(plan, 'documents') || String(plan?.uri ?? plan?.url ?? '').trim(),
+    fileType: String(plan?.file_type ?? plan?.fileType ?? '').trim(),
+  };
+}
+
+function getPlanReportUri(plan: any) {
+  return assetUrl(plan, 'documents') || String(plan?.uri ?? plan?.url ?? '').trim();
+}
+
+function isPdfPlan(plan: any, uri?: string | null) {
+  const fileType = String(plan?.file_type ?? plan?.fileType ?? '').toLowerCase();
+  const value = String(uri ?? plan?.uri ?? plan?.url ?? '').toLowerCase();
+  return fileType === 'pdf' || fileType.includes('pdf') || value.includes('.pdf') || value.includes('application/pdf');
+}
+
+function dataUrlToPdfBytes(dataUrl: string) {
+  const base64 = dataUrl.split(',')[1] ?? '';
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+}
+
+async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
+  if (typeof document === 'undefined' || !pdfUri) return null;
+  try {
+    const pdfjs: any = await import('pdfjs-dist');
+    pdfjs.GlobalWorkerOptions.workerSrc ||= `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+    const source = pdfUri.startsWith('data:')
+      ? { data: dataUrlToPdfBytes(pdfUri) }
+      : { url: pdfUri, withCredentials: false };
+    const loadingTask = pdfjs.getDocument(source);
+    const pdf = await loadingTask.promise;
+    try {
+      const page = await pdf.getPage(1);
+      const baseViewport = page.getViewport({ scale: 1 });
+      const scale = renderWidth / baseViewport.width;
+      const viewport = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const context = canvas.getContext('2d');
+      if (!context) return null;
+      await page.render({ canvasContext: context, viewport }).promise;
+      return canvas.toDataURL('image/jpeg', 0.88);
+    } finally {
+      pdf.destroy?.();
+    }
+  } catch {
+    return null;
+  }
+}
+
+async function getPlanImageForReserveReport(plan: any) {
+  const uri = getPlanReportUri(plan);
+  if (!uri) return null;
+  if (!isPdfPlan(plan, uri)) return uri;
+  return await preRenderPdfPageToDataUrl(uri, 720);
 }
 
 function makeHistory(action: string, author: string, oldValue?: string, newValue?: string) {
@@ -1868,7 +1979,9 @@ export default function BuildTrackWebPage() {
     visit?: any;
     reserve?: any;
     reserves?: any[];
+    plans?: any[];
     companyFilter?: string | null;
+    statusFilter?: string | null;
     language?: 'fr' | 'en' | 'es';
   }) {
     const selectedProjectName = projectName();
@@ -1879,6 +1992,7 @@ export default function BuildTrackWebPage() {
     try {
       const targetReserve = options?.reserve ?? selectedReserve;
       const targetReserves = options?.reserves ?? filteredReserves;
+      const targetPlans = options?.plans ?? projectScoped.plans;
       const reservePlanId = targetReserve?.plan_id ?? targetReserve?.planId;
       const reservePlan = reservePlanId ? projectScoped.plans.find((plan: any) => String(plan.id) === String(reservePlanId)) : null;
       const reserveCompanyName = targetReserve ? reserveCompanies(targetReserve)[0] : null;
@@ -1893,13 +2007,16 @@ export default function BuildTrackWebPage() {
           )
         : [];
       const pinNum = targetReserve ? Math.max(1, planPins.findIndex((reserve: any) => String(reserve.id) === String(targetReserve.id)) + 1) : undefined;
+      const reservePlanImageUri = type === 'individual_reserve' && reservePlan
+        ? await getPlanImageForReserveReport(reservePlan)
+        : null;
       const payload = type === 'individual_reserve'
         ? {
             type,
             chantierName: selectedProjectName,
             reserve: targetReserve,
             companyColor: reserveCompany?.color ?? null,
-            planUri: reservePlan?.uri ?? null,
+            planUri: reservePlanImageUri,
             planName: reservePlan?.name ?? null,
             planX: normalizePlanPercent(targetReserve?.plan_x ?? targetReserve?.planX),
             planY: normalizePlanPercent(targetReserve?.plan_y ?? targetReserve?.planY),
@@ -1923,9 +2040,12 @@ export default function BuildTrackWebPage() {
         : {
             type,
             chantierName: selectedProjectName,
-            reserves: targetReserves,
-            plans: projectScoped.plans,
-            companyFilter: options?.companyFilter ?? null,
+            reserves: type === 'plans'
+              ? targetReserves.map((reserve, index) => toPdfReserveItem(reserve, index))
+              : targetReserves,
+            plans: targetPlans.map(toPdfPlanItem),
+            companyFilter: [options?.companyFilter, options?.statusFilter].filter(Boolean).join(' · ') || null,
+            statusFilter: options?.statusFilter ?? null,
             language,
             generatedAt: new Date().toISOString(),
           };
@@ -1934,6 +2054,10 @@ export default function BuildTrackWebPage() {
         return;
       }
       if (type === 'global_reserves' && targetReserves.length === 0) {
+        setError('Aucune réserve à exporter avec cette sélection.');
+        return;
+      }
+      if (type === 'plans' && targetReserves.length === 0) {
         setError('Aucune réserve à exporter avec cette sélection.');
         return;
       }
@@ -2260,6 +2384,11 @@ export default function BuildTrackWebPage() {
                 setTab={setActiveTab}
                 onCreateReserve={(plan: any) => openReserveCreate({ plan })}
                 onCreateReserveAtPin={(plan: any, pin: ReservePinDraft) => openReserveCreate({ plan, pin })}
+                onGeneratePlansPdf={(plans: any[], reserves: any[], language: TextLang, companyFilter?: string | null, statusFilter?: string | null) =>
+                  generateWebReport('plans', { plans, reserves, language, companyFilter, statusFilter })
+                }
+                generatingReport={generatingReport}
+                defaultReportLanguage={reportLanguage}
                 editable={canEdit(profile)}
               />
             )}
@@ -3681,6 +3810,9 @@ function PlansView({
   setTab,
   onCreateReserve,
   onCreateReserveAtPin,
+  onGeneratePlansPdf,
+  generatingReport,
+  defaultReportLanguage,
   editable,
 }: any) {
   const [buildingQuery, setBuildingQuery] = useState('');
@@ -3691,8 +3823,28 @@ function PlansView({
   const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
   const [focusedPlanReserveId, setFocusedPlanReserveId] = useState<string | null>(null);
   const [pinPlacementPreview, setPinPlacementPreview] = useState<PinPlacementPreview | null>(null);
+  const [plansPdfOpen, setPlansPdfOpen] = useState(false);
+  const [plansPdfScope, setPlansPdfScope] = useState<'plan' | 'global'>('plan');
+  const [plansPdfMode, setPlansPdfMode] = useState<'all' | 'company_single' | 'company_multi' | 'manual'>('all');
+  const [plansPdfCompanySingle, setPlansPdfCompanySingle] = useState('');
+  const [plansPdfCompaniesMulti, setPlansPdfCompaniesMulti] = useState<Set<string>>(new Set());
+  const [plansPdfManualSelection, setPlansPdfManualSelection] = useState<Set<string>>(new Set());
+  const [plansPdfGlobalCompany, setPlansPdfGlobalCompany] = useState<string | null>(null);
+  const [plansPdfStatusFilter, setPlansPdfStatusFilter] = useState<Set<string>>(new Set());
+  const [plansPdfLanguage, setPlansPdfLanguage] = useState<TextLang>(defaultReportLanguage ?? 'fr');
   const pinPlacementTimerRef = useRef<number | null>(null);
-  const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
+  const planReserves = useMemo(
+    () => selectedPlan ? reserves.filter((r: any) => getReservePlanId(r) === String(selectedPlan.id)) : [],
+    [reserves, selectedPlan?.id],
+  );
+  const exportablePlanReserves = useMemo(
+    () => planReserves.filter((reserve: any) => !isReserveArchived(reserve)),
+    [planReserves],
+  );
+  const exportableProjectReserves = useMemo(
+    () => reserves.filter((reserve: any) => !isReserveArchived(reserve)),
+    [reserves],
+  );
   const selectedPlanReserve = planReserves.find((reserve: any) => reserve.id === selectedPlanReserveId) ?? null;
   const selectedPlanBuildingKey = selectedPlan ? getPlanBuildingKey(selectedPlan) : 'all';
   const reserveCountByPlanId = useMemo(() => {
@@ -3908,6 +4060,112 @@ function PlansView({
   const activePlacementPreview = selectedPlan && pinPlacementPreview?.planId === selectedPlan.id
     ? pinPlacementPreview
     : null;
+  const planPdfCompanies = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const reserve of exportablePlanReserves) {
+      for (const company of reserveCompanies(reserve)) {
+        map.set(company, (map.get(company) ?? 0) + 1);
+      }
+    }
+    return [...map.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' }));
+  }, [exportablePlanReserves]);
+  const globalPdfCompanies = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const reserve of exportableProjectReserves) {
+      for (const company of reserveCompanies(reserve)) {
+        map.set(company, (map.get(company) ?? 0) + 1);
+      }
+    }
+    return [...map.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' }));
+  }, [exportableProjectReserves]);
+  const plansPdfTargetReserves = useMemo(() => {
+    if (plansPdfScope === 'plan') {
+      if (plansPdfMode === 'company_single') {
+        return plansPdfCompanySingle
+          ? exportablePlanReserves.filter((reserve: any) => reserveMatchesCompanyName(reserve, plansPdfCompanySingle))
+          : [];
+      }
+      if (plansPdfMode === 'company_multi') {
+        if (plansPdfCompaniesMulti.size === 0) return [];
+        return exportablePlanReserves.filter((reserve: any) =>
+          reserveCompanies(reserve).some(company => plansPdfCompaniesMulti.has(company))
+        );
+      }
+      if (plansPdfMode === 'manual') {
+        if (plansPdfManualSelection.size === 0) return [];
+        return exportablePlanReserves.filter((reserve: any) => plansPdfManualSelection.has(String(reserve.id)));
+      }
+      return exportablePlanReserves;
+    }
+
+    return exportableProjectReserves.filter((reserve: any) => {
+      if (plansPdfGlobalCompany && !reserveMatchesCompanyName(reserve, plansPdfGlobalCompany)) return false;
+      if (plansPdfStatusFilter.size > 0 && !plansPdfStatusFilter.has(String(reserve.status ?? 'open'))) return false;
+      return true;
+    });
+  }, [
+    exportablePlanReserves,
+    exportableProjectReserves,
+    plansPdfCompaniesMulti,
+    plansPdfCompanySingle,
+    plansPdfGlobalCompany,
+    plansPdfManualSelection,
+    plansPdfMode,
+    plansPdfScope,
+    plansPdfStatusFilter,
+  ]);
+  const plansPdfTargetPlanIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const reserve of plansPdfTargetReserves) {
+      const planId = getReservePlanId(reserve);
+      if (planId) ids.add(planId);
+    }
+    return ids;
+  }, [plansPdfTargetReserves]);
+  const plansPdfTargetPlans = plansPdfScope === 'plan'
+    ? (selectedPlan ? [selectedPlan] : [])
+    : plans.filter((plan: any) => plansPdfTargetPlanIds.has(String(plan.id)));
+  const plansPdfBusy = generatingReport === `plans-${plansPdfLanguage}`;
+  const plansPdfCompanyLabel =
+    plansPdfScope === 'global'
+      ? plansPdfGlobalCompany
+      : plansPdfMode === 'company_single'
+        ? plansPdfCompanySingle || null
+        : plansPdfMode === 'company_multi'
+          ? `${plansPdfCompaniesMulti.size} entreprises`
+          : plansPdfMode === 'manual'
+            ? 'Sélection manuelle'
+            : null;
+  const plansPdfStatusLabel = plansPdfStatusFilter.size > 0
+    ? [...plansPdfStatusFilter].map(status => STATUS_LABELS[status] ?? status).join(', ')
+    : null;
+
+  useEffect(() => {
+    setPlansPdfLanguage(defaultReportLanguage ?? 'fr');
+  }, [defaultReportLanguage]);
+
+  useEffect(() => {
+    setPlansPdfManualSelection(new Set(exportablePlanReserves.map((reserve: any) => String(reserve.id))));
+    if (plansPdfCompanySingle && !planPdfCompanies.some(company => company.name === plansPdfCompanySingle)) {
+      setPlansPdfCompanySingle(planPdfCompanies[0]?.name ?? '');
+    }
+  }, [exportablePlanReserves, planPdfCompanies, plansPdfCompanySingle]);
+
+  async function handlePlansPdfExport() {
+    if (plansPdfBusy || plansPdfTargetReserves.length === 0) return;
+    await onGeneratePlansPdf(
+      plansPdfTargetPlans,
+      plansPdfTargetReserves,
+      plansPdfLanguage,
+      plansPdfCompanyLabel,
+      plansPdfStatusLabel,
+    );
+  }
+
   return (
     <div className={`${styles.twoCols} ${styles.plansLayout}`}>
       <section className={`${styles.panel} ${styles.plansListPanel}`}>
@@ -4036,6 +4294,13 @@ function PlansView({
                 <h2>{selectedPlan.name}</h2>
               </div>
               <div className={styles.inlineActions}>
+                <button
+                  type="button"
+                  onClick={() => setPlansPdfOpen(true)}
+                  disabled={!selectedPlan || exportableProjectReserves.length === 0}
+                >
+                  PDF
+                </button>
                 <button type="button" onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
                 {selectedPlan.uri ? <a className={styles.linkButton} href={selectedPlan.uri} target="_blank">Ouvrir le fichier</a> : null}
               </div>
@@ -4190,6 +4455,278 @@ function PlansView({
           </>
         ) : <p className={styles.empty}>Sélectionnez un plan.</p>}
       </section>
+
+      {plansPdfOpen && (
+        <div
+          className={styles.modalBackdrop}
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => {
+            if (!plansPdfBusy) setPlansPdfOpen(false);
+          }}
+        >
+          <section className={`${styles.modalPanel} ${styles.reservePdfModalWeb} ${styles.plansPdfModalWeb}`} onMouseDown={event => event.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Export PDF</p>
+                <h2>Plans</h2>
+                <span>
+                  {plansPdfScope === 'plan'
+                    ? `Plan : ${selectedPlan?.name ?? '—'}`
+                    : 'Rapport global du chantier avec les réserves par bâtiment et par plan.'}
+                </span>
+              </div>
+              <button type="button" onClick={() => setPlansPdfOpen(false)} disabled={plansPdfBusy}>Fermer</button>
+            </div>
+            <div className={styles.reservePdfBodyWeb}>
+              <section className={styles.reservePdfSectionWeb}>
+                <strong>Périmètre</strong>
+                <div className={`${styles.reservePdfScopeGridWeb} ${styles.plansPdfScopeGridWeb}`}>
+                  {[
+                    { key: 'plan' as const, label: 'Ce plan', hint: selectedPlan?.name ?? 'Aucun plan', count: exportablePlanReserves.length },
+                    { key: 'global' as const, label: 'Rapport global', hint: 'Tous bâtiments et plans', count: exportableProjectReserves.length },
+                  ].map(option => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={plansPdfScope === option.key ? styles.reservePdfScopeActiveWeb : ''}
+                      disabled={plansPdfBusy || (option.key === 'plan' && !selectedPlan)}
+                      onClick={() => setPlansPdfScope(option.key)}
+                    >
+                      <span>{option.label}</span>
+                      <small>{option.hint}</small>
+                      <em>{option.count}</em>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {plansPdfScope === 'plan' ? (
+                <>
+                  <section className={styles.reservePdfSectionWeb}>
+                    <strong>Réserves du plan</strong>
+                    <div className={styles.plansPdfModeGridWeb}>
+                      {[
+                        { key: 'all' as const, label: 'Toutes', count: exportablePlanReserves.length },
+                        { key: 'company_single' as const, label: 'Une entreprise', count: plansPdfCompanySingle ? exportablePlanReserves.filter((reserve: any) => reserveMatchesCompanyName(reserve, plansPdfCompanySingle)).length : 0 },
+                        { key: 'company_multi' as const, label: 'Plusieurs', count: plansPdfCompaniesMulti.size ? exportablePlanReserves.filter((reserve: any) => reserveCompanies(reserve).some(company => plansPdfCompaniesMulti.has(company))).length : 0 },
+                        { key: 'manual' as const, label: 'Sélection', count: plansPdfManualSelection.size },
+                      ].map(option => (
+                        <button
+                          key={option.key}
+                          type="button"
+                          className={plansPdfMode === option.key ? styles.reservePdfLangActiveWeb : ''}
+                          disabled={plansPdfBusy || (option.key !== 'all' && exportablePlanReserves.length === 0)}
+                          onClick={() => {
+                            setPlansPdfMode(option.key);
+                            if (option.key === 'company_single' && !plansPdfCompanySingle) {
+                              setPlansPdfCompanySingle(planPdfCompanies[0]?.name ?? '');
+                            }
+                            if (option.key === 'company_multi' && plansPdfCompaniesMulti.size === 0 && planPdfCompanies[0]) {
+                              setPlansPdfCompaniesMulti(new Set([planPdfCompanies[0].name]));
+                            }
+                          }}
+                        >
+                          <span>{option.label}</span>
+                          <em>{option.count}</em>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  {plansPdfMode === 'company_single' && (
+                    <section className={styles.reservePdfSectionWeb}>
+                      <strong>Entreprise</strong>
+                      <select value={plansPdfCompanySingle} onChange={event => setPlansPdfCompanySingle(event.target.value)} disabled={plansPdfBusy}>
+                        <option value="">Choisir une entreprise</option>
+                        {planPdfCompanies.map(company => (
+                          <option key={company.name} value={company.name}>{company.name} ({company.count})</option>
+                        ))}
+                      </select>
+                    </section>
+                  )}
+
+                  {plansPdfMode === 'company_multi' && (
+                    <section className={styles.reservePdfSectionWeb}>
+                      <div className={styles.reservePdfSectionHeaderWeb}>
+                        <strong>Entreprises</strong>
+                        <div>
+                          <button type="button" onClick={() => setPlansPdfCompaniesMulti(new Set(planPdfCompanies.map(company => company.name)))} disabled={plansPdfBusy}>Tout</button>
+                          <button type="button" onClick={() => setPlansPdfCompaniesMulti(new Set())} disabled={plansPdfBusy}>Effacer</button>
+                        </div>
+                      </div>
+                      <div className={styles.reservePdfCompanyGridWeb}>
+                        {planPdfCompanies.map(company => {
+                          const checked = plansPdfCompaniesMulti.has(company.name);
+                          return (
+                            <button
+                              key={company.name}
+                              type="button"
+                              className={checked ? styles.reservePdfCompanyActiveWeb : ''}
+                              disabled={plansPdfBusy}
+                              onClick={() => {
+                                setPlansPdfCompaniesMulti(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(company.name)) next.delete(company.name);
+                                  else next.add(company.name);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <span>{checked ? '✓' : ''}</span>
+                              <strong>{company.name}</strong>
+                              <em>{company.count}</em>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
+
+                  {plansPdfMode === 'manual' && (
+                    <section className={styles.reservePdfSectionWeb}>
+                      <div className={styles.reservePdfSectionHeaderWeb}>
+                        <strong>Sélection manuelle</strong>
+                        <div>
+                          <button type="button" onClick={() => setPlansPdfManualSelection(new Set(exportablePlanReserves.map((reserve: any) => String(reserve.id))))} disabled={plansPdfBusy}>Tout</button>
+                          <button type="button" onClick={() => setPlansPdfManualSelection(new Set())} disabled={plansPdfBusy}>Effacer</button>
+                        </div>
+                      </div>
+                      <div className={styles.reservePdfCompanyGridWeb}>
+                        {exportablePlanReserves.map((reserve: any, index: number) => {
+                          const checked = plansPdfManualSelection.has(String(reserve.id));
+                          return (
+                            <button
+                              key={reserve.id}
+                              type="button"
+                              className={checked ? styles.reservePdfCompanyActiveWeb : ''}
+                              disabled={plansPdfBusy}
+                              onClick={() => {
+                                setPlansPdfManualSelection(prev => {
+                                  const next = new Set(prev);
+                                  const id = String(reserve.id);
+                                  if (next.has(id)) next.delete(id);
+                                  else next.add(id);
+                                  return next;
+                                });
+                              }}
+                            >
+                              <span>{checked ? '✓' : ''}</span>
+                              <strong>{index + 1}. {reserve.title}</strong>
+                              <em>{reserve.id}</em>
+                            </button>
+                          );
+                        })}
+                        {!exportablePlanReserves.length && <p className={styles.empty}>Aucune réserve sur ce plan.</p>}
+                      </div>
+                    </section>
+                  )}
+                </>
+              ) : (
+                <>
+                  <section className={styles.reservePdfSectionWeb}>
+                    <strong>Entreprise</strong>
+                    <div className={styles.reservePdfCompanyGridWeb}>
+                      <button
+                        type="button"
+                        className={plansPdfGlobalCompany === null ? styles.reservePdfCompanyActiveWeb : ''}
+                        disabled={plansPdfBusy}
+                        onClick={() => setPlansPdfGlobalCompany(null)}
+                      >
+                        <span>{plansPdfGlobalCompany === null ? '✓' : ''}</span>
+                        <strong>Toutes les entreprises</strong>
+                        <em>{exportableProjectReserves.length}</em>
+                      </button>
+                      {globalPdfCompanies.map(company => (
+                        <button
+                          key={company.name}
+                          type="button"
+                          className={plansPdfGlobalCompany === company.name ? styles.reservePdfCompanyActiveWeb : ''}
+                          disabled={plansPdfBusy}
+                          onClick={() => setPlansPdfGlobalCompany(company.name)}
+                        >
+                          <span>{plansPdfGlobalCompany === company.name ? '✓' : ''}</span>
+                          <strong>{company.name}</strong>
+                          <em>{company.count}</em>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className={styles.reservePdfSectionWeb}>
+                    <div className={styles.reservePdfSectionHeaderWeb}>
+                      <strong>Filtrer par statut</strong>
+                      <div>
+                        <button type="button" onClick={() => setPlansPdfStatusFilter(new Set())} disabled={plansPdfBusy}>Tous</button>
+                      </div>
+                    </div>
+                    <div className={styles.plansPdfStatusGridWeb}>
+                      {STATUS_OPTIONS.map(([status, label]) => {
+                        const checked = plansPdfStatusFilter.has(status);
+                        return (
+                          <button
+                            key={status}
+                            type="button"
+                            className={checked ? styles.reservePdfLangActiveWeb : ''}
+                            disabled={plansPdfBusy}
+                            onClick={() => {
+                              setPlansPdfStatusFilter(prev => {
+                                const next = new Set(prev);
+                                if (next.has(status)) next.delete(status);
+                                else next.add(status);
+                                return next;
+                              });
+                            }}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                </>
+              )}
+
+              <section className={styles.reservePdfSectionWeb}>
+                <strong>Langue du PDF</strong>
+                <div className={styles.reservePdfLangRowWeb}>
+                  {TEXT_LANG_OPTIONS.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={plansPdfLanguage === option.value ? styles.reservePdfLangActiveWeb : ''}
+                      disabled={plansPdfBusy}
+                      onClick={() => setPlansPdfLanguage(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <div className={styles.reservePdfPreviewWeb}>
+                <div>
+                  <strong>{plansPdfTargetReserves.length}</strong>
+                  <span>réserves seront exportées</span>
+                </div>
+                <small>{plansPdfTargetPlans.length} plan{plansPdfTargetPlans.length > 1 ? 's' : ''} · {plansPdfLanguage.toUpperCase()}</small>
+              </div>
+
+              <div className={styles.reservePdfActionsWeb}>
+                <button type="button" onClick={() => setPlansPdfOpen(false)} disabled={plansPdfBusy}>Annuler</button>
+                <button
+                  type="button"
+                  className={styles.reservePdfPrimaryWeb}
+                  disabled={plansPdfBusy || plansPdfTargetReserves.length === 0}
+                  onClick={() => void handlePlansPdfExport()}
+                >
+                  {plansPdfBusy ? 'Génération...' : 'Télécharger PDF'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -5694,33 +6231,59 @@ function TextAssistControls({
           <div className={styles.textAssistSectionHeader}>
             <button
               type="button"
-              onClick={() => (busy === 'dictation' ? stopDictation() : setDictationOpen(open => !open))}
+              onClick={() => {
+                if (busy === 'dictation') {
+                  stopDictation();
+                } else if (dictationOpen) {
+                  void startDictation(lang);
+                } else {
+                  setDictationOpen(true);
+                }
+              }}
               className={`${styles.microIconButton} ${busy === 'dictation' ? styles.textAssistActive : ''}`}
-              aria-label={busy === 'dictation' ? 'Arrêter la dictée' : 'Choisir la langue de dictée'}
+              aria-label={busy === 'dictation' ? 'Arrêter la dictée' : dictationOpen ? `Démarrer la dictée en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.name ?? 'français'}` : 'Choisir la langue de dictée'}
               aria-expanded={dictationOpen || busy === 'dictation'}
-              title={busy === 'dictation' ? 'Arrêter la dictée' : 'Choisir la langue de dictée'}
+              title={busy === 'dictation' ? 'Arrêter la dictée' : dictationOpen ? 'Démarrer la dictée' : 'Choisir la langue de dictée'}
             >
               <MicrophoneIcon />
             </button>
             <div>
               <strong>{busy === 'dictation' ? 'Écoute en cours' : 'Dictée vocale'}</strong>
-              <small>Langue parlée : {TEXT_LANG_OPTIONS.find(option => option.value === lang)?.label ?? 'FR'}</small>
+              <small>
+                {busy === 'dictation'
+                  ? `Parlez en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.name ?? 'français'}`
+                  : `Langue parlée sélectionnée : ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.label ?? 'FR'}`}
+              </small>
             </div>
           </div>
           {dictationOpen || busy === 'dictation' ? (
-            <div className={styles.dictationPicker}>
-              {TEXT_LANG_OPTIONS.map(option => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={lang === option.value ? styles.dictationLangActive : styles.dictationLang}
-                  onClick={() => startDictation(option.value)}
-                  disabled={busy === 'dictation' && lang === option.value}
-                >
-                  <span>{option.label}</span>
-                  <small>{option.name}</small>
-                </button>
-              ))}
+            <div className={styles.dictationPanelWeb}>
+              <div className={styles.dictationPicker}>
+                {TEXT_LANG_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={lang === option.value ? styles.dictationLangActive : styles.dictationLang}
+                    onClick={() => {
+                      if (busy === 'dictation') return;
+                      setPreferredLang(option.value);
+                      setMessage('');
+                    }}
+                    disabled={busy === 'dictation'}
+                    aria-pressed={lang === option.value}
+                  >
+                    <span>{option.label}</span>
+                    <small>{option.name}</small>
+                  </button>
+                ))}
+              </div>
+              <button
+                type="button"
+                className={styles.dictationStartButtonWeb}
+                onClick={() => (busy === 'dictation' ? stopDictation() : startDictation(lang))}
+              >
+                {busy === 'dictation' ? 'Arrêter' : `Dicter en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.label ?? 'FR'}`}
+              </button>
             </div>
           ) : null}
         </section>
