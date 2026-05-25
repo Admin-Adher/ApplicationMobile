@@ -2192,6 +2192,9 @@ function PlansView({
       };
     })
     .filter((pin: any) => pin.x != null && pin.y != null) as PlanPin[];
+  const activePlacementPreview = selectedPlan && pinPlacementPreview?.planId === selectedPlan.id
+    ? pinPlacementPreview
+    : null;
   return (
     <div className={`${styles.twoCols} ${styles.plansLayout}`}>
       <section className={`${styles.panel} ${styles.plansListPanel}`}>
@@ -2334,7 +2337,7 @@ function PlansView({
                     focusedReserveId={focusedPlanReserveId}
                     pinModeReserveId={pinModeReserveId}
                     canCreate={editable}
-                    placementPreview={pinPlacementPreview?.planId === selectedPlan.id ? pinPlacementPreview : null}
+                    placementPreview={activePlacementPreview}
                     onAssignPin={assignOrCreatePinAt}
                     onCreateReserveAtPin={assignOrCreatePinAt}
                     onPinClick={(reserveId) => {
@@ -2376,13 +2379,13 @@ function PlansView({
                       {pin.number}
                     </button>
                   ))}
-                {selectedPlan.file_type !== 'pdf' && pinPlacementPreview?.planId === selectedPlan.id && (
+                {selectedPlan.file_type !== 'pdf' && activePlacementPreview && (
                   <div
-                    key={pinPlacementPreview.id}
+                    key={activePlacementPreview.id}
                     className={styles.pinPlacementPreview}
-                    style={{ left: `${pinPlacementPreview.x}%`, top: `${pinPlacementPreview.y}%` }}
+                    style={{ left: `${activePlacementPreview.x}%`, top: `${activePlacementPreview.y}%` }}
                   >
-                    <span>{pinPlacementPreview.label}</span>
+                    <span>{activePlacementPreview.label}</span>
                   </div>
                 )}
               </div>
