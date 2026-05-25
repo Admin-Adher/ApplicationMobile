@@ -392,23 +392,26 @@ function escapeHtml(s: string | null | undefined): string {
 const VISIT_REPORT_COPY = {
   fr: {
     title: 'Compte rendu de visite',
-    generated: 'Genere le',
+    generated: 'Généré le',
     project: 'Chantier',
     visit: 'Visite',
     date: 'Date',
     schedule: 'Horaires',
     manager: 'Conducteur',
-    scope: 'Perimetre',
-    companies: 'Entreprises concernees',
-    checklist: 'Checklist de controle',
-    noChecklist: 'Aucun point de controle renseigne',
+    scope: 'Périmètre',
+    companies: 'Entreprises concernées',
+    participants: 'Participants',
+    noParticipants: 'Aucun participant renseigné',
+    coverPhoto: 'Photo de couverture',
+    checklist: 'Checklist de contrôle',
+    noChecklist: 'Aucun point de contrôle renseigné',
     notes: 'Notes de visite',
-    noNotes: 'Aucune note renseignee',
-    reserves: 'Reserves relevees',
-    noReserves: 'Aucune reserve rattachee a cette visite',
+    noNotes: 'Aucune note renseignée',
+    reserves: 'Réserves relevées',
+    noReserves: 'Aucune réserve rattachée à cette visite',
     signature: 'Signature',
-    statuses: { planned: 'Planifiee', in_progress: 'En cours', completed: 'Terminee' },
-    types: { controle: 'Controle', opr: 'OPR', securite: 'Securite', reception: 'Reception', synthese: 'Synthese', autre: 'Autre' },
+    statuses: { planned: 'Planifiée', in_progress: 'En cours', completed: 'Terminée' },
+    types: { controle: 'Contrôle', opr: 'OPR', securite: 'Sécurité', reception: 'Réception', synthese: 'Synthèse', autre: 'Autre' },
   },
   en: {
     title: 'Site visit report',
@@ -420,6 +423,9 @@ const VISIT_REPORT_COPY = {
     manager: 'Manager',
     scope: 'Scope',
     companies: 'Companies involved',
+    participants: 'Participants',
+    noParticipants: 'No participant recorded',
+    coverPhoto: 'Cover photo',
     checklist: 'Control checklist',
     noChecklist: 'No checklist item recorded',
     notes: 'Visit notes',
@@ -440,6 +446,9 @@ const VISIT_REPORT_COPY = {
     manager: 'Responsable',
     scope: 'Alcance',
     companies: 'Empresas implicadas',
+    participants: 'Participantes',
+    noParticipants: 'Ningún participante registrado',
+    coverPhoto: 'Foto de portada',
     checklist: 'Lista de control',
     noChecklist: 'No hay punto de control registrado',
     notes: 'Notas de visita',
@@ -448,7 +457,7 @@ const VISIT_REPORT_COPY = {
     noReserves: 'Ninguna reserva vinculada a esta visita',
     signature: 'Firma',
     statuses: { planned: 'Planificada', in_progress: 'En curso', completed: 'Terminada' },
-    types: { controle: 'Control', opr: 'OPR', securite: 'Seguridad', reception: 'Recepcion', synthese: 'Sintesis', autre: 'Otro' },
+    types: { controle: 'Control', opr: 'OPR', securite: 'Seguridad', reception: 'Recepción', synthese: 'Síntesis', autre: 'Otro' },
   },
 } as const;
 
@@ -471,6 +480,8 @@ export function buildVisitReportHtml(payload: any): string {
   const visit = payload.visit ?? {};
   const reserves = Array.isArray(payload.reserves) ? payload.reserves : [];
   const companies = Array.isArray(payload.companies) ? payload.companies : [];
+  const participants = Array.isArray(visit.participants) ? visit.participants : [];
+  const coverPhotoUri = visit.cover_photo_uri ?? visit.coverPhotoUri ?? null;
   const companyIds: string[] = Array.isArray(visit.concerned_company_ids)
     ? visit.concerned_company_ids
     : Array.isArray(visit.company_ids)
@@ -496,6 +507,16 @@ export function buildVisitReportHtml(payload: any): string {
   const visitDate = formatReportDate(visit.date ?? visit.created_at, lang);
   const status = copy.statuses[String(visit.status ?? 'planned') as keyof typeof copy.statuses] ?? String(visit.status ?? '');
   const visitType = copy.types[String(visit.visit_type ?? 'controle') as keyof typeof copy.types] ?? String(visit.visit_type ?? '');
+  const participantsHtml = participants.length
+    ? participants.map((participant: any) => {
+        const name = participant.name ?? participant.full_name ?? participant.email ?? common.noValue;
+        const meta = [participant.role, participant.company, participant.email].filter(Boolean).join(' · ');
+        return `<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:8px 10px">
+          <div style="font-weight:800">${escapeHtml(name)}</div>
+          <div style="font-size:10px;color:#64748b;margin-top:2px">${escapeHtml(meta || copy.participants)}</div>
+        </div>`;
+      }).join('')
+    : `<p style="color:#94a3b8">${copy.noParticipants}</p>`;
   const checklistHtml = checklistItems.length
     ? checklistItems.map((item: any, index: number) => {
         const label = typeof item === 'string' ? item : item.label ?? item.title ?? item.text ?? '';
@@ -560,10 +581,18 @@ export function buildVisitReportHtml(payload: any): string {
     </div>`).join('')}
   </div>
 
+  ${coverPhotoUri ? `<div class="section-title">${copy.coverPhoto}</div>
+  <div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;margin-bottom:18px;background:#f8fafc">
+    <img src="${escapeHtml(coverPhotoUri)}" style="width:100%;max-height:230px;object-fit:cover;display:block" onerror="this.parentElement.style.display='none'"/>
+  </div>` : ''}
+
   <div class="section-title">${copy.companies}</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap">
     ${(companyNames.length ? companyNames : [common.allCompanies]).map(name => `<span style="background:#eef2ff;color:#003082;border:1px solid #c7d2fe;border-radius:999px;padding:5px 10px;font-weight:700">${escapeHtml(name)}</span>`).join('')}
   </div>
+
+  <div class="section-title">${copy.participants}</div>
+  <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px">${participantsHtml}</div>
 
   <div class="section-title">${copy.checklist}</div>
   <ul style="list-style:none">${checklistHtml}</ul>

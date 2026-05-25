@@ -310,6 +310,11 @@ function suggestedDeadlineForPriority(priority: string) {
   return '';
 }
 
+function isReserveDescriptionMissing(description: any) {
+  const text = String(description ?? '').trim();
+  return !text || text === '-' || /^aucune description/i.test(text);
+}
+
 function isoWeekFromISO(value: string) {
   const source = value ? new Date(`${value}T12:00:00`) : new Date();
   const date = new Date(Date.UTC(source.getFullYear(), source.getMonth(), source.getDate()));
@@ -480,6 +485,26 @@ function parseBuildingFamily(name: string) {
 
 function assetUrl(item: any) {
   return item?.uri ?? item?.url ?? item?.file_url ?? item?.public_url ?? item?.signed_url ?? item?.photo_uri ?? '';
+}
+
+function reservePhotoItems(reserve: any, photos: any[]) {
+  if (!reserve) return [];
+  const fromReserve = Array.isArray(reserve.photos)
+    ? reserve.photos
+    : reserve.photo_uri
+      ? [{ id: `${reserve.id}-legacy`, uri: reserve.photo_uri, comment: 'Photo' }]
+      : [];
+  const fromTable = photos.filter(photo => {
+    const reserveId = photo.reserve_id ?? photo.reserveId;
+    return reserveId && String(reserveId) === String(reserve.id);
+  });
+  const byKey = new Map<string, any>();
+  [...fromReserve, ...fromTable].forEach(photo => {
+    const uri = assetUrl(photo);
+    if (!uri) return;
+    byKey.set(String(photo.id ?? uri), { ...photo, uri });
+  });
+  return Array.from(byKey.values());
 }
 
 function clampPercent(value: number, min = 0, max = 100) {
@@ -928,6 +953,81 @@ export default function BuildTrackWebPage() {
       .update({ comments, history })
       .eq('id', reserve.id);
     if (commentError) setError(commentError.message);
+  }
+
+  async function fillMissingReserveDescriptions(targets: any[]) {
+    if (!isAdmin(profile)) return;
+    const missing = targets.filter(reserve => reserve.title?.trim() && isReserveDescriptionMissing(reserve.description));
+    if (!missing.length) {
+      setError('Aucune réserve sans description dans cette sélection.');
+      return;
+    }
+    if (!window.confirm(`Copier le titre dans la description de ${missing.length} réserve${missing.length > 1 ? 's' : ''} ?`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      const updates: any[] = [];
+      for (const reserve of missing) {
+        const history = [
+          ...(reserve.history ?? []),
+          makeHistory('Description complétée depuis le web', userLabel(profile, authUser), reserve.description ?? '', reserve.title),
+        ];
+        const patch = { description: reserve.title, history };
+        const { error: updateError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
+        if (updateError) throw updateError;
+        updates.push({ id: reserve.id, ...patch });
+      }
+      const updateById = new Map(updates.map(update => [update.id, update]));
+      setData(prev => ({
+        ...prev,
+        reserves: prev.reserves.map(reserve => updateById.has(reserve.id) ? { ...reserve, ...updateById.get(reserve.id) } : reserve),
+      }));
+    } catch (err: any) {
+      setError(err?.message ?? 'Assistant réserves indisponible.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function translateReserveTexts(targets: any[], language: TextLang) {
+    if (!isAdmin(profile)) return;
+    const candidates = targets.filter(reserve => reserve.title?.trim() || reserve.description?.trim());
+    const langLabel = TEXT_LANG_OPTIONS.find(option => option.value === language)?.label ?? language.toUpperCase();
+    if (!candidates.length) {
+      setError('Aucune réserve à traduire dans cette sélection.');
+      return;
+    }
+    if (!window.confirm(`Traduire les titres et descriptions de ${candidates.length} réserve${candidates.length > 1 ? 's' : ''} en ${langLabel} ?`)) return;
+    setSaving(true);
+    setError('');
+    try {
+      const updates: any[] = [];
+      for (const reserve of candidates) {
+        const sourceDescription = isReserveDescriptionMissing(reserve.description) ? reserve.title : reserve.description;
+        const source = defaultTextLang();
+        const [title, description] = await Promise.all([
+          reserve.title?.trim() ? requestWebTranslation({ text: reserve.title, source, target: language, context: 'reserve title' }) : Promise.resolve(reserve.title ?? ''),
+          sourceDescription?.trim() ? requestWebTranslation({ text: sourceDescription, source, target: language, context: 'reserve description' }) : Promise.resolve(sourceDescription ?? ''),
+        ]);
+        const history = [
+          ...(reserve.history ?? []),
+          makeHistory(`Textes traduits en ${langLabel} depuis le web`, userLabel(profile, authUser)),
+        ];
+        const patch = { title, description: description || title, history };
+        const { error: updateError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
+        if (updateError) throw updateError;
+        updates.push({ id: reserve.id, ...patch });
+      }
+      const updateById = new Map(updates.map(update => [update.id, update]));
+      setData(prev => ({
+        ...prev,
+        reserves: prev.reserves.map(reserve => updateById.has(reserve.id) ? { ...reserve, ...updateById.get(reserve.id) } : reserve),
+      }));
+    } catch (err: any) {
+      setError(err?.message ?? 'Traduction des réserves impossible.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   function currentProjectId() {
@@ -1453,14 +1553,23 @@ export default function BuildTrackWebPage() {
 
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
+    const reserves = data.reserves.filter(byProject);
+    const reserveIds = new Set(reserves.map((reserve: any) => String(reserve.id)));
+    const photos = data.photos.filter(photo => {
+      const reserveId = photo.reserve_id ?? photo.reserveId;
+      return byProject(photo) || (reserveId && reserveIds.has(String(reserveId)));
+    });
     return {
-      reserves: data.reserves.filter(byProject),
+      reserves: reserves.map((reserve: any) => {
+        const reservePhotos = reservePhotoItems(reserve, photos);
+        return reservePhotos.length ? { ...reserve, photos: reservePhotos, photo_uri: reserve.photo_uri ?? reservePhotos[0]?.uri ?? null } : reserve;
+      }),
       plans: data.sitePlans.filter(byProject),
       visites: data.visites.filter(byProject),
       tasks: data.tasks.filter(byProject),
       incidents: data.incidents.filter(byProject),
       documents: data.documents.filter(byProject),
-      photos: data.photos.filter(byProject),
+      photos,
       oprs: data.oprs.filter(byProject),
     };
   }, [data, selectedProjectId]);
@@ -1494,7 +1603,7 @@ export default function BuildTrackWebPage() {
     });
   }, [projectScoped.reserves, search, statusFilter]);
 
-  const selectedReserve = data.reserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
+  const selectedReserve = projectScoped.reserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedPlan = data.sitePlans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
   const selectedChannel = data.channels.find(c => c.id === selectedChannelId) ?? data.channels[0] ?? null;
@@ -1632,6 +1741,7 @@ export default function BuildTrackWebPage() {
               <ReservesView
                 allReserves={projectScoped.reserves}
                 reserves={filteredReserves}
+                photos={projectScoped.photos}
                 selectedReserve={selectedFilteredReserve}
                 setSelectedReserveId={setSelectedReserveId}
                 search={search}
@@ -1643,6 +1753,9 @@ export default function BuildTrackWebPage() {
                 onComment={addReserveComment}
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
+                onFillDescriptions={fillMissingReserveDescriptions}
+                onTranslateReserves={translateReserveTexts}
+                canUseAssistant={isAdmin(profile)}
                 editable={canEdit(profile)}
                 saving={saving}
               />
@@ -1815,6 +1928,7 @@ function Quick({ label, value, onClick }: { label: string; value: number; onClic
 function ReservesView(props: {
   allReserves: any[];
   reserves: any[];
+  photos: any[];
   selectedReserve: any;
   setSelectedReserveId: (id: string) => void;
   search: string;
@@ -1826,12 +1940,18 @@ function ReservesView(props: {
   onComment: (reserve: any, content: string) => Promise<void> | void;
   onCreate: () => void;
   onEdit: (reserve: any) => void;
+  onFillDescriptions: (reserves: any[]) => Promise<void> | void;
+  onTranslateReserves: (reserves: any[], language: TextLang) => Promise<void> | void;
+  canUseAssistant: boolean;
   editable: boolean;
   saving: boolean;
 }) {
   const { allReserves, reserves, selectedReserve } = props;
   const [commentText, setCommentText] = useState('');
+  const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
+  const missingDescriptionCount = reserves.filter(reserve => reserve.title?.trim() && isReserveDescriptionMissing(reserve.description)).length;
+  const selectedPhotos = reservePhotoItems(selectedReserve, props.photos);
   const filterCounts = RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
     acc[option.key] =
       option.key === 'all'
@@ -1881,6 +2001,36 @@ function ReservesView(props: {
           <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
           <span>{activeReserves.length} active{activeReserves.length > 1 ? 's' : ''}</span>
         </div>
+        {props.canUseAssistant && (
+          <div className={styles.reserveAssistantPanel}>
+            <div>
+              <strong>Assistant réserves</strong>
+              <span>{missingDescriptionCount} description{missingDescriptionCount > 1 ? 's' : ''} à compléter dans cette vue.</span>
+            </div>
+            <button
+              type="button"
+              disabled={props.saving || missingDescriptionCount === 0}
+              onClick={() => props.onFillDescriptions(reserves)}
+            >
+              Compléter
+            </button>
+            <select
+              value={assistantLanguage}
+              onChange={event => setAssistantLanguage(event.target.value as TextLang)}
+              disabled={props.saving}
+              aria-label="Langue de traduction"
+            >
+              {TEXT_LANG_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+            <button
+              type="button"
+              disabled={props.saving || reserves.length === 0}
+              onClick={() => props.onTranslateReserves(reserves, assistantLanguage)}
+            >
+              Traduire
+            </button>
+          </div>
+        )}
         <div className={styles.reserveList}>
           {reserves.map(reserve => (
             <button
@@ -1927,6 +2077,22 @@ function ReservesView(props: {
               <div><dt>Accusé réception</dt><dd>{selectedReserve.enterprise_acknowledged_at ? prettyDate(selectedReserve.enterprise_acknowledged_at, true) : 'Manquant'}</dd></div>
               <div><dt>Archive</dt><dd>{selectedReserve.archived_at ? prettyDate(selectedReserve.archived_at, true) : 'Active'}</dd></div>
             </dl>
+            {selectedPhotos.length ? (
+              <div className={styles.reserveDetailPhotos}>
+                <div>
+                  <h3>Photos</h3>
+                  <span>{selectedPhotos.length} média{selectedPhotos.length > 1 ? 's' : ''} associé{selectedPhotos.length > 1 ? 's' : ''}</span>
+                </div>
+                <div className={styles.reserveDetailPhotoGrid}>
+                  {selectedPhotos.map(photo => (
+                    <a key={photo.id ?? photo.uri} href={photo.uri} target="_blank" rel="noreferrer">
+                      <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} />
+                      <span>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             <form
               className={styles.commentForm}
               onSubmit={async event => {
@@ -3574,7 +3740,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                 </div>
                 <label>
                   Ajouter
-                  <input type="file" accept="image/*" multiple onChange={event => addPhotoFiles(event.target.files)} />
+                  <input type="file" accept="image/*" capture="environment" multiple onChange={event => addPhotoFiles(event.target.files)} />
                 </label>
               </div>
               {draft.photos.length ? (
@@ -4132,7 +4298,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
                   ) : null}
                   <label>
                     Ajouter une photo
-                    <input type="file" accept="image/*" onChange={event => setCoverPhoto(event.target.files?.[0] ?? null)} />
+                    <input type="file" accept="image/*" capture="environment" onChange={event => setCoverPhoto(event.target.files?.[0] ?? null)} />
                   </label>
                 </div>
               </div>
