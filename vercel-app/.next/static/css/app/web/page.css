@@ -1690,45 +1690,84 @@
 
 .web_pinToolbar__C8DwZ {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto;
-  align-items: center;
-  grid-gap: 10px;
-  gap: 10px;
+  grid-template-columns: minmax(240px, 0.7fr) minmax(420px, 1.1fr);
+  align-items: stretch;
+  grid-gap: 12px;
+  gap: 12px;
   margin-bottom: 12px;
   border: 1px solid #d8e0ec;
-  border-radius: 12px;
-  padding: 12px;
-  background: #f8fafc;
+  border-radius: 16px;
+  padding: 14px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f2f6fc 100%);
 }
 
-.web_pinToolbar__C8DwZ strong,
-.web_pinToolbar__C8DwZ span {
+.web_pinToolbarIntro__2zpJU {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+}
+
+.web_pinToolbarIntro__2zpJU strong,
+.web_pinToolbarIntro__2zpJU span {
   display: block;
 }
 
-.web_pinToolbar__C8DwZ span {
-  margin-top: 3px;
+.web_pinToolbarIntro__2zpJU strong {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.web_pinToolbarIntro__2zpJU span {
+  margin-top: 5px;
   color: #64748b;
   font-size: 13px;
+  line-height: 1.45;
 }
 
-.web_pinToolbar__C8DwZ select {
+.web_pinToolbarAction__snJNL {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  grid-gap: 12px;
+  gap: 12px;
   border: 1px solid #d8e0ec;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 14px;
+  padding: 12px 14px;
   background: #fff;
   color: #0f172a;
-  font: inherit;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
 }
 
-.web_pinToolbar__C8DwZ button {
-  border: 1px solid #d8e0ec;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: #fff;
-  color: #003082;
-  font-weight: 800;
-  cursor: pointer;
+.web_pinToolbarAction__snJNL > span {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #003082;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.web_pinToolbarAction__snJNL strong,
+.web_pinToolbarAction__snJNL small {
+  display: block;
+}
+
+.web_pinToolbarAction__snJNL strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.web_pinToolbarAction__snJNL small {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .web_pinClickLayer__5KXlb {
@@ -2409,18 +2448,13 @@
 }
 
 .web_reservePinFollowUp__YQ8u3 {
+  display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   border: 1px solid #c7d7fe;
   border-radius: 14px;
   background: #f5f8ff;
   padding: 12px 14px;
-}
-
-.web_reservePinFollowUp__YQ8u3 input {
-  width: 20px;
-  height: 20px;
-  accent-color: #003082;
 }
 
 .web_reservePinFollowUp__YQ8u3 strong,

@@ -1656,44 +1656,82 @@
 
 .pinToolbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(220px, 320px) auto;
-  align-items: center;
-  gap: 10px;
+  grid-template-columns: minmax(240px, 0.7fr) minmax(420px, 1.1fr);
+  align-items: stretch;
+  gap: 12px;
   margin-bottom: 12px;
   border: 1px solid #d8e0ec;
-  border-radius: 12px;
-  padding: 12px;
-  background: #f8fafc;
+  border-radius: 16px;
+  padding: 14px;
+  background: linear-gradient(135deg, #f8fafc 0%, #f2f6fc 100%);
 }
 
-.pinToolbar strong,
-.pinToolbar span {
+.pinToolbarIntro {
+  min-width: 0;
+  display: grid;
+  align-content: center;
+}
+
+.pinToolbarIntro strong,
+.pinToolbarIntro span {
   display: block;
 }
 
-.pinToolbar span {
-  margin-top: 3px;
+.pinToolbarIntro strong {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.pinToolbarIntro span {
+  margin-top: 5px;
   color: #64748b;
   font-size: 13px;
+  line-height: 1.45;
 }
 
-.pinToolbar select {
+.pinToolbarAction {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
   border: 1px solid #d8e0ec;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 14px;
+  padding: 12px 14px;
   background: #fff;
   color: #0f172a;
-  font: inherit;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
 }
 
-.pinToolbar button {
-  border: 1px solid #d8e0ec;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: #fff;
-  color: #003082;
-  font-weight: 800;
-  cursor: pointer;
+.pinToolbarAction > span {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #003082;
+  color: #fff;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.pinToolbarAction strong,
+.pinToolbarAction small {
+  display: block;
+}
+
+.pinToolbarAction strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.pinToolbarAction small {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .pinClickLayer {
@@ -2352,18 +2390,13 @@
 }
 
 .reservePinFollowUp {
+  display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   border: 1px solid #c7d7fe;
   border-radius: 14px;
   background: #f5f8ff;
   padding: 12px 14px;
-}
-
-.reservePinFollowUp input {
-  width: 20px;
-  height: 20px;
-  accent-color: #003082;
 }
 
 .reservePinFollowUp strong,

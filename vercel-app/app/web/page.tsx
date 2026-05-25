@@ -55,7 +55,6 @@ type ReserveDraft = {
   lotId: string;
   visiteId: string;
   companies: string[];
-  placePinAfterCreate: boolean;
 };
 
 type ReservePinDraft = {
@@ -506,7 +505,6 @@ function createReserveDraft(projectId: string, plan?: any | null, visit?: any | 
     lotId: '',
     visiteId: visit?.id ?? '',
     companies: [],
-    placePinAfterCreate: Boolean(planId) && (planX == null || planY == null),
   };
 }
 
@@ -530,7 +528,6 @@ function reserveToDraft(reserve: any): ReserveDraft {
     lotId: reserve.lot_id ?? '',
     visiteId: reserve.visite_id ?? '',
     companies: reserveCompanies(reserve),
-    placePinAfterCreate: false,
   };
 }
 
@@ -611,7 +608,6 @@ export default function BuildTrackWebPage() {
   const [editingReserveId, setEditingReserveId] = useState<string | null>(null);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [visitDraft, setVisitDraft] = useState<VisitDraft>(() => createVisitDraft('', ''));
-  const [pinModeReserveId, setPinModeReserveId] = useState<string | null>(null);
   const [reportLanguage, setReportLanguage] = useState<'fr' | 'en' | 'es'>('fr');
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
   const [email, setEmail] = useState('');
@@ -797,25 +793,6 @@ export default function BuildTrackWebPage() {
     if (commentError) setError(commentError.message);
   }
 
-  async function assignReservePin(reserveId: string, planId: string, x: number, y: number) {
-    if (!canEdit(profile) || !reserveId) return;
-    const payload = {
-      plan_id: planId,
-      plan_x: clampPercent(x),
-      plan_y: clampPercent(y),
-    };
-    setData(prev => ({
-      ...prev,
-      reserves: prev.reserves.map(reserve => reserve.id === reserveId ? { ...reserve, ...payload } : reserve),
-    }));
-    setPinModeReserveId(null);
-    const { error: pinError } = await supabaseBrowser
-      .from('reserves')
-      .update(payload)
-      .eq('id', reserveId);
-    if (pinError) setError(pinError.message);
-  }
-
   function currentProjectId() {
     return selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '';
   }
@@ -838,7 +815,6 @@ export default function BuildTrackWebPage() {
       level: planLocation?.level || baseDraft.level,
       levelId: planLocation?.levelId || baseDraft.levelId,
       companies: visitCompanyNames,
-      placePinAfterCreate: Boolean(baseDraft.planId) && (baseDraft.planX == null || baseDraft.planY == null),
     });
     setReserveModalMode('create');
   }
@@ -996,10 +972,9 @@ export default function BuildTrackWebPage() {
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
         setSelectedReserveId(id);
         const createdWithPin = basePayload.plan_x != null && basePayload.plan_y != null;
-        if (reserveDraft.planId && (reserveDraft.placePinAfterCreate || createdWithPin)) {
+        if (reserveDraft.planId && createdWithPin) {
           setSelectedPlanId(reserveDraft.planId);
           setActiveTab('plans');
-          setPinModeReserveId(createdWithPin ? null : id);
         }
         closeReserveModal();
       }
@@ -1461,9 +1436,6 @@ export default function BuildTrackWebPage() {
                 setTab={setActiveTab}
                 onCreateReserve={(plan: any) => openReserveCreate({ plan })}
                 onCreateReserveAtPin={(plan: any, pin: ReservePinDraft) => openReserveCreate({ plan, pin })}
-                onAssignPin={assignReservePin}
-                pinModeReserveId={pinModeReserveId}
-                setPinModeReserveId={setPinModeReserveId}
                 editable={canEdit(profile)}
               />
             )}
@@ -1791,23 +1763,21 @@ function WebPdfPlan({
   name,
   pins,
   focusedReserveId,
-  pinModeReserveId,
   canCreate,
   placementPreview,
-  onAssignPin,
   onCreateReserveAtPin,
   onPinClick,
+  onPinDoubleClick,
 }: {
   uri: string;
   name: string;
   pins: PlanPin[];
   focusedReserveId?: string | null;
-  pinModeReserveId?: string | null;
   canCreate?: boolean;
   placementPreview?: PinPlacementPreview | null;
-  onAssignPin: (x: number, y: number) => void;
   onCreateReserveAtPin?: (x: number, y: number) => void;
   onPinClick: (reserveId: string) => void;
+  onPinDoubleClick: (reserveId: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -1914,14 +1884,10 @@ function WebPdfPlan({
   }, [uri, scale]);
 
   function handlePageClick(event: MouseEvent<HTMLDivElement>) {
-    if (!pinModeReserveId && !canCreate) return;
+    if (!canCreate) return;
     const rect = event.currentTarget.getBoundingClientRect();
     const x = clampPercent(((event.clientX - rect.left) / rect.width) * 100);
     const y = clampPercent(((event.clientY - rect.top) / rect.height) * 100);
-    if (pinModeReserveId) {
-      onAssignPin(x, y);
-      return;
-    }
     onCreateReserveAtPin?.(x, y);
   }
 
@@ -1951,11 +1917,6 @@ function WebPdfPlan({
               <span>{error}</span>
             </div>
           )}
-          {pinModeReserveId && (
-            <div className={styles.pdfPinHint}>
-              Cliquez sur le PDF pour placer l’épingle
-            </div>
-          )}
           {placementPreview && (
             <div
               key={placementPreview.id}
@@ -1970,10 +1931,15 @@ function WebPdfPlan({
               key={pin.reserve.id}
               className={`${styles.pin} ${focusedReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
               style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-              title={pin.reserve.title}
+              title={`${pin.reserve.title} · double-clic pour ouvrir la réserve`}
+              aria-label={`Mettre en avant l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
               onClick={event => {
                 event.stopPropagation();
                 onPinClick(pin.reserve.id);
+              }}
+              onDoubleClick={event => {
+                event.stopPropagation();
+                onPinDoubleClick(pin.reserve.id);
               }}
             >
               {pin.number}
@@ -1994,9 +1960,6 @@ function PlansView({
   setTab,
   onCreateReserve,
   onCreateReserveAtPin,
-  onAssignPin,
-  pinModeReserveId,
-  setPinModeReserveId,
   editable,
 }: any) {
   const [buildingQuery, setBuildingQuery] = useState('');
@@ -2008,7 +1971,6 @@ function PlansView({
   const pinPlacementTimerRef = useRef<number | null>(null);
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
   const selectedPlanReserve = planReserves.find((reserve: any) => reserve.id === selectedPlanReserveId) ?? null;
-  const pinTarget = reserves.find((reserve: any) => reserve.id === pinModeReserveId);
   const selectedPlanBuildingKey = selectedPlan ? getPlanBuildingKey(selectedPlan) : 'all';
   const buildingGroups = useMemo(() => {
     const map = new Map<string, {
@@ -2154,6 +2116,10 @@ function PlansView({
       setSelectedPlanId(group.plans[0].id);
     }
   };
+  const openReserveFromPin = (reserveId: string) => {
+    setSelectedReserveId(reserveId);
+    setTab('reserves');
+  };
   const assignOrCreatePinAt = (x: number, y: number) => {
     if (!selectedPlan) return;
     const nextX = Math.round(clampPercent(x));
@@ -2163,15 +2129,10 @@ function PlansView({
       planId: selectedPlan.id,
       x: nextX,
       y: nextY,
-      label: pinModeReserveId ? 'Épingle déplacée' : 'Nouvelle épingle',
+      label: 'Nouvelle épingle',
     };
     setPinPlacementPreview(preview);
     if (pinPlacementTimerRef.current) window.clearTimeout(pinPlacementTimerRef.current);
-    if (pinModeReserveId) {
-      onAssignPin(pinModeReserveId, selectedPlan.id, nextX, nextY);
-      pinPlacementTimerRef.current = window.setTimeout(() => setPinPlacementPreview(null), 900);
-      return;
-    }
     if (!editable) return;
     pinPlacementTimerRef.current = window.setTimeout(() => {
       setPinPlacementPreview(null);
@@ -2312,17 +2273,17 @@ function PlansView({
             </div>
             {editable && (
               <div className={styles.pinToolbar}>
-                <div>
-                  <strong>Positionner une épingle</strong>
-                  <span>{pinTarget ? `Cliquez sur le plan pour placer : ${pinTarget.title}` : 'Choisissez une réserve à déplacer, ou cliquez sur le plan pour créer une réserve à cet endroit.'}</span>
+                <div className={styles.pinToolbarIntro}>
+                  <strong>Créer une réserve épinglée</strong>
+                  <span>Cliquez directement sur le PDF pour créer une nouvelle réserve à l’endroit exact.</span>
                 </div>
-                <select value={pinModeReserveId ?? ''} onChange={event => setPinModeReserveId(event.target.value || null)}>
-                  <option value="">Choisir une réserve</option>
-                  {reserves.filter((reserve: any) => !reserve.archived_at).map((reserve: any) => (
-                    <option key={reserve.id} value={reserve.id}>{reserve.id} · {reserve.title}</option>
-                  ))}
-                </select>
-                {pinModeReserveId && <button type="button" onClick={() => setPinModeReserveId(null)}>Annuler</button>}
+                <div className={styles.pinToolbarAction}>
+                  <span>+</span>
+                  <div>
+                    <strong>Création par clic</strong>
+                    <small>L’épingle est mémorisée puis le formulaire de réserve s’ouvre.</small>
+                  </div>
+                </div>
               </div>
             )}
             <div className={styles.planWorkArea}>
@@ -2335,24 +2296,23 @@ function PlansView({
                     name={selectedPlan.name}
                     pins={planPins}
                     focusedReserveId={focusedPlanReserveId}
-                    pinModeReserveId={pinModeReserveId}
                     canCreate={editable}
                     placementPreview={activePlacementPreview}
-                    onAssignPin={assignOrCreatePinAt}
                     onCreateReserveAtPin={assignOrCreatePinAt}
                     onPinClick={(reserveId) => {
                       setSelectedPlanReserveId(reserveId);
                       setFocusedPlanReserveId(reserveId);
                     }}
+                    onPinDoubleClick={openReserveFromPin}
                   />
                 ) : (
                   <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
                 )}
-                {selectedPlan.file_type !== 'pdf' && (pinModeReserveId || editable) && (
+                {selectedPlan.file_type !== 'pdf' && editable && (
                   <button
                     type="button"
-                    className={`${styles.pinClickLayer} ${!pinModeReserveId ? styles.pinCreateLayer : ''}`}
-                    aria-label={pinModeReserveId ? 'Cliquer pour placer l’épingle' : 'Cliquer pour créer une réserve à cet endroit'}
+                    className={`${styles.pinClickLayer} ${styles.pinCreateLayer}`}
+                    aria-label="Cliquer pour créer une réserve à cet endroit"
                     onClick={event => {
                       const rect = event.currentTarget.getBoundingClientRect();
                       assignOrCreatePinAt(
@@ -2360,20 +2320,23 @@ function PlansView({
                         ((event.clientY - rect.top) / rect.height) * 100,
                       );
                     }}
-                  >
-                    {pinModeReserveId ? <span>Cliquer pour placer l’épingle</span> : null}
-                  </button>
+                  />
                 )}
                 {selectedPlan.file_type !== 'pdf' && planPins.map((pin) => (
                     <button
                       key={pin.reserve.id}
-                      className={styles.pin}
+                      className={`${styles.pin} ${focusedPlanReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
                       style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
-                      title={pin.reserve.title}
+                      title={`${pin.reserve.title} · double-clic pour ouvrir la réserve`}
+                      aria-label={`Mettre en avant l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
                       onClick={event => {
                         event.stopPropagation();
-                        setSelectedReserveId(pin.reserve.id);
-                        setTab('reserves');
+                        setSelectedPlanReserveId(pin.reserve.id);
+                        setFocusedPlanReserveId(pin.reserve.id);
+                      }}
+                      onDoubleClick={event => {
+                        event.stopPropagation();
+                        openReserveFromPin(pin.reserve.id);
                       }}
                     >
                       {pin.number}
@@ -3077,7 +3040,6 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       planId: '',
       planX: null,
       planY: null,
-      placePinAfterCreate: false,
     }));
   }
 
@@ -3090,7 +3052,6 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       planId: '',
       planX: null,
       planY: null,
-      placePinAfterCreate: false,
     }));
   }
 
@@ -3106,18 +3067,13 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       levelId: location?.levelId || prev.levelId,
       planX: prev.planId === planId ? prev.planX : null,
       planY: prev.planId === planId ? prev.planY : null,
-      placePinAfterCreate: !planId
-        ? false
-        : mode === 'create' && prev.planId !== planId
-          ? true
-          : prev.placePinAfterCreate,
     }));
   }
 
   function applyVisit(visitId: string) {
     const visit = visits.find(item => item.id === visitId);
     if (!visit) {
-      setDraft(prev => ({ ...prev, visiteId: '', deadline: '', planId: '', planX: null, planY: null, placePinAfterCreate: false }));
+      setDraft(prev => ({ ...prev, visiteId: '', deadline: '', planId: '', planX: null, planY: null }));
       return;
     }
     const visitCompanyNames = getVisitCompanyIds(visit)
@@ -3143,7 +3099,6 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       planId: defaultPlanId || prev.planId,
       planX: null,
       planY: null,
-      placePinAfterCreate: mode === 'create' && Boolean(defaultPlanId),
     }));
   }
 
@@ -3225,7 +3180,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
             <div className={styles.reserveModalGrid}>
               <label>
                 Chantier
-                <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value, building: '', buildingId: '', level: '', levelId: '', planId: '', planX: null, planY: null, visiteId: '', placePinAfterCreate: false }))}>
+                <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value, building: '', buildingId: '', level: '', levelId: '', planId: '', planX: null, planY: null, visiteId: '' }))}>
                   {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
               </label>
@@ -3316,29 +3271,22 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                       ...prev,
                       planX: null,
                       planY: null,
-                      placePinAfterCreate: mode === 'create' && !!prev.planId,
                     }))}
                   >
                     Retirer
                   </button>
                 </div>
               ) : draft.planId ? (
-                <label className={`${styles.formWide} ${styles.reservePinFollowUp}`}>
-                  <input
-                    type="checkbox"
-                    checked={mode === 'create' && draft.placePinAfterCreate}
-                    disabled={mode === 'edit'}
-                    onChange={event => setDraft(prev => ({ ...prev, placePinAfterCreate: event.target.checked }))}
-                  />
+                <div className={`${styles.formWide} ${styles.reservePinFollowUp}`}>
                   <span>
-                    <strong>Positionner l’épingle après création</strong>
-                    <small>{selectedPlan?.name ?? 'Le plan associé'} s’ouvrira directement avec cette réserve sélectionnée.</small>
+                    <strong>Plan associé sans épingle</strong>
+                    <small>Pour créer une réserve déjà localisée, utilisez la page Plans et cliquez directement sur le PDF.</small>
                   </span>
-                </label>
+                </div>
               ) : (
                 <div className={styles.formWide}>
                   <div className={styles.reserveNoticeWarning}>
-                    Sans plan associé, la réserve sera créée hors plan et pourra être épinglée plus tard.
+                    Sans plan associé, la réserve sera créée hors plan.
                   </div>
                 </div>
               )}
