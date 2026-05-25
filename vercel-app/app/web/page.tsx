@@ -592,6 +592,17 @@ function assetUrl(item: any, bucket: 'photos' | 'documents' = 'photos') {
   return storagePublicUrl(raw, bucket);
 }
 
+function assetDedupeKey(url: string) {
+  const value = String(url ?? '').trim();
+  if (!value) return '';
+  try {
+    const parsed = new URL(value);
+    return `${parsed.origin}${parsed.pathname}`.toLowerCase();
+  } catch {
+    return value.replace(/[?#].*$/, '').toLowerCase();
+  }
+}
+
 function reservePhotoItems(reserve: any, photos: any[]) {
   if (!reserve) return [];
   const fromReserve = Array.isArray(reserve.photos) ? reserve.photos : [];
@@ -607,7 +618,10 @@ function reservePhotoItems(reserve: any, photos: any[]) {
   [...fromReserve, ...legacyReservePhotos, ...fromTable].forEach(photo => {
     const uri = assetUrl(photo, 'photos');
     if (!uri) return;
-    byKey.set(String(photo.id ?? uri), { ...photo, uri });
+    const key = assetDedupeKey(uri) || String(photo.id ?? uri);
+    if (!byKey.has(key)) {
+      byKey.set(key, { ...photo, uri });
+    }
   });
   return Array.from(byKey.values());
 }
@@ -629,9 +643,10 @@ function localOnlyPhotoCount(reserve: any, photos: any[]) {
     const reserveId = photo.reserve_id ?? photo.reserveId;
     return reserveId && String(reserveId) === String(reserve.id);
   });
-  return [...fromReserve, ...legacyReservePhotos, ...fromTable]
+  const localKeys = [...fromReserve, ...legacyReservePhotos, ...fromTable]
     .filter(photo => /^file:\/\//i.test(rawPhotoUrl(photo)))
-    .length;
+    .map(photo => rawPhotoUrl(photo).replace(/[?#].*$/, '').toLowerCase());
+  return new Set(localKeys).size;
 }
 
 function clampPercent(value: number, min = 0, max = 100) {
@@ -823,6 +838,27 @@ function appendDictationText(current: string, transcript: string) {
   if (!text) return current;
   const base = current.trimEnd();
   return base ? `${base} ${text}` : text;
+}
+
+function speechRecognitionErrorMessage(error?: string) {
+  switch (error) {
+    case 'not-allowed':
+    case 'service-not-allowed':
+      return "Le micro ou la reconnaissance vocale est refusé pour ce site. Vérifiez l'autorisation micro dans le navigateur.";
+    case 'audio-capture':
+      return "Aucun micro utilisable n'a été détecté. Vérifiez le périphérique d'entrée audio.";
+    case 'network':
+      return "La reconnaissance vocale du navigateur est indisponible pour le moment. Elle nécessite une connexion stable et le service vocal de Chrome/Edge.";
+    case 'no-speech':
+    case 'speech-timeout':
+      return "Aucune parole détectée. Relancez la dictée et parlez après l'activation du micro.";
+    case 'language-not-supported':
+      return "Cette langue de dictée n'est pas disponible dans ce navigateur.";
+    case 'aborted':
+      return 'Dictée arrêtée. Vous pouvez relancer le micro.';
+    default:
+      return 'Dictée interrompue. Relancez le micro ou vérifiez le périphérique audio.';
+  }
 }
 
 function MicrophoneIcon() {
@@ -5266,6 +5302,8 @@ function TextAssistControls({
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const recognitionRef = useRef<any>(null);
+  const manualStopRef = useRef(false);
+  const receivedResultRef = useRef(false);
 
   useEffect(() => () => {
     try {
@@ -5273,6 +5311,7 @@ function TextAssistControls({
     } catch {
       // Some browsers throw when speech recognition is already closed.
     }
+    recognitionRef.current = null;
   }, []);
 
   function setPreferredLang(next: TextLang) {
@@ -5281,6 +5320,7 @@ function TextAssistControls({
   }
 
   function stopDictation() {
+    manualStopRef.current = true;
     try {
       recognitionRef.current?.stop?.();
     } catch {
@@ -5290,39 +5330,76 @@ function TextAssistControls({
     setBusy(null);
   }
 
-  function startDictation(nextLang: TextLang) {
+  async function startDictation(nextLang: TextLang) {
     setPreferredLang(nextLang);
     setDictationOpen(true);
     setMessage('');
     if (typeof window === 'undefined') return;
-    if (busy === 'dictation') stopDictation();
+    if (busy === 'dictation') {
+      stopDictation();
+      return;
+    }
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!Recognition) {
       setMessage("La dictée vocale n'est pas disponible dans ce navigateur. Essayez Chrome ou Edge.");
       return;
     }
+
+    if (window.isSecureContext === false) {
+      setMessage('La dictée nécessite une page sécurisée en HTTPS.');
+      return;
+    }
+
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(track => track.stop());
+      } catch (micError: any) {
+        const code = micError?.name === 'NotFoundError' || micError?.name === 'DevicesNotFoundError'
+          ? 'audio-capture'
+          : 'not-allowed';
+        setMessage(speechRecognitionErrorMessage(code));
+        return;
+      }
+    }
+
     const recognition = new Recognition();
     recognitionRef.current = recognition;
+    manualStopRef.current = false;
+    receivedResultRef.current = false;
     recognition.lang = TEXT_LANG_OPTIONS.find(item => item.value === nextLang)?.speech ?? 'fr-FR';
     recognition.interimResults = false;
     recognition.continuous = false;
     recognition.maxAlternatives = 1;
     setBusy('dictation');
+    recognition.onstart = () => setMessage('Parlez maintenant...');
     recognition.onresult = (event: any) => {
       const text = event?.results?.[0]?.[0]?.transcript;
-      if (text) onChange(appendDictationText(value, text));
+      if (text) {
+        receivedResultRef.current = true;
+        onChange(appendDictationText(value, text));
+        setMessage('Dictée ajoutée.');
+      }
     };
-    recognition.onerror = () => setMessage('Dictée interrompue. Vérifiez le micro ou les permissions.');
+    recognition.onerror = (event: any) => {
+      const code = String(event?.error ?? '');
+      if (manualStopRef.current && code === 'aborted') return;
+      setMessage(speechRecognitionErrorMessage(code));
+    };
     recognition.onend = () => {
       recognitionRef.current = null;
       setBusy(null);
+      if (manualStopRef.current) setMessage('');
+      if (receivedResultRef.current) window.setTimeout(() => setMessage(''), 1800);
     };
     try {
       recognition.start();
-    } catch {
+    } catch (startError: any) {
       recognitionRef.current = null;
       setBusy(null);
-      setMessage('Impossible de démarrer la dictée. Réessayez dans quelques secondes.');
+      setMessage(startError?.name === 'InvalidStateError'
+        ? 'Une dictée est déjà en cours. Patientez une seconde puis réessayez.'
+        : 'Impossible de démarrer la dictée. Réessayez dans quelques secondes.');
     }
   }
 
