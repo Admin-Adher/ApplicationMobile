@@ -139,8 +139,7 @@
 }
 
 .loginForm button,
-.topbarActions button,
-.userBox button {
+.topbarActions button {
   position: relative;
   isolation: isolate;
   min-height: 50px;
@@ -166,12 +165,11 @@
 }
 
 .topbarActions button {
-  min-width: 132px;
-  max-width: 178px;
+  min-width: max-content;
+  max-width: none;
   overflow: visible;
-  white-space: normal;
+  white-space: nowrap;
   text-align: center;
-  text-wrap: balance;
   text-shadow: 0 1px 2px rgba(0, 24, 68, 0.42);
   background:
     radial-gradient(circle at 18% 12%, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.12) 26%, transparent 48%),
@@ -184,13 +182,11 @@
 }
 
 .topbarActions button:last-child {
-  min-width: 158px;
-  max-width: none;
+  min-width: max-content;
 }
 
 .loginForm button::before,
-.topbarActions button::before,
-.userBox button::before {
+.topbarActions button::before {
   content: "";
   position: absolute;
   inset: 1px;
@@ -203,8 +199,7 @@
 }
 
 .loginForm button::after,
-.topbarActions button::after,
-.userBox button::after {
+.topbarActions button::after {
   content: "";
   position: absolute;
   top: -55%;
@@ -223,8 +218,7 @@
 }
 
 .loginForm button:hover:not(:disabled),
-.topbarActions button:hover:not(:disabled),
-.userBox button:hover:not(:disabled) {
+.topbarActions button:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: saturate(1.06) brightness(1.04);
   box-shadow:
@@ -235,8 +229,7 @@
 }
 
 .loginForm button:active:not(:disabled),
-.topbarActions button:active:not(:disabled),
-.userBox button:active:not(:disabled) {
+.topbarActions button:active:not(:disabled) {
   transform: translateY(1px) scale(0.99);
 }
 
@@ -506,7 +499,7 @@
 }
 
 .userBox button {
-  min-height: 46px;
+  min-height: 40px;
   line-height: 1.1;
 }
 
@@ -2028,13 +2021,13 @@
 
 .pinToolbar {
   display: grid;
-  grid-template-columns: minmax(240px, 0.7fr) minmax(420px, 1.1fr);
+  grid-template-columns: minmax(220px, 0.74fr) minmax(320px, 1fr);
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 10px;
+  margin-bottom: 8px;
   border: 1px solid #d8e0ec;
-  border-radius: 16px;
-  padding: 16px 18px;
+  border-radius: 14px;
+  padding: 10px 12px;
   background: linear-gradient(135deg, #f8fafc 0%, #f2f6fc 100%);
 }
 
@@ -2043,7 +2036,7 @@
   display: grid;
   align-content: center;
   align-self: center;
-  padding: 2px 12px 2px 0;
+  padding: 0 8px 0 0;
 }
 
 .pinToolbarIntro strong,
@@ -2053,28 +2046,28 @@
 
 .pinToolbarIntro strong {
   color: #0f172a;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 900;
 }
 
 .pinToolbarIntro span {
-  margin-top: 5px;
+  margin-top: 3px;
   color: #64748b;
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .pinToolbarAction {
   min-width: 0;
-  min-height: 88px;
+  min-height: 58px;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
   align-self: center;
-  gap: 12px;
+  gap: 10px;
   border: 1px solid #d8e0ec;
-  border-radius: 14px;
-  padding: 14px 16px;
+  border-radius: 12px;
+  padding: 10px 12px;
   background: #fff;
   color: #0f172a;
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
@@ -2089,12 +2082,12 @@
 .pinToolbarAction > span {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
   background: #003082;
   color: #fff;
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 900;
 }
 
@@ -2105,15 +2098,15 @@
 
 .pinToolbarAction strong {
   color: #0f172a;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 900;
 }
 
 .pinToolbarAction small {
-  margin-top: 4px;
+  margin-top: 2px;
   color: #64748b;
-  font-size: 12px;
-  line-height: 1.35;
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .pinClickLayer {
