@@ -1344,6 +1344,21 @@
   cursor: pointer;
 }
 
+.reservePdfOpenButton {
+  border: 1px solid #cbd8f0;
+  border-radius: 12px;
+  background: #fff;
+  color: #003082;
+  padding: 10px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reservePdfOpenButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .reserveAssistantOpenButton {
   position: relative;
   display: inline-flex;
@@ -1794,6 +1809,282 @@
 
 .reserveAssistantProgressWeb span {
   font-size: 13px;
+}
+
+.reservePdfModalWeb {
+  width: min(720px, 100%);
+}
+
+.reservePdfBodyWeb {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+  background: #f8fafc;
+}
+
+.reservePdfSectionWeb,
+.reservePdfPreviewWeb {
+  border: 1px solid #dbe5f0;
+  border-radius: 16px;
+  background: #fff;
+  padding: 14px;
+}
+
+.reservePdfSectionWeb {
+  display: grid;
+  gap: 10px;
+}
+
+.reservePdfSectionWeb > strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.reservePdfSectionHeaderWeb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reservePdfSectionHeaderWeb > strong {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+.reservePdfSectionHeaderWeb div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.reservePdfSectionHeaderWeb button {
+  min-height: 32px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #003082;
+  padding: 0 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reservePdfSectionWeb select {
+  min-height: 42px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.reservePdfScopeGridWeb {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.reservePdfScopeGridWeb button {
+  display: grid;
+  gap: 5px;
+  min-height: 92px;
+  border: 1px solid #d8e0ec;
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  padding: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.reservePdfScopeGridWeb button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.reservePdfScopeGridWeb span,
+.reservePdfScopeGridWeb em {
+  font-weight: 900;
+}
+
+.reservePdfScopeGridWeb small {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reservePdfScopeGridWeb em {
+  color: #003082;
+  font-size: 22px;
+  font-style: normal;
+}
+
+.reservePdfScopeActiveWeb {
+  border-color: #003082 !important;
+  background: #eef4ff !important;
+}
+
+.reservePdfCompanyGridWeb {
+  max-height: 240px;
+  overflow-y: auto;
+  display: grid;
+  gap: 7px;
+  padding-right: 4px;
+}
+
+.reservePdfCompanyGridWeb button {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #0f172a;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.reservePdfCompanyGridWeb span {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid #cbd8f0;
+  border-radius: 999px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.reservePdfCompanyGridWeb strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reservePdfCompanyGridWeb em {
+  color: #64748b;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.reservePdfCompanyActiveWeb {
+  border-color: #003082 !important;
+  background: #eef4ff !important;
+}
+
+.reservePdfCompanyActiveWeb span {
+  border-color: #003082 !important;
+  background: #003082 !important;
+}
+
+.reservePdfLangRowWeb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reservePdfLangRowWeb button {
+  min-height: 36px;
+  min-width: 54px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  padding: 0 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reservePdfLangActiveWeb {
+  border-color: #003082 !important;
+  background: #003082 !important;
+  color: #fff !important;
+}
+
+.reservePdfPreviewWeb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reservePdfPreviewWeb div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.reservePdfPreviewWeb strong {
+  color: #003082;
+  font-size: 28px;
+}
+
+.reservePdfPreviewWeb span,
+.reservePdfPreviewWeb small {
+  color: #64748b;
+  font-weight: 800;
+}
+
+.reservePdfActionsWeb {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.reservePdfActionsWeb button {
+  min-height: 42px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #003082;
+  padding: 0 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reservePdfActionsWeb button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.reservePdfPrimaryWeb {
+  border-color: #003082 !important;
+  background: #003082 !important;
+  color: #fff !important;
+}
+
+.reserveDetailExportRow {
+  display: flex;
+  justify-content: flex-end;
+  margin: 10px 0 4px;
+}
+
+.reserveDetailExportRow button {
+  min-height: 42px;
+  border: 1px solid #cbd8f0;
+  border-radius: 12px;
+  background: #eef4ff;
+  color: #003082;
+  padding: 0 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reserveDetailExportRow button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .reserveList {
@@ -4386,6 +4677,57 @@
   gap: 7px;
 }
 
+.textAssistGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+  gap: 10px;
+}
+
+.textAssistSection {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px;
+}
+
+.textAssistSectionOpen {
+  border-color: #cbd8f0;
+  background: #f8fbff;
+}
+
+.textAssistSectionHeader {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+.textAssistSectionHeader strong,
+.textAssistSectionHeader small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.textAssistSectionHeader strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.textAssistSectionHeader small {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .textAssistBar {
   display: flex;
   flex-wrap: wrap;
@@ -4411,13 +4753,17 @@
   cursor: pointer;
 }
 
-.textAssistBar .microIconButton {
+.microIconButton {
   display: inline-grid;
   place-items: center;
   width: 40px;
   height: 40px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
   padding: 0;
   color: #003082;
+  cursor: pointer;
 }
 
 .microIconButton svg {
@@ -4443,21 +4789,80 @@
   color: #fff !important;
 }
 
+.translationIconWeb {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #003082;
+  font-size: 14px;
+  font-weight: 900;
+}
+
 .dictationPicker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.dictationPicker button,
+.translationPickerWeb button {
+  min-width: 0;
+}
+
+.dictationPicker button {
+  display: grid;
+  justify-items: center;
+  gap: 1px;
+  border-radius: 12px;
+  padding: 7px 8px;
+}
+
+.dictationPicker button span,
+.dictationPicker button small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dictationPicker button span {
+  color: inherit;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.dictationPicker button small {
+  color: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.75;
+}
+
+.translationPickerWeb {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  align-items: center;
-  border: 1px solid #e2e8f0;
-  border-radius: 13px;
-  background: #f8fafc;
-  padding: 8px;
 }
 
-.dictationPicker span {
-  color: #64748b;
+.translationPickerWeb button {
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #003082;
+  padding: 7px 10px;
   font-size: 12px;
   font-weight: 900;
+  cursor: pointer;
+}
+
+.translationPickerWeb button:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 .textAssistMessage {
@@ -5781,6 +6186,7 @@
   .reserveAdvancedFiltersWeb,
   .reserveModalGrid,
   .reserveTemplateGrid,
+  .textAssistGrid,
   .reserveDetailPhotos > div:first-child,
   .visitCoverBox,
   .visitTypeGrid,

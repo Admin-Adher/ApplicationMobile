@@ -793,7 +793,7 @@ async function uploadWebFile(bucket: 'photos' | 'documents', file: File, prefix:
   return urlData.publicUrl;
 }
 
-async function requestWebTranslation(params: { text: string; source: TextLang; target: TextLang; context: string }) {
+async function requestWebTranslation(params: { text: string; source?: TextLang | 'auto'; target: TextLang; context: string }) {
   const text = params.text.trim();
   if (!text || params.source === params.target) return text;
   const { data: authData } = await supabaseBrowser.auth.getSession();
@@ -1864,18 +1864,46 @@ export default function BuildTrackWebPage() {
     return data.chantiers.find(project => project.id === selectedProjectId)?.name ?? 'Chantier';
   }
 
-  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report', options?: { visit?: any; language?: 'fr' | 'en' | 'es' }) {
+  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report', options?: {
+    visit?: any;
+    reserve?: any;
+    reserves?: any[];
+    companyFilter?: string | null;
+    language?: 'fr' | 'en' | 'es';
+  }) {
     const selectedProjectName = projectName();
     const language = options?.language ?? reportLanguage;
     const reportKey = `${type}-${language}`;
     setGeneratingReport(reportKey);
     setError('');
     try {
+      const targetReserve = options?.reserve ?? selectedReserve;
+      const targetReserves = options?.reserves ?? filteredReserves;
+      const reservePlanId = targetReserve?.plan_id ?? targetReserve?.planId;
+      const reservePlan = reservePlanId ? projectScoped.plans.find((plan: any) => String(plan.id) === String(reservePlanId)) : null;
+      const reserveCompanyName = targetReserve ? reserveCompanies(targetReserve)[0] : null;
+      const reserveCompany = reserveCompanyName
+        ? data.companies.find((company: any) => company.name === reserveCompanyName || company.id === targetReserve?.company_id || company.id === targetReserve?.companyId)
+        : null;
+      const planPins = reservePlanId
+        ? projectScoped.reserves.filter((reserve: any) =>
+            String(reserve.plan_id ?? reserve.planId ?? '') === String(reservePlanId) &&
+            normalizePlanPercent(reserve.plan_x ?? reserve.planX) != null &&
+            normalizePlanPercent(reserve.plan_y ?? reserve.planY) != null
+          )
+        : [];
+      const pinNum = targetReserve ? Math.max(1, planPins.findIndex((reserve: any) => String(reserve.id) === String(targetReserve.id)) + 1) : undefined;
       const payload = type === 'individual_reserve'
         ? {
             type,
             chantierName: selectedProjectName,
-            reserve: selectedReserve,
+            reserve: targetReserve,
+            companyColor: reserveCompany?.color ?? null,
+            planUri: reservePlan?.uri ?? null,
+            planName: reservePlan?.name ?? null,
+            planX: normalizePlanPercent(targetReserve?.plan_x ?? targetReserve?.planX),
+            planY: normalizePlanPercent(targetReserve?.plan_y ?? targetReserve?.planY),
+            pinNum,
             language,
             generatedAt: new Date().toISOString(),
           }
@@ -1895,14 +1923,18 @@ export default function BuildTrackWebPage() {
         : {
             type,
             chantierName: selectedProjectName,
-            reserves: filteredReserves,
+            reserves: targetReserves,
             plans: projectScoped.plans,
-            companyFilter: null,
+            companyFilter: options?.companyFilter ?? null,
             language,
             generatedAt: new Date().toISOString(),
           };
-      if (type === 'individual_reserve' && !selectedReserve) {
+      if (type === 'individual_reserve' && !targetReserve) {
         setError('Sélectionnez une réserve avant de générer sa fiche.');
+        return;
+      }
+      if (type === 'global_reserves' && targetReserves.length === 0) {
+        setError('Aucune réserve à exporter avec cette sélection.');
         return;
       }
       if (type === 'visit_report' && !options?.visit) {
@@ -2209,6 +2241,10 @@ export default function BuildTrackWebPage() {
                 onEdit={openReserveEdit}
                 onFillDescriptions={fillMissingReserveDescriptions}
                 onTranslateReserves={translateReserveTexts}
+                onGenerateReservesPdf={(reserves: any[], language: TextLang, companyFilter?: string | null) => generateWebReport('global_reserves', { reserves, language, companyFilter })}
+                onGenerateReservePdf={(reserve: any, language: TextLang) => generateWebReport('individual_reserve', { reserve, language })}
+                generatingReport={generatingReport}
+                defaultReportLanguage={reportLanguage}
                 canUseAssistant={isAdmin(profile)}
                 editable={canEdit(profile)}
                 saving={saving}
@@ -2763,6 +2799,10 @@ function ReservesView(props: {
   onEdit: (reserve: any) => void;
   onFillDescriptions: (reserves: any[]) => Promise<void> | void;
   onTranslateReserves: (reserves: any[], language: TextLang) => Promise<void> | void;
+  onGenerateReservesPdf: (reserves: any[], language: TextLang, companyFilter?: string | null) => Promise<void> | void;
+  onGenerateReservePdf: (reserve: any, language: TextLang) => Promise<void> | void;
+  generatingReport: string | null;
+  defaultReportLanguage: TextLang;
   canUseAssistant: boolean;
   editable: boolean;
   saving: boolean;
@@ -2770,6 +2810,11 @@ function ReservesView(props: {
   const { allReserves, reserves, selectedReserve } = props;
   const [commentText, setCommentText] = useState('');
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
+  const [pdfLanguage, setPdfLanguage] = useState<TextLang>(props.defaultReportLanguage);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
+  const [pdfMode, setPdfMode] = useState<'view' | 'selected' | 'company' | 'company_multi' | 'no_company'>('view');
+  const [pdfCompany, setPdfCompany] = useState('');
+  const [pdfCompaniesMulti, setPdfCompaniesMulti] = useState<Set<string>>(new Set());
   const [assistantScope, setAssistantScope] = useState<'view' | 'project' | 'selected'>('view');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [assistantVisible, setAssistantVisible] = useState(false);
@@ -2801,6 +2846,39 @@ function ReservesView(props: {
     props.pinFilter !== 'all';
   const selectedPhotos = reservePhotoItems(selectedReserve, props.photos);
   const selectedLocalOnlyPhotos = localOnlyPhotoCount(selectedReserve, props.photos);
+  const pdfCompanies = props.structuredFilters.companies;
+  const pdfTargetReserves = useMemo(() => {
+    if (pdfMode === 'selected') return selectedReserve ? [selectedReserve] : [];
+    if (pdfMode === 'company') {
+      if (!pdfCompany) return [];
+      return reserves.filter(reserve => reserveCompanies(reserve).includes(pdfCompany));
+    }
+    if (pdfMode === 'company_multi') {
+      if (pdfCompaniesMulti.size === 0) return [];
+      return reserves.filter(reserve => reserveCompanies(reserve).some(company => pdfCompaniesMulti.has(company)));
+    }
+    if (pdfMode === 'no_company') {
+      return reserves.filter(reserve => reserveCompanies(reserve).length === 0);
+    }
+    return reserves;
+  }, [pdfCompaniesMulti, pdfCompany, pdfMode, reserves, selectedReserve]);
+  const pdfCompanyPreviewCount = pdfCompany ? reserves.filter(reserve => reserveCompanies(reserve).includes(pdfCompany)).length : 0;
+  const pdfCompaniesMultiPreviewCount = pdfCompaniesMulti.size
+    ? reserves.filter(reserve => reserveCompanies(reserve).some(company => pdfCompaniesMulti.has(company))).length
+    : 0;
+  const pdfScopeLabel =
+    pdfMode === 'selected'
+      ? selectedReserve?.id ?? 'Aucune réserve'
+      : pdfMode === 'company'
+        ? pdfCompany || 'Entreprise à choisir'
+        : pdfMode === 'company_multi'
+          ? `${pdfCompaniesMulti.size} entreprises`
+        : pdfMode === 'no_company'
+          ? 'Sans entreprise'
+          : 'Vue actuelle';
+  const pdfBusy =
+    props.generatingReport === `global_reserves-${pdfLanguage}` ||
+    props.generatingReport === `individual_reserve-${pdfLanguage}`;
   const filterCounts = RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
     acc[option.key] =
       option.key === 'all'
@@ -2834,6 +2912,29 @@ function ReservesView(props: {
     }
   }, [advancedFilterActive, props.statusFilter]);
 
+  useEffect(() => {
+    setPdfLanguage(props.defaultReportLanguage);
+  }, [props.defaultReportLanguage]);
+
+  async function handleReservePdfExport() {
+    if (pdfBusy || pdfTargetReserves.length === 0) return;
+    if (pdfMode === 'selected' && selectedReserve) {
+      await props.onGenerateReservePdf(selectedReserve, pdfLanguage);
+      return;
+    }
+    await props.onGenerateReservesPdf(
+      pdfTargetReserves,
+      pdfLanguage,
+      pdfMode === 'company'
+        ? pdfCompany
+        : pdfMode === 'company_multi'
+          ? `${pdfCompaniesMulti.size} entreprises`
+          : pdfMode === 'no_company'
+            ? 'Sans entreprise'
+            : null,
+    );
+  }
+
   return (
     <div className={styles.reservesLayout}>
       <section className={`${styles.panel} ${styles.reservesListPanel}`}>
@@ -2843,6 +2944,14 @@ function ReservesView(props: {
             <h2>Réserves</h2>
           </div>
           <div className={styles.reservePanelActions}>
+            <button
+              type="button"
+              className={styles.reservePdfOpenButton}
+              onClick={() => setPdfModalOpen(true)}
+              disabled={reserves.length === 0 && !selectedReserve}
+            >
+              PDF
+            </button>
             {props.canUseAssistant && activeReserves.length > 0 && (
               <button type="button" className={styles.reserveAssistantOpenButton} onClick={() => setAssistantVisible(true)}>
                 <span>Assistant</span>
@@ -3103,6 +3212,155 @@ function ReservesView(props: {
         </div>
       )}
 
+      {pdfModalOpen && (
+        <div
+          className={styles.modalBackdrop}
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => {
+            if (!pdfBusy) setPdfModalOpen(false);
+          }}
+        >
+          <section className={`${styles.modalPanel} ${styles.reservePdfModalWeb}`} onMouseDown={event => event.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Export PDF</p>
+                <h2>Réserves</h2>
+                <span>Générez une fiche individuelle ou un rapport global comme sur mobile.</span>
+              </div>
+              <button type="button" onClick={() => setPdfModalOpen(false)} disabled={pdfBusy}>Fermer</button>
+            </div>
+            <div className={styles.reservePdfBodyWeb}>
+              <section className={styles.reservePdfSectionWeb}>
+                <strong>Périmètre</strong>
+                <div className={styles.reservePdfScopeGridWeb}>
+                  {[
+                    { key: 'view' as const, label: 'Vue actuelle', hint: 'Filtres actifs', count: reserves.length },
+                    { key: 'selected' as const, label: 'Fiche réserve', hint: selectedReserve?.id ?? 'Aucune réserve', count: selectedReserve ? 1 : 0 },
+                    { key: 'company' as const, label: 'Entreprise', hint: pdfCompany || 'À choisir', count: pdfCompanyPreviewCount },
+                    { key: 'company_multi' as const, label: 'Plusieurs', hint: `${pdfCompaniesMulti.size} sélectionnée${pdfCompaniesMulti.size > 1 ? 's' : ''}`, count: pdfCompaniesMultiPreviewCount },
+                    { key: 'no_company' as const, label: 'Sans entreprise', hint: 'Réserves non assignées', count: pdfMode === 'no_company' ? pdfTargetReserves.length : reserves.filter(reserve => reserveCompanies(reserve).length === 0).length },
+                  ].map(option => {
+                    const active = pdfMode === option.key;
+                    const disabled = option.key === 'selected'
+                      ? !selectedReserve
+                      : option.key === 'company' || option.key === 'company_multi'
+                        ? pdfCompanies.length === 0
+                        : false;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={active ? styles.reservePdfScopeActiveWeb : ''}
+                        disabled={disabled || pdfBusy}
+                        onClick={() => {
+                          setPdfMode(option.key);
+                          if (option.key === 'company' && !pdfCompany) setPdfCompany(pdfCompanies[0] ?? '');
+                          if (option.key === 'company_multi' && pdfCompaniesMulti.size === 0 && pdfCompanies[0]) {
+                            setPdfCompaniesMulti(new Set([pdfCompanies[0]]));
+                          }
+                        }}
+                      >
+                        <span>{option.label}</span>
+                        <small>{option.hint}</small>
+                        <em>{option.count}</em>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {pdfMode === 'company' && (
+                <section className={styles.reservePdfSectionWeb}>
+                  <strong>Entreprise</strong>
+                  <select value={pdfCompany} onChange={event => setPdfCompany(event.target.value)} disabled={pdfBusy}>
+                    <option value="">Choisir une entreprise</option>
+                    {pdfCompanies.map(company => (
+                      <option key={company} value={company}>{company}</option>
+                    ))}
+                  </select>
+                </section>
+              )}
+
+              {pdfMode === 'company_multi' && (
+                <section className={styles.reservePdfSectionWeb}>
+                  <div className={styles.reservePdfSectionHeaderWeb}>
+                    <strong>Entreprises</strong>
+                    <div>
+                      <button type="button" onClick={() => setPdfCompaniesMulti(new Set(pdfCompanies))} disabled={pdfBusy}>Tout</button>
+                      <button type="button" onClick={() => setPdfCompaniesMulti(new Set())} disabled={pdfBusy}>Effacer</button>
+                    </div>
+                  </div>
+                  <div className={styles.reservePdfCompanyGridWeb}>
+                    {pdfCompanies.map(company => {
+                      const checked = pdfCompaniesMulti.has(company);
+                      const count = reserves.filter(reserve => reserveCompanies(reserve).includes(company)).length;
+                      return (
+                        <button
+                          key={company}
+                          type="button"
+                          className={checked ? styles.reservePdfCompanyActiveWeb : ''}
+                          disabled={pdfBusy}
+                          onClick={() => {
+                            setPdfCompaniesMulti(prev => {
+                              const next = new Set(prev);
+                              if (next.has(company)) next.delete(company);
+                              else next.add(company);
+                              return next;
+                            });
+                          }}
+                        >
+                          <span>{checked ? '✓' : ''}</span>
+                          <strong>{company}</strong>
+                          <em>{count}</em>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
+              <section className={styles.reservePdfSectionWeb}>
+                <strong>Langue du PDF</strong>
+                <div className={styles.reservePdfLangRowWeb}>
+                  {TEXT_LANG_OPTIONS.map(option => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={pdfLanguage === option.value ? styles.reservePdfLangActiveWeb : ''}
+                      disabled={pdfBusy}
+                      onClick={() => setPdfLanguage(option.value)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <div className={styles.reservePdfPreviewWeb}>
+                <div>
+                  <strong>{pdfTargetReserves.length}</strong>
+                  <span>{pdfMode === 'selected' ? 'fiche individuelle' : 'réserves dans le rapport'}</span>
+                </div>
+                <small>{pdfScopeLabel} · {pdfLanguage.toUpperCase()}</small>
+              </div>
+
+              <div className={styles.reservePdfActionsWeb}>
+                <button type="button" onClick={() => setPdfModalOpen(false)} disabled={pdfBusy}>Annuler</button>
+                <button
+                  type="button"
+                  className={styles.reservePdfPrimaryWeb}
+                  disabled={pdfBusy || pdfTargetReserves.length === 0}
+                  onClick={() => void handleReservePdfExport()}
+                >
+                  {pdfBusy ? 'Génération...' : 'Télécharger PDF'}
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
+
       <section className={`${styles.panel} ${styles.reservesDetailPanel}`}>
         {selectedReserve ? (
           <>
@@ -3171,6 +3429,18 @@ function ReservesView(props: {
                 />
               </div>
             </form>
+            <div className={styles.reserveDetailExportRow}>
+              <button
+                type="button"
+                onClick={() => {
+                  setPdfMode('selected');
+                  setPdfModalOpen(true);
+                }}
+                disabled={pdfBusy}
+              >
+                Fiche PDF
+              </button>
+            </div>
             {props.editable && (
               <div className={styles.actionBar}>
                 <button type="button" onClick={() => props.onEdit(selectedReserve)}>Modifier</button>
@@ -5408,9 +5678,8 @@ function TextAssistControls({
     setMessage('');
     setBusy(`translate-${target}`);
     try {
-      const translated = await requestWebTranslation({ text: value, source: lang, target, context });
+      const translated = await requestWebTranslation({ text: value, source: 'auto', target, context });
       onChange(translated);
-      setPreferredLang(target);
     } catch (err: any) {
       setMessage(err?.message ?? 'Traduction Azure indisponible.');
     } finally {
@@ -5420,44 +5689,64 @@ function TextAssistControls({
 
   return (
     <div className={styles.textAssist}>
-      <div className={styles.textAssistBar}>
-        <button
-          type="button"
-          onClick={() => (busy === 'dictation' ? stopDictation() : startDictation(lang))}
-          className={`${styles.microIconButton} ${busy === 'dictation' ? styles.textAssistActive : ''}`}
-          aria-label={busy === 'dictation' ? 'Arrêter la dictée' : `Dicter en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.name ?? 'français'}`}
-          title={busy === 'dictation' ? 'Arrêter la dictée' : 'Dicter au micro'}
-        >
-          <MicrophoneIcon />
-        </button>
-        <span>Traduire</span>
-        {TEXT_LANG_OPTIONS.map(option => (
-          <button
-            key={option.value}
-            type="button"
-            onClick={() => translate(option.value)}
-            disabled={!value.trim() || busy === `translate-${option.value}`}
-          >
-            {busy === `translate-${option.value}` ? '...' : option.label}
-          </button>
-        ))}
-      </div>
-      {dictationOpen || busy === 'dictation' ? (
-        <div className={styles.dictationPicker}>
-          <span>{busy === 'dictation' ? 'Écoute en cours' : 'Langue parlée'}</span>
-          {TEXT_LANG_OPTIONS.map(option => (
+      <div className={styles.textAssistGrid}>
+        <section className={`${styles.textAssistSection} ${dictationOpen || busy === 'dictation' ? styles.textAssistSectionOpen : ''}`}>
+          <div className={styles.textAssistSectionHeader}>
             <button
-              key={option.value}
               type="button"
-              className={lang === option.value ? styles.dictationLangActive : styles.dictationLang}
-              onClick={() => startDictation(option.value)}
-              disabled={busy === 'dictation' && lang === option.value}
+              onClick={() => (busy === 'dictation' ? stopDictation() : setDictationOpen(open => !open))}
+              className={`${styles.microIconButton} ${busy === 'dictation' ? styles.textAssistActive : ''}`}
+              aria-label={busy === 'dictation' ? 'Arrêter la dictée' : 'Choisir la langue de dictée'}
+              aria-expanded={dictationOpen || busy === 'dictation'}
+              title={busy === 'dictation' ? 'Arrêter la dictée' : 'Choisir la langue de dictée'}
             >
-              {option.label}
+              <MicrophoneIcon />
             </button>
-          ))}
-        </div>
-      ) : null}
+            <div>
+              <strong>{busy === 'dictation' ? 'Écoute en cours' : 'Dictée vocale'}</strong>
+              <small>Langue parlée : {TEXT_LANG_OPTIONS.find(option => option.value === lang)?.label ?? 'FR'}</small>
+            </div>
+          </div>
+          {dictationOpen || busy === 'dictation' ? (
+            <div className={styles.dictationPicker}>
+              {TEXT_LANG_OPTIONS.map(option => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={lang === option.value ? styles.dictationLangActive : styles.dictationLang}
+                  onClick={() => startDictation(option.value)}
+                  disabled={busy === 'dictation' && lang === option.value}
+                >
+                  <span>{option.label}</span>
+                  <small>{option.name}</small>
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </section>
+
+        <section className={styles.textAssistSection}>
+          <div className={styles.textAssistSectionHeader}>
+            <div className={styles.translationIconWeb}>文</div>
+            <div>
+              <strong>Traduction</strong>
+              <small>Remplace le texte par la langue choisie</small>
+            </div>
+          </div>
+          <div className={styles.translationPickerWeb}>
+            {TEXT_LANG_OPTIONS.map(option => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => translate(option.value)}
+                disabled={!value.trim() || busy === `translate-${option.value}`}
+              >
+                {busy === `translate-${option.value}` ? '...' : `Vers ${option.label}`}
+              </button>
+            ))}
+          </div>
+        </section>
+      </div>
       {message ? <small className={styles.textAssistMessage}>{message}</small> : null}
     </div>
   );

@@ -5,6 +5,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
 
 type Lang = 'fr' | 'en' | 'es';
+type SourceLang = Lang | 'auto';
 
 const TRANSLATION_LANGS: Record<Lang, { name: string; deepl: string }> = {
   fr: { name: 'French', deepl: 'FR' },
@@ -78,12 +79,12 @@ function azureTranslatorUrl() {
   return `${base}/translate`;
 }
 
-async function translateWithAzure(params: { text: string; source: Lang; target: Lang }) {
+async function translateWithAzure(params: { text: string; source: SourceLang; target: Lang }) {
   const apiKey = process.env.AZURE_TRANSLATOR_KEY;
   if (!apiKey) throw new Error('AZURE_TRANSLATOR_KEY manquant cote serveur');
   const url = new URL(azureTranslatorUrl());
   if (!url.searchParams.has('api-version')) url.searchParams.set('api-version', '3.0');
-  if (params.source !== params.target) url.searchParams.set('from', params.source);
+  if (params.source !== 'auto' && params.source !== params.target) url.searchParams.set('from', params.source);
   url.searchParams.set('to', params.target);
 
   const headers: Record<string, string> = {
@@ -106,7 +107,7 @@ async function translateWithAzure(params: { text: string; source: Lang; target: 
   return sanitizeTranslationText(payload?.[0]?.translations?.[0]?.text);
 }
 
-async function translateWithDeepL(params: { text: string; source: Lang; target: Lang }) {
+async function translateWithDeepL(params: { text: string; source: SourceLang; target: Lang }) {
   const apiKey = process.env.DEEPL_API_KEY;
   if (!apiKey) return null;
   const apiUrl = process.env.DEEPL_API_URL || (apiKey.endsWith(':fx')
@@ -115,7 +116,7 @@ async function translateWithDeepL(params: { text: string; source: Lang; target: 
   const body = new URLSearchParams();
   body.set('text', params.text);
   body.set('target_lang', TRANSLATION_LANGS[params.target].deepl);
-  if (params.source !== params.target) body.set('source_lang', params.source.toUpperCase());
+  if (params.source !== 'auto' && params.source !== params.target) body.set('source_lang', params.source.toUpperCase());
   body.set('preserve_formatting', '1');
 
   const response = await fetch(apiUrl, {
@@ -131,7 +132,7 @@ async function translateWithDeepL(params: { text: string; source: Lang; target: 
   return sanitizeTranslationText(payload?.translations?.[0]?.text);
 }
 
-async function translateWithOpenAI(params: { text: string; source: Lang; target: Lang; context: string }) {
+async function translateWithOpenAI(params: { text: string; source: SourceLang; target: Lang; context: string }) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
   const model = process.env.OPENAI_TRANSLATION_MODEL || 'gpt-4o-mini';
@@ -149,7 +150,9 @@ async function translateWithOpenAI(params: { text: string; source: Lang; target:
         {
           role: 'system',
           content: [
-            `Translate from ${TRANSLATION_LANGS[params.source].name} to ${TRANSLATION_LANGS[params.target].name}.`,
+            params.source === 'auto'
+              ? `Detect the source language and translate to ${TRANSLATION_LANGS[params.target].name}.`
+              : `Translate from ${TRANSLATION_LANGS[params.source].name} to ${TRANSLATION_LANGS[params.target].name}.`,
             'Use professional construction-site wording.',
             'Preserve IDs, names, building labels, levels, dates, line breaks, and bullet structure.',
             'Do not add explanations, comments, markdown, or quotation marks.',
@@ -165,7 +168,7 @@ async function translateWithOpenAI(params: { text: string; source: Lang; target:
   return sanitizeTranslationText(payload?.choices?.[0]?.message?.content);
 }
 
-async function translateAdvanced(params: { text: string; source: Lang; target: Lang; context: string }) {
+async function translateAdvanced(params: { text: string; source: SourceLang; target: Lang; context: string }) {
   const providers: Record<string, (params: any) => Promise<string | null>> = {
     azure: translateWithAzure,
     deepl: translateWithDeepL,
@@ -205,16 +208,16 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => ({}));
     const text = sanitizeTranslationText(body?.text);
-    const source = String(body?.source || 'fr').toLowerCase();
+    const source = String(body?.source || 'auto').toLowerCase();
     const target = String(body?.target || '').toLowerCase();
     const context = String(body?.context || 'generic');
 
     if (!text) return NextResponse.json({ success: false, error: 'Texte manquant' }, { status: 400, headers });
     if (text.length > 2500) return NextResponse.json({ success: false, error: 'Texte trop long' }, { status: 413, headers });
-    if (!isLang(source) || !isLang(target)) {
+    if ((source !== 'auto' && !isLang(source)) || !isLang(target)) {
       return NextResponse.json({ success: false, error: 'Langue non supportee' }, { status: 400, headers });
     }
-    if (source === target) return NextResponse.json({ success: true, text, provider: 'none' }, { headers });
+    if (source !== 'auto' && source === target) return NextResponse.json({ success: true, text, provider: 'none' }, { headers });
 
     const result = await translateAdvanced({ text, source, target, context });
     if (!result) {
