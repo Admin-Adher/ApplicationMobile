@@ -689,6 +689,7 @@ function printHtmlReport(html: string, filename: string) {
   if (typeof window === 'undefined') return;
 
   const frame = document.createElement('iframe');
+  let didPrint = false;
   frame.title = filename;
   frame.style.position = 'fixed';
   frame.style.width = '1px';
@@ -703,36 +704,36 @@ function printHtmlReport(html: string, filename: string) {
     window.setTimeout(() => frame.remove(), 1500);
   };
 
+  const downloadHtmlFallback = () => {
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename.replace(/\.pdf$/i, '.html');
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
+
   frame.onload = () => {
+    if (didPrint) return;
+    didPrint = true;
+
     window.setTimeout(() => {
       try {
         frame.contentWindow?.focus();
         frame.contentWindow?.print();
       } catch {
-        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = filename.replace(/\.pdf$/i, '.html');
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
+        downloadHtmlFallback();
       } finally {
         cleanup();
       }
     }, 250);
   };
 
+  frame.srcdoc = html;
   document.body.appendChild(frame);
-  const doc = frame.contentDocument ?? frame.contentWindow?.document;
-  if (!doc) {
-    frame.remove();
-    return;
-  }
-  doc.open();
-  doc.write(html);
-  doc.close();
 }
 
 function reserveCompanies(reserve: any): string[] {
