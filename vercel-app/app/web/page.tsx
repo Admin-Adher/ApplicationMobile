@@ -1290,7 +1290,7 @@ export default function BuildTrackWebPage() {
       });
       photoRows.push({
         id: photoId,
-        comment: photo.kind === 'resolution' ? 'Photo de levee' : 'Photo de reserve',
+        comment: photo.kind === 'resolution' ? 'Photo de levée' : 'Photo de réserve',
         location: [draft.building, draft.level, draft.zone].filter(Boolean).join(' · '),
         taken_at: takenAt,
         taken_by: userLabel(profile, authUser),
@@ -1436,7 +1436,7 @@ export default function BuildTrackWebPage() {
             finalReserve = updatedWithPhotos ?? { ...finalReserve, ...photoPatch };
           }
         } catch (photoError: any) {
-          setError(`Reserve creee, mais upload photo impossible : ${photoError?.message ?? 'erreur inconnue'}`);
+          setError(`Réserve créée, mais upload photo impossible : ${photoError?.message ?? 'erreur inconnue'}`);
         }
         setData(prev => ({ ...prev, reserves: [finalReserve, ...prev.reserves] }));
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
@@ -3428,7 +3428,7 @@ function RapportsView({
           />
           <article className={styles.reportCard}>
             <strong>Compte rendu de visite</strong>
-            <p>Export structure avec informations de visite, checklist, notes et reserves rattachees.</p>
+            <p>Export structuré avec informations de visite, checklist, notes et réserves rattachées.</p>
             <select value={selectedVisit?.id ?? ''} onChange={event => setSelectedVisitId(event.target.value)}>
               {visites.map((visit: any) => (
                 <option key={visit.id} value={visit.id}>{visit.title}</option>
@@ -3440,7 +3440,7 @@ function RapportsView({
               disabled={disabled || !selectedVisit}
               onClick={() => onGenerate('visit_report', { visit: selectedVisit })}
             >
-              {generatingReport === `visit_report-${language}` ? 'Generation...' : 'Telecharger PDF'}
+              {generatingReport === `visit_report-${language}` ? 'Génération...' : 'Télécharger PDF'}
             </button>
           </article>
         </div>
@@ -4095,14 +4095,14 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                   ))}
                 </div>
               ) : (
-                <small>Choisissez un modele pour pre-remplir titre et description.</small>
+                <small>Choisissez un modèle pour pré-remplir le titre et la description.</small>
               )}
             </div>
             <div className={styles.reservePhotoBox}>
               <div className={styles.reservePhotoHeader}>
                 <div>
                   <strong>Photos ({draft.photos.length}/6)</strong>
-                  <span>Ajoutez des photos de constat ou de levee.</span>
+                  <span>Ajoutez des photos de constat ou de levée.</span>
                 </div>
                 <label>
                   Ajouter
@@ -4113,10 +4113,10 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                 <div className={styles.reservePhotoGrid}>
                   {draft.photos.map(photo => (
                     <div key={photo.id} className={styles.reservePhotoItem}>
-                      <img src={photo.uri} alt={photo.name ?? 'Photo reserve'} />
+                      <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} />
                       <div>
                         <button type="button" onClick={() => togglePhotoKind(photo.id)}>
-                          {photo.kind === 'resolution' ? 'Levee' : 'Constat'}
+                          {photo.kind === 'resolution' ? 'Levée' : 'Constat'}
                         </button>
                         <button type="button" onClick={() => removePhoto(photo.id)}>Retirer</button>
                       </div>
@@ -4216,9 +4216,11 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
               {draft.planId && hasCapturedPin ? (
                 <div className={`${styles.formWide} ${styles.reservePinCaptured}`}>
                   <div>
-                    <strong>Épingle capturée sur le plan</strong>
+                    <strong>{mode === 'edit' ? 'Position épinglée sur le plan' : 'Épingle capturée sur le plan'}</strong>
                     <small>
-                      La réserve sera créée directement à cette position
+                      {mode === 'edit'
+                        ? 'La réserve sera enregistrée avec cette position'
+                        : 'La réserve sera créée directement à cette position'}
                       {draft.planX != null && draft.planY != null ? ` (${Math.round(draft.planX)} %, ${Math.round(draft.planY)} %).` : '.'}
                     </small>
                   </div>
@@ -4237,13 +4239,19 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                 <div className={`${styles.formWide} ${styles.reservePinFollowUp}`}>
                   <span>
                     <strong>Plan associé sans épingle</strong>
-                    <small>Pour créer une réserve déjà localisée, utilisez la page Plans et cliquez directement sur le PDF.</small>
+                    <small>
+                      {mode === 'edit'
+                        ? 'Cette réserve restera associée au plan, sans position précise. Sur web, un clic sur le PDF crée une nouvelle réserve épinglée.'
+                        : 'Pour créer une réserve déjà localisée, utilisez la page Plans et cliquez directement sur le PDF.'}
+                    </small>
                   </span>
                 </div>
               ) : (
                 <div className={styles.formWide}>
                   <div className={styles.reserveNoticeWarning}>
-                    Sans plan associé, la réserve sera créée hors plan.
+                    {mode === 'edit'
+                      ? 'Sans plan associé, cette réserve ne sera plus localisée sur un plan.'
+                      : 'Sans plan associé, la réserve sera créée hors plan.'}
                   </div>
                 </div>
               )}
