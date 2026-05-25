@@ -758,13 +758,6 @@ function reserveMatchesCompanyName(reserve: any, companyName?: string | null) {
 }
 
 function toPdfReserveItem(reserve: any, index = 0) {
-  const photos = Array.isArray(reserve?.photos)
-    ? reserve.photos
-        .map((photo: any) => assetUrl(photo, 'photos') || String(photo?.uri ?? '').trim())
-        .filter(Boolean)
-        .map((uri: string) => ({ uri }))
-    : [];
-
   return {
     id: String(reserve?.id ?? `reserve-${index + 1}`),
     num: index + 1,
@@ -779,8 +772,176 @@ function toPdfReserveItem(reserve: any, index = 0) {
     planId: getReservePlanId(reserve),
     planX: normalizePlanPercent(reserve?.plan_x ?? reserve?.planX),
     planY: normalizePlanPercent(reserve?.plan_y ?? reserve?.planY),
-    photos,
+    photos: getPdfReservePhotoItems(reserve).map((photo: any) => ({
+      ...photo,
+      uri: photo.uri,
+    })),
   };
+}
+
+function getPdfReservePhotoItems(reserve: any) {
+  const source = Array.isArray(reserve?.photos) && reserve.photos.length > 0
+    ? reserve.photos
+    : (reserve?.photo_uri ?? reserve?.photoUri)
+      ? [{ uri: reserve.photo_uri ?? reserve.photoUri, kind: 'defect', comment: 'Photo' }]
+      : [];
+
+  return source
+    .map((photo: any) => {
+      const uri = assetUrl(photo, 'photos') || String(photo?.uri ?? '').trim();
+      return uri ? { ...photo, uri } : null;
+    })
+    .filter(Boolean);
+}
+
+function getPdfReservePhotoUrls(reserve: any) {
+  return getPdfReservePhotoItems(reserve).map((photo: any) => photo.uri);
+}
+
+const PLAN_REPORT_MAX_TOTAL_PHOTOS = 150;
+const PLAN_REPORT_MAX_PHOTOS_PER_RESERVE = 2;
+const PLAN_REPORT_PHOTO_RENDER_WIDTH = 800;
+const PLAN_REPORT_PHOTO_QUALITY = 0.55;
+const pdfPhotoDataUrlCache = new Map<string, Promise<string | null>>();
+
+function blobToDataUrl(blob: Blob) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(reader.error ?? new Error('Lecture image impossible.'));
+    reader.readAsDataURL(blob);
+  });
+}
+
+function loadBlobImage(blob: Blob) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(blob);
+    const image = new Image();
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error('Image illisible.'));
+    };
+    image.src = objectUrl;
+  });
+}
+
+async function imageUrlToPdfDataUrl(uri: string) {
+  const value = String(uri ?? '').trim();
+  if (!value) return null;
+  if (value.startsWith('data:')) return value;
+  if (typeof document === 'undefined' || typeof window === 'undefined') return value;
+
+  if (!pdfPhotoDataUrlCache.has(value)) {
+    pdfPhotoDataUrlCache.set(value, (async () => {
+      try {
+        const response = await fetch(value, { credentials: 'omit', mode: 'cors' });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        try {
+          const image = await loadBlobImage(blob);
+          const ratio = image.width > 0
+            ? Math.min(1, PLAN_REPORT_PHOTO_RENDER_WIDTH / image.width)
+            : 1;
+          const width = Math.max(1, Math.round(image.width * ratio));
+          const height = Math.max(1, Math.round(image.height * ratio));
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext('2d');
+          if (!context) return await blobToDataUrl(blob);
+          context.drawImage(image, 0, 0, width, height);
+          return canvas.toDataURL('image/jpeg', PLAN_REPORT_PHOTO_QUALITY);
+        } catch {
+          return await blobToDataUrl(blob);
+        }
+      } catch {
+        return value;
+      }
+    })());
+  }
+
+  return await pdfPhotoDataUrlCache.get(value)!;
+}
+
+async function withPdfEmbeddedReservePhotos(reserve: any, maxPhotosPerReserve: number) {
+  if (!reserve) return reserve;
+  const items = maxPhotosPerReserve > 0
+    ? getPdfReservePhotoItems(reserve).slice(0, maxPhotosPerReserve)
+    : [];
+
+  const photos = (await Promise.all(
+    items.map(async (photo: any) => ({
+      ...photo,
+      uri: await imageUrlToPdfDataUrl(photo.uri),
+    })),
+  )).filter((photo: any) => !!photo.uri);
+
+  return {
+    ...reserve,
+    photos,
+    photoUri: photos[0]?.uri ?? reserve.photoUri ?? reserve.photo_uri ?? null,
+    photo_uri: photos[0]?.uri ?? reserve.photo_uri ?? reserve.photoUri ?? null,
+  };
+}
+
+async function withPdfEmbeddedReservePhotoList(reserves: any[], maxPhotosPerReserve: number, maxTotalPhotos = PLAN_REPORT_MAX_TOTAL_PHOTOS) {
+  const result: any[] = [];
+  let remaining = maxTotalPhotos;
+
+  for (const reserve of reserves) {
+    const allowed = Math.max(0, Math.min(maxPhotosPerReserve, remaining));
+    const prepared = await withPdfEmbeddedReservePhotos(reserve, allowed);
+    remaining -= Array.isArray(prepared?.photos) ? prepared.photos.length : 0;
+    result.push(prepared);
+  }
+
+  return result;
+}
+
+async function withPdfEmbeddedVisitMedia(visit: any) {
+  if (!visit) return visit;
+  const coverRaw = visit.cover_photo_uri ?? visit.coverPhotoUri;
+  if (!coverRaw) return visit;
+  const coverUri = assetUrl({ uri: coverRaw }, 'photos') || String(coverRaw).trim();
+  const embeddedCoverUri = coverUri ? await imageUrlToPdfDataUrl(coverUri) : null;
+
+  return {
+    ...visit,
+    cover_photo_uri: embeddedCoverUri ?? coverRaw,
+    coverPhotoUri: embeddedCoverUri ?? coverRaw,
+  };
+}
+
+async function toPdfReserveItemsForPlanReport(reserves: any[]) {
+  const maxPhotosPerReserve = reserves.length === 0
+    ? 0
+    : Math.min(
+        PLAN_REPORT_MAX_PHOTOS_PER_RESERVE,
+        Math.floor(PLAN_REPORT_MAX_TOTAL_PHOTOS / reserves.length),
+      );
+
+  return await Promise.all(reserves.map(async (reserve, index) => {
+    const item = toPdfReserveItem(reserve, index);
+    if (maxPhotosPerReserve <= 0 || item.photos.length === 0) {
+      return { ...item, photos: [] };
+    }
+
+    const photos = await Promise.all(
+      item.photos.slice(0, maxPhotosPerReserve).map(async (photo: any) => ({
+        ...photo,
+        uri: await imageUrlToPdfDataUrl(photo.uri),
+      })),
+    );
+
+    return {
+      ...item,
+      photos: photos.filter((photo: any) => !!photo.uri),
+    };
+  }));
 }
 
 function toPdfPlanItem(plan: any) {
@@ -809,7 +970,9 @@ async function toPdfPlanItemsForReport(plans: any[], reserves: any[]) {
       continue;
     }
 
-    const renderedUri = await preRenderPdfPageToDataUrl(item.uri, 720);
+    const renderedUri = isPdfPlan(plan, item.uri)
+      ? await preRenderPdfPageToDataUrl(item.uri, 720)
+      : await imageUrlToPdfDataUrl(item.uri);
     items.push(renderedUri
       ? { ...item, uri: renderedUri, fileType: 'image' }
       : item);
@@ -870,7 +1033,7 @@ async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
 async function getPlanImageForReserveReport(plan: any) {
   const uri = getPlanReportUri(plan);
   if (!uri) return null;
-  if (!isPdfPlan(plan, uri)) return uri;
+  if (!isPdfPlan(plan, uri)) return await imageUrlToPdfDataUrl(uri);
   return await preRenderPdfPageToDataUrl(uri, 720);
 }
 
@@ -2036,16 +2199,27 @@ export default function BuildTrackWebPage() {
       const reportPlans = type === 'plans'
         ? await toPdfPlanItemsForReport(targetPlans, targetReserves)
         : targetPlans.map(toPdfPlanItem);
+      const reportReserves = type === 'plans'
+        ? await toPdfReserveItemsForPlanReport(targetReserves)
+        : type === 'global_reserves'
+          ? await withPdfEmbeddedReservePhotoList(targetReserves, 3)
+          : targetReserves;
+      const reportReserve = type === 'individual_reserve' && targetReserve
+        ? await withPdfEmbeddedReservePhotos(targetReserve, 3)
+        : targetReserve;
+      const reportVisit = type === 'visit_report'
+        ? await withPdfEmbeddedVisitMedia(options?.visit)
+        : options?.visit;
       const payload = type === 'individual_reserve'
         ? {
             type,
             chantierName: selectedProjectName,
-            reserve: targetReserve,
+            reserve: reportReserve,
             companyColor: reserveCompany?.color ?? null,
             planUri: reservePlanImageUri,
             planName: reservePlan?.name ?? null,
-            planX: normalizePlanPercent(targetReserve?.plan_x ?? targetReserve?.planX),
-            planY: normalizePlanPercent(targetReserve?.plan_y ?? targetReserve?.planY),
+            planX: normalizePlanPercent(reportReserve?.plan_x ?? reportReserve?.planX),
+            planY: normalizePlanPercent(reportReserve?.plan_y ?? reportReserve?.planY),
             pinNum,
             language,
             generatedAt: new Date().toISOString(),
@@ -2054,10 +2228,10 @@ export default function BuildTrackWebPage() {
           ? {
               type,
               chantierName: selectedProjectName,
-              visit: options?.visit,
+              visit: reportVisit,
               reserves: projectScoped.reserves.filter((reserve: any) => {
-                const visitReserveIds = options?.visit?.reserve_ids ?? [];
-                return reserve.visite_id === options?.visit?.id || visitReserveIds.includes(reserve.id);
+                const visitReserveIds = reportVisit?.reserve_ids ?? [];
+                return reserve.visite_id === reportVisit?.id || visitReserveIds.includes(reserve.id);
               }),
               companies: data.companies,
               language,
@@ -2066,9 +2240,7 @@ export default function BuildTrackWebPage() {
         : {
             type,
             chantierName: selectedProjectName,
-            reserves: type === 'plans'
-              ? targetReserves.map((reserve, index) => toPdfReserveItem(reserve, index))
-              : targetReserves,
+            reserves: reportReserves,
             plans: reportPlans,
             companyFilter: [options?.companyFilter, options?.statusFilter].filter(Boolean).join(' · ') || null,
             statusFilter: options?.statusFilter ?? null,

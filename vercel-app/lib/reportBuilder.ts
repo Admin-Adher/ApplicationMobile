@@ -261,7 +261,9 @@ export function buildIndividualReserveHtml(payload: any): string {
   const rawPhotos: any[] = Array.isArray(reserve.photos) && reserve.photos.length > 0
     ? reserve.photos
     : reserve.photoUri ? [{ uri: reserve.photoUri, kind: 'defect' }] : [];
-  const photosToShow = rawPhotos.slice(0, 3).filter((p: any) => p.uri && p.uri.startsWith('http'));
+  const photosToShow = rawPhotos
+    .slice(0, 3)
+    .filter((p: any) => typeof p.uri === 'string' && /^(https?:|data:image\/|blob:)/i.test(p.uri.trim()));
 
   const photoRowHtml = photosToShow.length > 0 ? `
     <div style="margin-top:10px">
