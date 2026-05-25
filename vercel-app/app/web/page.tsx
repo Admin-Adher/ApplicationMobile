@@ -55,6 +55,16 @@ type ReserveDraft = {
   lotId: string;
   visiteId: string;
   companies: string[];
+  photos: WebPhotoDraft[];
+};
+
+type WebPhotoDraft = {
+  id: string;
+  uri: string;
+  name?: string;
+  kind?: 'defect' | 'resolution';
+  file?: File;
+  existing?: boolean;
 };
 
 type ReservePinDraft = {
@@ -100,9 +110,10 @@ type VisitDraft = {
   notes: string;
   checklistItems: Array<{ id: string; label: string; checked: boolean }>;
   companyIds: string[];
-  participants: Array<{ id: string; name: string; role?: string; company?: string; companyId?: string }>;
+  participants: Array<{ id: string; name: string; role?: string; company?: string; companyId?: string; profileId?: string; email?: string }>;
   tags: string[];
   recurrence: 'none' | 'weekly' | 'bimonthly';
+  coverPhoto: WebPhotoDraft | null;
 };
 
 const EMPTY_DATA: WebState = {
@@ -226,6 +237,49 @@ const VISIT_RECURRENCE_OPTIONS: Array<{ value: VisitDraft['recurrence']; label: 
   { value: 'bimonthly', label: 'Bi-mensuelle', desc: 'Créer 4 visites espacées de 2 semaines.' },
 ];
 
+const TEXT_LANG_OPTIONS = [
+  { value: 'fr', label: 'FR', speech: 'fr-FR', name: 'français' },
+  { value: 'en', label: 'EN', speech: 'en-US', name: 'anglais' },
+  { value: 'es', label: 'ES', speech: 'es-ES', name: 'espagnol' },
+] as const;
+
+type TextLang = typeof TEXT_LANG_OPTIONS[number]['value'];
+
+const RESERVE_TEMPLATE_GROUPS = [
+  {
+    category: 'Gros oeuvre',
+    items: [
+      { title: 'Fissure enduit', description: "Fissure constatee sur l'enduit. Reprendre avec un produit adapte et une finition homogene." },
+      { title: 'Ragreage sol', description: 'Sol a reprendre avant pose du revetement final. Respecter les niveaux de reference.' },
+      { title: 'Humidite / traces', description: "Traces d'humidite constatees. Identifier l'origine et traiter avant finition." },
+    ],
+  },
+  {
+    category: 'Menuiseries',
+    items: [
+      { title: 'Reglage porte', description: 'Porte mal reglee : fermeture difficile ou gene au passage. Reglage des charnieres requis.' },
+      { title: 'Joint manquant', description: "Joint d'etancheite absent ou decolle. Remplacer avec un joint adapte." },
+      { title: 'Serrure defectueuse', description: 'Serrure bloquee ou mecanisme defaillant. Verification et remplacement si necessaire.' },
+    ],
+  },
+  {
+    category: 'Peinture / finitions',
+    items: [
+      { title: 'Peinture a reprendre', description: 'Peinture rayee, manquante ou mal appliquee. Reprise avec la meme teinte.' },
+      { title: 'Fissure platrerie', description: 'Fissure sur enduit interieur. Rebouchage, poncage et reprise de peinture.' },
+      { title: 'Faux plafond incomplet', description: 'Dalle ou plaque de faux plafond manquante ou mal posee. Completer et aligner.' },
+    ],
+  },
+  {
+    category: 'Electricite / plomberie',
+    items: [
+      { title: 'Prise non fonctionnelle', description: 'Prise de courant hors service. Verification electrique et remise en etat obligatoires.' },
+      { title: 'Fuite constatee', description: "Fuite d'eau detectee. Localiser precisement et reparer immediatement." },
+      { title: 'Evacuation bouchee', description: "Mauvaise evacuation constatee. Debouchage et verification du reseau necessaires." },
+    ],
+  },
+];
+
 function isAdmin(profile: Profile | null) {
   return profile?.role === 'super_admin' || profile?.role === 'admin';
 }
@@ -247,6 +301,13 @@ function addDaysISO(value: string, days: number) {
   if (Number.isNaN(base.getTime())) return todayISO();
   base.setDate(base.getDate() + days);
   return base.toISOString().slice(0, 10);
+}
+
+function suggestedDeadlineForPriority(priority: string) {
+  if (priority === 'critical') return addDaysISO(todayISO(), 2);
+  if (priority === 'high') return addDaysISO(todayISO(), 7);
+  if (priority === 'medium') return addDaysISO(todayISO(), 30);
+  return '';
 }
 
 function isoWeekFromISO(value: string) {
@@ -316,6 +377,19 @@ function normalizeSearchText(value: any) {
     .replace(/[\u0300-\u036f]/g, '')
     .trim()
     .toLowerCase();
+}
+
+function initials(value?: string | null) {
+  const words = String(value ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return '?';
+  return words
+    .slice(0, 2)
+    .map(word => word[0])
+    .join('')
+    .toUpperCase();
 }
 
 function getPlanBuildingName(plan: any) {
@@ -481,6 +555,56 @@ function generateReserveId(reserves: any[], lots: any[], lotId?: string) {
   return candidate;
 }
 
+function safeStorageName(value: string) {
+  return String(value || 'fichier')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .replace(/_+/g, '_')
+    .slice(0, 120);
+}
+
+async function uploadWebFile(bucket: 'photos' | 'documents', file: File, prefix: string) {
+  const extension = file.name.includes('.') ? file.name.split('.').pop() : '';
+  const fileName = `${safeStorageName(prefix)}_${Date.now()}_${safeStorageName(file.name || `upload.${extension || 'jpg'}`)}`;
+  const path = fileName;
+  const { data, error } = await supabaseBrowser.storage
+    .from(bucket)
+    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
+  if (error) throw error;
+  const { data: urlData } = supabaseBrowser.storage.from(bucket).getPublicUrl(data.path);
+  return urlData.publicUrl;
+}
+
+async function requestWebTranslation(params: { text: string; source: TextLang; target: TextLang; context: string }) {
+  const text = params.text.trim();
+  if (!text || params.source === params.target) return text;
+  const { data: authData } = await supabaseBrowser.auth.getSession();
+  const response = await fetch('/api/translate-text', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(authData.session?.access_token ? { Authorization: `Bearer ${authData.session.access_token}` } : {}),
+    },
+    body: JSON.stringify(params),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || !payload?.success || typeof payload?.text !== 'string') {
+    throw new Error(payload?.detail || payload?.error || 'Traduction indisponible.');
+  }
+  return String(payload.text).trim();
+}
+
+function defaultTextLang(): TextLang {
+  if (typeof window === 'undefined') return 'fr';
+  const stored = window.localStorage.getItem('buildtrack-web-dictation-lang');
+  if (stored === 'fr' || stored === 'en' || stored === 'es') return stored;
+  const nav = window.navigator.language.toLowerCase();
+  if (nav.startsWith('en')) return 'en';
+  if (nav.startsWith('es')) return 'es';
+  return 'fr';
+}
+
 function createReserveDraft(projectId: string, plan?: any | null, visit?: any | null, pin?: ReservePinDraft | null): ReserveDraft {
   const firstVisitLocation = getVisitLocations(visit)[0] ?? null;
   const planId = pin?.planId ?? firstVisitLocation?.defaultPlanId ?? firstVisitLocation?.default_plan_id ?? getVisitDefaultPlanId(visit) ?? plan?.id ?? '';
@@ -505,6 +629,7 @@ function createReserveDraft(projectId: string, plan?: any | null, visit?: any | 
     lotId: '',
     visiteId: visit?.id ?? '',
     companies: [],
+    photos: [],
   };
 }
 
@@ -528,6 +653,17 @@ function reserveToDraft(reserve: any): ReserveDraft {
     lotId: reserve.lot_id ?? '',
     visiteId: reserve.visite_id ?? '',
     companies: reserveCompanies(reserve),
+    photos: Array.isArray(reserve.photos)
+      ? reserve.photos.map((photo: any) => ({
+          id: String(photo.id ?? crypto.randomUUID()),
+          uri: String(photo.uri ?? photo.url ?? ''),
+          name: photo.name ?? 'Photo',
+          kind: photo.kind === 'resolution' ? 'resolution' : 'defect',
+          existing: true,
+        })).filter((photo: WebPhotoDraft) => !!photo.uri)
+      : reserve.photo_uri
+        ? [{ id: 'legacy', uri: reserve.photo_uri, name: 'Photo', kind: 'defect', existing: true }]
+        : [],
   };
 }
 
@@ -555,6 +691,7 @@ function createVisitDraft(projectId: string, conducteur: string): VisitDraft {
     participants: [],
     tags: [],
     recurrence: 'none',
+    coverPhoto: null,
   };
 }
 
@@ -876,6 +1013,57 @@ export default function BuildTrackWebPage() {
     }
   }
 
+  async function buildReservePhotoPatch(reserveId: string, draft: ReserveDraft) {
+    const existingPhotos = draft.photos
+      .filter(photo => photo.existing && photo.uri)
+      .map(photo => ({
+        id: photo.id,
+        uri: photo.uri,
+        kind: photo.kind ?? 'defect',
+        takenAt: new Date().toISOString(),
+        takenBy: userLabel(profile, authUser),
+        name: photo.name ?? 'Photo',
+      }));
+    const newPhotos = draft.photos.filter(photo => photo.file);
+    const uploadedPhotos: any[] = [];
+    const photoRows: any[] = [];
+    for (const photo of newPhotos) {
+      if (!photo.file) continue;
+      const url = await uploadWebFile('photos', photo.file, `reserve_${reserveId}_${photo.kind ?? 'defect'}`);
+      const takenAt = new Date().toISOString();
+      const photoId = crypto.randomUUID();
+      uploadedPhotos.push({
+        id: photoId,
+        uri: url,
+        kind: photo.kind ?? 'defect',
+        takenAt,
+        takenBy: userLabel(profile, authUser),
+        name: photo.name ?? photo.file.name,
+      });
+      photoRows.push({
+        id: photoId,
+        comment: photo.kind === 'resolution' ? 'Photo de levee' : 'Photo de reserve',
+        location: [draft.building, draft.level, draft.zone].filter(Boolean).join(' · '),
+        taken_at: takenAt,
+        taken_by: userLabel(profile, authUser),
+        color_code: photo.kind === 'resolution' ? '#10b981' : '#003082',
+        uri: url,
+        reserve_id: reserveId,
+        organization_id: profile?.organization_id ?? null,
+      });
+    }
+    if (photoRows.length) {
+      const { error: photoInsertError } = await supabaseBrowser.from('photos').insert(photoRows);
+      if (photoInsertError) throw photoInsertError;
+      setData(prev => ({ ...prev, photos: [...photoRows, ...prev.photos] }));
+    }
+    const photos = [...existingPhotos, ...uploadedPhotos];
+    return {
+      photos: photos.length ? photos : null,
+      photo_uri: photos[0]?.uri ?? null,
+    };
+  }
+
   async function submitReserve(event: React.FormEvent) {
     event.preventDefault();
     if (!profile || !canEdit(profile)) return;
@@ -934,9 +1122,15 @@ export default function BuildTrackWebPage() {
     };
 
     if (reserveModalMode === 'edit' && editingReserveId) {
+      let photoPatch: { photos: any[] | null; photo_uri: string | null } | null = null;
+      try {
+        photoPatch = await buildReservePhotoPatch(editingReserveId, reserveDraft);
+      } catch (photoError: any) {
+        setError(photoError?.message ?? 'Upload des photos impossible.');
+      }
       const { data: updated, error: updateError } = await supabaseBrowser
         .from('reserves')
-        .update(basePayload)
+        .update({ ...basePayload, ...(photoPatch ?? {}) })
         .eq('id', editingReserveId)
         .select()
         .single();
@@ -945,7 +1139,7 @@ export default function BuildTrackWebPage() {
       } else {
         setData(prev => ({
           ...prev,
-          reserves: prev.reserves.map(r => r.id === editingReserveId ? (updated ?? { ...r, ...basePayload }) : r),
+          reserves: prev.reserves.map(r => r.id === editingReserveId ? (updated ?? { ...r, ...basePayload, ...(photoPatch ?? {}) }) : r),
         }));
         await syncVisitReserveLink(editingReserveId, reserveDraft.visiteId || null, existing?.visite_id ?? null);
         closeReserveModal();
@@ -968,7 +1162,23 @@ export default function BuildTrackWebPage() {
       if (insertError) {
         setError(insertError.message);
       } else {
-        setData(prev => ({ ...prev, reserves: [inserted ?? insertPayload, ...prev.reserves] }));
+        let finalReserve = inserted ?? insertPayload;
+        try {
+          const photoPatch = await buildReservePhotoPatch(id, reserveDraft);
+          if (photoPatch.photos?.length || photoPatch.photo_uri) {
+            const { data: updatedWithPhotos, error: photoUpdateError } = await supabaseBrowser
+              .from('reserves')
+              .update(photoPatch)
+              .eq('id', id)
+              .select()
+              .single();
+            if (photoUpdateError) throw photoUpdateError;
+            finalReserve = updatedWithPhotos ?? { ...finalReserve, ...photoPatch };
+          }
+        } catch (photoError: any) {
+          setError(`Reserve creee, mais upload photo impossible : ${photoError?.message ?? 'erreur inconnue'}`);
+        }
+        setData(prev => ({ ...prev, reserves: [finalReserve, ...prev.reserves] }));
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
         setSelectedReserveId(id);
         const createdWithPin = basePayload.plan_x != null && basePayload.plan_y != null;
@@ -1014,6 +1224,16 @@ export default function BuildTrackWebPage() {
     const singleLocation = hasBuildingHierarchy && visitDraft.visitedLocations.length === 1
       ? visitDraft.visitedLocations[0]
       : null;
+    let coverPhotoUri: string | null = visitDraft.coverPhoto?.existing ? visitDraft.coverPhoto.uri : null;
+    if (visitDraft.coverPhoto?.file) {
+      try {
+        coverPhotoUri = await uploadWebFile('photos', visitDraft.coverPhoto.file, 'visite_cover');
+      } catch (coverError: any) {
+        setError(coverError?.message ?? 'Upload de la photo de couverture impossible.');
+        setSaving(false);
+        return;
+      }
+    }
     const basePayload = {
       chantier_id: visitDraft.chantierId || null,
       start_time: visitDraft.startTime || null,
@@ -1035,6 +1255,7 @@ export default function BuildTrackWebPage() {
         : null,
       reserve_ids: [],
       participants: visitDraft.participants.length ? visitDraft.participants : null,
+      cover_photo_uri: coverPhotoUri,
       created_at: new Date().toISOString(),
       organization_id: profile.organization_id ?? null,
     };
@@ -1535,6 +1756,7 @@ export default function BuildTrackWebPage() {
           data={data}
           selectedProjectId={selectedProjectId}
           saving={saving}
+          currentUserId={authUser?.id}
           onClose={() => setVisitModalOpen(false)}
           onSubmit={submitVisit}
           onToggleCompany={toggleVisitCompany}
@@ -2953,6 +3175,102 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
   );
 }
 
+function TextAssistControls({
+  value,
+  onChange,
+  context,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  context: string;
+}) {
+  const [dictationOpen, setDictationOpen] = useState(false);
+  const [lang, setLang] = useState<TextLang>(() => defaultTextLang());
+  const [busy, setBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+
+  function setPreferredLang(next: TextLang) {
+    setLang(next);
+    if (typeof window !== 'undefined') window.localStorage.setItem('buildtrack-web-dictation-lang', next);
+  }
+
+  function startDictation(nextLang: TextLang) {
+    setPreferredLang(nextLang);
+    setMessage('');
+    if (typeof window === 'undefined') return;
+    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!Recognition) {
+      setMessage('Dictee vocale non disponible dans ce navigateur.');
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.lang = TEXT_LANG_OPTIONS.find(item => item.value === nextLang)?.speech ?? 'fr-FR';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    setBusy('dictation');
+    recognition.onresult = (event: any) => {
+      const text = event?.results?.[0]?.[0]?.transcript;
+      if (text) onChange([value.trim(), text.trim()].filter(Boolean).join(value.trim() ? ' ' : ''));
+    };
+    recognition.onerror = () => setMessage('Dictee interrompue. Verifiez le micro ou les permissions.');
+    recognition.onend = () => setBusy(null);
+    recognition.start();
+  }
+
+  async function translate(target: TextLang) {
+    if (!value.trim()) return;
+    setMessage('');
+    setBusy(`translate-${target}`);
+    try {
+      const translated = await requestWebTranslation({ text: value, source: lang, target, context });
+      onChange(translated);
+      setPreferredLang(target);
+    } catch (err: any) {
+      setMessage(err?.message ?? 'Traduction Azure indisponible.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className={styles.textAssist}>
+      <div className={styles.textAssistBar}>
+        <button type="button" onClick={() => setDictationOpen(open => !open)} className={dictationOpen ? styles.textAssistActive : ''}>
+          Micro
+        </button>
+        <span>Traduire</span>
+        {TEXT_LANG_OPTIONS.map(option => (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => translate(option.value)}
+            disabled={!value.trim() || busy === `translate-${option.value}`}
+          >
+            {busy === `translate-${option.value}` ? '...' : option.label}
+          </button>
+        ))}
+      </div>
+      {dictationOpen ? (
+        <div className={styles.dictationPicker}>
+          <span>Langue parlee</span>
+          {TEXT_LANG_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              className={lang === option.value ? styles.dictationLangActive : styles.dictationLang}
+              onClick={() => startDictation(option.value)}
+              disabled={busy === 'dictation'}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {message ? <small className={styles.textAssistMessage}>{message}</small> : null}
+    </div>
+  );
+}
+
 function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, onClose, onSubmit, onToggleCompany }: {
   mode: 'create' | 'edit';
   draft: ReserveDraft;
@@ -2964,6 +3282,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
   onSubmit: (event: React.FormEvent) => void;
   onToggleCompany: (companyName: string) => void;
 }) {
+  const [showTemplates, setShowTemplates] = useState(false);
   const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
   const project = data.chantiers.find(item => item.id === projectId) ?? null;
   const plans = data.sitePlans.filter(plan => getChantierId(plan) === projectId);
@@ -3027,6 +3346,44 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
 
   function reuseTitleAsDescription() {
     setDraft(prev => ({ ...prev, description: prev.title.trim() }));
+  }
+
+  function applyTemplate(item: { title: string; description: string }) {
+    setDraft(prev => ({ ...prev, title: item.title, description: item.description }));
+    setShowTemplates(false);
+  }
+
+  function addPhotoFiles(files: FileList | null) {
+    const selectedFiles = Array.from(files ?? []).filter(file => file.type.startsWith('image/')).slice(0, Math.max(0, 6 - draft.photos.length));
+    if (!selectedFiles.length) return;
+    setDraft(prev => ({
+      ...prev,
+      photos: [
+        ...prev.photos,
+        ...selectedFiles.map(file => ({
+          id: crypto.randomUUID(),
+          uri: URL.createObjectURL(file),
+          name: file.name,
+          kind: 'defect' as const,
+          file,
+        })),
+      ],
+    }));
+  }
+
+  function removePhoto(photoId: string) {
+    setDraft(prev => ({ ...prev, photos: prev.photos.filter(photo => photo.id !== photoId) }));
+  }
+
+  function togglePhotoKind(photoId: string) {
+    setDraft(prev => ({
+      ...prev,
+      photos: prev.photos.map(photo =>
+        photo.id === photoId
+          ? { ...photo, kind: photo.kind === 'resolution' ? 'defect' : 'resolution' }
+          : photo
+      ),
+    }));
   }
 
   function applyBuilding(buildingId: string) {
@@ -3119,6 +3476,14 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
     setDraft(prev => ({ ...prev, deadline: date.toISOString().slice(0, 10) }));
   }
 
+  function applyPriority(value: string) {
+    setDraft(prev => ({
+      ...prev,
+      priority: value,
+      deadline: prev.deadline || suggestedDeadlineForPriority(value),
+    }));
+  }
+
   return (
     <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
       <form className={`${styles.modalPanel} ${styles.reserveModalPanel}`} onSubmit={onSubmit}>
@@ -3157,6 +3522,11 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
               <label className={styles.formWide}>
                 Titre *
                 <input value={draft.title} onChange={event => updateTitle(event.target.value)} placeholder="Ex: Finition mur à reprendre" required />
+                <TextAssistControls
+                  value={draft.title}
+                  onChange={value => updateTitle(value)}
+                  context="reserve title"
+                />
               </label>
               <label className={styles.formWide}>
                 <span className={styles.reserveLabelRow}>
@@ -3166,7 +3536,62 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                   ) : null}
                 </span>
                 <textarea value={draft.description} onChange={event => setDraft(prev => ({ ...prev, description: event.target.value }))} rows={4} />
+                <TextAssistControls
+                  value={draft.description}
+                  onChange={value => setDraft(prev => ({ ...prev, description: value }))}
+                  context="reserve description"
+                />
               </label>
+            </div>
+            <div className={styles.reserveTemplateBox}>
+              <button type="button" className={styles.reserveTemplateHeader} onClick={() => setShowTemplates(open => !open)}>
+                <span>Templates rapides</span>
+                <strong>{RESERVE_TEMPLATE_GROUPS.reduce((sum, group) => sum + group.items.length, 0)}</strong>
+              </button>
+              {showTemplates ? (
+                <div className={styles.reserveTemplateGrid}>
+                  {RESERVE_TEMPLATE_GROUPS.map(group => (
+                    <div key={group.category} className={styles.reserveTemplateGroup}>
+                      <strong>{group.category}</strong>
+                      {group.items.map(item => (
+                        <button key={`${group.category}-${item.title}`} type="button" onClick={() => applyTemplate(item)}>
+                          <span>{item.title}</span>
+                          <small>{item.description}</small>
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <small>Choisissez un modele pour pre-remplir titre et description.</small>
+              )}
+            </div>
+            <div className={styles.reservePhotoBox}>
+              <div className={styles.reservePhotoHeader}>
+                <div>
+                  <strong>Photos ({draft.photos.length}/6)</strong>
+                  <span>Ajoutez des photos de constat ou de levee.</span>
+                </div>
+                <label>
+                  Ajouter
+                  <input type="file" accept="image/*" multiple onChange={event => addPhotoFiles(event.target.files)} />
+                </label>
+              </div>
+              {draft.photos.length ? (
+                <div className={styles.reservePhotoGrid}>
+                  {draft.photos.map(photo => (
+                    <div key={photo.id} className={styles.reservePhotoItem}>
+                      <img src={photo.uri} alt={photo.name ?? 'Photo reserve'} />
+                      <div>
+                        <button type="button" onClick={() => togglePhotoKind(photo.id)}>
+                          {photo.kind === 'resolution' ? 'Levee' : 'Constat'}
+                        </button>
+                        <button type="button" onClick={() => removePhoto(photo.id)}>Retirer</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </div>
           </section>
 
@@ -3321,7 +3746,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                       key={value}
                       type="button"
                       className={draft.priority === value ? styles.chipActive : styles.chip}
-                      onClick={() => setDraft(prev => ({ ...prev, priority: value }))}
+                      onClick={() => applyPriority(value)}
                     >
                       {label}
                     </button>
@@ -3376,21 +3801,24 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
   );
 }
 
-function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose, onSubmit, onToggleCompany }: {
+function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentUserId, onClose, onSubmit, onToggleCompany }: {
   draft: VisitDraft;
   setDraft: React.Dispatch<React.SetStateAction<VisitDraft>>;
   data: WebState;
   selectedProjectId: string;
   saving: boolean;
+  currentUserId?: string;
   onClose: () => void;
   onSubmit: (event: React.FormEvent) => void;
   onToggleCompany: (companyId: string) => void;
 }) {
   const [buildingQuery, setBuildingQuery] = useState('');
   const [newChecklistLabel, setNewChecklistLabel] = useState('');
+  const [participantSearch, setParticipantSearch] = useState('');
   const [participantName, setParticipantName] = useState('');
   const [participantRole, setParticipantRole] = useState('');
   const [participantCompanyId, setParticipantCompanyId] = useState('');
+  const [participantCompanyFree, setParticipantCompanyFree] = useState('');
   const [newTag, setNewTag] = useState('');
   const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
   const project = data.chantiers.find(item => item.id === projectId);
@@ -3411,6 +3839,26 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
   const checklistDone = draft.checklistItems.filter(item => item.checked).length;
   const suggestedTitle = autoVisitTitle(draft.visitType, draft.date || todayISO());
   const canUseSuggestedTitle = draft.title.trim() !== suggestedTitle;
+  const existingUserParticipants = useMemo(() => {
+    const query = normalizeSearchText(participantSearch);
+    return data.profiles
+      .filter(profile => profile.id !== currentUserId)
+      .filter(profile => {
+        if (project?.organization_id && profile.organization_id && profile.organization_id !== project.organization_id) return false;
+        const label = profile.name || profile.email || 'Utilisateur';
+        const exists = draft.participants.some(participant => {
+          if (participant.profileId && participant.profileId === profile.id) return true;
+          if (participant.email && profile.email && participant.email.toLowerCase() === profile.email.toLowerCase()) return true;
+          return normalizeSearchText(participant.name) === normalizeSearchText(label);
+        });
+        if (exists) return false;
+        if (!query) return true;
+        const companyName = profile.company_id ? companyById.get(profile.company_id)?.name : '';
+        return normalizeSearchText([label, profile.email, ROLE_LABELS[String(profile.role)] ?? profile.role_label ?? profile.role, companyName].join(' ')).includes(query);
+      })
+      .sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || ''), 'fr'));
+  }, [companyById, currentUserId, data.profiles, draft.participants, participantSearch, project?.organization_id]);
+  const visibleUserParticipants = existingUserParticipants.slice(0, 12);
 
   function updateProject(nextProjectId: string) {
     setDraft(prev => ({
@@ -3468,6 +3916,26 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
     });
   }
 
+  function selectVisibleBuildings() {
+    const source = buildingQuery.trim() ? filteredBuildings : buildings;
+    setDraft(prev => {
+      const existing = new Set(prev.visitedLocations.map(location => location.buildingId).filter(Boolean));
+      const additions = source
+        .filter((building: any) => !existing.has(building.id))
+        .map((building: any) => ({ buildingId: building.id, buildingName: building.name }));
+      return { ...prev, visitedLocations: [...prev.visitedLocations, ...additions] };
+    });
+  }
+
+  function removeVisitedBuilding(buildingId?: string, buildingName?: string) {
+    setDraft(prev => ({
+      ...prev,
+      visitedLocations: prev.visitedLocations.filter(location =>
+        buildingId ? location.buildingId !== buildingId : location.buildingName !== buildingName
+      ),
+    }));
+  }
+
   function updateLocationPlan(buildingId: string, planId: string) {
     setDraft(prev => ({
       ...prev,
@@ -3493,22 +3961,71 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
     const name = participantName.trim();
     if (!name) return;
     const company = participantCompanyId ? companyById.get(participantCompanyId) : null;
-    setDraft(prev => ({
-      ...prev,
-      participants: [
-        ...prev.participants,
-        {
-          id: crypto.randomUUID(),
-          name,
-          role: participantRole.trim() || undefined,
-          companyId: participantCompanyId || undefined,
-          company: company?.name,
-        },
-      ],
-    }));
+    const freeCompany = participantCompanyFree.trim();
+    setDraft(prev => {
+      if (prev.participants.some(participant => normalizeSearchText(participant.name) === normalizeSearchText(name))) return prev;
+      return {
+        ...prev,
+        participants: [
+          ...prev.participants,
+          {
+            id: crypto.randomUUID(),
+            name,
+            role: participantRole.trim() || undefined,
+            companyId: participantCompanyId || undefined,
+            company: company?.name ?? (freeCompany || undefined),
+          },
+        ],
+      };
+    });
     setParticipantName('');
     setParticipantRole('');
     setParticipantCompanyId('');
+    setParticipantCompanyFree('');
+  }
+
+  function setCoverPhoto(file: File | null) {
+    if (!file || !file.type.startsWith('image/')) return;
+    setDraft(prev => ({
+      ...prev,
+      coverPhoto: {
+        id: crypto.randomUUID(),
+        uri: URL.createObjectURL(file),
+        name: file.name,
+        kind: 'defect',
+        file,
+      },
+    }));
+  }
+
+  function addUserParticipant(profile: Profile) {
+    const label = profile.name || profile.email || 'Utilisateur';
+    const role = ROLE_LABELS[String(profile.role)] ?? profile.role_label ?? profile.role;
+    const company = profile.company_id ? companyById.get(profile.company_id) : null;
+    setDraft(prev => {
+      const exists = prev.participants.some(participant => {
+        if (participant.profileId && participant.profileId === profile.id) return true;
+        if (participant.email && profile.email && participant.email.toLowerCase() === profile.email.toLowerCase()) return true;
+        return normalizeSearchText(participant.name) === normalizeSearchText(label);
+      });
+      if (exists) return prev;
+      return {
+        ...prev,
+        participants: [
+          ...prev.participants,
+          {
+            id: `profile-${profile.id}`,
+            profileId: profile.id,
+            name: label,
+            email: profile.email || undefined,
+            role: role || undefined,
+            companyId: profile.company_id || undefined,
+            company: company?.name,
+          },
+        ],
+      };
+    });
+    setParticipantSearch('');
   }
 
   function addTag() {
@@ -3601,6 +4118,24 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
                 Fin
                 <input type="time" value={draft.endTime} onChange={event => setDraft(prev => ({ ...prev, endTime: event.target.value }))} />
               </label>
+              <div className={styles.formWide}>
+                <div className={styles.visitCoverBox}>
+                  <div>
+                    <strong>Photo de couverture</strong>
+                    <span>Optionnelle, visible dans le compte rendu de visite.</span>
+                  </div>
+                  {draft.coverPhoto ? (
+                    <div className={styles.visitCoverPreview}>
+                      <img src={draft.coverPhoto.uri} alt="Photo de couverture" />
+                      <button type="button" onClick={() => setDraft(prev => ({ ...prev, coverPhoto: null }))}>Retirer</button>
+                    </div>
+                  ) : null}
+                  <label>
+                    Ajouter une photo
+                    <input type="file" accept="image/*" onChange={event => setCoverPhoto(event.target.files?.[0] ?? null)} />
+                  </label>
+                </div>
+              </div>
             </div>
           </section>
 
@@ -3619,8 +4154,8 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
                     <span>⌕</span>
                     <input value={buildingQuery} onChange={event => setBuildingQuery(event.target.value)} placeholder="Rechercher bâtiment ou niveau..." />
                   </div>
-                  <button type="button" onClick={() => setDraft(prev => ({ ...prev, visitedLocations: buildings.map((building: any) => ({ buildingId: building.id, buildingName: building.name })) }))}>
-                    Tout sélectionner
+                  <button type="button" onClick={selectVisibleBuildings}>
+                    {buildingQuery.trim() ? 'Sélectionner les résultats' : 'Tout sélectionner'}
                   </button>
                   <button type="button" onClick={() => setDraft(prev => ({ ...prev, visitedLocations: [] }))} disabled={!draft.visitedLocations.length}>
                     Effacer
@@ -3629,7 +4164,13 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
                 {draft.visitedLocations.length ? (
                   <div className={styles.visitSelectedLocations}>
                     {selectedLocations.map(location => (
-                      <span key={location.buildingId ?? location.buildingName}>{location.buildingName}</span>
+                      <button
+                        key={location.buildingId ?? location.buildingName}
+                        type="button"
+                        onClick={() => removeVisitedBuilding(location.buildingId, location.buildingName)}
+                      >
+                        {location.buildingName} ×
+                      </button>
                     ))}
                     {hiddenSelectedCount ? <span>+{hiddenSelectedCount}</span> : null}
                   </div>
@@ -3806,39 +4347,96 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
             <div className={styles.reserveFormSectionHeader}>
               <div>
                 <strong>Participants, notes et diffusion</strong>
-                <span>Ajoutez les présents, les tags de recherche et les objectifs de visite.</span>
+                <span>Sélectionnez les utilisateurs BuildTrack présents, puis ajoutez des invités externes si besoin.</span>
               </div>
             </div>
             {draft.participants.length ? (
               <div className={styles.visitParticipantList}>
                 {draft.participants.map(participant => (
                   <div key={participant.id} className={styles.visitParticipantRow}>
-                    <strong>{participant.name}</strong>
-                    <span>{[participant.role, participant.company].filter(Boolean).join(' · ') || 'Participant'}</span>
+                    <span className={styles.visitParticipantAvatar}>{initials(participant.name)}</span>
+                    <div>
+                      <strong>{participant.name}</strong>
+                      <span>{[participant.role, participant.company].filter(Boolean).join(' · ') || 'Participant'}</span>
+                    </div>
                     <button type="button" onClick={() => setDraft(prev => ({ ...prev, participants: prev.participants.filter(item => item.id !== participant.id) }))}>×</button>
                   </div>
                 ))}
               </div>
             ) : null}
-            <div className={styles.reserveModalGrid}>
-              <label>
-                Nom participant
-                <input value={participantName} onChange={event => setParticipantName(event.target.value)} placeholder="Nom" />
-              </label>
-              <label>
-                Rôle
-                <input value={participantRole} onChange={event => setParticipantRole(event.target.value)} placeholder="Conducteur, chef d'équipe..." />
-              </label>
-              <label>
-                Entreprise
-                <select value={participantCompanyId} onChange={event => setParticipantCompanyId(event.target.value)}>
-                  <option value="">Aucune / interne</option>
-                  {data.companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
-                </select>
-              </label>
-              <div className={styles.visitInlineAdd}>
-                <button type="button" onClick={addParticipant} disabled={!participantName.trim()}>Ajouter le participant</button>
+            <div className={styles.visitTeamPicker}>
+              <div className={styles.visitTeamPickerHeader}>
+                <div>
+                  <strong>Utilisateurs de l’équipe</strong>
+                  <span>Ajout rapide depuis les comptes existants du chantier.</span>
+                </div>
+                <span>{existingUserParticipants.length} disponible{existingUserParticipants.length > 1 ? 's' : ''}</span>
               </div>
+              <input
+                className={styles.visitTeamSearch}
+                value={participantSearch}
+                onChange={event => setParticipantSearch(event.target.value)}
+                placeholder="Rechercher un utilisateur, rôle ou entreprise..."
+              />
+              <div className={styles.visitTeamList}>
+                {visibleUserParticipants.map(profile => {
+                  const label = profile.name || profile.email || 'Utilisateur';
+                  const role = ROLE_LABELS[String(profile.role)] ?? profile.role_label ?? profile.role;
+                  const company = profile.company_id ? companyById.get(profile.company_id) : null;
+                  return (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      className={styles.visitTeamOption}
+                      onClick={() => addUserParticipant(profile)}
+                    >
+                      <span className={styles.visitTeamAvatar}>{initials(label)}</span>
+                      <span>
+                        <strong>{label}</strong>
+                        <small>{[role, company?.name, profile.email].filter(Boolean).join(' · ')}</small>
+                      </span>
+                      <em>Ajouter</em>
+                    </button>
+                  );
+                })}
+                {!visibleUserParticipants.length ? (
+                  <p className={styles.visitTeamEmpty}>
+                    {participantSearch ? 'Aucun utilisateur ne correspond à cette recherche.' : data.profiles.length ? 'Tous les utilisateurs disponibles sont déjà ajoutés.' : 'Aucun utilisateur BuildTrack disponible pour ce chantier.'}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <div className={styles.visitManualParticipant}>
+              <div className={styles.visitManualParticipantHeader}>
+                <strong>Ajouter un participant externe</strong>
+                <span>Pour un intervenant non inscrit dans BuildTrack.</span>
+              </div>
+              <div className={styles.reserveModalGrid}>
+                <label>
+                  Nom participant
+                  <input value={participantName} onChange={event => setParticipantName(event.target.value)} placeholder="Nom" />
+                </label>
+                <label>
+                  Rôle
+                  <input value={participantRole} onChange={event => setParticipantRole(event.target.value)} placeholder="Conducteur, chef d'équipe..." />
+                </label>
+                <label>
+                  Entreprise
+                  <select value={participantCompanyId} onChange={event => setParticipantCompanyId(event.target.value)}>
+                    <option value="">Aucune / interne</option>
+                    {data.companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Entreprise libre
+                  <input value={participantCompanyFree} onChange={event => setParticipantCompanyFree(event.target.value)} placeholder="Nom entreprise externe" />
+                </label>
+                <div className={styles.visitInlineAdd}>
+                  <button type="button" onClick={addParticipant} disabled={!participantName.trim()}>Ajouter le participant</button>
+                </div>
+              </div>
+            </div>
+            <div className={styles.reserveModalGrid}>
               <label className={styles.formWide}>
                 Notes et objectifs
                 <textarea value={draft.notes} onChange={event => setDraft(prev => ({ ...prev, notes: event.target.value }))} rows={4} placeholder="Objectif de la visite, points à contrôler, consignes..." />
