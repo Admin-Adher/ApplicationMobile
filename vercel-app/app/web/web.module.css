@@ -138,7 +138,9 @@
   text-decoration: none;
 }
 
-.loginForm button {
+.loginForm button,
+.topbarActions button,
+.userBox button {
   position: relative;
   isolation: isolate;
   min-height: 50px;
@@ -163,7 +165,9 @@
   transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
 }
 
-.loginForm button::before {
+.loginForm button::before,
+.topbarActions button::before,
+.userBox button::before {
   content: "";
   position: absolute;
   inset: 1px;
@@ -175,7 +179,9 @@
   pointer-events: none;
 }
 
-.loginForm button::after {
+.loginForm button::after,
+.topbarActions button::after,
+.userBox button::after {
   content: "";
   position: absolute;
   top: -55%;
@@ -189,7 +195,9 @@
   pointer-events: none;
 }
 
-.loginForm button:hover:not(:disabled) {
+.loginForm button:hover:not(:disabled),
+.topbarActions button:hover:not(:disabled),
+.userBox button:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: saturate(1.06) brightness(1.04);
   box-shadow:
@@ -199,7 +207,9 @@
     0 8px 18px rgba(15, 23, 42, 0.14);
 }
 
-.loginForm button:active:not(:disabled) {
+.loginForm button:active:not(:disabled),
+.topbarActions button:active:not(:disabled),
+.userBox button:active:not(:disabled) {
   transform: translateY(1px) scale(0.99);
 }
 
@@ -469,8 +479,13 @@
 }
 
 .userBox button {
-  min-height: 40px;
+  min-height: 46px;
   line-height: 1.1;
+}
+
+.userBox button span {
+  color: inherit;
+  font-size: inherit;
 }
 
 .logoutIcon {
