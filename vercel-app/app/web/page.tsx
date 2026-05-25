@@ -798,11 +798,16 @@ function getPdfReservePhotoUrls(reserve: any) {
   return getPdfReservePhotoItems(reserve).map((photo: any) => photo.uri);
 }
 
-const PLAN_REPORT_MAX_TOTAL_PHOTOS = 150;
-const PLAN_REPORT_MAX_PHOTOS_PER_RESERVE = 2;
+const REPORT_MAX_TOTAL_REMOTE_PHOTOS = 150;
+const REPORT_MAX_PHOTOS_PER_RESERVE = 2;
+const INDIVIDUAL_RESERVE_MAX_PHOTOS = 3;
 const PLAN_REPORT_PHOTO_RENDER_WIDTH = 800;
 const PLAN_REPORT_PHOTO_QUALITY = 0.55;
 const pdfPhotoDataUrlCache = new Map<string, Promise<string | null>>();
+
+function isPdfReportRemoteAsset(uri: string) {
+  return /^https?:\/\//i.test(String(uri ?? '').trim());
+}
 
 function blobToDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
@@ -867,18 +872,20 @@ async function imageUrlToPdfDataUrl(uri: string) {
   return await pdfPhotoDataUrlCache.get(value)!;
 }
 
-async function withPdfEmbeddedReservePhotos(reserve: any, maxPhotosPerReserve: number) {
-  if (!reserve) return reserve;
-  const items = maxPhotosPerReserve > 0
-    ? getPdfReservePhotoItems(reserve).slice(0, maxPhotosPerReserve)
-    : [];
-
-  const photos = (await Promise.all(
-    items.map(async (photo: any) => ({
+function getPdfRemoteReservePhotoItems(reserve: any, maxPhotosPerReserve: number) {
+  if (maxPhotosPerReserve <= 0) return [];
+  return getPdfReservePhotoItems(reserve)
+    .filter((photo: any) => isPdfReportRemoteAsset(photo.uri))
+    .slice(0, maxPhotosPerReserve)
+    .map((photo: any) => ({
       ...photo,
-      uri: await imageUrlToPdfDataUrl(photo.uri),
-    })),
-  )).filter((photo: any) => !!photo.uri);
+      uri: photo.uri,
+    }));
+}
+
+function withPdfRemoteReservePhotos(reserve: any, maxPhotosPerReserve: number) {
+  if (!reserve) return reserve;
+  const photos = getPdfRemoteReservePhotoItems(reserve, maxPhotosPerReserve);
 
   return {
     ...reserve,
@@ -888,13 +895,13 @@ async function withPdfEmbeddedReservePhotos(reserve: any, maxPhotosPerReserve: n
   };
 }
 
-async function withPdfEmbeddedReservePhotoList(reserves: any[], maxPhotosPerReserve: number, maxTotalPhotos = PLAN_REPORT_MAX_TOTAL_PHOTOS) {
+function withPdfRemoteReservePhotoList(reserves: any[], maxPhotosPerReserve: number, maxTotalPhotos = REPORT_MAX_TOTAL_REMOTE_PHOTOS) {
   const result: any[] = [];
   let remaining = maxTotalPhotos;
 
   for (const reserve of reserves) {
     const allowed = Math.max(0, Math.min(maxPhotosPerReserve, remaining));
-    const prepared = await withPdfEmbeddedReservePhotos(reserve, allowed);
+    const prepared = withPdfRemoteReservePhotos(reserve, allowed);
     remaining -= Array.isArray(prepared?.photos) ? prepared.photos.length : 0;
     result.push(prepared);
   }
@@ -920,28 +927,21 @@ async function toPdfReserveItemsForPlanReport(reserves: any[]) {
   const maxPhotosPerReserve = reserves.length === 0
     ? 0
     : Math.min(
-        PLAN_REPORT_MAX_PHOTOS_PER_RESERVE,
-        Math.floor(PLAN_REPORT_MAX_TOTAL_PHOTOS / reserves.length),
+        REPORT_MAX_PHOTOS_PER_RESERVE,
+        Math.floor(REPORT_MAX_TOTAL_REMOTE_PHOTOS / reserves.length),
       );
 
-  return await Promise.all(reserves.map(async (reserve, index) => {
+  return reserves.map((reserve, index) => {
     const item = toPdfReserveItem(reserve, index);
     if (maxPhotosPerReserve <= 0 || item.photos.length === 0) {
       return { ...item, photos: [] };
     }
 
-    const photos = await Promise.all(
-      item.photos.slice(0, maxPhotosPerReserve).map(async (photo: any) => ({
-        ...photo,
-        uri: await imageUrlToPdfDataUrl(photo.uri),
-      })),
-    );
-
     return {
       ...item,
-      photos: photos.filter((photo: any) => !!photo.uri),
+      photos: getPdfRemoteReservePhotoItems(reserve, maxPhotosPerReserve),
     };
-  }));
+  });
 }
 
 function toPdfPlanItem(plan: any) {
@@ -2202,10 +2202,10 @@ export default function BuildTrackWebPage() {
       const reportReserves = type === 'plans'
         ? await toPdfReserveItemsForPlanReport(targetReserves)
         : type === 'global_reserves'
-          ? await withPdfEmbeddedReservePhotoList(targetReserves, 3)
+          ? withPdfRemoteReservePhotoList(targetReserves, REPORT_MAX_PHOTOS_PER_RESERVE)
           : targetReserves;
       const reportReserve = type === 'individual_reserve' && targetReserve
-        ? await withPdfEmbeddedReservePhotos(targetReserve, 3)
+        ? withPdfRemoteReservePhotos(targetReserve, INDIVIDUAL_RESERVE_MAX_PHOTOS)
         : targetReserve;
       const reportVisit = type === 'visit_report'
         ? await withPdfEmbeddedVisitMedia(options?.visit)
@@ -2268,7 +2268,17 @@ export default function BuildTrackWebPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const result = await response.json();
+      const rawResult = await response.text();
+      let result: any = {};
+      try {
+        result = rawResult ? JSON.parse(rawResult) : {};
+      } catch {
+        const rawPreview = rawResult.slice(0, 240);
+        const isTooLarge = response.status === 413 || /request entity too large|payload too large/i.test(rawResult);
+        throw new Error(isTooLarge
+          ? 'Export PDF trop volumineux. Réduisez le périmètre ou filtrez par entreprise, puis réessayez.'
+          : rawPreview || 'Réponse PDF invalide.');
+      }
       if (!response.ok || !result.success) {
         throw new Error(result.error ?? 'Génération PDF impossible.');
       }

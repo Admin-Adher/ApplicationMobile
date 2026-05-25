@@ -210,7 +210,22 @@ export async function POST(req: NextRequest) {
   const headers = corsHeaders(origin);
 
   try {
-    const payload = await req.json();
+    let payload: any;
+    try {
+      payload = await req.json();
+    } catch (parseError: any) {
+      const message = String(parseError?.message ?? '').toLowerCase();
+      const status = message.includes('too large') || message.includes('entity') ? 413 : 400;
+      return NextResponse.json(
+        {
+          success: false,
+          error: status === 413
+            ? 'Export PDF trop volumineux. Réduisez le périmètre ou filtrez par entreprise, puis réessayez.'
+            : 'Payload PDF invalide.',
+        },
+        { status, headers }
+      );
+    }
     const type: string = payload.type ?? 'plans';
 
     let html: string;
