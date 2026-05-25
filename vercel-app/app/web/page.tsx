@@ -135,6 +135,7 @@ const EMPTY_DATA: WebState = {
 };
 
 const PDFJS_VERSION = '5.7.284';
+const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: '▦' },
@@ -754,6 +755,35 @@ function defaultTextLang(): TextLang {
   if (nav.startsWith('en')) return 'en';
   if (nav.startsWith('es')) return 'es';
   return 'fr';
+}
+
+function readStoredStringList(key: string) {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter(item => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function appendDictationText(current: string, transcript: string) {
+  const text = transcript.trim();
+  if (!text) return current;
+  const base = current.trimEnd();
+  return base ? `${base} ${text}` : text;
+}
+
+function MicrophoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z" />
+      <path d="M19 11a7 7 0 0 1-14 0" />
+      <path d="M12 18v3" />
+      <path d="M8 21h8" />
+    </svg>
+  );
 }
 
 function createReserveDraft(projectId: string, plan?: any | null, visit?: any | null, pin?: ReservePinDraft | null): ReserveDraft {
@@ -3087,6 +3117,11 @@ function PlansView({
   const [buildingQuery, setBuildingQuery] = useState('');
   const [selectedBuildingKey, setSelectedBuildingKey] = useState('all');
   const [activeFamilyKey, setActiveFamilyKey] = useState('all');
+  const [levelFilter, setLevelFilter] = useState('all');
+  const [reservePresenceFilter, setReservePresenceFilter] = useState<'all' | 'with' | 'without'>('all');
+  const [fileKindFilter, setFileKindFilter] = useState<'all' | 'pdf' | 'image' | 'dxf'>('all');
+  const [expandedBuildingKeys, setExpandedBuildingKeys] = useState<Set<string>>(() => new Set());
+  const [recentBuildingKeys, setRecentBuildingKeys] = useState<string[]>(() => readStoredStringList(WEB_RECENT_BUILDINGS_KEY));
   const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
   const [focusedPlanReserveId, setFocusedPlanReserveId] = useState<string | null>(null);
   const [pinPlacementPreview, setPinPlacementPreview] = useState<PinPlacementPreview | null>(null);
@@ -3094,6 +3129,14 @@ function PlansView({
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
   const selectedPlanReserve = planReserves.find((reserve: any) => reserve.id === selectedPlanReserveId) ?? null;
   const selectedPlanBuildingKey = selectedPlan ? getPlanBuildingKey(selectedPlan) : 'all';
+  const reserveCountByPlanId = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const reserve of reserves) {
+      if (!reserve?.plan_id || reserve.archived_at || reserve.archivedAt) continue;
+      counts.set(reserve.plan_id, (counts.get(reserve.plan_id) ?? 0) + 1);
+    }
+    return counts;
+  }, [reserves]);
   const buildingGroups = useMemo(() => {
     const map = new Map<string, {
       key: string;
@@ -3192,18 +3235,45 @@ function PlansView({
       setActiveFamilyKey('all');
     }
   }, [activeFamilyKey, buildingFamilies]);
+  const familyFilteredBuildingGroups = useMemo(() => {
+    if (buildingQuery.trim() || !buildingFamilies.useGrouping || activeFamilyKey === 'all') return buildingGroups;
+    return buildingGroups.filter(group => (buildingFamilies.familyOf.get(group.key) ?? '__others__') === activeFamilyKey);
+  }, [activeFamilyKey, buildingFamilies, buildingGroups, buildingQuery]);
+  const levelOptions = useMemo(() => {
+    const levels = new Set<string>();
+    familyFilteredBuildingGroups.forEach(group => group.levels.forEach(level => levels.add(level)));
+    return [...levels].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' }));
+  }, [familyFilteredBuildingGroups]);
+  useEffect(() => {
+    if (levelFilter !== 'all' && !levelOptions.includes(levelFilter)) setLevelFilter('all');
+  }, [levelFilter, levelOptions]);
+  const planMatchesWebFilters = (plan: any) => {
+    if (levelFilter !== 'all' && getPlanLevelName(plan) !== levelFilter) return false;
+    const count = reserveCountByPlanId.get(plan.id) ?? 0;
+    if (reservePresenceFilter === 'with' && count === 0) return false;
+    if (reservePresenceFilter === 'without' && count > 0) return false;
+    const rawType = normalizeSearchText(plan.file_type ?? plan.fileType ?? '');
+    const uri = normalizeSearchText(plan.uri ?? plan.file_url ?? plan.fileUrl ?? '');
+    const name = normalizeSearchText(plan.name ?? '');
+    const planKind = rawType.includes('dxf') || uri.endsWith('.dxf') || name.endsWith('.dxf')
+      ? 'dxf'
+      : rawType.includes('image') || /\.(png|jpe?g|webp)$/i.test(String(plan.uri ?? plan.file_url ?? plan.fileUrl ?? plan.name ?? ''))
+        ? 'image'
+        : 'pdf';
+    return fileKindFilter === 'all' || planKind === fileKindFilter;
+  };
   const filteredBuildingGroups = useMemo(() => {
     const query = normalizeSearchText(buildingQuery);
-    const familyFiltered = !query && buildingFamilies.useGrouping && activeFamilyKey !== 'all'
-      ? buildingGroups.filter(group => (buildingFamilies.familyOf.get(group.key) ?? '__others__') === activeFamilyKey)
-      : buildingGroups;
+    const noPlanFilters = levelFilter === 'all' && reservePresenceFilter === 'all' && fileKindFilter === 'all';
     if (!query) {
-      return familyFiltered.map(group => ({ ...group, displayPlans: group.plans }));
+      return familyFilteredBuildingGroups
+        .map(group => ({ ...group, displayPlans: group.plans.filter(planMatchesWebFilters) }))
+        .filter(group => noPlanFilters || group.displayPlans.length > 0);
     }
-    return familyFiltered
+    return familyFilteredBuildingGroups
       .map(group => {
         const groupMatches = normalizeSearchText(group.name).includes(query);
-        const displayPlans = groupMatches
+        const matchingPlans = groupMatches
           ? group.plans
           : group.plans.filter(plan => normalizeSearchText([
               plan.name,
@@ -3212,11 +3282,17 @@ function PlansView({
               plan.revision_code,
               plan.file_type,
             ].filter(Boolean).join(' ')).includes(query));
+        const displayPlans = matchingPlans.filter(planMatchesWebFilters);
         return { ...group, displayPlans };
       })
       .filter(group => group.displayPlans.length > 0);
-  }, [activeFamilyKey, buildingFamilies, buildingGroups, buildingQuery]);
+  }, [buildingQuery, familyFilteredBuildingGroups, fileKindFilter, levelFilter, reserveCountByPlanId, reservePresenceFilter]);
   const totalReserveCount = buildingGroups.reduce((sum, group) => sum + group.reserveCount, 0);
+  const recentBuildingGroups = recentBuildingKeys
+    .map(key => buildingGroups.find(group => group.key === key))
+    .filter(Boolean)
+    .slice(0, 3) as typeof buildingGroups;
+  const hasPlanListFilters = levelFilter !== 'all' || reservePresenceFilter !== 'all' || fileKindFilter !== 'all';
   useEffect(() => {
     setSelectedPlanReserveId(null);
     setFocusedPlanReserveId(null);
@@ -3232,11 +3308,31 @@ function PlansView({
       if (pinPlacementTimerRef.current) window.clearTimeout(pinPlacementTimerRef.current);
     };
   }, []);
-  const handleSelectBuildingGroup = (group: { key: string; plans: any[] }) => {
+  const rememberBuildingGroup = (key: string) => {
+    if (!key || key === 'all') return;
+    setRecentBuildingKeys(prev => {
+      const next = [key, ...prev.filter(item => item !== key)].slice(0, 5);
+      if (typeof window !== 'undefined') window.localStorage.setItem(WEB_RECENT_BUILDINGS_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+  const handleSelectBuildingGroup = (group: { key: string; plans: any[]; displayPlans?: any[] }) => {
     setSelectedBuildingKey(group.key);
-    if (!group.plans.some(plan => plan.id === selectedPlan?.id) && group.plans[0]) {
-      setSelectedPlanId(group.plans[0].id);
+    rememberBuildingGroup(group.key);
+    setExpandedBuildingKeys(prev => {
+      const next = new Set(prev);
+      next.add(group.key);
+      return next;
+    });
+    const sourcePlans = group.displayPlans?.length ? group.displayPlans : group.plans;
+    if (!sourcePlans.some(plan => plan.id === selectedPlan?.id) && sourcePlans[0]) {
+      setSelectedPlanId(sourcePlans[0].id);
     }
+  };
+  const resetPlanListFilters = () => {
+    setLevelFilter('all');
+    setReservePresenceFilter('all');
+    setFileKindFilter('all');
   };
   const openReserveFromPin = (reserveId: string) => {
     setSelectedReserveId(reserveId);
@@ -3320,6 +3416,65 @@ function PlansView({
             ))}
           </div>
         )}
+        <div className={styles.buildingFilterRowWeb}>
+          {[
+            ['all', 'Tous plans', plans.length],
+            ['with', 'Avec réserves', plans.filter((plan: any) => (reserveCountByPlanId.get(plan.id) ?? 0) > 0).length],
+            ['without', 'Sans réserve', plans.filter((plan: any) => (reserveCountByPlanId.get(plan.id) ?? 0) === 0).length],
+          ].map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              className={reservePresenceFilter === value ? styles.buildingFilterActiveWeb : ''}
+              onClick={() => setReservePresenceFilter(value as 'all' | 'with' | 'without')}
+            >
+              {label} <em>{count}</em>
+            </button>
+          ))}
+        </div>
+        <div className={styles.buildingFilterRowWeb}>
+          {[
+            ['all', 'Tous fichiers'],
+            ['pdf', 'PDF'],
+            ['image', 'Images'],
+            ['dxf', 'DXF'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={fileKindFilter === value ? styles.buildingFilterActiveWeb : ''}
+              onClick={() => setFileKindFilter(value as 'all' | 'pdf' | 'image' | 'dxf')}
+            >
+              {label}
+            </button>
+          ))}
+          {hasPlanListFilters ? (
+            <button type="button" className={styles.buildingFilterResetWeb} onClick={resetPlanListFilters}>
+              Réinitialiser
+            </button>
+          ) : null}
+        </div>
+        {levelOptions.length > 1 && (
+          <div className={styles.buildingLevelRowWeb}>
+            <button
+              type="button"
+              className={levelFilter === 'all' ? styles.buildingFilterActiveWeb : ''}
+              onClick={() => setLevelFilter('all')}
+            >
+              Tous niveaux
+            </button>
+            {levelOptions.map(level => (
+              <button
+                key={level}
+                type="button"
+                className={levelFilter === level ? styles.buildingFilterActiveWeb : ''}
+                onClick={() => setLevelFilter(level)}
+              >
+                {level}
+              </button>
+            ))}
+          </div>
+        )}
         <button
           type="button"
           className={`${styles.buildingAllRowWeb} ${selectedBuildingKey === 'all' ? styles.buildingGroupActiveWeb : ''}`}
@@ -3330,9 +3485,25 @@ function PlansView({
           <small>{plans.length} plans · {totalReserveCount} réserves</small>
         </button>
         <div className={`${styles.list} ${styles.plansList}`}>
+          {!buildingQuery && recentBuildingGroups.length > 0 && !hasPlanListFilters ? (
+            <div className={styles.buildingRecentBlockWeb}>
+              <div className={styles.buildingMiniSectionTitleWeb}>Récents</div>
+              {recentBuildingGroups.map(group => (
+                <button
+                  key={`recent-${group.key}`}
+                  type="button"
+                  className={`${styles.buildingRecentButtonWeb} ${selectedBuildingKey === group.key ? styles.buildingFilterActiveWeb : ''}`}
+                  onClick={() => handleSelectBuildingGroup(group)}
+                >
+                  <span>{group.name}</span>
+                  <em>{group.reserveCount}</em>
+                </button>
+              ))}
+            </div>
+          ) : null}
           {filteredBuildingGroups.map((group: any) => {
             const isSelectedGroup = selectedBuildingKey === group.key || (selectedBuildingKey === 'all' && selectedPlanBuildingKey === group.key);
-            const isExpanded = Boolean(buildingQuery) || isSelectedGroup;
+            const isExpanded = Boolean(buildingQuery) || isSelectedGroup || expandedBuildingKeys.has(group.key);
             return (
               <article key={group.key} className={`${styles.buildingGroupWeb} ${isSelectedGroup ? styles.buildingGroupActiveWeb : ''}`}>
                 <button type="button" className={styles.buildingGroupButtonWeb} onClick={() => handleSelectBuildingGroup(group)}>
@@ -3349,7 +3520,7 @@ function PlansView({
                 {isExpanded && (
                   <div className={styles.buildingPlanListWeb}>
                     {group.displayPlans.map((plan: any) => {
-                      const planReserveCount = reserves.filter((reserve: any) => reserve.plan_id === plan.id && !reserve.archived_at && !reserve.archivedAt).length;
+                      const planReserveCount = reserveCountByPlanId.get(plan.id) ?? 0;
                       return (
                         <button
                           key={plan.id}
@@ -3357,6 +3528,7 @@ function PlansView({
                           className={`${styles.buildingPlanRowWeb} ${selectedPlan?.id === plan.id ? styles.selectedRow : ''}`}
                           onClick={() => {
                             setSelectedBuildingKey(group.key);
+                            rememberBuildingGroup(group.key);
                             setSelectedPlanId(plan.id);
                           }}
                         >
@@ -4123,33 +4295,65 @@ function TextAssistControls({
   const [lang, setLang] = useState<TextLang>(() => defaultTextLang());
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState('');
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => () => {
+    try {
+      recognitionRef.current?.abort?.();
+    } catch {
+      // Some browsers throw when speech recognition is already closed.
+    }
+  }, []);
 
   function setPreferredLang(next: TextLang) {
     setLang(next);
     if (typeof window !== 'undefined') window.localStorage.setItem('buildtrack-web-dictation-lang', next);
   }
 
+  function stopDictation() {
+    try {
+      recognitionRef.current?.stop?.();
+    } catch {
+      // Some browsers throw when speech recognition is already closed.
+    }
+    recognitionRef.current = null;
+    setBusy(null);
+  }
+
   function startDictation(nextLang: TextLang) {
     setPreferredLang(nextLang);
+    setDictationOpen(true);
     setMessage('');
     if (typeof window === 'undefined') return;
+    if (busy === 'dictation') stopDictation();
     const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!Recognition) {
-      setMessage('Dictee vocale non disponible dans ce navigateur.');
+      setMessage("La dictée vocale n'est pas disponible dans ce navigateur. Essayez Chrome ou Edge.");
       return;
     }
     const recognition = new Recognition();
+    recognitionRef.current = recognition;
     recognition.lang = TEXT_LANG_OPTIONS.find(item => item.value === nextLang)?.speech ?? 'fr-FR';
     recognition.interimResults = false;
+    recognition.continuous = false;
     recognition.maxAlternatives = 1;
     setBusy('dictation');
     recognition.onresult = (event: any) => {
       const text = event?.results?.[0]?.[0]?.transcript;
-      if (text) onChange([value.trim(), text.trim()].filter(Boolean).join(value.trim() ? ' ' : ''));
+      if (text) onChange(appendDictationText(value, text));
     };
-    recognition.onerror = () => setMessage('Dictee interrompue. Verifiez le micro ou les permissions.');
-    recognition.onend = () => setBusy(null);
-    recognition.start();
+    recognition.onerror = () => setMessage('Dictée interrompue. Vérifiez le micro ou les permissions.');
+    recognition.onend = () => {
+      recognitionRef.current = null;
+      setBusy(null);
+    };
+    try {
+      recognition.start();
+    } catch {
+      recognitionRef.current = null;
+      setBusy(null);
+      setMessage('Impossible de démarrer la dictée. Réessayez dans quelques secondes.');
+    }
   }
 
   async function translate(target: TextLang) {
@@ -4170,8 +4374,14 @@ function TextAssistControls({
   return (
     <div className={styles.textAssist}>
       <div className={styles.textAssistBar}>
-        <button type="button" onClick={() => setDictationOpen(open => !open)} className={dictationOpen ? styles.textAssistActive : ''}>
-          Micro
+        <button
+          type="button"
+          onClick={() => (busy === 'dictation' ? stopDictation() : startDictation(lang))}
+          className={`${styles.microIconButton} ${busy === 'dictation' ? styles.textAssistActive : ''}`}
+          aria-label={busy === 'dictation' ? 'Arrêter la dictée' : `Dicter en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.name ?? 'français'}`}
+          title={busy === 'dictation' ? 'Arrêter la dictée' : 'Dicter au micro'}
+        >
+          <MicrophoneIcon />
         </button>
         <span>Traduire</span>
         {TEXT_LANG_OPTIONS.map(option => (
@@ -4185,16 +4395,16 @@ function TextAssistControls({
           </button>
         ))}
       </div>
-      {dictationOpen ? (
+      {dictationOpen || busy === 'dictation' ? (
         <div className={styles.dictationPicker}>
-          <span>Langue parlee</span>
+          <span>{busy === 'dictation' ? 'Écoute en cours' : 'Langue parlée'}</span>
           {TEXT_LANG_OPTIONS.map(option => (
             <button
               key={option.value}
               type="button"
               className={lang === option.value ? styles.dictationLangActive : styles.dictationLang}
               onClick={() => startDictation(option.value)}
-              disabled={busy === 'dictation'}
+              disabled={busy === 'dictation' && lang === option.value}
             >
               {option.label}
             </button>

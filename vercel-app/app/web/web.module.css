@@ -1065,7 +1065,7 @@
   grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 10px;
   min-height: 132px;
-  align-items: end;
+  align-items: flex-end;
 }
 
 .dashboardBarGroup {
@@ -1077,7 +1077,7 @@
 
 .dashboardBarGroup > div {
   display: flex;
-  align-items: end;
+  align-items: flex-end;
   justify-content: center;
   gap: 4px;
   height: 96px;
@@ -1856,6 +1856,84 @@
   border-color: #003082 !important;
   background: #003082 !important;
   color: #fff !important;
+}
+
+.buildingFilterRowWeb,
+.buildingLevelRowWeb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: thin;
+}
+
+.buildingFilterRowWeb button,
+.buildingLevelRowWeb button,
+.buildingRecentButtonWeb {
+  flex: 0 0 auto;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 8px 11px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.buildingFilterRowWeb em,
+.buildingRecentButtonWeb em {
+  margin-left: 5px;
+  color: inherit;
+  font-style: normal;
+  opacity: 0.75;
+}
+
+.buildingFilterActiveWeb {
+  border-color: #003082 !important;
+  background: #003082 !important;
+  color: #fff !important;
+}
+
+.buildingFilterResetWeb {
+  margin-left: auto;
+  color: #b42318 !important;
+  background: #fff7ed !important;
+  border-color: #fed7aa !important;
+}
+
+.buildingRecentBlockWeb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.buildingMiniSectionTitleWeb {
+  flex: 1 0 100%;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.buildingRecentButtonWeb {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.buildingRecentButtonWeb span {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .buildingAllRowWeb {
@@ -3452,6 +3530,25 @@
   font-size: 12px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.textAssistBar .microIconButton {
+  display: inline-grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  color: #003082;
+}
+
+.microIconButton svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .textAssistBar button:disabled,
