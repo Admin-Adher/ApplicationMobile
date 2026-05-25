@@ -3292,7 +3292,10 @@ function PlansView({
     .map(key => buildingGroups.find(group => group.key === key))
     .filter(Boolean)
     .slice(0, 3) as typeof buildingGroups;
-  const hasPlanListFilters = levelFilter !== 'all' || reservePresenceFilter !== 'all' || fileKindFilter !== 'all';
+  const hasPlanListFilters = levelFilter !== 'all'
+    || reservePresenceFilter !== 'all'
+    || fileKindFilter !== 'all'
+    || (buildingFamilies.useGrouping && activeFamilyKey !== 'all');
   useEffect(() => {
     setSelectedPlanReserveId(null);
     setFocusedPlanReserveId(null);
@@ -3330,6 +3333,7 @@ function PlansView({
     }
   };
   const resetPlanListFilters = () => {
+    setActiveFamilyKey('all');
     setLevelFilter('all');
     setReservePresenceFilter('all');
     setFileKindFilter('all');
@@ -3395,75 +3399,90 @@ function PlansView({
             <button type="button" onClick={() => setBuildingQuery('')} aria-label="Effacer la recherche">×</button>
           )}
         </label>
-        {buildingFamilies.useGrouping && !buildingQuery && (
-          <div className={styles.buildingFamilyRowWeb}>
-            <button
-              type="button"
-              className={activeFamilyKey === 'all' ? styles.buildingFamilyActiveWeb : ''}
-              onClick={() => setActiveFamilyKey('all')}
-            >
-              Tous <em>{buildingGroups.length}</em>
-            </button>
-            {buildingFamilies.families.map(family => (
-              <button
-                key={family.key}
-                type="button"
-                className={activeFamilyKey === family.key ? styles.buildingFamilyActiveWeb : ''}
-                onClick={() => setActiveFamilyKey(family.key)}
-              >
-                {family.label} <em>{family.groups.length}</em>
-              </button>
-            ))}
+        <div className={styles.buildingFiltersPanelWeb}>
+          <div className={styles.buildingFiltersHeaderWeb}>
+            <span>Filtres</span>
+            {hasPlanListFilters ? (
+              <button type="button" onClick={resetPlanListFilters}>Effacer</button>
+            ) : (
+              <em>Affichage complet</em>
+            )}
           </div>
-        )}
-        <div className={styles.buildingFilterRowWeb}>
-          {[
-            ['all', 'Tous plans', plans.length],
-            ['with', 'Avec réserves', plans.filter((plan: any) => (reserveCountByPlanId.get(plan.id) ?? 0) > 0).length],
-            ['without', 'Sans réserve', plans.filter((plan: any) => (reserveCountByPlanId.get(plan.id) ?? 0) === 0).length],
-          ].map(([value, label, count]) => (
-            <button
-              key={value}
-              type="button"
-              className={reservePresenceFilter === value ? styles.buildingFilterActiveWeb : ''}
-              onClick={() => setReservePresenceFilter(value as 'all' | 'with' | 'without')}
-            >
-              {label} <em>{count}</em>
-            </button>
-          ))}
-        </div>
-        <div className={styles.buildingFilterRowWeb}>
-          {[
-            ['all', 'Tous fichiers'],
-            ['pdf', 'PDF'],
-            ['image', 'Images'],
-            ['dxf', 'DXF'],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              className={fileKindFilter === value ? styles.buildingFilterActiveWeb : ''}
-              onClick={() => setFileKindFilter(value as 'all' | 'pdf' | 'image' | 'dxf')}
-            >
-              {label}
-            </button>
-          ))}
-          {hasPlanListFilters ? (
-            <button type="button" className={styles.buildingFilterResetWeb} onClick={resetPlanListFilters}>
-              Réinitialiser
-            </button>
-          ) : null}
-        </div>
-        {levelOptions.length > 1 && (
-          <div className={styles.buildingLevelRowWeb}>
-            <button
-              type="button"
-              className={levelFilter === 'all' ? styles.buildingFilterActiveWeb : ''}
-              onClick={() => setLevelFilter('all')}
-            >
-              Tous niveaux
-            </button>
-            {levelOptions.map(level => (
+          {buildingFamilies.useGrouping && !buildingQuery && (
+            <div className={styles.buildingFilterSectionWeb}>
+              <span className={styles.buildingFilterLabelWeb}>Famille</span>
+              <div className={styles.buildingFamilyRowWeb}>
+                <button
+                  type="button"
+                  className={activeFamilyKey === 'all' ? styles.buildingFamilyActiveWeb : ''}
+                  onClick={() => setActiveFamilyKey('all')}
+                >
+                  Tous <em>{buildingGroups.length}</em>
+                </button>
+                {buildingFamilies.families.map(family => (
+                  <button
+                    key={family.key}
+                    type="button"
+                    className={activeFamilyKey === family.key ? styles.buildingFamilyActiveWeb : ''}
+                    onClick={() => setActiveFamilyKey(family.key)}
+                  >
+                    {family.label} <em>{family.groups.length}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className={styles.buildingFilterSectionWeb}>
+            <span className={styles.buildingFilterLabelWeb}>Réserves</span>
+            <div className={styles.buildingFilterRowWeb}>
+              {[
+                ['all', 'Tous', plans.length],
+                ['with', 'Avec', plans.filter((plan: any) => (reserveCountByPlanId.get(plan.id) ?? 0) > 0).length],
+                ['without', 'Sans', plans.filter((plan: any) => (reserveCountByPlanId.get(plan.id) ?? 0) === 0).length],
+              ].map(([value, label, count]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={reservePresenceFilter === value ? styles.buildingFilterActiveWeb : ''}
+                  onClick={() => setReservePresenceFilter(value as 'all' | 'with' | 'without')}
+                >
+                  {label} <em>{count}</em>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className={styles.buildingFilterSectionWeb}>
+            <span className={styles.buildingFilterLabelWeb}>Format</span>
+            <div className={styles.buildingFilterRowWeb}>
+              {[
+                ['all', 'Tous'],
+                ['pdf', 'PDF'],
+                ['image', 'Images'],
+                ['dxf', 'DXF'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={fileKindFilter === value ? styles.buildingFilterActiveWeb : ''}
+                  onClick={() => setFileKindFilter(value as 'all' | 'pdf' | 'image' | 'dxf')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {levelOptions.length > 1 && (
+            <div className={styles.buildingFilterSectionWeb}>
+              <span className={styles.buildingFilterLabelWeb}>Niveau</span>
+              <div className={styles.buildingLevelRowWeb}>
+                <button
+                  type="button"
+                  className={levelFilter === 'all' ? styles.buildingFilterActiveWeb : ''}
+                  onClick={() => setLevelFilter('all')}
+                >
+                  Tous
+                </button>
+                {levelOptions.map(level => (
               <button
                 key={level}
                 type="button"
@@ -3472,9 +3491,11 @@ function PlansView({
               >
                 {level}
               </button>
-            ))}
-          </div>
-        )}
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
         <button
           type="button"
           className={`${styles.buildingAllRowWeb} ${selectedBuildingKey === 'all' ? styles.buildingGroupActiveWeb : ''}`}
