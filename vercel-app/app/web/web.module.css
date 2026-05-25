@@ -1862,22 +1862,27 @@
 .buildingLevelRowWeb {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: thin;
+  overflow: visible;
 }
 
 .buildingFilterRowWeb button,
 .buildingLevelRowWeb button,
 .buildingRecentButtonWeb {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
   border: 1px solid #d8e0ec;
   border-radius: 999px;
   background: #f8fafc;
   color: #64748b;
   padding: 8px 11px;
   font-weight: 900;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
 }
 
