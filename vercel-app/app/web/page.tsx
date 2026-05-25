@@ -1096,16 +1096,16 @@ export default function BuildTrackWebPage() {
               <span>Web</span>
             </div>
           </div>
-          <button
-            type="button"
-            className={styles.sidebarToggle}
-            onClick={() => setSidebarCollapsed(value => !value)}
-            aria-label={sidebarCollapsed ? 'Déplier le menu principal' : 'Plier le menu principal'}
-            title={sidebarCollapsed ? 'Déplier le menu' : 'Plier le menu'}
-          >
-            {sidebarCollapsed ? '>' : '<'}
-          </button>
         </div>
+        <button
+          type="button"
+          className={`${styles.sidebarToggle} ${sidebarCollapsed ? styles.sidebarToggleCollapsed : ''}`}
+          onClick={() => setSidebarCollapsed(value => !value)}
+          aria-label={sidebarCollapsed ? 'Déplier le menu principal' : 'Plier le menu principal'}
+          title={sidebarCollapsed ? 'Déplier le menu' : 'Plier le menu'}
+        >
+          <span className={styles.sidebarToggleChevron} aria-hidden="true" />
+        </button>
         <nav className={styles.navList}>
           {TABS.map(tab => (
             <button

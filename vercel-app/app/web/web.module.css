@@ -204,20 +204,49 @@
 }
 
 .sidebarToggle {
-  flex: 0 0 auto;
-  width: 34px;
-  height: 34px;
+  position: absolute;
+  top: 92px;
+  right: -14px;
+  z-index: 20;
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 54px;
   border: 1px solid #d8e0ec;
-  border-radius: 10px;
-  background: #f8fafc;
+  border-radius: 999px;
+  background: #fff;
   color: #003082;
-  font: inherit;
-  font-weight: 900;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.14);
   cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
 .sidebarToggle:hover {
-  background: #eef3fa;
+  border-color: #b7c7dd;
+  background: #f8fbff;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.18);
+  transform: translateX(2px);
+}
+
+.sidebarToggle:focus-visible {
+  outline: 3px solid rgba(0, 48, 130, 0.16);
+  outline-offset: 2px;
+}
+
+.sidebarToggleChevron {
+  width: 9px;
+  height: 9px;
+  margin-left: 3px;
+  border-top: 2px solid currentColor;
+  border-left: 2px solid currentColor;
+  transform: rotate(-45deg);
+  transition:
+    margin 0.18s ease,
+    transform 0.18s ease;
 }
 
 .sidebarCollapsed .sidebarBrandRow {
@@ -228,15 +257,18 @@
   display: none;
 }
 
-.sidebarCollapsed .sidebarToggle {
-  position: absolute;
-  top: 64px;
-  right: 10px;
-  width: 26px;
-  height: 26px;
-  border-radius: 999px;
-  padding: 0;
-  font-size: 12px;
+.sidebarToggleCollapsed {
+  right: -14px;
+  height: 48px;
+}
+
+.sidebarToggleCollapsed:hover {
+  transform: translateX(2px);
+}
+
+.sidebarToggleCollapsed .sidebarToggleChevron {
+  margin-left: -2px;
+  transform: rotate(135deg);
 }
 
 .navList {
