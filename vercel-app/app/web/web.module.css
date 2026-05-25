@@ -2379,6 +2379,413 @@
   box-shadow: 0 0 0 2px rgba(0, 48, 130, 0.08);
 }
 
+.secondaryBtn {
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #003082;
+  padding: 8px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitTypeGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.visitTypeCard,
+.visitTypeCardActive {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  align-content: center;
+  min-height: 70px;
+  border: 1px solid #d8e0ec;
+  border-radius: 15px;
+  background: #f8fafc;
+  color: #334155;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.visitTypeCard span,
+.visitTypeCardActive span {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.visitTypeCard strong,
+.visitTypeCardActive strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 14px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitTypeCard small,
+.visitTypeCardActive small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.visitTypeCardActive {
+  border-color: #003082;
+  background: #eef3ff;
+  color: #003082;
+}
+
+.visitBuildingToolbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.visitBuildingToolbar button,
+.visitInlineAdd button,
+.visitTagRow button {
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #003082;
+  padding: 10px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitBuildingToolbar button:disabled,
+.visitInlineAdd button:disabled,
+.visitTagRow button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.visitSearch {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  padding: 0 12px;
+}
+
+.visitSearch input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 0;
+  outline: 0;
+  padding: 12px 0;
+  color: #0f172a;
+  font: inherit;
+}
+
+.visitSelectedLocations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.visitSelectedLocations span {
+  max-width: 180px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: #003082;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitBuildingGrid {
+  max-height: 260px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.visitBuildingCard,
+.visitBuildingCardActive {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 3px;
+  align-items: center;
+  border: 1px solid #d8e0ec;
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  padding: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.visitBuildingCardActive {
+  border-color: #003082;
+  background: #f5f8ff;
+}
+
+.visitBuildingIcon {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: #eef3fa;
+  color: #003082;
+  font-weight: 900;
+}
+
+.visitBuildingCard strong,
+.visitBuildingCard small,
+.visitBuildingCardActive strong,
+.visitBuildingCardActive small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitBuildingCard strong,
+.visitBuildingCardActive strong {
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.visitBuildingCard small,
+.visitBuildingCardActive small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.visitLocationPreview {
+  max-height: 220px;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.visitSelectedLocationCard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.65fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.visitSelectedLocationCard strong,
+.visitSelectedLocationCard small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitSelectedLocationCard strong {
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.visitSelectedLocationCard small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.visitPlanSelect {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  padding: 10px;
+}
+
+.visitChecklistList {
+  max-height: 260px;
+  overflow-y: auto;
+  display: grid;
+  gap: 8px;
+  padding-right: 4px;
+}
+
+.visitChecklistRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #f8fafc;
+  padding: 8px;
+}
+
+.visitChecklistRow input,
+.visitInlineAdd input,
+.visitDeadlineRow input,
+.visitTagRow input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #0f172a;
+  padding: 10px 11px;
+  font: inherit;
+}
+
+.visitChecklistRow > button:last-child {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.visitCheckbox,
+.visitCheckboxChecked {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 9px;
+  background: #fff;
+  color: #fff;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitCheckboxChecked {
+  border-color: #003082;
+  background: #003082;
+}
+
+.visitInlineAdd {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+}
+
+.visitDeadlineRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.visitDeadlineRow input {
+  max-width: 220px;
+}
+
+.visitParticipantList {
+  display: grid;
+  gap: 8px;
+}
+
+.visitParticipantRow {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.visitParticipantRow strong,
+.visitParticipantRow span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitParticipantRow span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.visitParticipantRow button {
+  border: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.visitTagRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.visitTagRow input {
+  flex: 1 1 220px;
+}
+
+.visitTagRow button:not(:last-child) {
+  border-radius: 999px;
+}
+
+.visitSummary {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #c7d7fe;
+  border-radius: 16px;
+  background: #f5f8ff;
+  padding: 14px 16px;
+}
+
+.visitSummary strong {
+  color: #003082;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.visitSummary span {
+  color: #0f172a;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.visitSummary small {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .fieldLabel {
   display: block;
   margin-bottom: 8px;
@@ -2684,6 +3091,11 @@
   .metaGrid,
   .formGrid,
   .reserveModalGrid,
+  .visitTypeGrid,
+  .visitBuildingToolbar,
+  .visitBuildingGrid,
+  .visitSelectedLocationCard,
+  .visitParticipantRow,
   .companyStats {
     grid-template-columns: 1fr;
   }
@@ -2733,5 +3145,13 @@
   .reserveCompanyGrid {
     grid-template-columns: 1fr;
     max-height: 210px;
+  }
+
+  .visitInlineAdd {
+    grid-template-columns: 1fr;
+  }
+
+  .visitDeadlineRow input {
+    max-width: none;
   }
 }

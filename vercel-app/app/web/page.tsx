@@ -75,9 +75,19 @@ type VisitDraft = {
   building: string;
   level: string;
   zone: string;
+  defaultPlanId: string;
+  visitedLocations: Array<{
+    buildingId?: string;
+    buildingName: string;
+    defaultPlanId?: string;
+  }>;
   reserveDeadlineDate: string;
   notes: string;
+  checklistItems: Array<{ id: string; label: string; checked: boolean }>;
   companyIds: string[];
+  participants: Array<{ id: string; name: string; role?: string; company?: string; companyId?: string }>;
+  tags: string[];
+  recurrence: 'none' | 'weekly' | 'bimonthly';
 };
 
 const EMPTY_DATA: WebState = {
@@ -179,6 +189,28 @@ const VISIT_CHECKLIST_TEMPLATES: Record<VisitDraft['visitType'], string[]> = {
   autre: ['État constaté', 'Actions à mener', 'Prochaine étape'],
 };
 
+const VISIT_TYPE_OPTIONS: Array<{ value: VisitDraft['visitType']; label: string; icon: string; color: string }> = [
+  { value: 'controle', label: 'Contrôle', icon: '☑', color: '#6366f1' },
+  { value: 'opr', label: 'OPR', icon: '▤', color: '#f59e0b' },
+  { value: 'securite', label: 'Sécurité', icon: '◇', color: '#ef4444' },
+  { value: 'reception', label: 'Réception', icon: '✓', color: '#10b981' },
+  { value: 'synthese', label: 'Synthèse', icon: '◎', color: '#3b82f6' },
+  { value: 'autre', label: 'Autre', icon: '…', color: '#64748b' },
+];
+
+const VISIT_DEADLINE_SUGGESTIONS = [
+  { label: '7 j', days: 7 },
+  { label: '15 j', days: 15 },
+  { label: '30 j', days: 30 },
+  { label: '60 j', days: 60 },
+] as const;
+
+const VISIT_RECURRENCE_OPTIONS: Array<{ value: VisitDraft['recurrence']; label: string; desc: string }> = [
+  { value: 'none', label: 'Unique', desc: 'Créer uniquement cette visite.' },
+  { value: 'weekly', label: 'Hebdomadaire', desc: 'Créer 4 visites sur 4 semaines.' },
+  { value: 'bimonthly', label: 'Bi-mensuelle', desc: 'Créer 4 visites espacées de 2 semaines.' },
+];
+
 function isAdmin(profile: Profile | null) {
   return profile?.role === 'super_admin' || profile?.role === 'admin';
 }
@@ -193,6 +225,34 @@ function userLabel(profile: Profile | null, authUser?: SupabaseUser | null) {
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function addDaysISO(value: string, days: number) {
+  const base = value ? new Date(`${value}T12:00:00`) : new Date();
+  if (Number.isNaN(base.getTime())) return todayISO();
+  base.setDate(base.getDate() + days);
+  return base.toISOString().slice(0, 10);
+}
+
+function isoWeekFromISO(value: string) {
+  const source = value ? new Date(`${value}T12:00:00`) : new Date();
+  const date = new Date(Date.UTC(source.getFullYear(), source.getMonth(), source.getDate()));
+  const dayNumber = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - dayNumber);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+}
+
+function autoVisitTitle(type: VisitDraft['visitType'], date: string) {
+  return `${VISIT_TYPE_LABELS[type]} — S${isoWeekFromISO(date)}`;
+}
+
+function makeVisitChecklist(type: VisitDraft['visitType']) {
+  return (VISIT_CHECKLIST_TEMPLATES[type] ?? []).map(label => ({
+    id: crypto.randomUUID(),
+    label,
+    checked: false,
+  }));
 }
 
 function nowFR() {
@@ -444,21 +504,29 @@ function reserveToDraft(reserve: any): ReserveDraft {
 }
 
 function createVisitDraft(projectId: string, conducteur: string): VisitDraft {
+  const date = todayISO();
+  const visitType: VisitDraft['visitType'] = 'controle';
   return {
-    title: '',
+    title: autoVisitTitle(visitType, date),
     chantierId: projectId,
-    date: todayISO(),
+    date,
     startTime: '08:00',
     endTime: '10:00',
     conducteur,
     status: 'planned',
-    visitType: 'controle',
+    visitType,
     building: '',
     level: '',
     zone: '',
+    defaultPlanId: '',
+    visitedLocations: [],
     reserveDeadlineDate: '',
     notes: '',
+    checklistItems: makeVisitChecklist(visitType),
     companyIds: [],
+    participants: [],
+    tags: [],
+    recurrence: 'none',
   };
 }
 
@@ -910,49 +978,74 @@ export default function BuildTrackWebPage() {
     event.preventDefault();
     if (!profile || !canEdit(profile)) return;
     const title = visitDraft.title.trim();
+    const project = data.chantiers.find(item => item.id === visitDraft.chantierId);
+    const hasBuildingHierarchy = projectBuildings(project).length > 0;
     if (!title) {
       setError('Le titre de la visite est obligatoire.');
       return;
     }
+    if (!visitDraft.date) {
+      setError('La date de visite est obligatoire.');
+      return;
+    }
+    if (hasBuildingHierarchy && visitDraft.visitedLocations.length === 0) {
+      setError('Sélectionnez au moins un bâtiment dans le périmètre de visite.');
+      return;
+    }
+    if (visitDraft.startTime && visitDraft.endTime && visitDraft.endTime <= visitDraft.startTime) {
+      setError("L'heure de fin doit être après l'heure de début.");
+      return;
+    }
     setSaving(true);
     setError('');
-    const id = `VIS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
-    const checklistItems = VISIT_CHECKLIST_TEMPLATES[visitDraft.visitType].map(label => ({
-      id: crypto.randomUUID(),
-      label,
-      checked: false,
-    }));
-    const payload = {
-      id,
+
+    const recurrenceOffsets =
+      visitDraft.recurrence === 'weekly' ? [0, 7, 14, 21] :
+      visitDraft.recurrence === 'bimonthly' ? [0, 14, 28, 42] :
+      [0];
+    const singleLocation = hasBuildingHierarchy && visitDraft.visitedLocations.length === 1
+      ? visitDraft.visitedLocations[0]
+      : null;
+    const basePayload = {
       chantier_id: visitDraft.chantierId || null,
-      title,
-      date: visitDraft.date || todayISO(),
       start_time: visitDraft.startTime || null,
       end_time: visitDraft.endTime || null,
       conducteur: visitDraft.conducteur.trim() || userLabel(profile, authUser),
       status: visitDraft.status,
       visit_type: visitDraft.visitType,
       concerned_company_ids: visitDraft.companyIds.length ? visitDraft.companyIds : null,
-      building: visitDraft.building.trim() || null,
-      level: visitDraft.level.trim() || null,
+      visited_locations: hasBuildingHierarchy && visitDraft.visitedLocations.length ? visitDraft.visitedLocations : null,
+      building: hasBuildingHierarchy ? (singleLocation?.buildingName ?? null) : (visitDraft.building.trim() || null),
+      level: hasBuildingHierarchy ? null : (visitDraft.level.trim() || null),
       zone: visitDraft.zone.trim() || null,
       notes: visitDraft.notes.trim() || null,
+      tags: visitDraft.tags.length ? visitDraft.tags : null,
+      default_plan_id: hasBuildingHierarchy ? (singleLocation?.defaultPlanId ?? null) : (visitDraft.defaultPlanId || null),
       reserve_deadline_date: visitDraft.reserveDeadlineDate || null,
-      checklist_items: checklistItems,
+      checklist_items: visitDraft.checklistItems.length
+        ? visitDraft.checklistItems.map(item => ({ ...item, checked: false }))
+        : null,
       reserve_ids: [],
-      participants: null,
+      participants: visitDraft.participants.length ? visitDraft.participants : null,
       created_at: new Date().toISOString(),
       organization_id: profile.organization_id ?? null,
     };
+    const payloads = recurrenceOffsets.map((offset, index) => ({
+      ...basePayload,
+      id: `VIS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      title: recurrenceOffsets.length > 1 ? `${title} — S${index + 1}` : title,
+      date: addDaysISO(visitDraft.date, offset),
+      status: index === 0 ? visitDraft.status : 'planned',
+    }));
+
     const { data: inserted, error: insertError } = await supabaseBrowser
       .from('visites')
-      .insert(payload)
-      .select()
-      .single();
+      .insert(payloads)
+      .select();
     if (insertError) {
       setError(insertError.message);
     } else {
-      setData(prev => ({ ...prev, visites: [inserted ?? payload, ...prev.visites] }));
+      setData(prev => ({ ...prev, visites: [...(inserted ?? payloads), ...prev.visites] }));
       setVisitModalOpen(false);
       setActiveTab('visites');
     }
@@ -3212,95 +3305,521 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, onClose,
   onSubmit: (event: React.FormEvent) => void;
   onToggleCompany: (companyId: string) => void;
 }) {
+  const [buildingQuery, setBuildingQuery] = useState('');
+  const [newChecklistLabel, setNewChecklistLabel] = useState('');
+  const [participantName, setParticipantName] = useState('');
+  const [participantRole, setParticipantRole] = useState('');
+  const [participantCompanyId, setParticipantCompanyId] = useState('');
+  const [newTag, setNewTag] = useState('');
   const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
+  const project = data.chantiers.find(item => item.id === projectId);
+  const buildings = projectBuildings(project);
+  const plans = data.sitePlans.filter(plan => getChantierId(plan) === projectId);
+  const hasBuildingHierarchy = buildings.length > 0;
+  const selectedBuildingIds = new Set(draft.visitedLocations.map(location => location.buildingId).filter(Boolean));
+  const filteredBuildings = buildings.filter((building: any) => {
+    const q = normalizeSearchText(buildingQuery);
+    if (!q) return true;
+    return normalizeSearchText(building.name).includes(q) ||
+      (building.levels ?? []).some((level: any) => normalizeSearchText(level.name).includes(q));
+  });
+  const selectedLocations = draft.visitedLocations.slice(0, 8);
+  const hiddenSelectedCount = Math.max(0, draft.visitedLocations.length - selectedLocations.length);
+  const companyById = new Map(data.companies.map(company => [company.id, company]));
+  const selectedCompanyCount = draft.companyIds.length;
+  const checklistDone = draft.checklistItems.filter(item => item.checked).length;
+  const suggestedTitle = autoVisitTitle(draft.visitType, draft.date || todayISO());
+  const canUseSuggestedTitle = draft.title.trim() !== suggestedTitle;
+
+  function updateProject(nextProjectId: string) {
+    setDraft(prev => ({
+      ...prev,
+      chantierId: nextProjectId,
+      building: '',
+      level: '',
+      zone: '',
+      defaultPlanId: '',
+      visitedLocations: [],
+    }));
+  }
+
+  function updateVisitType(type: VisitDraft['visitType']) {
+    setDraft(prev => {
+      const previousAutoTitle = autoVisitTitle(prev.visitType, prev.date || todayISO());
+      const shouldRefreshTitle = !prev.title.trim() || prev.title.trim() === previousAutoTitle;
+      return {
+        ...prev,
+        visitType: type,
+        title: shouldRefreshTitle ? autoVisitTitle(type, prev.date || todayISO()) : prev.title,
+        checklistItems: makeVisitChecklist(type),
+      };
+    });
+  }
+
+  function updateVisitDate(date: string) {
+    setDraft(prev => {
+      const previousAutoTitle = autoVisitTitle(prev.visitType, prev.date || todayISO());
+      const shouldRefreshTitle = !prev.title.trim() || prev.title.trim() === previousAutoTitle;
+      return {
+        ...prev,
+        date,
+        title: shouldRefreshTitle ? autoVisitTitle(prev.visitType, date || todayISO()) : prev.title,
+      };
+    });
+  }
+
+  function plansForBuilding(building: any) {
+    return plans.filter(plan =>
+      getPlanBuildingId(plan) === building.id ||
+      (!getPlanBuildingId(plan) && getPlanBuildingName(plan) === building.name)
+    );
+  }
+
+  function toggleVisitedBuilding(building: any) {
+    setDraft(prev => {
+      const exists = prev.visitedLocations.some(location => location.buildingId === building.id);
+      return {
+        ...prev,
+        visitedLocations: exists
+          ? prev.visitedLocations.filter(location => location.buildingId !== building.id)
+          : [...prev.visitedLocations, { buildingId: building.id, buildingName: building.name }],
+      };
+    });
+  }
+
+  function updateLocationPlan(buildingId: string, planId: string) {
+    setDraft(prev => ({
+      ...prev,
+      visitedLocations: prev.visitedLocations.map(location =>
+        location.buildingId === buildingId
+          ? { ...location, defaultPlanId: planId || undefined }
+          : location
+      ),
+    }));
+  }
+
+  function addChecklistItem() {
+    const label = newChecklistLabel.trim();
+    if (!label) return;
+    setDraft(prev => ({
+      ...prev,
+      checklistItems: [...prev.checklistItems, { id: crypto.randomUUID(), label, checked: false }],
+    }));
+    setNewChecklistLabel('');
+  }
+
+  function addParticipant() {
+    const name = participantName.trim();
+    if (!name) return;
+    const company = participantCompanyId ? companyById.get(participantCompanyId) : null;
+    setDraft(prev => ({
+      ...prev,
+      participants: [
+        ...prev.participants,
+        {
+          id: crypto.randomUUID(),
+          name,
+          role: participantRole.trim() || undefined,
+          companyId: participantCompanyId || undefined,
+          company: company?.name,
+        },
+      ],
+    }));
+    setParticipantName('');
+    setParticipantRole('');
+    setParticipantCompanyId('');
+  }
+
+  function addTag() {
+    const tag = newTag.trim();
+    if (!tag || draft.tags.includes(tag)) return;
+    setDraft(prev => ({ ...prev, tags: [...prev.tags, tag] }));
+    setNewTag('');
+  }
+
   return (
     <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
-      <form className={styles.modalPanel} onSubmit={onSubmit}>
+      <form className={`${styles.modalPanel} ${styles.reserveModalPanel}`} onSubmit={onSubmit}>
         <div className={styles.modalHeader}>
           <div>
             <p className={styles.eyebrow}>Visite chantier</p>
             <h2>Nouvelle visite</h2>
+            <span>Préparez le périmètre, les entreprises et le modèle de contrôle comme sur mobile.</span>
           </div>
           <button type="button" onClick={onClose}>Fermer</button>
         </div>
-        <div className={styles.formGrid}>
-          <label className={styles.formWide}>
-            Titre
-            <input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} placeholder="Ex: Contrôle S21" required />
-          </label>
-          <label>
-            Chantier
-            <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value }))}>
-              {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-            </select>
-          </label>
-          <label>
-            Type
-            <select value={draft.visitType} onChange={event => setDraft(prev => ({ ...prev, visitType: event.target.value as VisitDraft['visitType'] }))}>
-              {Object.entries(VISIT_TYPE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>
-            Date
-            <input type="date" value={draft.date} onChange={event => setDraft(prev => ({ ...prev, date: event.target.value }))} />
-          </label>
-          <label>
-            Début
-            <input type="time" value={draft.startTime} onChange={event => setDraft(prev => ({ ...prev, startTime: event.target.value }))} />
-          </label>
-          <label>
-            Fin
-            <input type="time" value={draft.endTime} onChange={event => setDraft(prev => ({ ...prev, endTime: event.target.value }))} />
-          </label>
-          <label>
-            Statut
-            <select value={draft.status} onChange={event => setDraft(prev => ({ ...prev, status: event.target.value as VisitDraft['status'] }))}>
-              {Object.entries(VISIT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>
-            Conducteur
-            <input value={draft.conducteur} onChange={event => setDraft(prev => ({ ...prev, conducteur: event.target.value }))} />
-          </label>
-          <label>
-            Bâtiment
-            <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value }))} />
-          </label>
-          <label>
-            Niveau
-            <input value={draft.level} onChange={event => setDraft(prev => ({ ...prev, level: event.target.value }))} />
-          </label>
-          <label>
-            Zone
-            <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} />
-          </label>
-          <label>
-            Délai cible réserves
-            <input type="date" value={draft.reserveDeadlineDate} onChange={event => setDraft(prev => ({ ...prev, reserveDeadlineDate: event.target.value }))} />
-          </label>
-          <label className={styles.formWide}>
-            Notes
-            <textarea value={draft.notes} onChange={event => setDraft(prev => ({ ...prev, notes: event.target.value }))} rows={3} />
-          </label>
-          <div className={styles.formWide}>
-            <span className={styles.fieldLabel}>Entreprises concernées</span>
-            <div className={styles.chipGrid}>
+        <div className={styles.reserveModalBody}>
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Type de visite</strong>
+                <span>Le type charge automatiquement un modèle de checklist adapté.</span>
+              </div>
+            </div>
+            <div className={styles.visitTypeGrid}>
+              {VISIT_TYPE_OPTIONS.map(option => {
+                const active = draft.visitType === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={active ? styles.visitTypeCardActive : styles.visitTypeCard}
+                    style={active ? { borderColor: option.color, background: `${option.color}15`, color: option.color } : undefined}
+                    onClick={() => updateVisitType(option.value)}
+                  >
+                    <span>{option.icon}</span>
+                    <strong>{option.label}</strong>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Informations générales</strong>
+                <span>Titre, conducteur, date et statut initial de la visite.</span>
+              </div>
+            </div>
+            <div className={styles.reserveModalGrid}>
+              <label>
+                Chantier
+                <select value={projectId} onChange={event => updateProject(event.target.value)}>
+                  {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+                </select>
+              </label>
+              <label>
+                Conducteur
+                <input value={draft.conducteur} onChange={event => setDraft(prev => ({ ...prev, conducteur: event.target.value }))} />
+              </label>
+              <label className={styles.formWide}>
+                <span className={styles.reserveLabelRow}>
+                  Titre de la visite *
+                  {canUseSuggestedTitle ? (
+                    <button type="button" onClick={() => setDraft(prev => ({ ...prev, title: suggestedTitle }))}>Utiliser la suggestion</button>
+                  ) : null}
+                </span>
+                <input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} placeholder={suggestedTitle} required />
+              </label>
+              <label>
+                Date
+                <input type="date" value={draft.date} onChange={event => updateVisitDate(event.target.value)} />
+              </label>
+              <label>
+                Statut initial
+                <select value={draft.status} onChange={event => setDraft(prev => ({ ...prev, status: event.target.value as VisitDraft['status'] }))}>
+                  {Object.entries(VISIT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label>
+                Début
+                <input type="time" value={draft.startTime} onChange={event => setDraft(prev => ({ ...prev, startTime: event.target.value }))} />
+              </label>
+              <label>
+                Fin
+                <input type="time" value={draft.endTime} onChange={event => setDraft(prev => ({ ...prev, endTime: event.target.value }))} />
+              </label>
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Périmètre de visite</strong>
+                <span>Les réserves créées depuis cette visite seront limitées aux bâtiments sélectionnés.</span>
+              </div>
+              {hasBuildingHierarchy ? <span className={styles.reserveCountPill}>{draft.visitedLocations.length} / {buildings.length}</span> : null}
+            </div>
+            {hasBuildingHierarchy ? (
+              <>
+                <div className={styles.visitBuildingToolbar}>
+                  <div className={styles.visitSearch}>
+                    <span>⌕</span>
+                    <input value={buildingQuery} onChange={event => setBuildingQuery(event.target.value)} placeholder="Rechercher bâtiment ou niveau..." />
+                  </div>
+                  <button type="button" onClick={() => setDraft(prev => ({ ...prev, visitedLocations: buildings.map((building: any) => ({ buildingId: building.id, buildingName: building.name })) }))}>
+                    Tout sélectionner
+                  </button>
+                  <button type="button" onClick={() => setDraft(prev => ({ ...prev, visitedLocations: [] }))} disabled={!draft.visitedLocations.length}>
+                    Effacer
+                  </button>
+                </div>
+                {draft.visitedLocations.length ? (
+                  <div className={styles.visitSelectedLocations}>
+                    {selectedLocations.map(location => (
+                      <span key={location.buildingId ?? location.buildingName}>{location.buildingName}</span>
+                    ))}
+                    {hiddenSelectedCount ? <span>+{hiddenSelectedCount}</span> : null}
+                  </div>
+                ) : null}
+                <div className={styles.visitBuildingGrid}>
+                  {filteredBuildings.map((building: any) => {
+                    const active = selectedBuildingIds.has(building.id);
+                    return (
+                      <button
+                        key={building.id}
+                        type="button"
+                        className={active ? styles.visitBuildingCardActive : styles.visitBuildingCard}
+                        onClick={() => toggleVisitedBuilding(building)}
+                      >
+                        <span className={styles.visitBuildingIcon}>{active ? '✓' : '▦'}</span>
+                        <strong>{building.name}</strong>
+                        <small>{(building.levels ?? []).length} niveaux</small>
+                      </button>
+                    );
+                  })}
+                  {!filteredBuildings.length ? <p className={styles.empty}>Aucun bâtiment trouvé.</p> : null}
+                </div>
+                {draft.visitedLocations.length ? (
+                  <div className={styles.visitLocationPreview}>
+                    {draft.visitedLocations.map(location => {
+                      const building = buildings.find((item: any) => item.id === location.buildingId || item.name === location.buildingName);
+                      const buildingPlans = building ? plansForBuilding(building) : [];
+                      return (
+                        <div key={location.buildingId ?? location.buildingName} className={styles.visitSelectedLocationCard}>
+                          <div>
+                            <strong>{location.buildingName}</strong>
+                            <small>{buildingPlans.length} plan{buildingPlans.length > 1 ? 's' : ''} disponible{buildingPlans.length > 1 ? 's' : ''}</small>
+                          </div>
+                          <select
+                            value={location.defaultPlanId ?? ''}
+                            onChange={event => location.buildingId && updateLocationPlan(location.buildingId, event.target.value)}
+                            className={styles.visitPlanSelect}
+                          >
+                            <option value="">Aucun plan par défaut</option>
+                            {buildingPlans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                          </select>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <div className={styles.reserveModalGrid}>
+                <label>
+                  Bâtiment
+                  <input value={draft.building} onChange={event => setDraft(prev => ({ ...prev, building: event.target.value }))} />
+                </label>
+                <label>
+                  Niveau
+                  <input value={draft.level} onChange={event => setDraft(prev => ({ ...prev, level: event.target.value }))} />
+                </label>
+                <label>
+                  Zone
+                  <input value={draft.zone} onChange={event => setDraft(prev => ({ ...prev, zone: event.target.value }))} />
+                </label>
+                <label>
+                  Plan de référence
+                  <select value={draft.defaultPlanId} onChange={event => setDraft(prev => ({ ...prev, defaultPlanId: event.target.value }))}>
+                    <option value="">Aucun plan</option>
+                    {plans.map(plan => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                  </select>
+                </label>
+              </div>
+            )}
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Entreprises concernées</strong>
+                <span>Entreprises inspectées pendant cette visite.</span>
+              </div>
+              <span className={styles.reserveCountPill}>{selectedCompanyCount} sélectionnée{selectedCompanyCount > 1 ? 's' : ''}</span>
+            </div>
+            <div className={styles.reserveCompanyGrid}>
               {data.companies.map(company => (
                 <button
                   key={company.id}
                   type="button"
-                  className={draft.companyIds.includes(company.id) ? styles.chipActive : styles.chip}
+                  className={draft.companyIds.includes(company.id) ? styles.reserveCompanyChipActive : styles.reserveCompanyChip}
                   onClick={() => onToggleCompany(company.id)}
                 >
-                  {company.short_name ?? company.shortName ?? company.name}
+                  <span style={{ background: company.color ?? '#94a3b8' }} />
+                  <strong>{company.short_name ?? company.shortName ?? company.name}</strong>
+                  <small>{company.name}</small>
                 </button>
               ))}
             </div>
-          </div>
+            {!data.companies.length ? <p className={styles.empty}>Aucune entreprise configurée.</p> : null}
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Checklist de contrôle</strong>
+                <span>{draft.checklistItems.length ? `${checklistDone}/${draft.checklistItems.length} points validés.` : 'Choisissez un type ou ajoutez vos propres points.'}</span>
+              </div>
+              <button type="button" className={styles.secondaryBtn} onClick={() => setDraft(prev => ({ ...prev, checklistItems: makeVisitChecklist(prev.visitType) }))}>
+                Recharger le modèle
+              </button>
+            </div>
+            <div className={styles.visitChecklistList}>
+              {draft.checklistItems.map(item => (
+                <div key={item.id} className={styles.visitChecklistRow}>
+                  <button
+                    type="button"
+                    className={item.checked ? styles.visitCheckboxChecked : styles.visitCheckbox}
+                    onClick={() => setDraft(prev => ({ ...prev, checklistItems: prev.checklistItems.map(row => row.id === item.id ? { ...row, checked: !row.checked } : row) }))}
+                  >
+                    {item.checked ? '✓' : ''}
+                  </button>
+                  <input
+                    value={item.label}
+                    onChange={event => setDraft(prev => ({ ...prev, checklistItems: prev.checklistItems.map(row => row.id === item.id ? { ...row, label: event.target.value } : row) }))}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setDraft(prev => ({ ...prev, checklistItems: prev.checklistItems.filter(row => row.id !== item.id) }))}
+                    aria-label="Retirer ce point"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className={styles.visitInlineAdd}>
+              <input
+                value={newChecklistLabel}
+                onChange={event => setNewChecklistLabel(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addChecklistItem();
+                  }
+                }}
+                placeholder="Ajouter un point de contrôle..."
+              />
+              <button type="button" onClick={addChecklistItem} disabled={!newChecklistLabel.trim()}>Ajouter</button>
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Délai de levée des réserves</strong>
+                <span>Date limite appliquée par défaut aux réserves créées depuis cette visite.</span>
+              </div>
+            </div>
+            <div className={styles.visitDeadlineRow}>
+              {VISIT_DEADLINE_SUGGESTIONS.map(suggestion => {
+                const value = addDaysISO(todayISO(), suggestion.days);
+                return (
+                  <button
+                    key={suggestion.days}
+                    type="button"
+                    className={draft.reserveDeadlineDate === value ? styles.chipActive : styles.chip}
+                    onClick={() => setDraft(prev => ({ ...prev, reserveDeadlineDate: value }))}
+                  >
+                    {suggestion.label}
+                  </button>
+                );
+              })}
+              <input type="date" value={draft.reserveDeadlineDate} onChange={event => setDraft(prev => ({ ...prev, reserveDeadlineDate: event.target.value }))} />
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Participants, notes et diffusion</strong>
+                <span>Ajoutez les présents, les tags de recherche et les objectifs de visite.</span>
+              </div>
+            </div>
+            {draft.participants.length ? (
+              <div className={styles.visitParticipantList}>
+                {draft.participants.map(participant => (
+                  <div key={participant.id} className={styles.visitParticipantRow}>
+                    <strong>{participant.name}</strong>
+                    <span>{[participant.role, participant.company].filter(Boolean).join(' · ') || 'Participant'}</span>
+                    <button type="button" onClick={() => setDraft(prev => ({ ...prev, participants: prev.participants.filter(item => item.id !== participant.id) }))}>×</button>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            <div className={styles.reserveModalGrid}>
+              <label>
+                Nom participant
+                <input value={participantName} onChange={event => setParticipantName(event.target.value)} placeholder="Nom" />
+              </label>
+              <label>
+                Rôle
+                <input value={participantRole} onChange={event => setParticipantRole(event.target.value)} placeholder="Conducteur, chef d'équipe..." />
+              </label>
+              <label>
+                Entreprise
+                <select value={participantCompanyId} onChange={event => setParticipantCompanyId(event.target.value)}>
+                  <option value="">Aucune / interne</option>
+                  {data.companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
+                </select>
+              </label>
+              <div className={styles.visitInlineAdd}>
+                <button type="button" onClick={addParticipant} disabled={!participantName.trim()}>Ajouter le participant</button>
+              </div>
+              <label className={styles.formWide}>
+                Notes et objectifs
+                <textarea value={draft.notes} onChange={event => setDraft(prev => ({ ...prev, notes: event.target.value }))} rows={4} placeholder="Objectif de la visite, points à contrôler, consignes..." />
+              </label>
+            </div>
+            <div className={styles.visitTagRow}>
+              {draft.tags.map(tag => (
+                <button key={tag} type="button" onClick={() => setDraft(prev => ({ ...prev, tags: prev.tags.filter(item => item !== tag) }))}>
+                  {tag} ×
+                </button>
+              ))}
+              <input
+                value={newTag}
+                onChange={event => setNewTag(event.target.value)}
+                onKeyDown={event => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    addTag();
+                  }
+                }}
+                placeholder="Ajouter un tag..."
+              />
+              <button type="button" onClick={addTag} disabled={!newTag.trim()}>Ajouter</button>
+            </div>
+          </section>
+
+          <section className={styles.reserveFormSection}>
+            <div className={styles.reserveFormSectionHeader}>
+              <div>
+                <strong>Récurrence</strong>
+                <span>Créez une visite unique ou une petite série planifiée.</span>
+              </div>
+            </div>
+            <div className={styles.visitTypeGrid}>
+              {VISIT_RECURRENCE_OPTIONS.map(option => {
+                const active = draft.recurrence === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={active ? styles.visitTypeCardActive : styles.visitTypeCard}
+                    onClick={() => setDraft(prev => ({ ...prev, recurrence: option.value }))}
+                  >
+                    <strong>{option.label}</strong>
+                    <small>{option.desc}</small>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className={styles.visitSummary}>
+            <strong>Résumé</strong>
+            <span>{draft.title || suggestedTitle}</span>
+            <small>
+              {VISIT_TYPE_LABELS[draft.visitType]} · {prettyDate(draft.date)} · {draft.visitedLocations.length || (draft.building ? 1 : 0)} bâtiment(s) · {selectedCompanyCount} entreprise(s)
+            </small>
+          </section>
         </div>
         <div className={styles.modalActions}>
           <button type="button" onClick={onClose}>Annuler</button>
-          <button type="submit" disabled={saving}>{saving ? 'Création...' : 'Créer la visite'}</button>
+          <button type="submit" disabled={saving}>{saving ? 'Création...' : draft.recurrence === 'none' ? 'Créer la visite' : 'Créer la série'}</button>
         </div>
       </form>
     </div>
