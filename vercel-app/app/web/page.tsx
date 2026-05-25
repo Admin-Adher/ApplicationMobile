@@ -4216,12 +4216,11 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
               {draft.planId && hasCapturedPin ? (
                 <div className={`${styles.formWide} ${styles.reservePinCaptured}`}>
                   <div>
-                    <strong>{mode === 'edit' ? 'Position épinglée sur le plan' : 'Épingle capturée sur le plan'}</strong>
+                    <strong>{mode === 'edit' ? 'Position actuelle sur le plan' : 'Épingle capturée sur le plan'}</strong>
                     <small>
                       {mode === 'edit'
-                        ? 'La réserve sera enregistrée avec cette position'
-                        : 'La réserve sera créée directement à cette position'}
-                      {draft.planX != null && draft.planY != null ? ` (${Math.round(draft.planX)} %, ${Math.round(draft.planY)} %).` : '.'}
+                        ? 'Cette réserve est déjà localisée sur ce plan. Retirer supprimera l’épingle lors de l’enregistrement.'
+                        : `La réserve sera créée directement à cette position${draft.planX != null && draft.planY != null ? ` (${Math.round(draft.planX)} %, ${Math.round(draft.planY)} %).` : '.'}`}
                     </small>
                   </div>
                   <button
