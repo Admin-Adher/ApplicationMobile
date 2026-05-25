@@ -50,10 +50,18 @@ type ReserveDraft = {
   status: string;
   deadline: string;
   planId: string;
+  planX?: number | null;
+  planY?: number | null;
   lotId: string;
   visiteId: string;
   companies: string[];
   placePinAfterCreate: boolean;
+};
+
+type ReservePinDraft = {
+  planId?: string;
+  x: number;
+  y: number;
 };
 
 type PlanPin = {
@@ -397,7 +405,15 @@ function clampPercent(value: number, min = 0, max = 100) {
   return Math.max(min, Math.min(max, value));
 }
 
+function normalizePlanPercent(value?: any) {
+  if (value == null || value === '') return null;
+  const num = Number(value);
+  if (!Number.isFinite(num)) return null;
+  return Math.round(clampPercent(num));
+}
+
 function planCoordinateToPercent(value: any, ratioMode = false) {
+  if (value == null || value === '') return null;
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
   return clampPercent(ratioMode ? num * 100 : num, 2, 98);
@@ -458,8 +474,11 @@ function generateReserveId(reserves: any[], lots: any[], lotId?: string) {
   return candidate;
 }
 
-function createReserveDraft(projectId: string, plan?: any | null, visit?: any | null): ReserveDraft {
+function createReserveDraft(projectId: string, plan?: any | null, visit?: any | null, pin?: ReservePinDraft | null): ReserveDraft {
   const firstVisitLocation = getVisitLocations(visit)[0] ?? null;
+  const planId = pin?.planId ?? firstVisitLocation?.defaultPlanId ?? firstVisitLocation?.default_plan_id ?? getVisitDefaultPlanId(visit) ?? plan?.id ?? '';
+  const planX = normalizePlanPercent(pin?.x);
+  const planY = normalizePlanPercent(pin?.y);
   return {
     kind: 'reserve',
     title: '',
@@ -473,11 +492,13 @@ function createReserveDraft(projectId: string, plan?: any | null, visit?: any | 
     priority: 'medium',
     status: 'open',
     deadline: getVisitReserveDeadline(visit),
-    planId: firstVisitLocation?.defaultPlanId ?? firstVisitLocation?.default_plan_id ?? getVisitDefaultPlanId(visit) ?? plan?.id ?? '',
+    planId,
+    planX,
+    planY,
     lotId: '',
     visiteId: visit?.id ?? '',
     companies: [],
-    placePinAfterCreate: Boolean(plan?.id),
+    placePinAfterCreate: Boolean(planId) && (planX == null || planY == null),
   };
 }
 
@@ -496,6 +517,8 @@ function reserveToDraft(reserve: any): ReserveDraft {
     status: reserve.status ?? 'open',
     deadline: reserve.deadline ?? '',
     planId: reserve.plan_id ?? '',
+    planX: normalizePlanPercent(reserve.plan_x),
+    planY: normalizePlanPercent(reserve.plan_y),
     lotId: reserve.lot_id ?? '',
     visiteId: reserve.visite_id ?? '',
     companies: reserveCompanies(reserve),
@@ -767,7 +790,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function assignReservePin(reserveId: string, planId: string, x: number, y: number) {
-    if (!canEdit(profile)) return;
+    if (!canEdit(profile) || !reserveId) return;
     const payload = {
       plan_id: planId,
       plan_x: clampPercent(x),
@@ -789,12 +812,13 @@ export default function BuildTrackWebPage() {
     return selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '';
   }
 
-  function openReserveCreate(prefill?: { plan?: any; visit?: any }) {
+  function openReserveCreate(prefill?: { plan?: any; visit?: any; pin?: ReservePinDraft }) {
     setError('');
     setEditingReserveId(null);
-    const baseDraft = createReserveDraft(currentProjectId(), prefill?.plan, prefill?.visit);
+    const prefillPlan = prefill?.plan ?? (prefill?.pin?.planId ? data.sitePlans.find(plan => plan.id === prefill.pin?.planId) : null);
+    const baseDraft = createReserveDraft(currentProjectId(), prefillPlan, prefill?.visit, prefill?.pin);
     const project = data.chantiers.find(item => item.id === baseDraft.chantierId);
-    const selectedPlan = prefill?.plan ?? data.sitePlans.find(plan => plan.id === baseDraft.planId);
+    const selectedPlan = prefillPlan ?? data.sitePlans.find(plan => plan.id === baseDraft.planId);
     const planLocation = selectedPlan ? getPlanDisplayLocation(selectedPlan, project) : null;
     const visitCompanyNames = getVisitCompanyIds(prefill?.visit)
       .map(companyId => data.companies.find(company => company.id === companyId)?.name)
@@ -806,7 +830,7 @@ export default function BuildTrackWebPage() {
       level: planLocation?.level || baseDraft.level,
       levelId: planLocation?.levelId || baseDraft.levelId,
       companies: visitCompanyNames,
-      placePinAfterCreate: Boolean(baseDraft.planId),
+      placePinAfterCreate: Boolean(baseDraft.planId) && (baseDraft.planX == null || baseDraft.planY == null),
     });
     setReserveModalMode('create');
   }
@@ -915,6 +939,8 @@ export default function BuildTrackWebPage() {
       comments: existing?.comments ?? [],
       history,
       plan_id: reserveDraft.planId || null,
+      plan_x: reserveDraft.planId ? normalizePlanPercent(reserveDraft.planX) : null,
+      plan_y: reserveDraft.planId ? normalizePlanPercent(reserveDraft.planY) : null,
       lot_id: reserveDraft.lotId || null,
       visite_id: reserveDraft.visiteId || null,
       chantier_id: reserveDraft.chantierId || null,
@@ -946,8 +972,6 @@ export default function BuildTrackWebPage() {
         ...basePayload,
         id,
         created_at: todayISO(),
-        plan_x: null,
-        plan_y: null,
         photo_uri: null,
         photos: null,
         photo_annotations: null,
@@ -963,10 +987,11 @@ export default function BuildTrackWebPage() {
         setData(prev => ({ ...prev, reserves: [inserted ?? insertPayload, ...prev.reserves] }));
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
         setSelectedReserveId(id);
-        if (reserveDraft.planId && reserveDraft.placePinAfterCreate) {
+        const createdWithPin = basePayload.plan_x != null && basePayload.plan_y != null;
+        if (reserveDraft.planId && (reserveDraft.placePinAfterCreate || createdWithPin)) {
           setSelectedPlanId(reserveDraft.planId);
           setActiveTab('plans');
-          setPinModeReserveId(id);
+          setPinModeReserveId(createdWithPin ? null : id);
         }
         closeReserveModal();
       }
@@ -1427,6 +1452,7 @@ export default function BuildTrackWebPage() {
                 setSelectedReserveId={setSelectedReserveId}
                 setTab={setActiveTab}
                 onCreateReserve={(plan: any) => openReserveCreate({ plan })}
+                onCreateReserveAtPin={(plan: any, pin: ReservePinDraft) => openReserveCreate({ plan, pin })}
                 onAssignPin={assignReservePin}
                 pinModeReserveId={pinModeReserveId}
                 setPinModeReserveId={setPinModeReserveId}
@@ -1758,7 +1784,9 @@ function WebPdfPlan({
   pins,
   focusedReserveId,
   pinModeReserveId,
+  canCreate,
   onAssignPin,
+  onCreateReserveAtPin,
   onPinClick,
 }: {
   uri: string;
@@ -1766,7 +1794,9 @@ function WebPdfPlan({
   pins: PlanPin[];
   focusedReserveId?: string | null;
   pinModeReserveId?: string | null;
+  canCreate?: boolean;
   onAssignPin: (x: number, y: number) => void;
+  onCreateReserveAtPin?: (x: number, y: number) => void;
   onPinClick: (reserveId: string) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1874,12 +1904,15 @@ function WebPdfPlan({
   }, [uri, scale]);
 
   function handlePageClick(event: MouseEvent<HTMLDivElement>) {
-    if (!pinModeReserveId) return;
+    if (!pinModeReserveId && !canCreate) return;
     const rect = event.currentTarget.getBoundingClientRect();
-    onAssignPin(
-      clampPercent(((event.clientX - rect.left) / rect.width) * 100),
-      clampPercent(((event.clientY - rect.top) / rect.height) * 100),
-    );
+    const x = clampPercent(((event.clientX - rect.left) / rect.width) * 100);
+    const y = clampPercent(((event.clientY - rect.top) / rect.height) * 100);
+    if (pinModeReserveId) {
+      onAssignPin(x, y);
+      return;
+    }
+    onCreateReserveAtPin?.(x, y);
   }
 
   return (
@@ -1941,6 +1974,7 @@ function PlansView({
   setSelectedReserveId,
   setTab,
   onCreateReserve,
+  onCreateReserveAtPin,
   onAssignPin,
   pinModeReserveId,
   setPinModeReserveId,
@@ -2093,6 +2127,17 @@ function PlansView({
       setSelectedPlanId(group.plans[0].id);
     }
   };
+  const assignOrCreatePinAt = (x: number, y: number) => {
+    if (!selectedPlan) return;
+    const nextX = Math.round(clampPercent(x));
+    const nextY = Math.round(clampPercent(y));
+    if (pinModeReserveId) {
+      onAssignPin(pinModeReserveId, selectedPlan.id, nextX, nextY);
+      return;
+    }
+    if (!editable) return;
+    onCreateReserveAtPin(selectedPlan, { planId: selectedPlan.id, x: nextX, y: nextY });
+  };
   const planPins = planReserves
     .map((reserve: any, idx: number) => {
       const rawX = Number(reserve.plan_x);
@@ -2226,7 +2271,7 @@ function PlansView({
               <div className={styles.pinToolbar}>
                 <div>
                   <strong>Positionner une épingle</strong>
-                  <span>{pinTarget ? `Cliquez sur le plan pour placer : ${pinTarget.title}` : 'Choisissez une réserve, puis cliquez directement sur le plan.'}</span>
+                  <span>{pinTarget ? `Cliquez sur le plan pour placer : ${pinTarget.title}` : 'Choisissez une réserve à déplacer, ou cliquez sur le plan pour créer une réserve à cet endroit.'}</span>
                 </div>
                 <select value={pinModeReserveId ?? ''} onChange={event => setPinModeReserveId(event.target.value || null)}>
                   <option value="">Choisir une réserve</option>
@@ -2248,7 +2293,9 @@ function PlansView({
                     pins={planPins}
                     focusedReserveId={focusedPlanReserveId}
                     pinModeReserveId={pinModeReserveId}
-                    onAssignPin={(x, y) => onAssignPin(pinModeReserveId, selectedPlan.id, x, y)}
+                    canCreate={editable}
+                    onAssignPin={assignOrCreatePinAt}
+                    onCreateReserveAtPin={assignOrCreatePinAt}
                     onPinClick={(reserveId) => {
                       setSelectedPlanReserveId(reserveId);
                       setFocusedPlanReserveId(reserveId);
@@ -2257,21 +2304,20 @@ function PlansView({
                 ) : (
                   <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
                 )}
-                {selectedPlan.file_type !== 'pdf' && pinModeReserveId && (
+                {selectedPlan.file_type !== 'pdf' && (pinModeReserveId || editable) && (
                   <button
                     type="button"
-                    className={styles.pinClickLayer}
+                    className={`${styles.pinClickLayer} ${!pinModeReserveId ? styles.pinCreateLayer : ''}`}
+                    aria-label={pinModeReserveId ? 'Cliquer pour placer l’épingle' : 'Cliquer pour créer une réserve à cet endroit'}
                     onClick={event => {
                       const rect = event.currentTarget.getBoundingClientRect();
-                      onAssignPin(
-                        pinModeReserveId,
-                        selectedPlan.id,
+                      assignOrCreatePinAt(
                         ((event.clientX - rect.left) / rect.width) * 100,
                         ((event.clientY - rect.top) / rect.height) * 100,
                       );
                     }}
                   >
-                    <span>Cliquer pour placer l’épingle</span>
+                    {pinModeReserveId ? <span>Cliquer pour placer l’épingle</span> : null}
                   </button>
                 )}
                 {selectedPlan.file_type !== 'pdf' && planPins.map((pin) => (
@@ -2954,6 +3000,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
     ? draft.title ? 'Réserve existante' : 'Modification'
     : generateReserveId(data.reserves, data.lots, draft.lotId);
   const selectedCompanyCount = draft.companies.length;
+  const hasCapturedPin = Boolean(draft.planId && draft.planX != null && draft.planY != null);
 
   function updateTitle(value: string) {
     setDraft(prev => {
@@ -2975,6 +3022,8 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       level: '',
       levelId: '',
       planId: '',
+      planX: null,
+      planY: null,
       placePinAfterCreate: false,
     }));
   }
@@ -2986,6 +3035,8 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       levelId,
       level: level?.name ?? '',
       planId: '',
+      planX: null,
+      planY: null,
       placePinAfterCreate: false,
     }));
   }
@@ -3000,14 +3051,20 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       buildingId: location?.buildingId || prev.buildingId,
       level: location?.level || prev.level,
       levelId: location?.levelId || prev.levelId,
-      placePinAfterCreate: mode === 'create' && !!planId ? true : prev.placePinAfterCreate,
+      planX: prev.planId === planId ? prev.planX : null,
+      planY: prev.planId === planId ? prev.planY : null,
+      placePinAfterCreate: !planId
+        ? false
+        : mode === 'create' && prev.planId !== planId
+          ? true
+          : prev.placePinAfterCreate,
     }));
   }
 
   function applyVisit(visitId: string) {
     const visit = visits.find(item => item.id === visitId);
     if (!visit) {
-      setDraft(prev => ({ ...prev, visiteId: '', deadline: '', planId: '', placePinAfterCreate: false }));
+      setDraft(prev => ({ ...prev, visiteId: '', deadline: '', planId: '', planX: null, planY: null, placePinAfterCreate: false }));
       return;
     }
     const visitCompanyNames = getVisitCompanyIds(visit)
@@ -3031,6 +3088,8 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
       levelId: defaultLocation?.levelId || (locations.length > 1 ? '' : prev.levelId),
       zone: visit.zone ?? prev.zone,
       planId: defaultPlanId || prev.planId,
+      planX: null,
+      planY: null,
       placePinAfterCreate: mode === 'create' && Boolean(defaultPlanId),
     }));
   }
@@ -3113,7 +3172,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
             <div className={styles.reserveModalGrid}>
               <label>
                 Chantier
-                <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value, building: '', buildingId: '', level: '', levelId: '', planId: '', visiteId: '', placePinAfterCreate: false }))}>
+                <select value={projectId} onChange={event => setDraft(prev => ({ ...prev, chantierId: event.target.value, building: '', buildingId: '', level: '', levelId: '', planId: '', planX: null, planY: null, visiteId: '', placePinAfterCreate: false }))}>
                   {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
                 </select>
               </label>
@@ -3189,7 +3248,28 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                   })}
                 </select>
               </label>
-              {draft.planId ? (
+              {draft.planId && hasCapturedPin ? (
+                <div className={`${styles.formWide} ${styles.reservePinCaptured}`}>
+                  <div>
+                    <strong>Épingle capturée sur le plan</strong>
+                    <small>
+                      La réserve sera créée directement à cette position
+                      {draft.planX != null && draft.planY != null ? ` (${Math.round(draft.planX)} %, ${Math.round(draft.planY)} %).` : '.'}
+                    </small>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setDraft(prev => ({
+                      ...prev,
+                      planX: null,
+                      planY: null,
+                      placePinAfterCreate: mode === 'create' && !!prev.planId,
+                    }))}
+                  >
+                    Retirer
+                  </button>
+                </div>
+              ) : draft.planId ? (
                 <label className={`${styles.formWide} ${styles.reservePinFollowUp}`}>
                   <input
                     type="checkbox"
