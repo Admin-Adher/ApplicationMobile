@@ -71,6 +71,14 @@ type PlanPin = {
   y: number;
 };
 
+type PinPlacementPreview = {
+  id: string;
+  planId: string;
+  x: number;
+  y: number;
+  label: string;
+};
+
 type VisitDraft = {
   title: string;
   chantierId: string;
@@ -1785,6 +1793,7 @@ function WebPdfPlan({
   focusedReserveId,
   pinModeReserveId,
   canCreate,
+  placementPreview,
   onAssignPin,
   onCreateReserveAtPin,
   onPinClick,
@@ -1795,6 +1804,7 @@ function WebPdfPlan({
   focusedReserveId?: string | null;
   pinModeReserveId?: string | null;
   canCreate?: boolean;
+  placementPreview?: PinPlacementPreview | null;
   onAssignPin: (x: number, y: number) => void;
   onCreateReserveAtPin?: (x: number, y: number) => void;
   onPinClick: (reserveId: string) => void;
@@ -1946,6 +1956,15 @@ function WebPdfPlan({
               Cliquez sur le PDF pour placer l’épingle
             </div>
           )}
+          {placementPreview && (
+            <div
+              key={placementPreview.id}
+              className={styles.pinPlacementPreview}
+              style={{ left: `${placementPreview.x}%`, top: `${placementPreview.y}%` }}
+            >
+              <span>{placementPreview.label}</span>
+            </div>
+          )}
           {pins.map((pin) => (
             <button
               key={pin.reserve.id}
@@ -1985,6 +2004,8 @@ function PlansView({
   const [activeFamilyKey, setActiveFamilyKey] = useState('all');
   const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
   const [focusedPlanReserveId, setFocusedPlanReserveId] = useState<string | null>(null);
+  const [pinPlacementPreview, setPinPlacementPreview] = useState<PinPlacementPreview | null>(null);
+  const pinPlacementTimerRef = useRef<number | null>(null);
   const planReserves = selectedPlan ? reserves.filter((r: any) => r.plan_id === selectedPlan.id) : [];
   const selectedPlanReserve = planReserves.find((reserve: any) => reserve.id === selectedPlanReserveId) ?? null;
   const pinTarget = reserves.find((reserve: any) => reserve.id === pinModeReserveId);
@@ -2115,12 +2136,18 @@ function PlansView({
   useEffect(() => {
     setSelectedPlanReserveId(null);
     setFocusedPlanReserveId(null);
+    setPinPlacementPreview(null);
   }, [selectedPlan?.id]);
   useEffect(() => {
     if (!focusedPlanReserveId) return;
     const timer = window.setTimeout(() => setFocusedPlanReserveId(null), 7000);
     return () => window.clearTimeout(timer);
   }, [focusedPlanReserveId]);
+  useEffect(() => {
+    return () => {
+      if (pinPlacementTimerRef.current) window.clearTimeout(pinPlacementTimerRef.current);
+    };
+  }, []);
   const handleSelectBuildingGroup = (group: { key: string; plans: any[] }) => {
     setSelectedBuildingKey(group.key);
     if (!group.plans.some(plan => plan.id === selectedPlan?.id) && group.plans[0]) {
@@ -2131,12 +2158,25 @@ function PlansView({
     if (!selectedPlan) return;
     const nextX = Math.round(clampPercent(x));
     const nextY = Math.round(clampPercent(y));
+    const preview: PinPlacementPreview = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      planId: selectedPlan.id,
+      x: nextX,
+      y: nextY,
+      label: pinModeReserveId ? 'Épingle déplacée' : 'Nouvelle épingle',
+    };
+    setPinPlacementPreview(preview);
+    if (pinPlacementTimerRef.current) window.clearTimeout(pinPlacementTimerRef.current);
     if (pinModeReserveId) {
       onAssignPin(pinModeReserveId, selectedPlan.id, nextX, nextY);
+      pinPlacementTimerRef.current = window.setTimeout(() => setPinPlacementPreview(null), 900);
       return;
     }
     if (!editable) return;
-    onCreateReserveAtPin(selectedPlan, { planId: selectedPlan.id, x: nextX, y: nextY });
+    pinPlacementTimerRef.current = window.setTimeout(() => {
+      setPinPlacementPreview(null);
+      onCreateReserveAtPin(selectedPlan, { planId: selectedPlan.id, x: nextX, y: nextY });
+    }, 520);
   };
   const planPins = planReserves
     .map((reserve: any, idx: number) => {
@@ -2294,6 +2334,7 @@ function PlansView({
                     focusedReserveId={focusedPlanReserveId}
                     pinModeReserveId={pinModeReserveId}
                     canCreate={editable}
+                    placementPreview={pinPlacementPreview?.planId === selectedPlan.id ? pinPlacementPreview : null}
                     onAssignPin={assignOrCreatePinAt}
                     onCreateReserveAtPin={assignOrCreatePinAt}
                     onPinClick={(reserveId) => {
@@ -2335,6 +2376,15 @@ function PlansView({
                       {pin.number}
                     </button>
                   ))}
+                {selectedPlan.file_type !== 'pdf' && pinPlacementPreview?.planId === selectedPlan.id && (
+                  <div
+                    key={pinPlacementPreview.id}
+                    className={styles.pinPlacementPreview}
+                    style={{ left: `${pinPlacementPreview.x}%`, top: `${pinPlacementPreview.y}%` }}
+                  >
+                    <span>{pinPlacementPreview.label}</span>
+                  </div>
+                )}
               </div>
               <aside className={styles.planReservePanel}>
                 <div className={styles.planReserveHeader}>

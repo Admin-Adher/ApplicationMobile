@@ -1578,6 +1578,72 @@
   box-shadow: 0 0 0 4px rgba(251, 191, 36, 0.32), 0 0 14px rgba(251, 191, 36, 0.72), 0 4px 12px rgba(0, 0, 0, 0.5);
 }
 
+.pinPlacementPreview {
+  position: absolute;
+  z-index: 32;
+  width: 28px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: #10b981;
+  color: #fff;
+  pointer-events: none;
+  box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45), 0 8px 22px rgba(15, 23, 42, 0.3);
+  animation: pinPlacementDrop 0.56s cubic-bezier(0.2, 0.9, 0.25, 1.2), pinPlacementPulse 0.9s ease-out infinite;
+}
+
+.pinPlacementPreview::before {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.pinPlacementPreview span {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 160px;
+  border-radius: 999px;
+  background: #0f172a;
+  color: #fff;
+  padding: 6px 9px;
+  font-size: 11px;
+  font-weight: 900;
+  white-space: nowrap;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.22);
+}
+
+@keyframes pinPlacementDrop {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -70%) scale(0.55);
+  }
+  70% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1.18);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes pinPlacementPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45), 0 8px 22px rgba(15, 23, 42, 0.3);
+  }
+  100% {
+    box-shadow: 0 0 0 13px rgba(16, 185, 129, 0), 0 8px 22px rgba(15, 23, 42, 0.3);
+  }
+}
+
 @keyframes webPinPulse {
   0%,
   100% {
