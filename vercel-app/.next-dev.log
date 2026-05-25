@@ -8,3 +8,9 @@
 
  ✓ Starting...
  ✓ Ready in 2.8s
+ ○ Compiling / ...
+ ✓ Compiled / in 3.3s (525 modules)
+ GET / 307 in 3931ms
+ ○ Compiling /web ...
+ ✓ Compiled /web in 3.2s (637 modules)
+ GET /web 200 in 3709ms

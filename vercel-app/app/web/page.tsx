@@ -1486,8 +1486,8 @@ function WebPdfPlan({
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
         if (!scale) {
-          const availableWidth = Math.max((viewportRef.current?.clientWidth ?? 900) - 24, 320);
-          const fitScale = Math.min(1, Math.max(0.08, availableWidth / baseViewport.width));
+          const availableWidth = Math.max((viewportRef.current?.clientWidth ?? 900) - 32, 320);
+          const fitScale = Math.min(1.2, Math.max(0.22, (availableWidth / baseViewport.width) * 1.18));
           setScale(Number(fitScale.toFixed(2)));
           return;
         }
@@ -1546,10 +1546,13 @@ function WebPdfPlan({
   return (
     <div className={styles.webPdfShell}>
       <div className={styles.webPdfToolbar}>
-        <button type="button" onClick={() => setScale(value => Math.max(0.08, Number(((value || 1) - 0.1).toFixed(2))))}>−</button>
-        <strong>{scale ? Math.round(scale * 100) : '…'}%</strong>
-        <button type="button" onClick={() => setScale(value => Math.min(3, Number(((value || 1) + 0.1).toFixed(2))))}>+</button>
-        <a href={uri} target="_blank" rel="noreferrer">Ouvrir</a>
+        <div className={styles.webPdfZoomControls}>
+          <button type="button" onClick={() => setScale(value => Math.max(0.08, Number(((value || 1) - 0.1).toFixed(2))))}>−</button>
+          <strong>{scale ? Math.round(scale * 100) : '…'}%</strong>
+          <button type="button" onClick={() => setScale(value => Math.min(3, Number(((value || 1) + 0.1).toFixed(2))))}>+</button>
+        </div>
+        <button type="button" onClick={() => setScale(0)}>Adapter</button>
+        <a href={uri} target="_blank" rel="noreferrer">Ouvrir le PDF</a>
       </div>
       <div ref={viewportRef} className={styles.webPdfViewport}>
         <div
@@ -1957,7 +1960,12 @@ function PlansView({
                       </span>
                     </button>
                   ))}
-                  {!planReserves.length && <p className={styles.empty}>Aucune réserve sur ce plan.</p>}
+                  {!planReserves.length && (
+                    <div className={styles.planReserveEmpty}>
+                      <strong>Aucune réserve</strong>
+                      <span>Les réserves épinglées sur ce plan apparaîtront ici.</span>
+                    </div>
+                  )}
                 </div>
               </aside>
             </div>
