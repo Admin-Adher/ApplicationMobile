@@ -85,6 +85,8 @@
 .companyStats input,
 .tableRow select {
   width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border: 1px solid #d8e0ec;
   background: #fff;
   color: #0f172a;
@@ -2215,6 +2217,7 @@
 .reserveModalGrid label {
   display: grid;
   gap: 7px;
+  min-width: 0;
   color: #334155;
   font-size: 13px;
   font-weight: 800;
