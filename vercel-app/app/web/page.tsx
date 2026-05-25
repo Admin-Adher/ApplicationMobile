@@ -179,6 +179,9 @@ const RESERVE_FILTER_OPTIONS = [
   { key: 'all', label: 'Tous' },
   ...STATUS_OPTIONS.map(([key, label]) => ({ key, label })),
   { key: 'overdue', label: 'En retard' },
+  { key: 'due_soon', label: 'Échéance proche' },
+  { key: 'ack_missing', label: 'AR manquants' },
+  { key: 'ack_received', label: 'AR reçus' },
   { key: 'archived', label: 'Archivées' },
 ] as const;
 
@@ -366,6 +369,24 @@ function isReserveOverdue(reserve: any) {
   if (!reserve?.deadline || ['closed', 'verification'].includes(String(reserve?.status ?? ''))) return false;
   const deadline = new Date(reserve.deadline);
   return !Number.isNaN(deadline.getTime()) && deadline < new Date();
+}
+
+function isReserveDueSoon(reserve: any, days = 3) {
+  if (!reserve?.deadline || ['closed', 'verification'].includes(String(reserve?.status ?? ''))) return false;
+  const deadline = new Date(`${String(reserve.deadline).slice(0, 10)}T23:59:59`);
+  if (Number.isNaN(deadline.getTime())) return false;
+  const now = new Date();
+  const limit = new Date(now);
+  limit.setDate(limit.getDate() + days);
+  return deadline >= now && deadline <= limit;
+}
+
+function needsEnterpriseAck(reserve: any) {
+  return reserveCompanies(reserve).length > 0 && !reserve?.enterprise_acknowledged_at && !reserve?.enterpriseAcknowledgedAt;
+}
+
+function hasEnterpriseAck(reserve: any) {
+  return Boolean(reserve?.enterprise_acknowledged_at ?? reserve?.enterpriseAcknowledgedAt);
 }
 
 function sameName(a?: string | null, b?: string | null) {
@@ -763,6 +784,10 @@ export default function BuildTrackWebPage() {
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState('all');
+  const [priorityFilter, setPriorityFilter] = useState('all');
+  const [companyFilter, setCompanyFilter] = useState('all');
+  const [buildingFilter, setBuildingFilter] = useState('all');
+  const [pinFilter, setPinFilter] = useState('all');
   const [search, setSearch] = useState('');
   const [messageDraft, setMessageDraft] = useState('');
   const [reserveModalMode, setReserveModalMode] = useState<'create' | 'edit' | null>(null);
@@ -931,6 +956,25 @@ export default function BuildTrackWebPage() {
     setSaving(false);
   }
 
+  async function deleteReserveWeb(reserve: any) {
+    if (!canEdit(profile) || !reserve?.id) return;
+    const confirmed = window.confirm(`Supprimer définitivement la réserve ${reserve.id} ? Cette action ne pourra pas être annulée.`);
+    if (!confirmed) return;
+    setSaving(true);
+    setError('');
+    const { error: deleteError } = await supabaseBrowser.from('reserves').delete().eq('id', reserve.id);
+    if (deleteError) {
+      setError(deleteError.message);
+    } else {
+      setData(prev => {
+        const reserves = prev.reserves.filter(item => item.id !== reserve.id);
+        setSelectedReserveId(current => current === reserve.id ? reserves[0]?.id ?? null : current);
+        return { ...prev, reserves };
+      });
+    }
+    setSaving(false);
+  }
+
   async function addReserveComment(reserve: any, content: string) {
     if (!profile || !content.trim()) return;
     const nextComment = {
@@ -997,7 +1041,7 @@ export default function BuildTrackWebPage() {
       setError('Aucune réserve à traduire dans cette sélection.');
       return;
     }
-    if (!window.confirm(`Traduire les titres et descriptions de ${candidates.length} réserve${candidates.length > 1 ? 's' : ''} en ${langLabel} ?`)) return;
+    if (!window.confirm(`Traduire les titres, descriptions et commentaires de ${candidates.length} réserve${candidates.length > 1 ? 's' : ''} en ${langLabel} ?`)) return;
     setSaving(true);
     setError('');
     try {
@@ -1005,15 +1049,21 @@ export default function BuildTrackWebPage() {
       for (const reserve of candidates) {
         const sourceDescription = isReserveDescriptionMissing(reserve.description) ? reserve.title : reserve.description;
         const source = defaultTextLang();
-        const [title, description] = await Promise.all([
+        const [title, description, comments] = await Promise.all([
           reserve.title?.trim() ? requestWebTranslation({ text: reserve.title, source, target: language, context: 'reserve title' }) : Promise.resolve(reserve.title ?? ''),
           sourceDescription?.trim() ? requestWebTranslation({ text: sourceDescription, source, target: language, context: 'reserve description' }) : Promise.resolve(sourceDescription ?? ''),
+          Promise.all((reserve.comments ?? []).map(async (comment: any) => ({
+            ...comment,
+            content: comment?.content?.trim()
+              ? await requestWebTranslation({ text: comment.content, source, target: language, context: 'reserve comment' })
+              : comment?.content,
+          }))),
         ]);
         const history = [
           ...(reserve.history ?? []),
           makeHistory(`Textes traduits en ${langLabel} depuis le web`, userLabel(profile, authUser)),
         ];
-        const patch = { title, description: description || title, history };
+        const patch = { title, description: description || title, comments, history };
         const { error: updateError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
         if (updateError) throw updateError;
         updates.push({ id: reserve.id, ...patch });
@@ -1188,12 +1238,18 @@ export default function BuildTrackWebPage() {
     setError('');
     const existing = editingReserveId ? data.reserves.find(r => r.id === editingReserveId) : null;
     const companies = reserveDraft.companies;
+    const previousCompanies = existing ? reserveCompanies(existing).map(name => name.trim()).filter(Boolean).sort() : [];
+    const nextCompanies = companies.map(name => name.trim()).filter(Boolean).sort();
+    const companiesChanged = Boolean(existing) && previousCompanies.join('|') !== nextCompanies.join('|');
     const history = [
       ...(existing?.history ?? []),
       reserveModalMode === 'edit'
         ? makeHistory('Modifiée depuis le web', userLabel(profile, authUser))
         : makeHistory(reserveDraft.kind === 'observation' ? 'Observation créée depuis le web' : 'Réserve créée depuis le web', userLabel(profile, authUser)),
     ];
+    if (companiesChanged) {
+      history.push(makeHistory('Entreprise responsable modifiée — AR et signatures réinitialisés', userLabel(profile, authUser)));
+    }
     const basePayload = {
       kind: reserveDraft.kind,
       title,
@@ -1219,6 +1275,12 @@ export default function BuildTrackWebPage() {
       organization_id: profile.organization_id ?? null,
       closed_at: reserveDraft.status === 'closed' ? (existing?.closed_at ?? todayISO()) : null,
       closed_by: reserveDraft.status === 'closed' ? userLabel(profile, authUser) : null,
+      ...(companiesChanged ? {
+        enterprise_signature: null,
+        enterprise_signataire: null,
+        enterprise_acknowledged_at: null,
+        company_signatures: null,
+      } : {}),
     };
 
     if (reserveModalMode === 'edit' && editingReserveId) {
@@ -1574,6 +1636,13 @@ export default function BuildTrackWebPage() {
     };
   }, [data, selectedProjectId]);
 
+  const reserveStructuredFilters = useMemo(() => {
+    const active = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve));
+    const companies = Array.from(new Set(active.flatMap(reserve => reserveCompanies(reserve)).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    const buildings = Array.from(new Set(active.map(reserve => String(reserve.building ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    return { companies, buildings };
+  }, [projectScoped.reserves]);
+
   const filteredReserves = useMemo(() => {
     const q = search.trim().toLowerCase();
     return projectScoped.reserves.filter(r => {
@@ -1583,10 +1652,21 @@ export default function BuildTrackWebPage() {
         if (isReserveArchived(r)) return false;
         if (statusFilter === 'overdue') {
           if (!isReserveOverdue(r)) return false;
+        } else if (statusFilter === 'due_soon') {
+          if (!isReserveDueSoon(r)) return false;
+        } else if (statusFilter === 'ack_missing') {
+          if (!needsEnterpriseAck(r)) return false;
+        } else if (statusFilter === 'ack_received') {
+          if (!hasEnterpriseAck(r)) return false;
         } else if (statusFilter !== 'all' && r.status !== statusFilter) {
           return false;
         }
       }
+      if (priorityFilter !== 'all' && r.priority !== priorityFilter) return false;
+      if (companyFilter !== 'all' && !reserveCompanies(r).includes(companyFilter)) return false;
+      if (buildingFilter !== 'all' && !sameName(r.building, buildingFilter)) return false;
+      if (pinFilter === 'pinned' && !r.plan_id) return false;
+      if (pinFilter === 'unpinned' && r.plan_id) return false;
       if (!q) return true;
       const haystack = [
         r.id,
@@ -1601,7 +1681,7 @@ export default function BuildTrackWebPage() {
       ].join(' ').toLowerCase();
       return haystack.includes(q);
     });
-  }, [projectScoped.reserves, search, statusFilter]);
+  }, [projectScoped.reserves, search, statusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter]);
 
   const selectedReserve = projectScoped.reserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
@@ -1748,8 +1828,18 @@ export default function BuildTrackWebPage() {
                 setSearch={setSearch}
                 statusFilter={statusFilter}
                 setStatusFilter={setStatusFilter}
+                priorityFilter={priorityFilter}
+                setPriorityFilter={setPriorityFilter}
+                companyFilter={companyFilter}
+                setCompanyFilter={setCompanyFilter}
+                buildingFilter={buildingFilter}
+                setBuildingFilter={setBuildingFilter}
+                pinFilter={pinFilter}
+                setPinFilter={setPinFilter}
+                structuredFilters={reserveStructuredFilters}
                 onStatus={updateReserveStatus}
                 onArchive={toggleArchive}
+                onDelete={deleteReserveWeb}
                 onComment={addReserveComment}
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
@@ -1935,8 +2025,18 @@ function ReservesView(props: {
   setSearch: (value: string) => void;
   statusFilter: string;
   setStatusFilter: (value: string) => void;
+  priorityFilter: string;
+  setPriorityFilter: (value: string) => void;
+  companyFilter: string;
+  setCompanyFilter: (value: string) => void;
+  buildingFilter: string;
+  setBuildingFilter: (value: string) => void;
+  pinFilter: string;
+  setPinFilter: (value: string) => void;
+  structuredFilters: { companies: string[]; buildings: string[] };
   onStatus: (id: string, status: string) => void;
   onArchive: (reserve: any) => void;
+  onDelete: (reserve: any) => Promise<void> | void;
   onComment: (reserve: any, content: string) => Promise<void> | void;
   onCreate: () => void;
   onEdit: (reserve: any) => void;
@@ -1949,8 +2049,15 @@ function ReservesView(props: {
   const { allReserves, reserves, selectedReserve } = props;
   const [commentText, setCommentText] = useState('');
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
+  const [assistantScope, setAssistantScope] = useState<'view' | 'project'>('view');
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
-  const missingDescriptionCount = reserves.filter(reserve => reserve.title?.trim() && isReserveDescriptionMissing(reserve.description)).length;
+  const assistantTargets = assistantScope === 'project' ? activeReserves : reserves;
+  const assistantMissingDescriptionCount = assistantTargets.filter(reserve => reserve.title?.trim() && isReserveDescriptionMissing(reserve.description)).length;
+  const advancedFilterActive =
+    props.priorityFilter !== 'all' ||
+    props.companyFilter !== 'all' ||
+    props.buildingFilter !== 'all' ||
+    props.pinFilter !== 'all';
   const selectedPhotos = reservePhotoItems(selectedReserve, props.photos);
   const filterCounts = RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
     acc[option.key] =
@@ -1960,7 +2067,13 @@ function ReservesView(props: {
           ? allReserves.filter(isReserveArchived).length
           : option.key === 'overdue'
             ? activeReserves.filter(isReserveOverdue).length
-            : activeReserves.filter(reserve => reserve.status === option.key).length;
+            : option.key === 'due_soon'
+              ? activeReserves.filter(reserve => isReserveDueSoon(reserve)).length
+              : option.key === 'ack_missing'
+                ? activeReserves.filter(needsEnterpriseAck).length
+                : option.key === 'ack_received'
+                  ? activeReserves.filter(hasEnterpriseAck).length
+                  : activeReserves.filter(reserve => reserve.status === option.key).length;
     return acc;
   }, {});
 
@@ -1997,6 +2110,38 @@ function ReservesView(props: {
             <button type="button" onClick={() => props.setSearch('')} aria-label="Effacer la recherche">×</button>
           )}
         </div>
+        <div className={styles.reserveAdvancedFiltersWeb}>
+          <select value={props.priorityFilter} onChange={event => props.setPriorityFilter(event.target.value)} aria-label="Filtrer par priorité">
+            <option value="all">Toutes priorités</option>
+            {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          </select>
+          <select value={props.companyFilter} onChange={event => props.setCompanyFilter(event.target.value)} aria-label="Filtrer par entreprise">
+            <option value="all">Toutes entreprises</option>
+            {props.structuredFilters.companies.map(company => <option key={company} value={company}>{company}</option>)}
+          </select>
+          <select value={props.buildingFilter} onChange={event => props.setBuildingFilter(event.target.value)} aria-label="Filtrer par bâtiment">
+            <option value="all">Tous bâtiments</option>
+            {props.structuredFilters.buildings.map(building => <option key={building} value={building}>{building}</option>)}
+          </select>
+          <select value={props.pinFilter} onChange={event => props.setPinFilter(event.target.value)} aria-label="Filtrer par épingle">
+            <option value="all">Toutes localisations</option>
+            <option value="pinned">Épinglées</option>
+            <option value="unpinned">Non épinglées</option>
+          </select>
+          {advancedFilterActive && (
+            <button
+              type="button"
+              onClick={() => {
+                props.setPriorityFilter('all');
+                props.setCompanyFilter('all');
+                props.setBuildingFilter('all');
+                props.setPinFilter('all');
+              }}
+            >
+              Réinitialiser
+            </button>
+          )}
+        </div>
         <div className={styles.reserveListMeta}>
           <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
           <span>{activeReserves.length} active{activeReserves.length > 1 ? 's' : ''}</span>
@@ -2005,12 +2150,21 @@ function ReservesView(props: {
           <div className={styles.reserveAssistantPanel}>
             <div>
               <strong>Assistant réserves</strong>
-              <span>{missingDescriptionCount} description{missingDescriptionCount > 1 ? 's' : ''} à compléter dans cette vue.</span>
+              <span>{assistantMissingDescriptionCount} description{assistantMissingDescriptionCount > 1 ? 's' : ''} à compléter dans {assistantScope === 'project' ? 'le chantier' : 'cette vue'}.</span>
             </div>
+            <select
+              value={assistantScope}
+              onChange={event => setAssistantScope(event.target.value as 'view' | 'project')}
+              disabled={props.saving}
+              aria-label="Périmètre assistant"
+            >
+              <option value="view">Vue</option>
+              <option value="project">Chantier</option>
+            </select>
             <button
               type="button"
-              disabled={props.saving || missingDescriptionCount === 0}
-              onClick={() => props.onFillDescriptions(reserves)}
+              disabled={props.saving || assistantMissingDescriptionCount === 0}
+              onClick={() => props.onFillDescriptions(assistantTargets)}
             >
               Compléter
             </button>
@@ -2024,8 +2178,8 @@ function ReservesView(props: {
             </select>
             <button
               type="button"
-              disabled={props.saving || reserves.length === 0}
-              onClick={() => props.onTranslateReserves(reserves, assistantLanguage)}
+              disabled={props.saving || assistantTargets.length === 0}
+              onClick={() => props.onTranslateReserves(assistantTargets, assistantLanguage)}
             >
               Traduire
             </button>
@@ -2108,6 +2262,13 @@ function ReservesView(props: {
                 placeholder="Ajouter un commentaire de suivi..."
               />
               <button type="submit" disabled={props.saving || !commentText.trim()}>Ajouter</button>
+              <div className={styles.commentAssist}>
+                <TextAssistControls
+                  value={commentText}
+                  onChange={setCommentText}
+                  context="reserve comment"
+                />
+              </div>
             </form>
             {props.editable && (
               <div className={styles.actionBar}>
@@ -2118,6 +2279,7 @@ function ReservesView(props: {
                   </button>
                 ))}
                 <button type="button" onClick={() => props.onArchive(selectedReserve)}>{selectedReserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
+                <button type="button" className={styles.dangerButton} onClick={() => props.onDelete(selectedReserve)}>Supprimer</button>
               </div>
             )}
             <HistoryBlock title="Commentaires" rows={selectedReserve.comments ?? []} />

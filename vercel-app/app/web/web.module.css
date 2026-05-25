@@ -703,6 +703,30 @@
   cursor: pointer;
 }
 
+.reserveAdvancedFiltersWeb {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.reserveAdvancedFiltersWeb select,
+.reserveAdvancedFiltersWeb button {
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #172033;
+  padding: 0 10px;
+  font-weight: 800;
+}
+
+.reserveAdvancedFiltersWeb button {
+  background: #eef3fa;
+  color: #003082;
+  cursor: pointer;
+}
+
 .reserveListMeta {
   display: flex;
   align-items: center;
@@ -715,7 +739,7 @@
 
 .reserveAssistantPanel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto auto;
   gap: 8px;
   align-items: center;
   padding: 10px;
@@ -1594,6 +1618,12 @@
   border: 1px solid #d8e0ec;
 }
 
+.actionBar .dangerButton {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b42318;
+}
+
 .historyBlock {
   margin-top: 18px;
 }
@@ -2296,6 +2326,14 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   margin: 16px 0;
+}
+
+.commentAssist {
+  grid-column: 1 / -1;
+  border: 1px solid #e2e8f0;
+  border-radius: 13px;
+  background: #f8fafc;
+  padding: 9px;
 }
 
 .commentForm button:disabled {
@@ -3776,6 +3814,7 @@
   .commentForm,
   .metaGrid,
   .formGrid,
+  .reserveAdvancedFiltersWeb,
   .reserveAssistantPanel,
   .reserveModalGrid,
   .reserveTemplateGrid,

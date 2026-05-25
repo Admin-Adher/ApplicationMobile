@@ -1629,6 +1629,12 @@
   border: 1px solid #d8e0ec;
 }
 
+.web_actionBar__Xcoq8 .web_dangerButton__QElJO {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b42318;
+}
+
 .web_historyBlock__K9gPK {
   margin-top: 18px;
 }
@@ -2347,6 +2353,14 @@
   grid-gap: 10px;
   gap: 10px;
   margin: 16px 0;
+}
+
+.web_commentAssist__y5iE3 {
+  grid-column: 1 / -1;
+  border: 1px solid #e2e8f0;
+  border-radius: 13px;
+  background: #f8fafc;
+  padding: 9px;
 }
 
 .web_commentForm__bdysX button:disabled {
