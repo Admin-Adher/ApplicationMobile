@@ -559,6 +559,10 @@
   overflow: hidden;
 }
 
+.workspaceVisites {
+  overflow: hidden;
+}
+
 .topbar {
   display: flex;
   align-items: center;
@@ -1322,7 +1326,15 @@
   margin: 0;
 }
 
-.reservePanelHeader button {
+.reservePanelActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.reserveCreateButton {
   border: 0;
   border-radius: 12px;
   background: #003082;
@@ -1330,6 +1342,34 @@
   padding: 10px 14px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.reserveAssistantOpenButton {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  border: 1px solid #cbd8f0;
+  border-radius: 12px;
+  background: #eef4ff;
+  color: #003082;
+  padding: 10px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reserveAssistantOpenButton em {
+  min-width: 21px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #fff;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1.2;
+  text-align: center;
 }
 
 .reserveCompactToolbar {
@@ -1530,86 +1570,230 @@
   font-weight: 800;
 }
 
-.reserveAssistantPanel {
-  display: grid;
-  gap: 8px;
-  border: 1px solid #dbe5f0;
-  border-radius: 14px;
-  background: #fff;
-  overflow: hidden;
+.reserveAssistantModalWeb {
+  width: min(760px, 100%);
+  max-height: min(88vh, 820px);
 }
 
-.reserveAssistantSummary {
-  width: 100%;
+.reserveAssistantHeaderWeb {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.reserveAssistantHeaderIconWeb {
+  width: 44px;
+  height: 44px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: #003082;
+  color: #fff;
+  font-size: 21px;
+  font-weight: 900;
+  box-shadow: 0 12px 28px rgba(0, 48, 130, 0.22);
+}
+
+.reserveAssistantModalBodyWeb {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px 18px;
+  background: #f8fafc;
+}
+
+.reserveAssistantSectionWeb,
+.reserveAssistantActionCardWeb,
+.reserveAssistantProgressWeb {
+  border: 1px solid #dbe5f0;
+  border-radius: 16px;
+  background: #fff;
+  padding: 14px;
+}
+
+.reserveAssistantSectionWeb {
+  display: grid;
   gap: 10px;
-  border: 0;
-  background: transparent;
+}
+
+.reserveAssistantSectionWeb > strong {
   color: #0f172a;
-  padding: 11px 12px;
+  font-size: 14px;
+}
+
+.reserveAssistantScopeGridWeb {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.reserveAssistantScopeGridWeb button {
+  display: grid;
+  gap: 5px;
+  min-height: 92px;
+  border: 1px solid #d8e0ec;
+  border-radius: 14px;
+  background: #fff;
+  color: #0f172a;
+  padding: 11px;
   text-align: left;
   cursor: pointer;
 }
 
-.reserveAssistantSummary span,
-.reserveAssistantSummary strong,
-.reserveAssistantSummary small {
-  display: block;
+.reserveAssistantScopeGridWeb button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
-.reserveAssistantSummary small {
-  margin-top: 2px;
+.reserveAssistantScopeGridWeb span,
+.reserveAssistantScopeGridWeb em {
+  font-weight: 900;
+}
+
+.reserveAssistantScopeGridWeb small {
   color: #64748b;
   font-size: 12px;
   font-weight: 700;
 }
 
-.reserveAssistantSummary em {
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: #eef3fa;
+.reserveAssistantScopeGridWeb em {
   color: #003082;
-  padding: 6px 9px;
-  font-size: 12px;
+  font-size: 22px;
   font-style: normal;
+}
+
+.reserveAssistantScopeActiveWeb {
+  border-color: #003082 !important;
+  background: #eef4ff !important;
+}
+
+.reserveAssistantActionCardWeb {
+  display: grid;
+  gap: 12px;
+}
+
+.reserveAssistantActionHeaderWeb {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.reserveAssistantActionHeaderWeb > span {
+  width: 40px;
+  height: 40px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: #eef4ff;
+  color: #003082;
   font-weight: 900;
 }
 
-.reserveAssistantControls {
+.reserveAssistantActionHeaderWeb strong,
+.reserveAssistantActionHeaderWeb small {
+  display: block;
+}
+
+.reserveAssistantActionHeaderWeb small {
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.reserveAssistantPreviewWeb {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) auto minmax(0, 1.3fr);
-  gap: 8px;
-  padding: 0 10px 10px;
+  gap: 7px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 10px;
 }
 
-.reserveAssistantControls button,
-.reserveAssistantControls select {
-  min-height: 38px;
-  border-radius: 12px;
+.reserveAssistantPreviewWeb div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
 }
 
-.reserveAssistantControls select {
-  border: 1px solid #d8e0ec;
-  background: #fff;
-  color: #172033;
-  padding: 0 10px;
-  font-weight: 800;
-}
-
-.reserveAssistantControls button {
-  border: 1px solid #d8e0ec;
-  background: #eef3fa;
+.reserveAssistantPreviewWeb strong {
   color: #003082;
-  padding: 0 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.reserveAssistantPreviewWeb span {
+  min-width: 0;
+  overflow: hidden;
+  color: #334155;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reserveAssistantPreviewWeb small,
+.reserveAssistantEmptyWeb {
+  margin: 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reserveAssistantLangRowWeb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.reserveAssistantLangRowWeb button {
+  min-height: 36px;
+  min-width: 54px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  padding: 0 13px;
   font-weight: 900;
   cursor: pointer;
 }
 
-.reserveAssistantControls button:disabled {
-  opacity: 0.52;
+.reserveAssistantLangActiveWeb {
+  border-color: #003082 !important;
+  background: #003082 !important;
+  color: #fff !important;
+}
+
+.reserveAssistantPrimaryWeb {
+  min-height: 42px;
+  border: 0;
+  border-radius: 13px;
+  background: #003082;
+  color: #fff;
+  padding: 0 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reserveAssistantTranslateButtonWeb {
+  background: #4f46e5;
+}
+
+.reserveAssistantPrimaryWeb:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
+}
+
+.reserveAssistantProgressWeb {
+  display: grid;
+  gap: 3px;
+  background: #fff7ed;
+  color: #92400e;
+  border-color: #fed7aa;
+}
+
+.reserveAssistantProgressWeb span {
+  font-size: 13px;
 }
 
 .reserveList {
@@ -3058,6 +3242,695 @@
 .visitReserveMore {
   color: #64748b;
   font-weight: 800;
+}
+
+.visitesWorkspace {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(380px, 0.75fr) minmax(0, 1.35fr);
+  gap: 16px;
+  overflow: hidden;
+}
+
+.visitesListPanel,
+.visitDetailPanel {
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid #dde4ee;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.visitesListPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+}
+
+.visitDetailPanel {
+  overflow-y: auto;
+  padding-bottom: 18px;
+}
+
+.visitPanelHeader,
+.visitDetailHeader,
+.visitBlockHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.visitPanelHeader h2,
+.visitDetailHeader h2 {
+  margin: 0;
+  color: #0f172a;
+}
+
+.visitPanelHeader button,
+.visitDetailActions button,
+.visitInlineActions button,
+.visitReportControls > button:last-child {
+  border: 0;
+  border-radius: 14px;
+  background: #1d348f;
+  color: #fff;
+  padding: 11px 16px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.visitStat,
+.visitStatActive {
+  display: grid;
+  gap: 2px;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #f8fafc;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.visitStatActive {
+  border-color: #1d348f;
+  background: #f5f8ff;
+}
+
+.visitStat strong,
+.visitStatActive strong {
+  color: #1d348f;
+  font-size: 24px;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.visitStat span,
+.visitStatActive span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.visitFilterChips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.visitCardsList {
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding-right: 4px;
+}
+
+.visitCard,
+.visitCardActive {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  border: 1px solid #dde4ee;
+  border-radius: 15px;
+  background: #fff;
+  color: #0f172a;
+  padding: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.visitCardActive {
+  border-color: #1d348f;
+  background: #f5f8ff;
+  box-shadow: 0 0 0 2px rgba(29, 52, 143, 0.08);
+}
+
+.visitCardTop,
+.visitCardFooter,
+.visitDetailActions,
+.visitInlineActions,
+.visitReportControls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.visitCard strong,
+.visitCardActive strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitCard small,
+.visitCardActive small,
+.visitCard > span,
+.visitCardActive > span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitCardFooter {
+  justify-content: space-between;
+}
+
+.visitCardFooter em {
+  border-radius: 999px;
+  background: #eef3fa;
+  color: #1d348f;
+  padding: 5px 8px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.visitTypePill,
+.visitStatusPill {
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.visitStatusPill {
+  margin-left: auto;
+  background: #eef3fa;
+  color: #64748b;
+}
+
+.visitStatus_planned {
+  background: #eef2ff;
+  color: #4f46e5;
+}
+
+.visitStatus_in_progress {
+  background: #eff6ff;
+  color: #2563eb;
+}
+
+.visitStatus_completed {
+  background: #ecfdf5;
+  color: #059669;
+}
+
+.visitDetailHeader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 18px 20px;
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid #eef2f7;
+  backdrop-filter: blur(12px);
+}
+
+.visitDetailHeader span {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.visitDetailActions select {
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #fff;
+  color: #0f172a;
+  padding: 10px 12px;
+  font-weight: 900;
+}
+
+.visitDetailActions button {
+  background: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.visitCoverHero {
+  display: block;
+  width: calc(100% - 40px);
+  max-height: 260px;
+  object-fit: cover;
+  margin: 20px 20px 0;
+  border: 1px solid #dde4ee;
+  border-radius: 16px;
+}
+
+.visitInfoGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 20px;
+}
+
+.visitInfoGrid div {
+  border: 1px solid #eef2f7;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.visitInfoGrid span,
+.visitBlockHeader span,
+.visitReportCardWeb span {
+  display: block;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.visitInfoGrid strong {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: #0f172a;
+  font-weight: 900;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitDetailQuickActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -8px 20px 16px;
+}
+
+.visitDetailQuickActions button {
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  background: #eef3fa;
+  color: #1d348f;
+  padding: 10px 13px;
+  font-size: 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitDetailBlock {
+  margin: 0 20px 14px;
+  border: 1px solid #dde4ee;
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+}
+
+.visitDetailBlock h3,
+.visitReportCardWeb strong {
+  margin: 0;
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.visitDetailBlock p {
+  margin: 10px 0 0;
+  color: #334155;
+  line-height: 1.55;
+}
+
+.visitTagList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0 20px 14px;
+}
+
+.visitTagList span {
+  border-radius: 999px;
+  background: #eef3fa;
+  color: #1d348f;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.visitChecklistWeb,
+.visitParticipantGridWeb,
+.visitReserveListWeb,
+.visitAttachList {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.visitChecklistTodo,
+.visitChecklistDone {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  border: 1px solid #dde4ee;
+  border-radius: 13px;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.visitChecklistDone {
+  color: #64748b;
+  text-decoration: line-through;
+}
+
+.visitChecklistTodo span,
+.visitChecklistDone span,
+.visitAttachReserve > span,
+.visitAttachReserveActive > span {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #fff;
+  text-decoration: none;
+}
+
+.visitChecklistDone span,
+.visitAttachReserveActive > span {
+  border-color: #1d348f;
+  background: #1d348f;
+}
+
+.visitParticipantGridWeb {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.visitParticipantGridWeb article {
+  border: 1px solid #eef2f7;
+  border-radius: 13px;
+  background: #f8fafc;
+  padding: 11px 12px;
+}
+
+.visitParticipantGridWeb strong,
+.visitParticipantGridWeb span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitParticipantGridWeb span {
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.visitInlineActions button {
+  background: #eef3fa;
+  color: #1d348f;
+}
+
+.visitReserveListWeb article {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #dde4ee;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 10px;
+}
+
+.visitReserveListWeb article > button {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 2px;
+  border: 0;
+  background: transparent;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.visitReserveListWeb article > button strong {
+  grid-row: span 2;
+  align-self: center;
+  color: #1d348f;
+  font-weight: 900;
+}
+
+.visitReserveListWeb article > button span,
+.visitReserveListWeb article > button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitReserveListWeb article > button small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.visitReserveListWeb article > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.visitReserveListWeb article > div button {
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #1d348f;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitReportCardWeb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 20px 14px;
+  border: 1px solid #c7d7fe;
+  border-radius: 16px;
+  background: #f5f8ff;
+  padding: 14px 16px;
+}
+
+.visitReportControls > button:last-child:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.visitAttachModal {
+  max-width: 880px;
+}
+
+.visitLocationModal,
+.visitSignatureModal {
+  max-width: 1040px;
+}
+
+.visitSignatureModal {
+  max-width: 760px;
+}
+
+.visitAttachList {
+  max-height: 48vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.visitAttachReserve,
+.visitAttachReserveActive {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 1px solid #dde4ee;
+  border-radius: 13px;
+  background: #fff;
+  padding: 10px;
+  color: #0f172a;
+  text-align: left;
+  cursor: pointer;
+}
+
+.visitAttachReserveActive {
+  border-color: #1d348f;
+  background: #f5f8ff;
+}
+
+.visitAttachReserve strong,
+.visitAttachReserveActive strong {
+  color: #1d348f;
+  font-weight: 900;
+}
+
+.visitAttachReserve div,
+.visitAttachReserveActive div {
+  min-width: 0;
+}
+
+.visitAttachReserve b,
+.visitAttachReserve small,
+.visitAttachReserveActive b,
+.visitAttachReserveActive small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.visitAttachReserve small,
+.visitAttachReserveActive small {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.visitSignatureTabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid #d8e0ec;
+  border-radius: 14px;
+  padding: 4px;
+  background: #f8fafc;
+}
+
+.visitSignatureTabs button {
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #64748b;
+  padding: 9px 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitSignatureBox {
+  margin-top: 14px;
+  border: 1px solid #dde4ee;
+  border-radius: 16px;
+  background: #fff;
+  padding: 14px;
+}
+
+.visitSignatureHeader {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr);
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.visitSignatureHeader strong,
+.visitSignatureHeader span {
+  display: block;
+}
+
+.visitSignatureHeader strong {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.visitSignatureHeader span {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.visitSignatureHeader input {
+  width: 100%;
+  border: 1px solid #d8e0ec;
+  border-radius: 13px;
+  padding: 11px 12px;
+  font-weight: 800;
+}
+
+.visitSignatureCanvas {
+  display: block;
+  width: 100%;
+  height: 180px;
+  border: 1px dashed #9aa9bd;
+  border-radius: 16px;
+  background:
+    linear-gradient(#fff, #fff) padding-box,
+    repeating-linear-gradient(0deg, transparent 0 28px, rgba(148, 163, 184, 0.18) 29px) border-box;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.visitSignatureActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.visitSignatureActions button {
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #eef3fa;
+  color: #1d348f;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.visitSignatureActions span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.restrictedState {
+  display: grid;
+  place-items: center;
+  gap: 10px;
+  min-height: 340px;
+  text-align: center;
+}
+
+.restrictedState span {
+  font-size: 42px;
+}
+
+.restrictedState strong {
+  color: #0f172a;
+  font-size: 22px;
+}
+
+.restrictedState p {
+  max-width: 520px;
+  margin: 0;
+  color: #64748b;
+  line-height: 1.55;
 }
 
 .adminTableHead,
@@ -4836,9 +5709,32 @@
 
   .workspace,
   .workspacePlans,
-  .workspaceReserves {
+  .workspaceReserves,
+  .workspaceVisites {
     height: auto;
     overflow: visible;
+  }
+
+  .visitesWorkspace,
+  .visitInfoGrid {
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .visitesListPanel,
+  .visitDetailPanel,
+  .visitCardsList {
+    overflow: visible;
+  }
+
+  .visitStatsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .visitDetailHeader,
+  .visitReportCardWeb {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .plansListPanel,
@@ -4883,7 +5779,6 @@
   .metaGrid,
   .formGrid,
   .reserveAdvancedFiltersWeb,
-  .reserveAssistantControls,
   .reserveModalGrid,
   .reserveTemplateGrid,
   .reserveDetailPhotos > div:first-child,
@@ -4892,6 +5787,7 @@
   .visitBuildingToolbar,
   .visitBuildingGrid,
   .visitSelectedLocationCard,
+  .visitSignatureHeader,
   .visitParticipantRow,
   .companyStats {
     grid-template-columns: 1fr;

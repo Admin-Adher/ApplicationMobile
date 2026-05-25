@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import styles from './web.module.css';
@@ -1621,6 +1621,87 @@ export default function BuildTrackWebPage() {
     setSaving(false);
   }
 
+  async function updateVisitWeb(visit: any, patch: Record<string, any>) {
+    if (!profile || !canEdit(profile) || !visit?.id) return;
+    setSaving(true);
+    setError('');
+    const { data: updated, error: updateError } = await supabaseBrowser
+      .from('visites')
+      .update(patch)
+      .eq('id', visit.id)
+      .select()
+      .single();
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      setData(prev => ({
+        ...prev,
+        visites: prev.visites.map(item => item.id === visit.id ? (updated ?? { ...item, ...patch }) : item),
+      }));
+    }
+    setSaving(false);
+  }
+
+  async function attachReservesToVisitWeb(visit: any, reserveIds: string[]) {
+    if (!profile || !canEdit(profile) || !visit?.id || reserveIds.length === 0) return;
+    setSaving(true);
+    setError('');
+    let attachError: any = null;
+    const rpcResult = await (supabaseBrowser as any).rpc('attach_reserves_to_visite', {
+      p_visite_id: visit.id,
+      p_reserve_ids: reserveIds,
+    });
+    attachError = rpcResult?.error ?? null;
+
+    if (attachError) {
+      const nextReserveIds = Array.from(new Set([...(visit.reserve_ids ?? []), ...reserveIds]));
+      const [visitResult, reserveResult] = await Promise.all([
+        supabaseBrowser.from('visites').update({ reserve_ids: nextReserveIds }).eq('id', visit.id),
+        supabaseBrowser.from('reserves').update({ visite_id: visit.id }).in('id', reserveIds),
+      ]);
+      attachError = visitResult.error ?? reserveResult.error ?? null;
+    }
+
+    if (attachError) {
+      setError(attachError.message ?? 'Impossible de rattacher ces réserves à la visite.');
+    } else {
+      setData(prev => ({
+        ...prev,
+        visites: prev.visites.map(item => item.id === visit.id
+          ? { ...item, reserve_ids: Array.from(new Set([...(item.reserve_ids ?? []), ...reserveIds])) }
+          : item),
+        reserves: prev.reserves.map(item => reserveIds.includes(item.id) ? { ...item, visite_id: visit.id } : item),
+      }));
+    }
+    setSaving(false);
+  }
+
+  async function deleteVisitWeb(visit: any) {
+    if (!profile || !canEdit(profile) || !visit?.id) return;
+    const confirmed = window.confirm(`Supprimer la visite "${visit.title}" ? Les réserves rattachées resteront disponibles dans l'onglet Réserves.`);
+    if (!confirmed) return;
+    setSaving(true);
+    setError('');
+    const linkedReserveIds = new Set([...(visit.reserve_ids ?? []), ...data.reserves.filter(reserve => reserve.visite_id === visit.id).map(reserve => reserve.id)]);
+    const [reserveResult, deleteResult] = await Promise.all([
+      linkedReserveIds.size
+        ? supabaseBrowser.from('reserves').update({ visite_id: null }).in('id', Array.from(linkedReserveIds))
+        : Promise.resolve({ error: null }),
+      supabaseBrowser.from('visites').delete().eq('id', visit.id),
+    ]);
+    const deleteError = reserveResult.error ?? deleteResult.error;
+    if (deleteError) {
+      setError(deleteError.message ?? 'Suppression de la visite impossible.');
+    } else {
+      setData(prev => ({
+        ...prev,
+        visites: prev.visites.filter(item => item.id !== visit.id),
+        reserves: prev.reserves.map(item => linkedReserveIds.has(item.id) ? { ...item, visite_id: null } : item),
+      }));
+    }
+    setSaving(false);
+  }
+
   async function updateCompanyField(companyId: string, field: 'planned_workers' | 'actual_workers' | 'hours_worked', value: number) {
     if (!canEdit(profile)) return;
     const safeValue = Math.max(0, Number.isFinite(value) ? value : 0);
@@ -1697,9 +1778,10 @@ export default function BuildTrackWebPage() {
     return data.chantiers.find(project => project.id === selectedProjectId)?.name ?? 'Chantier';
   }
 
-  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report', options?: { visit?: any }) {
+  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report', options?: { visit?: any; language?: 'fr' | 'en' | 'es' }) {
     const selectedProjectName = projectName();
-    const reportKey = `${type}-${reportLanguage}`;
+    const language = options?.language ?? reportLanguage;
+    const reportKey = `${type}-${language}`;
     setGeneratingReport(reportKey);
     setError('');
     try {
@@ -1708,7 +1790,7 @@ export default function BuildTrackWebPage() {
             type,
             chantierName: selectedProjectName,
             reserve: selectedReserve,
-            language: reportLanguage,
+            language,
             generatedAt: new Date().toISOString(),
           }
         : type === 'visit_report'
@@ -1721,7 +1803,7 @@ export default function BuildTrackWebPage() {
                 return reserve.visite_id === options?.visit?.id || visitReserveIds.includes(reserve.id);
               }),
               companies: data.companies,
-              language: reportLanguage,
+              language,
               generatedAt: new Date().toISOString(),
             }
         : {
@@ -1730,7 +1812,7 @@ export default function BuildTrackWebPage() {
             reserves: filteredReserves,
             plans: projectScoped.plans,
             companyFilter: null,
-            language: reportLanguage,
+            language,
             generatedAt: new Date().toISOString(),
           };
       if (type === 'individual_reserve' && !selectedReserve) {
@@ -1752,7 +1834,7 @@ export default function BuildTrackWebPage() {
       }
       const filePart = selectedProjectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
       const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : type === 'visit_report' ? 'visite' : 'reserve';
-      toBase64Download(result.pdfBase64, `BuildTrack_${typePart}_${filePart}_${reportLanguage}.pdf`);
+      toBase64Download(result.pdfBase64, `BuildTrack_${typePart}_${filePart}_${language}.pdf`);
     } catch (err: any) {
       setError(err?.message ?? 'Génération PDF impossible.');
     } finally {
@@ -1963,7 +2045,7 @@ export default function BuildTrackWebPage() {
         </div>
       </aside>
 
-      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''}`}>
+      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''}`}>
         <header className={styles.topbar}>
           <div>
             <p className={styles.eyebrow}>Cockpit web</p>
@@ -2054,6 +2136,7 @@ export default function BuildTrackWebPage() {
             )}
             {activeTab === 'visites' && (
               <VisitesView
+                data={data}
                 visites={projectScoped.visites}
                 reserves={projectScoped.reserves}
                 companies={data.companies}
@@ -2064,7 +2147,14 @@ export default function BuildTrackWebPage() {
                   setActiveTab('reserves');
                 }}
                 onUnlinkReserve={unlinkReserveFromVisitWeb}
+                onAttachReserves={attachReservesToVisitWeb}
                 onArchiveReserve={toggleArchive}
+                onDeleteReserve={deleteReserveWeb}
+                onUpdateVisit={updateVisitWeb}
+                onDeleteVisit={deleteVisitWeb}
+                onGenerateVisitReport={(visit: any, language: 'fr' | 'en' | 'es') => generateWebReport('visit_report', { visit, language })}
+                generatingReport={generatingReport}
+                restricted={profile?.role === 'sous_traitant'}
                 editable={canEdit(profile)}
               />
             )}
@@ -2587,12 +2677,30 @@ function ReservesView(props: {
   const { allReserves, reserves, selectedReserve } = props;
   const [commentText, setCommentText] = useState('');
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
-  const [assistantScope, setAssistantScope] = useState<'view' | 'project'>('view');
+  const [assistantScope, setAssistantScope] = useState<'view' | 'project' | 'selected'>('view');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantVisible, setAssistantVisible] = useState(false);
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
-  const assistantTargets = assistantScope === 'project' ? activeReserves : reserves;
-  const assistantMissingDescriptionCount = assistantTargets.filter(reserve => reserve.title?.trim() && isReserveDescriptionMissing(reserve.description)).length;
+  const selectedAssistantReserves = selectedReserve ? [selectedReserve] : [];
+  const assistantTargets =
+    assistantScope === 'project'
+      ? activeReserves
+      : assistantScope === 'selected'
+        ? selectedAssistantReserves
+        : reserves;
+  const assistantMissingDescriptionReserves = assistantTargets.filter(reserve => reserve.title?.trim() && isReserveDescriptionMissing(reserve.description));
+  const assistantMissingDescriptionCount = assistantMissingDescriptionReserves.length;
+  const assistantTranslationCandidates = assistantTargets.filter(reserve => (
+    reserve.title?.trim() ||
+    (!isReserveDescriptionMissing(reserve.description) && `${reserve.description ?? ''}`.trim()) ||
+    (reserve.comments ?? []).some((comment: any) => comment?.content?.trim())
+  ));
+  const selectedAssistantLanguage = TEXT_LANG_OPTIONS.find(option => option.value === assistantLanguage) ?? TEXT_LANG_OPTIONS[0];
+  const assistantScopeOptions = [
+    { key: 'view', label: 'Vue actuelle', hint: 'Filtres visibles', count: reserves.length },
+    { key: 'project', label: 'Tout le chantier', hint: 'Réserves actives', count: activeReserves.length },
+    { key: 'selected', label: 'Réserve ouverte', hint: selectedReserve?.id ?? 'Aucune réserve', count: selectedReserve ? 1 : 0 },
+  ] as const;
   const advancedFilterActive =
     props.priorityFilter !== 'all' ||
     props.companyFilter !== 'all' ||
@@ -2641,7 +2749,15 @@ function ReservesView(props: {
             <p className={styles.eyebrow}>Suivi chantier</p>
             <h2>Réserves</h2>
           </div>
-          {props.editable && <button type="button" onClick={props.onCreate}>Créer</button>}
+          <div className={styles.reservePanelActions}>
+            {props.canUseAssistant && activeReserves.length > 0 && (
+              <button type="button" className={styles.reserveAssistantOpenButton} onClick={() => setAssistantVisible(true)}>
+                <span>Assistant</span>
+                {assistantMissingDescriptionCount > 0 && <em>{assistantMissingDescriptionCount > 9 ? '9+' : assistantMissingDescriptionCount}</em>}
+              </button>
+            )}
+            {props.editable && <button type="button" className={styles.reserveCreateButton} onClick={props.onCreate}>Créer</button>}
+          </div>
         </div>
         <div className={styles.reserveSearchRow}>
           <span>⌕</span>
@@ -2733,52 +2849,6 @@ function ReservesView(props: {
           <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
           <span>{activeReserves.length} active{activeReserves.length > 1 ? 's' : ''}</span>
         </div>
-        {props.canUseAssistant && (
-          <div className={styles.reserveAssistantPanel}>
-            <button type="button" className={styles.reserveAssistantSummary} onClick={() => setAssistantOpen(value => !value)}>
-              <span>
-                <strong>Assistant réserves</strong>
-                <small>{assistantMissingDescriptionCount} description{assistantMissingDescriptionCount > 1 ? 's' : ''} à compléter · traduction groupée</small>
-              </span>
-              <em>{assistantOpen ? 'Masquer' : 'Ouvrir'}</em>
-            </button>
-            {assistantOpen && (
-              <div className={styles.reserveAssistantControls}>
-                <select
-                  value={assistantScope}
-                  onChange={event => setAssistantScope(event.target.value as 'view' | 'project')}
-                  disabled={props.saving}
-                  aria-label="Périmètre assistant"
-                >
-                  <option value="view">Vue actuelle</option>
-                  <option value="project">Tout le chantier</option>
-                </select>
-                <button
-                  type="button"
-                  disabled={props.saving || assistantMissingDescriptionCount === 0}
-                  onClick={() => props.onFillDescriptions(assistantTargets)}
-                >
-                  Compléter les descriptions
-                </button>
-                <select
-                  value={assistantLanguage}
-                  onChange={event => setAssistantLanguage(event.target.value as TextLang)}
-                  disabled={props.saving}
-                  aria-label="Langue de traduction"
-                >
-                  {TEXT_LANG_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                </select>
-                <button
-                  type="button"
-                  disabled={props.saving || assistantTargets.length === 0}
-                  onClick={() => props.onTranslateReserves(assistantTargets, assistantLanguage)}
-                >
-                  Traduire les textes
-                </button>
-              </div>
-            )}
-          </div>
-        )}
         <div className={styles.reserveList}>
           {reserves.map(reserve => (
             <button
@@ -2803,6 +2873,142 @@ function ReservesView(props: {
           {!reserves.length && <p className={styles.empty}>Aucune réserve avec ces filtres.</p>}
         </div>
       </section>
+
+      {props.canUseAssistant && assistantVisible && (
+        <div
+          className={styles.modalBackdrop}
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={() => {
+            if (!props.saving) setAssistantVisible(false);
+          }}
+        >
+          <section className={`${styles.modalPanel} ${styles.reserveAssistantModalWeb}`} onMouseDown={event => event.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div className={styles.reserveAssistantHeaderWeb}>
+                <div className={styles.reserveAssistantHeaderIconWeb}>✦</div>
+                <div>
+                  <p className={styles.eyebrow}>Assistant réserves</p>
+                  <h2>Assistant réserves</h2>
+                  <span>Complétez les descriptions et traduisez les textes comme sur mobile.</span>
+                </div>
+              </div>
+              <button type="button" onClick={() => setAssistantVisible(false)} disabled={props.saving}>Fermer</button>
+            </div>
+            <div className={styles.reserveAssistantModalBodyWeb}>
+              <section className={styles.reserveAssistantSectionWeb}>
+                <strong>Périmètre</strong>
+                <div className={styles.reserveAssistantScopeGridWeb}>
+                  {assistantScopeOptions.map(option => {
+                    const active = assistantScope === option.key;
+                    const disabled = option.key === 'selected' && !selectedReserve;
+                    return (
+                      <button
+                        key={option.key}
+                        type="button"
+                        className={active ? styles.reserveAssistantScopeActiveWeb : ''}
+                        disabled={props.saving || disabled}
+                        onClick={() => setAssistantScope(option.key)}
+                      >
+                        <span>{option.label}</span>
+                        <small>{option.hint}</small>
+                        <em>{option.count}</em>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className={styles.reserveAssistantActionCardWeb}>
+                <div className={styles.reserveAssistantActionHeaderWeb}>
+                  <span>□</span>
+                  <div>
+                    <strong>Compléter les descriptions</strong>
+                    <small>Copie le titre dans les réserves sans description.</small>
+                  </div>
+                </div>
+                {assistantMissingDescriptionReserves.length > 0 ? (
+                  <div className={styles.reserveAssistantPreviewWeb}>
+                    {assistantMissingDescriptionReserves.slice(0, 3).map(reserve => (
+                      <div key={reserve.id}>
+                        <strong>{reserve.id}</strong>
+                        <span>{reserve.title}</span>
+                      </div>
+                    ))}
+                    {assistantMissingDescriptionReserves.length > 3 && (
+                      <small>+ {assistantMissingDescriptionReserves.length - 3} autres réserves</small>
+                    )}
+                  </div>
+                ) : (
+                  <p className={styles.reserveAssistantEmptyWeb}>Aucune description à compléter dans ce périmètre.</p>
+                )}
+                <button
+                  type="button"
+                  className={styles.reserveAssistantPrimaryWeb}
+                  disabled={props.saving || assistantMissingDescriptionCount === 0}
+                  onClick={() => props.onFillDescriptions(assistantTargets)}
+                >
+                  Copier les titres
+                </button>
+              </section>
+
+              <section className={styles.reserveAssistantActionCardWeb}>
+                <div className={styles.reserveAssistantActionHeaderWeb}>
+                  <span>文</span>
+                  <div>
+                    <strong>Traduire champs de texte</strong>
+                    <small>Titres, descriptions et commentaires seront remplacés par la traduction Azure.</small>
+                  </div>
+                </div>
+                <div className={styles.reserveAssistantLangRowWeb}>
+                  {TEXT_LANG_OPTIONS.map(option => {
+                    const active = assistantLanguage === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={active ? styles.reserveAssistantLangActiveWeb : ''}
+                        disabled={props.saving}
+                        onClick={() => setAssistantLanguage(option.value)}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                {assistantTranslationCandidates.length > 0 ? (
+                  <div className={styles.reserveAssistantPreviewWeb}>
+                    <small>{assistantTranslationCandidates.length} réserve{assistantTranslationCandidates.length > 1 ? 's' : ''} avec texte à traduire</small>
+                    {assistantTranslationCandidates.slice(0, 3).map(reserve => (
+                      <div key={reserve.id}>
+                        <strong>{reserve.id}</strong>
+                        <span>{reserve.title}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={styles.reserveAssistantEmptyWeb}>Aucun champ texte à traduire dans ce périmètre.</p>
+                )}
+                <button
+                  type="button"
+                  className={`${styles.reserveAssistantPrimaryWeb} ${styles.reserveAssistantTranslateButtonWeb}`}
+                  disabled={props.saving || assistantTranslationCandidates.length === 0}
+                  onClick={() => props.onTranslateReserves(assistantTargets, assistantLanguage)}
+                >
+                  Traduire en {selectedAssistantLanguage.label}
+                </button>
+              </section>
+
+              {props.saving && (
+                <div className={styles.reserveAssistantProgressWeb}>
+                  <strong>Traitement en cours...</strong>
+                  <span>Gardez cette fenêtre ouverte pendant l’opération.</span>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+      )}
 
       <section className={`${styles.panel} ${styles.reservesDetailPanel}`}>
         {selectedReserve ? (
@@ -3626,6 +3832,7 @@ function PlansView({
 }
 
 function VisitesView({
+  data,
   visites,
   reserves,
   companies,
@@ -3633,64 +3840,864 @@ function VisitesView({
   onCreateReserveFromVisit,
   onOpenReserve,
   onUnlinkReserve,
+  onAttachReserves,
   onArchiveReserve,
+  onDeleteReserve,
+  onUpdateVisit,
+  onDeleteVisit,
+  onGenerateVisitReport,
+  generatingReport,
+  restricted,
   editable,
 }: any) {
-  return (
-    <section className={styles.panel}>
-      <div className={styles.panelHeaderCompact}>
-        <div>
-          <h2>Visites</h2>
-          <p>Préparez les visites et rattachez des réserves après coup.</p>
+  const [statusFilter, setStatusFilter] = useState<'all' | VisitDraft['status']>('all');
+  const [selectedVisitId, setSelectedVisitId] = useState<string>('');
+  const [attachVisitId, setAttachVisitId] = useState<string>('');
+  const [attachSearch, setAttachSearch] = useState('');
+  const [attachScopeOnly, setAttachScopeOnly] = useState(true);
+  const [attachSelectedIds, setAttachSelectedIds] = useState<string[]>([]);
+  const [reportLanguage, setReportLanguage] = useState<'fr' | 'en' | 'es'>('fr');
+  const [locationVisitId, setLocationVisitId] = useState('');
+  const [locationSearch, setLocationSearch] = useState('');
+  const [locationDraft, setLocationDraft] = useState<{
+    building: string;
+    level: string;
+    zone: string;
+    defaultPlanId: string;
+    visitedLocations: VisitDraft['visitedLocations'];
+  }>({ building: '', level: '', zone: '', defaultPlanId: '', visitedLocations: [] });
+  const [signatureVisitId, setSignatureVisitId] = useState('');
+  const [signatureTab, setSignatureTab] = useState<'conducteur' | 'entreprise'>('conducteur');
+  const [signatureData, setSignatureData] = useState<{ conducteur?: string | null; entreprise?: string | null }>({});
+  const [signatureDrawing, setSignatureDrawing] = useState(false);
+  const [signatureStrokes, setSignatureStrokes] = useState(0);
+  const [signatureName, setSignatureName] = useState('');
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  function visitStatus(visit: any): VisitDraft['status'] {
+    return (visit?.status ?? 'planned') as VisitDraft['status'];
+  }
+
+  function visitType(visit: any): VisitDraft['visitType'] {
+    return (visit?.visit_type ?? visit?.visitType ?? 'controle') as VisitDraft['visitType'];
+  }
+
+  function visitChecklist(visit: any): Array<{ id: string; label: string; checked: boolean }> {
+    return Array.isArray(visit?.checklist_items)
+      ? visit.checklist_items
+      : Array.isArray(visit?.checklistItems)
+        ? visit.checklistItems
+        : [];
+  }
+
+  function visitParticipants(visit: any): any[] {
+    return Array.isArray(visit?.participants) ? visit.participants : [];
+  }
+
+  function visitTags(visit: any): string[] {
+    return Array.isArray(visit?.tags) ? visit.tags : [];
+  }
+
+  function visitReserveIds(visit: any) {
+    return new Set(Array.isArray(visit?.reserve_ids) ? visit.reserve_ids : Array.isArray(visit?.reserveIds) ? visit.reserveIds : []);
+  }
+
+  function visitReserves(visit: any) {
+    const ids = visitReserveIds(visit);
+    return reserves.filter((reserve: any) => reserve.visite_id === visit.id || reserve.visiteId === visit.id || ids.has(reserve.id));
+  }
+
+  function visitLocationLabel(visit: any) {
+    const locations = getVisitLocations(visit);
+    if (locations.length) {
+      const names = locations.map(location => location.buildingName || location.building_name).filter(Boolean);
+      if (names.length === 1) return names[0];
+      return `${names.length} bâtiments`;
+    }
+    return [visit.building, visit.level, visit.zone].filter(Boolean).join(' · ') || 'Périmètre chantier';
+  }
+
+  function visitCompanyNames(visit: any) {
+    return getVisitCompanyIds(visit)
+      .map(companyId => companies.find((company: any) => company.id === companyId)?.name)
+      .filter(Boolean);
+  }
+
+  function timeRange(visit: any) {
+    return [visit.start_time ?? visit.startTime, visit.end_time ?? visit.endTime].filter(Boolean).join(' → ');
+  }
+
+  const sortedVisits = useMemo(() => [...visites].sort((a: any, b: any) => {
+    const dateDiff = new Date(b.date ?? b.created_at ?? 0).getTime() - new Date(a.date ?? a.created_at ?? 0).getTime();
+    return dateDiff || String(a.title ?? '').localeCompare(String(b.title ?? ''), 'fr');
+  }), [visites]);
+
+  const visibleVisits = useMemo(() => (
+    statusFilter === 'all'
+      ? sortedVisits
+      : sortedVisits.filter((visit: any) => visitStatus(visit) === statusFilter)
+  ), [sortedVisits, statusFilter]);
+
+  const selectedVisit = sortedVisits.find((visit: any) => visit.id === selectedVisitId)
+    ?? visibleVisits[0]
+    ?? sortedVisits[0]
+    ?? null;
+  const selectedVisitReserves = selectedVisit ? visitReserves(selectedVisit) : [];
+  const attachVisit = sortedVisits.find((visit: any) => visit.id === attachVisitId) ?? null;
+  const attachVisitReserveIds = attachVisit ? visitReserveIds(attachVisit) : new Set<string>();
+  const attachVisitedNames = new Set(getVisitLocations(attachVisit).map(location => location.buildingName || location.building_name).filter(Boolean));
+  if (attachVisit?.building) attachVisitedNames.add(attachVisit.building);
+  const attachableReserves = reserves
+    .filter((reserve: any) => {
+      if (!attachVisit) return false;
+      if (reserve.visite_id === attachVisit.id || reserve.visiteId === attachVisit.id || attachVisitReserveIds.has(reserve.id)) return false;
+      if (attachVisit.chantier_id && reserve.chantier_id && reserve.chantier_id !== attachVisit.chantier_id) return false;
+      if (attachScopeOnly && attachVisitedNames.size && reserve.building && !attachVisitedNames.has(reserve.building)) return false;
+      const q = normalizeSearchText(attachSearch);
+      if (!q) return true;
+      return normalizeSearchText([
+        reserve.id,
+        reserve.title,
+        reserve.description,
+        reserve.company,
+        ...(reserve.companies ?? []),
+        reserve.building,
+        reserve.level,
+        reserve.zone,
+      ].join(' ')).includes(q);
+    })
+    .slice(0, 80);
+
+  const locationVisit = sortedVisits.find((visit: any) => visit.id === locationVisitId) ?? null;
+  const locationProjectId = locationVisit?.chantier_id ?? locationVisit?.chantierId ?? '';
+  const locationProject = data?.chantiers?.find((project: any) => project.id === locationProjectId) ?? null;
+  const locationBuildings = projectBuildings(locationProject);
+  const locationPlans = (data?.sitePlans ?? []).filter((plan: any) => getChantierId(plan) === locationProjectId);
+  const locationHasHierarchy = locationBuildings.length > 0;
+  const selectedLocationIds = new Set(locationDraft.visitedLocations.map(location => location.buildingId).filter(Boolean));
+  const filteredLocationBuildings = locationBuildings.filter((building: any) => {
+    const q = normalizeSearchText(locationSearch);
+    if (!q) return true;
+    return normalizeSearchText(building.name).includes(q) ||
+      (building.levels ?? []).some((level: any) => normalizeSearchText(level.name).includes(q));
+  });
+  const signatureVisit = sortedVisits.find((visit: any) => visit.id === signatureVisitId) ?? null;
+
+  useEffect(() => {
+    if (!signatureVisit) return;
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const ratio = window.devicePixelRatio || 1;
+    const width = Math.max(520, Math.floor((rect.width || 520) * ratio));
+    const height = Math.max(180, Math.floor((rect.height || 180) * ratio));
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    ctx.lineWidth = 2.6;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = '#0f172a';
+    const dataUrl = signatureTab === 'conducteur' ? signatureData.conducteur : signatureData.entreprise;
+    if (dataUrl) {
+      const image = new Image();
+      image.onload = () => {
+        ctx.clearRect(0, 0, width, height);
+        ctx.drawImage(image, 0, 0, (rect.width || 520), (rect.height || 180));
+      };
+      image.src = dataUrl;
+    }
+  }, [signatureVisit, signatureTab, signatureData.conducteur, signatureData.entreprise]);
+
+  const stats = {
+    total: sortedVisits.length,
+    planned: sortedVisits.filter((visit: any) => visitStatus(visit) === 'planned').length,
+    in_progress: sortedVisits.filter((visit: any) => visitStatus(visit) === 'in_progress').length,
+    completed: sortedVisits.filter((visit: any) => visitStatus(visit) === 'completed').length,
+  };
+
+  function openAttachModal(visit: any) {
+    setAttachVisitId(visit.id);
+    setAttachSearch('');
+    setAttachScopeOnly(true);
+    setAttachSelectedIds([]);
+  }
+
+  function toggleAttachSelection(reserveId: string) {
+    setAttachSelectedIds(prev => prev.includes(reserveId) ? prev.filter(id => id !== reserveId) : [...prev, reserveId]);
+  }
+
+  async function applyAttach() {
+    if (!attachVisit || !attachSelectedIds.length) return;
+    await onAttachReserves(attachVisit, attachSelectedIds);
+    setAttachVisitId('');
+    setAttachSelectedIds([]);
+  }
+
+  function toggleChecklist(visit: any, itemId: string) {
+    const nextChecklist = visitChecklist(visit).map(item => item.id === itemId ? { ...item, checked: !item.checked } : item);
+    onUpdateVisit(visit, {
+      checklist_items: nextChecklist,
+      status: visitStatus(visit) === 'planned' ? 'in_progress' : visitStatus(visit),
+    });
+  }
+
+  function openLocationModal(visit: any) {
+    const locations = getVisitLocations(visit)
+      .map(location => ({
+        buildingId: location.buildingId ?? location.building_id,
+        buildingName: location.buildingName ?? location.building_name ?? location.name ?? '',
+        defaultPlanId: location.defaultPlanId ?? location.default_plan_id,
+      }))
+      .filter(location => location.buildingName);
+    setLocationVisitId(visit.id);
+    setLocationSearch('');
+    setLocationDraft({
+      building: visit.building ?? '',
+      level: visit.level ?? '',
+      zone: visit.zone ?? '',
+      defaultPlanId: getVisitDefaultPlanId(visit),
+      visitedLocations: locations,
+    });
+  }
+
+  function toggleLocationBuilding(building: any) {
+    setLocationDraft(prev => {
+      const exists = prev.visitedLocations.some(location => location.buildingId === building.id);
+      return {
+        ...prev,
+        visitedLocations: exists
+          ? prev.visitedLocations.filter(location => location.buildingId !== building.id)
+          : [...prev.visitedLocations, { buildingId: building.id, buildingName: building.name }],
+      };
+    });
+  }
+
+  function selectLocationBuildings() {
+    const source = locationSearch.trim() ? filteredLocationBuildings : locationBuildings;
+    setLocationDraft(prev => {
+      const selected = new Set(prev.visitedLocations.map(location => location.buildingId).filter(Boolean));
+      const additions = source
+        .filter((building: any) => !selected.has(building.id))
+        .map((building: any) => ({ buildingId: building.id, buildingName: building.name }));
+      return { ...prev, visitedLocations: [...prev.visitedLocations, ...additions] };
+    });
+  }
+
+  function plansForLocationBuilding(building: any) {
+    return locationPlans.filter((plan: any) =>
+      getPlanBuildingId(plan) === building.id ||
+      (!getPlanBuildingId(plan) && getPlanBuildingName(plan) === building.name)
+    );
+  }
+
+  function updateLocationPlan(buildingId: string, planId: string) {
+    setLocationDraft(prev => ({
+      ...prev,
+      visitedLocations: prev.visitedLocations.map(location =>
+        location.buildingId === buildingId ? { ...location, defaultPlanId: planId || undefined } : location
+      ),
+    }));
+  }
+
+  async function applyLocationEdit() {
+    if (!locationVisit) return;
+    if (locationHasHierarchy && !locationDraft.visitedLocations.length) {
+      window.alert('Sélectionnez au moins un bâtiment pour le périmètre de visite.');
+      return;
+    }
+    const singleLocation = locationHasHierarchy && locationDraft.visitedLocations.length === 1
+      ? locationDraft.visitedLocations[0]
+      : null;
+    await onUpdateVisit(locationVisit, {
+      visited_locations: locationHasHierarchy ? locationDraft.visitedLocations : null,
+      building: locationHasHierarchy ? (singleLocation?.buildingName ?? null) : (locationDraft.building || null),
+      level: locationHasHierarchy ? null : (locationDraft.level || null),
+      zone: locationHasHierarchy ? null : (locationDraft.zone || null),
+      default_plan_id: locationHasHierarchy ? (singleLocation?.defaultPlanId ?? null) : (locationDraft.defaultPlanId || null),
+    });
+    setLocationVisitId('');
+  }
+
+  function openSignatureModal(visit: any) {
+    setSignatureVisitId(visit.id);
+    setSignatureTab('conducteur');
+    setSignatureData({
+      conducteur: visit.conducteur_signature ?? visit.conducteurSignature ?? null,
+      entreprise: visit.entreprise_signature ?? visit.entrepriseSignature ?? null,
+    });
+    setSignatureName(visit.entreprise_signataire ?? visit.entrepriseSignataire ?? '');
+    setSignatureStrokes(0);
+  }
+
+  function signaturePoint(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return { x: 0, y: 0 };
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  }
+
+  function beginSignature(event: PointerEvent<HTMLCanvasElement>) {
+    const canvas = signatureCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    const { x, y } = signaturePoint(event);
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    setSignatureDrawing(true);
+  }
+
+  function drawSignature(event: PointerEvent<HTMLCanvasElement>) {
+    if (!signatureDrawing) return;
+    const ctx = signatureCanvasRef.current?.getContext('2d');
+    if (!ctx) return;
+    const { x, y } = signaturePoint(event);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+
+  function endSignature() {
+    const canvas = signatureCanvasRef.current;
+    if (!signatureDrawing || !canvas) return;
+    setSignatureDrawing(false);
+    const dataUrl = canvas.toDataURL('image/png');
+    setSignatureData(prev => ({ ...prev, [signatureTab]: dataUrl }));
+    setSignatureStrokes(prev => prev + 1);
+  }
+
+  function clearSignature() {
+    const canvas = signatureCanvasRef.current;
+    const ctx = canvas?.getContext('2d');
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureData(prev => ({ ...prev, [signatureTab]: null }));
+  }
+
+  async function saveSignature() {
+    if (!signatureVisit) return;
+    if (!signatureData.conducteur && !signatureData.entreprise) {
+      window.alert('Ajoutez au moins une signature avant d’enregistrer.');
+      return;
+    }
+    if (signatureData.entreprise && !signatureName.trim()) {
+      window.alert('Renseignez le nom du signataire entreprise.');
+      return;
+    }
+    await onUpdateVisit(signatureVisit, {
+      conducteur_signature: signatureData.conducteur ?? null,
+      entreprise_signature: signatureData.entreprise ?? null,
+      entreprise_signataire: signatureName.trim() || null,
+      signed_at: todayISO(),
+      status: 'completed',
+    });
+    setSignatureVisitId('');
+  }
+
+  if (restricted) {
+    return (
+      <section className={styles.panel}>
+        <div className={styles.restrictedState}>
+          <span>🔒</span>
+          <strong>Visites réservées à l’équipe chantier</strong>
+          <p>Les sous-traitants consultent leurs réserves et échanges, mais ne pilotent pas les comptes rendus de visite.</p>
         </div>
-        <button type="button" onClick={onCreateVisit}>Nouvelle visite</button>
-      </div>
-      <div className={styles.dataTable}>
-        <div className={`${styles.tableHead} ${styles.visitTableHead}`}><span>Visite</span><span>Date</span><span>Périmètre</span><span>Réserves</span><span>Entreprises</span><span>Action</span></div>
-        {visites.map((visit: any) => {
-          const visitReserves = reserves.filter((r: any) => r.visite_id === visit.id || (visit.reserve_ids ?? []).includes(r.id));
-          const companyNames = (visit.concerned_company_ids ?? [])
-            .map((id: string) => companies.find((c: any) => c.id === id)?.name)
-            .filter(Boolean);
-          return (
-            <div key={visit.id} className={styles.visitGroup}>
-              <div className={`${styles.tableRow} ${styles.visitTableRow}`}>
-                <strong>{visit.title}</strong>
-                <span>{prettyDate(visit.date)}</span>
-                <span>{[visit.building, visit.level, visit.zone].filter(Boolean).join(' · ') || 'Multi-bâtiments'}</span>
-                <span>{visitReserves.length}</span>
-                <span>{companyNames.join(', ') || '—'}</span>
-                <button type="button" className={styles.tableActionBtn} onClick={() => onCreateReserveFromVisit(visit)}>Ajouter réserve</button>
-              </div>
-              {visitReserves.length ? (
-                <div className={styles.visitReserveStrip}>
-                  {visitReserves.slice(0, 8).map((reserve: any) => (
-                    <article key={reserve.id} className={styles.visitReserveCard}>
-                      <div>
-                        <strong>{reserve.id}</strong>
-                        <span>{reserve.title}</span>
-                        <small>{STATUS_LABELS[reserve.status] ?? reserve.status} · {reserve.archived_at ? 'Archivée' : 'Active'}</small>
-                      </div>
-                      <div className={styles.visitReserveActions}>
-                        <button type="button" onClick={() => onOpenReserve(reserve)}>Ouvrir</button>
-                        {editable && (
-                          <>
-                            <button type="button" onClick={() => onUnlinkReserve(visit, reserve)}>Délier</button>
-                            <button type="button" onClick={() => onArchiveReserve(reserve)}>{reserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
-                          </>
-                        )}
-                      </div>
-                    </article>
-                  ))}
-                  {visitReserves.length > 8 ? <small className={styles.visitReserveMore}>+ {visitReserves.length - 8} autres réserves</small> : null}
+      </section>
+    );
+  }
+
+  return (
+    <div className={styles.visitesWorkspace}>
+      <section className={styles.visitesListPanel}>
+        <div className={styles.visitPanelHeader}>
+          <div>
+            <p className={styles.eyebrow}>Visites chantier</p>
+            <h2>Visites</h2>
+          </div>
+          {editable ? <button type="button" onClick={onCreateVisit}>Créer</button> : null}
+        </div>
+        <div className={styles.visitStatsGrid}>
+          {[
+            { key: 'all' as const, label: 'Total', value: stats.total },
+            { key: 'planned' as const, label: 'Planifiées', value: stats.planned },
+            { key: 'in_progress' as const, label: 'En cours', value: stats.in_progress },
+            { key: 'completed' as const, label: 'Terminées', value: stats.completed },
+          ].map(item => (
+            <button
+              key={item.key}
+              type="button"
+              className={statusFilter === item.key ? styles.visitStatActive : styles.visitStat}
+              onClick={() => setStatusFilter(item.key)}
+            >
+              <strong>{item.value}</strong>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </div>
+        <div className={styles.visitFilterChips}>
+          {(['all', 'planned', 'in_progress', 'completed'] as const).map(key => (
+            <button
+              key={key}
+              type="button"
+              className={statusFilter === key ? styles.chipActive : styles.chip}
+              onClick={() => setStatusFilter(key)}
+            >
+              {key === 'all' ? 'Toutes' : VISIT_STATUS_LABELS[key]}
+            </button>
+          ))}
+        </div>
+        <div className={styles.visitCardsList}>
+          {visibleVisits.map((visit: any) => {
+            const type = VISIT_TYPE_OPTIONS.find(option => option.value === visitType(visit)) ?? VISIT_TYPE_OPTIONS[0];
+            const status = visitStatus(visit);
+            const cardReserves = visitReserves(visit);
+            const checklist = visitChecklist(visit);
+            const done = checklist.filter(item => item.checked).length;
+            const selected = selectedVisit?.id === visit.id;
+            return (
+              <button
+                key={visit.id}
+                type="button"
+                className={selected ? styles.visitCardActive : styles.visitCard}
+                onClick={() => setSelectedVisitId(visit.id)}
+              >
+                <div className={styles.visitCardTop}>
+                  <span className={styles.visitTypePill} style={{ color: type.color, background: `${type.color}16` }}>{type.label}</span>
+                  <span className={`${styles.visitStatusPill} ${styles[`visitStatus_${status}`] ?? ''}`}>{VISIT_STATUS_LABELS[status]}</span>
                 </div>
-              ) : null}
+                <strong>{visit.title}</strong>
+                <small>{prettyDate(visit.date)}{timeRange(visit) ? ` · ${timeRange(visit)}` : ''}</small>
+                <span>{visitLocationLabel(visit)}</span>
+                <div className={styles.visitCardFooter}>
+                  <em>{cardReserves.length} réserve{cardReserves.length > 1 ? 's' : ''}</em>
+                  <em>{checklist.length ? `${done}/${checklist.length} checklist` : 'Sans checklist'}</em>
+                </div>
+              </button>
+            );
+          })}
+          {!visibleVisits.length && <p className={styles.empty}>Aucune visite dans cette vue.</p>}
+        </div>
+      </section>
+
+      <section className={styles.visitDetailPanel}>
+        {selectedVisit ? (
+          <>
+            <div className={styles.visitDetailHeader}>
+              <div>
+                <p className={styles.eyebrow}>{VISIT_TYPE_LABELS[visitType(selectedVisit)]}</p>
+                <h2>{selectedVisit.title}</h2>
+                <span>{prettyDate(selectedVisit.date)}{timeRange(selectedVisit) ? ` · ${timeRange(selectedVisit)}` : ''}</span>
+              </div>
+              <div className={styles.visitDetailActions}>
+                <select
+                  value={visitStatus(selectedVisit)}
+                  onChange={event => onUpdateVisit(selectedVisit, { status: event.target.value })}
+                  disabled={!editable}
+                >
+                  {Object.entries(VISIT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+                {editable ? <button type="button" onClick={() => onDeleteVisit(selectedVisit)}>Supprimer</button> : null}
+              </div>
             </div>
-          );
-        })}
-      </div>
-      {!visites.length && <p className={styles.empty}>Aucune visite dans ce périmètre.</p>}
-    </section>
+
+            {selectedVisit.cover_photo_uri || selectedVisit.coverPhotoUri ? (
+              <img className={styles.visitCoverHero} src={assetUrl({ uri: selectedVisit.cover_photo_uri ?? selectedVisit.coverPhotoUri }, 'photos')} alt="Photo de couverture de la visite" />
+            ) : null}
+
+            <div className={styles.visitInfoGrid}>
+              <div><span>Conducteur</span><strong>{selectedVisit.conducteur || 'Non renseigné'}</strong></div>
+              <div><span>Périmètre</span><strong>{visitLocationLabel(selectedVisit)}</strong></div>
+              <div><span>Entreprises</span><strong>{visitCompanyNames(selectedVisit).join(', ') || 'Aucune'}</strong></div>
+              <div><span>Délai cible</span><strong>{getVisitReserveDeadline(selectedVisit) || 'Non défini'}</strong></div>
+              <div><span>Réserves</span><strong>{selectedVisitReserves.length}</strong></div>
+              <div><span>Signatures</span><strong>{selectedVisit.signed_at || selectedVisit.signedAt ? 'Signée' : 'Non signée'}</strong></div>
+            </div>
+            {editable ? (
+              <div className={styles.visitDetailQuickActions}>
+                <button type="button" onClick={() => openLocationModal(selectedVisit)}>Modifier la localisation</button>
+                <button type="button" onClick={() => openSignatureModal(selectedVisit)}>
+                  {selectedVisit.signed_at || selectedVisit.signedAt ? 'Voir / modifier les signatures' : 'Signer la visite'}
+                </button>
+              </div>
+            ) : null}
+
+            {selectedVisit.notes ? (
+              <section className={styles.visitDetailBlock}>
+                <h3>Notes et objectifs</h3>
+                <p>{selectedVisit.notes}</p>
+              </section>
+            ) : null}
+
+            {visitTags(selectedVisit).length ? (
+              <div className={styles.visitTagList}>
+                {visitTags(selectedVisit).map(tag => <span key={tag}>{tag}</span>)}
+              </div>
+            ) : null}
+
+            <section className={styles.visitDetailBlock}>
+              <div className={styles.visitBlockHeader}>
+                <div>
+                  <h3>Checklist de contrôle</h3>
+                  <span>{visitChecklist(selectedVisit).filter(item => item.checked).length}/{visitChecklist(selectedVisit).length} points validés</span>
+                </div>
+              </div>
+              <div className={styles.visitChecklistWeb}>
+                {visitChecklist(selectedVisit).map(item => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={item.checked ? styles.visitChecklistDone : styles.visitChecklistTodo}
+                    disabled={!editable}
+                    onClick={() => toggleChecklist(selectedVisit, item.id)}
+                  >
+                    <span>{item.checked ? '✓' : ''}</span>
+                    {item.label}
+                  </button>
+                ))}
+                {!visitChecklist(selectedVisit).length && <p className={styles.empty}>Aucune checklist associée.</p>}
+              </div>
+            </section>
+
+            <section className={styles.visitDetailBlock}>
+              <div className={styles.visitBlockHeader}>
+                <div>
+                  <h3>Participants</h3>
+                  <span>{visitParticipants(selectedVisit).length} personne{visitParticipants(selectedVisit).length > 1 ? 's' : ''}</span>
+                </div>
+              </div>
+              <div className={styles.visitParticipantGridWeb}>
+                {visitParticipants(selectedVisit).map(participant => (
+                  <article key={participant.id ?? participant.name}>
+                    <strong>{participant.name}</strong>
+                    <span>{[participant.role, participant.company, participant.email].filter(Boolean).join(' · ') || 'Participant'}</span>
+                  </article>
+                ))}
+                {!visitParticipants(selectedVisit).length && <p className={styles.empty}>Aucun participant renseigné.</p>}
+              </div>
+            </section>
+
+            <section className={styles.visitDetailBlock}>
+              <div className={styles.visitBlockHeader}>
+                <div>
+                  <h3>Réserves de la visite</h3>
+                  <span>{selectedVisitReserves.length} rattachée{selectedVisitReserves.length > 1 ? 's' : ''}</span>
+                </div>
+                {editable ? (
+                  <div className={styles.visitInlineActions}>
+                    <button type="button" onClick={() => openAttachModal(selectedVisit)}>Rattacher existante</button>
+                    <button type="button" onClick={() => onCreateReserveFromVisit(selectedVisit)}>Nouvelle réserve</button>
+                  </div>
+                ) : null}
+              </div>
+              <div className={styles.visitReserveListWeb}>
+                {selectedVisitReserves.map((reserve: any) => (
+                  <article key={reserve.id}>
+                    <button type="button" onClick={() => onOpenReserve(reserve)}>
+                      <strong>{reserve.id}</strong>
+                      <span>{reserve.title}</span>
+                      <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company, reserve.building].filter(Boolean).join(' · ')}</small>
+                    </button>
+                    {editable ? (
+                      <div>
+                        <button type="button" onClick={() => onUnlinkReserve(selectedVisit, reserve)}>Délier</button>
+                        <button type="button" onClick={() => onArchiveReserve(reserve)}>{reserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
+                        <button type="button" onClick={() => onDeleteReserve(reserve)}>Supprimer</button>
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+                {!selectedVisitReserves.length && <p className={styles.empty}>Aucune réserve rattachée à cette visite.</p>}
+              </div>
+            </section>
+
+            <section className={styles.visitReportCardWeb}>
+              <div>
+                <strong>Compte-rendu PDF</strong>
+                <span>Structure, checklist, réserves rattachées et photos, comme sur mobile.</span>
+              </div>
+              <div className={styles.visitReportControls}>
+                {(['fr', 'en', 'es'] as const).map(language => (
+                  <button
+                    key={language}
+                    type="button"
+                    className={reportLanguage === language ? styles.chipActive : styles.chip}
+                    onClick={() => setReportLanguage(language)}
+                  >
+                    {language.toUpperCase()}
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => onGenerateVisitReport(selectedVisit, reportLanguage)}
+                  disabled={generatingReport === `visit_report-${reportLanguage}`}
+                >
+                  {generatingReport === `visit_report-${reportLanguage}` ? 'Génération...' : 'Exporter PDF'}
+                </button>
+              </div>
+            </section>
+          </>
+        ) : (
+          <p className={styles.empty}>Sélectionnez une visite.</p>
+        )}
+      </section>
+
+      {locationVisit ? (
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+          <div className={`${styles.modalPanel} ${styles.visitLocationModal}`}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Périmètre de visite</p>
+                <h2>Modifier la localisation</h2>
+                <span>{locationVisit.title}</span>
+              </div>
+              <button type="button" onClick={() => setLocationVisitId('')}>Fermer</button>
+            </div>
+            <div className={styles.reserveModalBody}>
+              {locationHasHierarchy ? (
+                <>
+                  <section className={styles.reserveFormSection}>
+                    <div className={styles.reserveFormSectionHeader}>
+                      <div>
+                        <strong>Bâtiments visités</strong>
+                        <span>Ce périmètre limite ensuite la création de réserves depuis cette visite.</span>
+                      </div>
+                      <span className={styles.reserveCountPill}>{locationDraft.visitedLocations.length} / {locationBuildings.length}</span>
+                    </div>
+                    <div className={styles.visitBuildingToolbar}>
+                      <div className={styles.visitSearch}>
+                        <span>⌕</span>
+                        <input value={locationSearch} onChange={event => setLocationSearch(event.target.value)} placeholder="Rechercher bâtiment ou niveau..." />
+                      </div>
+                      <button type="button" onClick={selectLocationBuildings}>
+                        {locationSearch.trim() ? 'Sélectionner les résultats' : 'Tout sélectionner'}
+                      </button>
+                      <button type="button" disabled={!locationDraft.visitedLocations.length} onClick={() => setLocationDraft(prev => ({ ...prev, visitedLocations: [] }))}>
+                        Effacer
+                      </button>
+                    </div>
+                    {locationDraft.visitedLocations.length ? (
+                      <div className={styles.visitSelectedLocations}>
+                        {locationDraft.visitedLocations.slice(0, 12).map(location => (
+                          <button
+                            key={location.buildingId ?? location.buildingName}
+                            type="button"
+                            onClick={() => setLocationDraft(prev => ({
+                              ...prev,
+                              visitedLocations: prev.visitedLocations.filter(item =>
+                                location.buildingId ? item.buildingId !== location.buildingId : item.buildingName !== location.buildingName
+                              ),
+                            }))}
+                          >
+                            {location.buildingName} ×
+                          </button>
+                        ))}
+                        {locationDraft.visitedLocations.length > 12 ? <span>+{locationDraft.visitedLocations.length - 12}</span> : null}
+                      </div>
+                    ) : null}
+                    <div className={styles.visitBuildingGrid}>
+                      {filteredLocationBuildings.map((building: any) => {
+                        const active = selectedLocationIds.has(building.id);
+                        return (
+                          <button
+                            key={building.id}
+                            type="button"
+                            className={active ? styles.visitBuildingCardActive : styles.visitBuildingCard}
+                            onClick={() => toggleLocationBuilding(building)}
+                          >
+                            <span className={styles.visitBuildingIcon}>{active ? '✓' : '▦'}</span>
+                            <strong>{building.name}</strong>
+                            <small>{(building.levels ?? []).length} niveaux</small>
+                          </button>
+                        );
+                      })}
+                      {!filteredLocationBuildings.length ? <p className={styles.empty}>Aucun bâtiment trouvé.</p> : null}
+                    </div>
+                  </section>
+                  {locationDraft.visitedLocations.length ? (
+                    <section className={styles.reserveFormSection}>
+                      <div className={styles.reserveFormSectionHeader}>
+                        <div>
+                          <strong>Plans par défaut</strong>
+                          <span>Chaque bâtiment peut préparer le plan proposé lors de la création d’une réserve.</span>
+                        </div>
+                      </div>
+                      <div className={styles.visitLocationPreview}>
+                        {locationDraft.visitedLocations.map(location => {
+                          const building = locationBuildings.find((item: any) => item.id === location.buildingId || item.name === location.buildingName);
+                          const buildingPlans = building ? plansForLocationBuilding(building) : [];
+                          return (
+                            <div key={location.buildingId ?? location.buildingName} className={styles.visitSelectedLocationCard}>
+                              <div>
+                                <strong>{location.buildingName}</strong>
+                                <small>{buildingPlans.length} plan{buildingPlans.length > 1 ? 's' : ''} disponible{buildingPlans.length > 1 ? 's' : ''}</small>
+                              </div>
+                              <select
+                                value={location.defaultPlanId ?? ''}
+                                disabled={!location.buildingId}
+                                onChange={event => location.buildingId && updateLocationPlan(location.buildingId, event.target.value)}
+                                className={styles.visitPlanSelect}
+                              >
+                                <option value="">Aucun plan par défaut</option>
+                                {buildingPlans.map((plan: any) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                              </select>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ) : null}
+                </>
+              ) : (
+                <section className={styles.reserveFormSection}>
+                  <div className={styles.reserveFormSectionHeader}>
+                    <div>
+                      <strong>Localisation simple</strong>
+                      <span>Bâtiment, niveau, zone et plan de référence.</span>
+                    </div>
+                  </div>
+                  <div className={styles.reserveModalGrid}>
+                    <label>
+                      Bâtiment
+                      <input value={locationDraft.building} onChange={event => setLocationDraft(prev => ({ ...prev, building: event.target.value }))} />
+                    </label>
+                    <label>
+                      Niveau
+                      <input value={locationDraft.level} onChange={event => setLocationDraft(prev => ({ ...prev, level: event.target.value }))} />
+                    </label>
+                    <label>
+                      Zone
+                      <input value={locationDraft.zone} onChange={event => setLocationDraft(prev => ({ ...prev, zone: event.target.value }))} />
+                    </label>
+                    <label>
+                      Plan de référence
+                      <select value={locationDraft.defaultPlanId} onChange={event => setLocationDraft(prev => ({ ...prev, defaultPlanId: event.target.value }))}>
+                        <option value="">Aucun plan</option>
+                        {locationPlans.map((plan: any) => <option key={plan.id} value={plan.id}>{plan.name}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                </section>
+              )}
+            </div>
+            <div className={styles.modalActions}>
+              <button type="button" onClick={() => setLocationVisitId('')}>Annuler</button>
+              <button type="button" onClick={applyLocationEdit}>Enregistrer</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {signatureVisit ? (
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+          <div className={`${styles.modalPanel} ${styles.visitSignatureModal}`}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Compte-rendu de visite</p>
+                <h2>Signatures</h2>
+                <span>{signatureVisit.title}</span>
+              </div>
+              <button type="button" onClick={() => setSignatureVisitId('')}>Fermer</button>
+            </div>
+            <div className={styles.reserveModalBody}>
+              <div className={styles.visitSignatureTabs}>
+                <button type="button" className={signatureTab === 'conducteur' ? styles.segmentedActive : ''} onClick={() => setSignatureTab('conducteur')}>
+                  Conducteur
+                </button>
+                <button type="button" className={signatureTab === 'entreprise' ? styles.segmentedActive : ''} onClick={() => setSignatureTab('entreprise')}>
+                  Entreprise
+                </button>
+              </div>
+              <section className={styles.visitSignatureBox}>
+                <div className={styles.visitSignatureHeader}>
+                  <div>
+                    <strong>{signatureTab === 'conducteur' ? (signatureVisit.conducteur || 'Conducteur') : 'Représentant entreprise'}</strong>
+                    <span>Signez dans la zone ci-dessous, comme sur mobile.</span>
+                  </div>
+                  {signatureTab === 'entreprise' ? (
+                    <input value={signatureName} onChange={event => setSignatureName(event.target.value)} placeholder="Nom du signataire entreprise" />
+                  ) : null}
+                </div>
+                <canvas
+                  ref={signatureCanvasRef}
+                  className={styles.visitSignatureCanvas}
+                  onPointerDown={beginSignature}
+                  onPointerMove={drawSignature}
+                  onPointerUp={endSignature}
+                  onPointerCancel={endSignature}
+                  aria-label="Zone de signature"
+                />
+                <div className={styles.visitSignatureActions}>
+                  <button type="button" onClick={clearSignature}>Effacer cette signature</button>
+                  <span>{signatureStrokes > 0 ? 'Signature capturée.' : 'Tracez la signature avec la souris ou le doigt.'}</span>
+                </div>
+              </section>
+            </div>
+            <div className={styles.modalActions}>
+              <button type="button" onClick={() => setSignatureVisitId('')}>Annuler</button>
+              <button type="button" onClick={saveSignature}>Enregistrer les signatures</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {attachVisit ? (
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+          <div className={`${styles.modalPanel} ${styles.visitAttachModal}`}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Réserves existantes</p>
+                <h2>Rattacher à la visite</h2>
+                <span>{attachVisit.title}</span>
+              </div>
+              <button type="button" onClick={() => setAttachVisitId('')}>Fermer</button>
+            </div>
+            <div className={styles.reserveModalBody}>
+              <div className={styles.visitBuildingToolbar}>
+                <div className={styles.visitSearch}>
+                  <span>⌕</span>
+                  <input value={attachSearch} onChange={event => setAttachSearch(event.target.value)} placeholder="Rechercher ID, titre, entreprise, bâtiment..." />
+                </div>
+                <button type="button" className={attachScopeOnly ? styles.chipActive : styles.chip} onClick={() => setAttachScopeOnly(prev => !prev)}>
+                  Périmètre visite
+                </button>
+              </div>
+              <div className={styles.visitAttachList}>
+                {attachableReserves.map((reserve: any) => {
+                  const active = attachSelectedIds.includes(reserve.id);
+                  return (
+                    <button
+                      key={reserve.id}
+                      type="button"
+                      className={active ? styles.visitAttachReserveActive : styles.visitAttachReserve}
+                      onClick={() => toggleAttachSelection(reserve.id)}
+                    >
+                      <span>{active ? '✓' : ''}</span>
+                      <strong>{reserve.id}</strong>
+                      <div>
+                        <b>{reserve.title}</b>
+                        <small>{[reserve.company, reserve.building, reserve.level].filter(Boolean).join(' · ')}</small>
+                      </div>
+                    </button>
+                  );
+                })}
+                {!attachableReserves.length && <p className={styles.empty}>Aucune réserve disponible pour ce périmètre.</p>}
+              </div>
+            </div>
+            <div className={styles.modalActions}>
+              <button type="button" onClick={() => setAttachVisitId('')}>Annuler</button>
+              <button type="button" onClick={applyAttach} disabled={!attachSelectedIds.length}>
+                Rattacher {attachSelectedIds.length ? `(${attachSelectedIds.length})` : ''}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
