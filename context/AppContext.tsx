@@ -33,6 +33,7 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { notifyReserveStatusChanged } from '@/lib/email/notifyReserveCreated';
 import { triggerReserveStatusPush } from '@/lib/push/client';
 import { isSameUserName } from '@/lib/mappers';
+import { visibleReservesForUser } from '@/lib/reserveVisibility';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -763,9 +764,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [unreadByChannel]
   );
 
+  const visibleReserves = useMemo(
+    () => visibleReservesForUser(reservesH.reserves, authH.user, companiesH.companies),
+    [reservesH.reserves, authH.user, companiesH.companies],
+  );
+
+  const visiblePhotos = useMemo(() => {
+    if (authH.user?.role !== 'sous_traitant') return photosH.photos;
+    const visibleReserveIds = new Set(visibleReserves.map(reserve => reserve.id));
+    return photosH.photos.filter(photo => Boolean(photo.reserveId && visibleReserveIds.has(photo.reserveId)));
+  }, [authH.user?.role, photosH.photos, visibleReserves]);
+
   // Fix 15: stats computed from pre-aggregated counts to reduce re-renders
   const stats = useMemo(() => {
-    const r = reservesH.reserves;
+    const r = visibleReserves;
     const total = r.length;
     const open = r.filter(x => x.status === 'open').length;
     const inProgress = r.filter(x => x.status === 'in_progress').length;
@@ -776,7 +788,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const totalWorkers = companiesH.companies.reduce((s, c) => s + (c.actualWorkers ?? 0), 0);
     const plannedWorkers = companiesH.companies.reduce((s, c) => s + (c.plannedWorkers ?? 0), 0);
     return { total, open, inProgress, waiting, verification, closed, progress, totalWorkers, plannedWorkers };
-  }, [reservesH.reserves.length, reservesH.reserves, companiesH.companies]);
+  }, [visibleReserves, companiesH.companies]);
 
   const activeChantier = useMemo(
     () => chantiersH.chantiers.find(c => c.id === activeChantierId) ?? null,
@@ -796,11 +808,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [chantiersH]);
 
   const value = useMemo<AppContextValue>(() => ({
-    reserves: reservesH.reserves,
+    reserves: visibleReserves,
     companies: companiesH.companies,
     tasks: tasksH.tasks,
     documents: documentsH.documents,
-    photos: photosH.photos,
+    photos: visiblePhotos,
     messages: messagesH.messages,
     lastReadByChannel,
     isLoading,
@@ -902,8 +914,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     realtimeConnected: messagesH.realtimeConnected,
     isOfflineSession: authH.isOfflineSession,
   }), [
-    reservesH.reserves, companiesH.companies, tasksH.tasks,
-    documentsH.documents, photosH.photos, messagesH.messages,
+    visibleReserves, companiesH.companies, tasksH.tasks,
+    documentsH.documents, visiblePhotos, messagesH.messages,
     lastReadByChannel, isLoading, profilesH.profiles,
     channelsH.generalChannels, channelsH.customChannels,
     channelsH.groupChannels, channelsH.persistedDmChannels,

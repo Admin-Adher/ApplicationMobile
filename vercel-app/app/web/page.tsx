@@ -758,6 +758,23 @@ function reserveMatchesCompanyName(reserve: any, companyName?: string | null) {
   return reserveCompanies(reserve).some(name => sameName(name, target));
 }
 
+function reserveMatchesCompanyIdOrName(reserve: any, company?: any | null) {
+  if (!company) return false;
+  const companyId = String(company.id ?? '').trim();
+  const companyName = String(company.name ?? '').trim();
+  return reserveCompanies(reserve).some(token => (
+    (companyId && String(token).trim() === companyId) ||
+    (companyName && sameName(token, companyName))
+  ));
+}
+
+function visibleReservesForProfile(reserves: any[], profile: Profile | null, companies: any[]) {
+  if (profile?.role !== 'sous_traitant') return reserves;
+  const company = companies.find(company => String(company.id) === String(profile.company_id ?? ''));
+  if (!company) return [];
+  return reserves.filter(reserve => reserveMatchesCompanyIdOrName(reserve, company));
+}
+
 function toPdfReserveItem(reserve: any, index = 0) {
   return {
     id: String(reserve?.id ?? `reserve-${index + 1}`),
@@ -1419,9 +1436,18 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('notification_preferences', loadedProfile, { scoped: false }),
       ]);
 
+      const scopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies);
+      const scopedReserveIds = new Set(scopedReserves.map((reserve: any) => String(reserve.id)));
+      const scopedPhotos = loadedProfile.role === 'sous_traitant'
+        ? photos.filter((photo: any) => {
+            const reserveId = photo.reserve_id ?? photo.reserveId;
+            return reserveId && scopedReserveIds.has(String(reserveId));
+          })
+        : photos;
+
       const nextData = {
         chantiers,
-        reserves,
+        reserves: scopedReserves,
         sitePlans,
         companies,
         visites,
@@ -1432,13 +1458,13 @@ export default function BuildTrackWebPage() {
         tasks,
         incidents,
         documents,
-        photos,
+        photos: scopedPhotos,
         oprs,
         notificationPreferences,
       };
       setData(nextData);
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
-      setSelectedReserveId(prev => prev && reserves.some((r: any) => r.id === prev) ? prev : reserves[0]?.id ?? null);
+      setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : scopedReserves[0]?.id ?? null);
       setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
     } catch (err: any) {
@@ -2333,10 +2359,13 @@ export default function BuildTrackWebPage() {
 
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
-    const reserves = data.reserves.filter(byProject);
+    const visibleReserves = visibleReservesForProfile(data.reserves, profile, data.companies);
+    const visibleReserveIds = new Set(visibleReserves.map((reserve: any) => String(reserve.id)));
+    const reserves = visibleReserves.filter(byProject);
     const reserveIds = new Set(reserves.map((reserve: any) => String(reserve.id)));
     const photos = data.photos.filter(photo => {
       const reserveId = photo.reserve_id ?? photo.reserveId;
+      if (profile?.role === 'sous_traitant') return reserveId && visibleReserveIds.has(String(reserveId));
       return byProject(photo) || (reserveId && reserveIds.has(String(reserveId)));
     });
     return {
@@ -2352,7 +2381,7 @@ export default function BuildTrackWebPage() {
       photos,
       oprs: data.oprs.filter(byProject),
     };
-  }, [data, selectedProjectId]);
+  }, [data, selectedProjectId, profile]);
 
   const reserveStructuredFilters = useMemo(() => {
     const active = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve));
