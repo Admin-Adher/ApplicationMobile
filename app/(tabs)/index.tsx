@@ -207,27 +207,31 @@ export default function DashboardScreen() {
     return chantieredReserves;
   }, [isSousTraitant, userCompany, chantieredReserves]);
 
+  const activeVisibleReserves = useMemo(
+    () => visibleReserves.filter(r => !r.archivedAt),
+    [visibleReserves],
+  );
+
   const visibleStats = useMemo(() => {
-    if (!isSousTraitant) return stats;
-    const total = visibleReserves.length;
-    const open = visibleReserves.filter(r => r.status === 'open').length;
-    const inProgress = visibleReserves.filter(r => r.status === 'in_progress').length;
-    const waiting = visibleReserves.filter(r => r.status === 'waiting').length;
-    const verification = visibleReserves.filter(r => r.status === 'verification').length;
-    const closed = visibleReserves.filter(r => r.status === 'closed').length;
+    const total = activeVisibleReserves.length;
+    const open = activeVisibleReserves.filter(r => r.status === 'open').length;
+    const inProgress = activeVisibleReserves.filter(r => r.status === 'in_progress').length;
+    const waiting = activeVisibleReserves.filter(r => r.status === 'waiting').length;
+    const verification = activeVisibleReserves.filter(r => r.status === 'verification').length;
+    const closed = activeVisibleReserves.filter(r => r.status === 'closed').length;
     const progress = total > 0 ? Math.round((closed / total) * 100) : 0;
     return { ...stats, total, open, inProgress, waiting, verification, closed, progress };
-  }, [isSousTraitant, visibleReserves, stats]);
+  }, [activeVisibleReserves, stats]);
 
   const showPortfolioToggle = !isSousTraitant && chantiers.length >= 2;
 
   const criticalReserves = useMemo(
-    () => visibleReserves.filter(r => r.priority === 'critical' && r.status !== 'closed'),
-    [visibleReserves]
+    () => activeVisibleReserves.filter(r => r.priority === 'critical' && r.status !== 'closed'),
+    [activeVisibleReserves]
   );
   const overdueNonCritical = useMemo(
-    () => visibleReserves.filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)),
-    [visibleReserves]
+    () => activeVisibleReserves.filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)),
+    [activeVisibleReserves]
   );
   const lateTasks = useMemo(() => {
     let all = tasks.filter(isTaskLate);
@@ -273,7 +277,7 @@ export default function DashboardScreen() {
       const label = getWeekLabel(d);
       weeks.set(key, { week: key, label, created: 0, closed: 0 });
     }
-    visibleReserves.forEach(r => {
+    activeVisibleReserves.forEach(r => {
       if (r.createdAt) {
         const d = parseDateSafe(r.createdAt);
         if (d) {
@@ -292,13 +296,16 @@ export default function DashboardScreen() {
       }
     });
     return Array.from(weeks.values());
-  }, [visibleReserves]);
+  }, [activeVisibleReserves]);
 
   const companyStats = useMemo((): CompanyClosureStat[] => {
     return companies.map(co => {
       const coReserves = chantieredReserves.filter(r =>
-        r.company === co.name ||
-        (Array.isArray(r.companies) && r.companies.includes(co.name))
+        !r.archivedAt &&
+        (
+          r.company === co.name ||
+          (Array.isArray(r.companies) && r.companies.includes(co.name))
+        )
       );
       const closed = coReserves.filter(r => r.status === 'closed').length;
       const total = coReserves.length;

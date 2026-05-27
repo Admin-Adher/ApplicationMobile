@@ -777,7 +777,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Fix 15: stats computed from pre-aggregated counts to reduce re-renders
   const stats = useMemo(() => {
-    const r = visibleReserves;
+    const r = visibleReserves.filter(reserve => !reserve.archivedAt);
     const total = r.length;
     const open = r.filter(x => x.status === 'open').length;
     const inProgress = r.filter(x => x.status === 'in_progress').length;

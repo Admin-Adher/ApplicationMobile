@@ -229,9 +229,14 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
     try { await reload(); } finally { setRefreshing(false); }
   }, [reload]);
 
+  const activeReserves = useMemo(
+    () => reserves.filter(r => !r.archivedAt),
+    [reserves],
+  );
+
   const chantierKPIs = useMemo((): ChantierKPI[] => {
     return chantiers.map(chantier => {
-      const cReserves = reserves.filter(r => r.chantierId === chantier.id);
+      const cReserves = activeReserves.filter(r => r.chantierId === chantier.id);
       const total = cReserves.length;
       const closed = cReserves.filter(r => r.status === 'closed').length;
       const critical = cReserves.filter(r => r.priority === 'critical' && r.status !== 'closed').length;
@@ -240,16 +245,16 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
       const lateTasksCount = tasks.filter(t => t.chantierId === chantier.id && isTaskLate(t)).length;
       return { chantier, total, closed, critical, overdue, progress, lateTasksCount };
     });
-  }, [chantiers, reserves, tasks]);
+  }, [activeReserves, chantiers, tasks]);
 
   const globalStats = useMemo(() => {
-    const totalReserves = reserves.length;
-    const closed = reserves.filter(r => r.status === 'closed').length;
-    const critical = reserves.filter(r => r.priority === 'critical' && r.status !== 'closed').length;
-    const overdue = reserves.filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)).length;
+    const totalReserves = activeReserves.length;
+    const closed = activeReserves.filter(r => r.status === 'closed').length;
+    const critical = activeReserves.filter(r => r.priority === 'critical' && r.status !== 'closed').length;
+    const overdue = activeReserves.filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status)).length;
     const globalProgress = totalReserves > 0 ? Math.round((closed / totalReserves) * 100) : 0;
     return { totalReserves, closed, critical, overdue, globalProgress };
-  }, [reserves]);
+  }, [activeReserves]);
 
   const crossAlerts = useMemo(() => {
     const getChantierName = (r: Reserve) => {
@@ -257,16 +262,16 @@ export default function PortfolioDashboard({ onSwitchToChantier }: Props) {
       return c?.name ?? t('portfolioDashboard.unknownSite');
     };
 
-    const criticals = reserves
+    const criticals = activeReserves
       .filter(r => r.priority === 'critical' && r.status !== 'closed')
       .map(r => ({ reserve: r, chantierName: getChantierName(r), type: 'critical' as const }));
 
-    const overdues = reserves
+    const overdues = activeReserves
       .filter(r => r.status !== 'closed' && r.priority !== 'critical' && isOverdue(r.deadline, r.status))
       .map(r => ({ reserve: r, chantierName: getChantierName(r), type: 'overdue' as const }));
 
     return [...criticals, ...overdues].slice(0, 12);
-  }, [reserves, chantiers]);
+  }, [activeReserves, chantiers, t]);
 
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
 
