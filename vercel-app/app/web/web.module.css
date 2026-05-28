@@ -2905,11 +2905,16 @@
 
 .planPreviewHeader .inlineActions button,
 .planPreviewHeader .inlineActions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 42px;
   min-height: 42px;
   border-radius: 13px;
   padding: 10px 14px;
   font-size: 13px;
   line-height: 1;
+  box-sizing: border-box;
 }
 
 .planWorkArea {
