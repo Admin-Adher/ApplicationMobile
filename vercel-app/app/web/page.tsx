@@ -153,23 +153,24 @@ const PDFJS_VERSION = '5.7.284';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 
 const TABS = [
-  { id: 'dashboard', label: 'Dashboard', icon: '▦' },
-  { id: 'plans', label: 'Plans', icon: '▤' },
-  { id: 'reserves', label: 'Réserves', icon: '⚠' },
-  { id: 'messages', label: 'Messages', icon: '○' },
-  { id: 'terrain', label: 'Terrain', icon: '⌁' },
-  { id: 'incidents', label: 'Incidents', icon: '△' },
-  { id: 'opr', label: 'OPR', icon: '☑' },
-  { id: 'visites', label: 'Visites', icon: '☑' },
-  { id: 'planning', label: 'Planning', icon: '◷' },
-  { id: 'media', label: 'Médias', icon: '▧' },
-  { id: 'rapports', label: 'Rapports', icon: '▤' },
-  { id: 'equipes', label: 'Équipes', icon: '◎' },
-  { id: 'settings', label: 'Réglages', icon: '☰' },
-  { id: 'admin', label: 'Admin', icon: '⚙' },
+  { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+  { id: 'plans', label: 'Plans', icon: 'map' },
+  { id: 'reserves', label: 'Réserves', icon: 'warning' },
+  { id: 'messages', label: 'Messages', icon: 'chatbubbles' },
+  { id: 'terrain', label: 'Terrain', icon: 'hammer' },
+  { id: 'incidents', label: 'Incidents', icon: 'alert-circle' },
+  { id: 'opr', label: 'OPR', icon: 'checkbox' },
+  { id: 'visites', label: 'Visites', icon: 'checkbox' },
+  { id: 'planning', label: 'Planning', icon: 'time' },
+  { id: 'media', label: 'Médias', icon: 'images' },
+  { id: 'rapports', label: 'Rapports', icon: 'document-text' },
+  { id: 'equipes', label: 'Équipes', icon: 'people-circle' },
+  { id: 'settings', label: 'Réglages', icon: 'options' },
+  { id: 'admin', label: 'Admin', icon: 'settings' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
+type NavIconName = typeof TABS[number]['icon'];
 
 const NAV_GROUPS: { label: string; items: TabId[] }[] = [
   { label: 'Navigation', items: ['dashboard', 'plans', 'reserves', 'messages', 'terrain'] },
@@ -186,6 +187,151 @@ const TERRAIN_CHILD_TABS = new Set<TabId>([
   'settings',
   'admin',
 ]);
+
+function SidebarNavIcon({ name, active = false }: { name: NavIconName; active?: boolean }) {
+  const strokeProps = {
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.9,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  const outlineRect = (x: number, y: number) => <rect x={x} y={y} width="6.2" height="6.2" rx="1.35" {...strokeProps} />;
+  const filledRect = (x: number, y: number) => <rect x={x} y={y} width="6.5" height="6.5" rx="1.45" fill="currentColor" />;
+
+  const paths: Record<NavIconName, ReactNode> = {
+    grid: active ? (
+      <>
+        {filledRect(3.2, 3.2)}
+        {filledRect(14.3, 3.2)}
+        {filledRect(3.2, 14.3)}
+        {filledRect(14.3, 14.3)}
+      </>
+    ) : (
+      <>
+        {outlineRect(3.2, 3.2)}
+        {outlineRect(14.6, 3.2)}
+        {outlineRect(3.2, 14.6)}
+        {outlineRect(14.6, 14.6)}
+      </>
+    ),
+    map: active ? (
+      <>
+        <path d="M8.8 18.9 4.2 21A1.45 1.45 0 0 1 2.2 19.7V6.2c0-.56.32-1.08.82-1.32L8.8 2.2v16.7Z" fill="currentColor" opacity="0.9" />
+        <path d="m8.8 2.2 6.4 3v16.6l-6.4-2.9V2.2Z" fill="currentColor" opacity="0.72" />
+        <path d="m15.2 5.2 4.6-2.1a1.45 1.45 0 0 1 2 1.32v13.38c0 .57-.33 1.09-.84 1.33l-5.76 2.67V5.2Z" fill="currentColor" />
+      </>
+    ) : (
+      <>
+        <path d="M3 6.5 9 4l6 2.5 6-2.5v13.5l-6 2.5-6-2.5-6 2.5V6.5Z" {...strokeProps} />
+        <path d="M9 4v13.5" {...strokeProps} />
+        <path d="M15 6.5V20" {...strokeProps} />
+      </>
+    ),
+    warning: active ? (
+      <>
+        <path d="M10.25 4.35a2 2 0 0 1 3.5 0l8.15 14.2A2 2 0 0 1 20.15 21H3.85a2 2 0 0 1-1.75-2.45l8.15-14.2Z" fill="currentColor" />
+        <path d="M12 8.2v5.4" stroke="#fff" strokeWidth="2" strokeLinecap="round" />
+        <circle cx="12" cy="17" r="1.05" fill="#fff" />
+      </>
+    ) : (
+      <>
+        <path d="M10.25 4.35a2 2 0 0 1 3.5 0l8.15 14.2A2 2 0 0 1 20.15 21H3.85a2 2 0 0 1-1.75-2.45l8.15-14.2Z" {...strokeProps} />
+        <path d="M12 8.2v5.4" {...strokeProps} />
+        <circle cx="12" cy="17" r="0.85" fill="currentColor" />
+      </>
+    ),
+    chatbubbles: active ? (
+      <>
+        <path d="M8.2 4.1h6.4a5.9 5.9 0 0 1 5.9 5.9 5.78 5.78 0 0 1-1.72 4.14l.67 3.06a.75.75 0 0 1-1.05.83l-3.22-1.48H8.2A5.9 5.9 0 1 1 8.2 4.1Z" fill="currentColor" />
+        <path d="M5.7 10.1a7.5 7.5 0 0 0 7.5 7.5h1.7a5.05 5.05 0 0 1-4.85 3.55H6.5l-2.48 1.16a.68.68 0 0 1-.96-.75l.52-2.44A5.05 5.05 0 0 1 5.7 10.1Z" fill="currentColor" opacity="0.58" />
+      </>
+    ) : (
+      <>
+        <path d="M8 4h6.5a6 6 0 0 1 6 6 5.9 5.9 0 0 1-1.72 4.16l.65 3.02-3.2-1.46H8a6 6 0 1 1 0-11.72Z" {...strokeProps} />
+        <path d="M5.6 10.4A5.1 5.1 0 0 0 6.45 19h3.65l2.58 1.2-.4-1.86" {...strokeProps} />
+      </>
+    ),
+    hammer: active ? (
+      <>
+        <path d="M14.1 4.1 19.9 9.9l-2.1 2.1-2-2-8.55 8.55a2.15 2.15 0 0 1-3.04-3.04L12.75 7l-1.05-1.05 2.4-1.85Z" fill="currentColor" />
+        <path d="m13.1 3.1 1-1 6.8 6.8-1 1-6.8-6.8Z" fill="currentColor" opacity="0.7" />
+      </>
+    ) : (
+      <>
+        <path d="m13.2 4.1 6.7 6.7" {...strokeProps} />
+        <path d="m16.4 7.3-9.2 9.2a2.1 2.1 0 1 1-3-3l9.2-9.2" {...strokeProps} />
+        <path d="m11.5 5.9 2.6-2.1 5.1 5.1-2.1 2.6" {...strokeProps} />
+      </>
+    ),
+    'alert-circle': (
+      <>
+        <circle cx="12" cy="12" r="9" {...strokeProps} />
+        <path d="M12 7.5v5" {...strokeProps} />
+        <circle cx="12" cy="16.5" r="0.8" fill="currentColor" />
+      </>
+    ),
+    checkbox: (
+      <>
+        <rect x="4" y="4" width="16" height="16" rx="2.4" {...strokeProps} />
+        <path d="m8 12 2.6 2.6L16 9.2" {...strokeProps} />
+      </>
+    ),
+    time: (
+      <>
+        <circle cx="12" cy="12" r="8.8" {...strokeProps} />
+        <path d="M12 7v5l3.1 1.8" {...strokeProps} />
+      </>
+    ),
+    images: (
+      <>
+        <rect x="5" y="5" width="14" height="14" rx="2.2" {...strokeProps} />
+        <path d="m8 15 2.2-2.3a1.2 1.2 0 0 1 1.74.02L15.5 17" {...strokeProps} />
+        <circle cx="14.6" cy="9.2" r="1" fill="currentColor" />
+        <path d="M3 17V4a1 1 0 0 1 1-1h13" {...strokeProps} />
+      </>
+    ),
+    'document-text': (
+      <>
+        <path d="M6 3.8h7.2L18 8.6v11.6H6V3.8Z" {...strokeProps} />
+        <path d="M13 4v5h5" {...strokeProps} />
+        <path d="M9 12h6" {...strokeProps} />
+        <path d="M9 15.5h5" {...strokeProps} />
+      </>
+    ),
+    'people-circle': (
+      <>
+        <circle cx="12" cy="12" r="9" {...strokeProps} />
+        <circle cx="9.2" cy="10" r="2.1" {...strokeProps} />
+        <circle cx="15.1" cy="10.4" r="1.65" {...strokeProps} />
+        <path d="M5.7 16.7c.72-2.1 2.15-3.15 4.3-3.15s3.6 1.05 4.3 3.15" {...strokeProps} />
+        <path d="M13.6 14.4c1.55.1 2.7.85 3.42 2.22" {...strokeProps} />
+      </>
+    ),
+    options: (
+      <>
+        <path d="M5 7h14" {...strokeProps} />
+        <path d="M5 12h14" {...strokeProps} />
+        <path d="M5 17h14" {...strokeProps} />
+        <circle cx="9" cy="7" r="1.7" fill="currentColor" />
+        <circle cx="15" cy="12" r="1.7" fill="currentColor" />
+        <circle cx="10.8" cy="17" r="1.7" fill="currentColor" />
+      </>
+    ),
+    settings: (
+      <>
+        <path d="M12 8.2a3.8 3.8 0 1 0 0 7.6 3.8 3.8 0 0 0 0-7.6Z" {...strokeProps} />
+        <path d="M20.3 13.6v-3.2l-2.3-.45a6.7 6.7 0 0 0-.78-1.88l1.3-1.96-2.25-2.25-1.96 1.3a6.7 6.7 0 0 0-1.88-.78L12 2.1H8.8l-.45 2.3a6.7 6.7 0 0 0-1.88.78l-1.96-1.3L2.26 6.13l1.3 1.96a6.7 6.7 0 0 0-.78 1.88l-2.3.45v3.2l2.3.45c.18.66.44 1.29.78 1.88l-1.3 1.96 2.25 2.25 1.96-1.3c.59.34 1.22.6 1.88.78l.45 2.3H12l.45-2.3c.66-.18 1.29-.44 1.88-.78l1.96 1.3 2.25-2.25-1.3-1.96c.34-.59.6-1.22.78-1.88l2.28-.47Z" {...strokeProps} />
+      </>
+    ),
+  };
+
+  return (
+    <svg className={styles.navIconSvg} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {paths[name]}
+    </svg>
+  );
+}
 
 const STATUS_LABELS: Record<string, string> = {
   open: 'Ouvert',
@@ -2638,7 +2784,9 @@ export default function BuildTrackWebPage() {
                       title={sidebarCollapsed ? tab.label : undefined}
                       aria-label={tab.label}
                     >
-                      <span className={styles.navIcon}>{tab.icon}</span>
+                      <span className={styles.navIcon}>
+                        <SidebarNavIcon name={tab.icon} active={navIsActive} />
+                      </span>
                       <span className={styles.navLabel}>{tab.label}</span>
                     </button>
                   );

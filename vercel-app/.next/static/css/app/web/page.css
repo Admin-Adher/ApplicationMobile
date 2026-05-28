@@ -441,7 +441,15 @@
 .web_navIcon__vjuTz {
   flex: 0 0 18px;
   width: 18px;
-  text-align: center;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.web_navIconSvg__dzwGA {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .web_navLabel__NbWUF {

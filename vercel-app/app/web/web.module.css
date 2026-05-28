@@ -433,7 +433,15 @@
 .navIcon {
   flex: 0 0 18px;
   width: 18px;
-  text-align: center;
+  height: 18px;
+  display: inline-grid;
+  place-items: center;
+}
+
+.navIconSvg {
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
 .navLabel {
