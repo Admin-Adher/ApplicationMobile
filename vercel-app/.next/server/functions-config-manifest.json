@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "functions": {
+    "/api/cron/overdue-reserves": {
+      "maxDuration": 60
+    },
+    "/api/admin-notification-preferences": {
+      "maxDuration": 20
+    },
+    "/api/translate-text": {
+      "maxDuration": 20
+    },
+    "/api/generate-pdf": {
+      "maxDuration": 60
+    },
+    "/api/send-push": {
+      "maxDuration": 60
+    }
+  }
+}
