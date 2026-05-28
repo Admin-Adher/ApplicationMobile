@@ -2314,6 +2314,10 @@
   padding: 16px;
 }
 
+.web_reserveMobileBackButton__rbc3p {
+  display: none;
+}
+
 .web_plansLayout__cifca {
   box-sizing: border-box;
   flex: 1 1;
@@ -7054,17 +7058,48 @@
 
 @media (max-width: 1180px) {
   .web_reservesListPanel__Rz26c {
-    max-height: clamp(500px, 68dvh, 700px);
-    overflow: hidden;
+    max-height: none;
+    overflow: visible;
   }
 
   .web_reservesListPanel__Rz26c .web_reserveList__sG6GI {
     flex: 1 1 auto;
-    min-height: 180px;
+    min-height: 380px;
+    max-height: max(460px, calc(100dvh - 360px));
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-right: 4px;
     scrollbar-gutter: stable;
+  }
+
+  .web_reservesLayoutMobileDetail__zHrbY {
+    display: block;
+  }
+
+  .web_reservesMobileDetailPanel__w8MKm {
+    min-height: min(820px, calc(100dvh - 24px));
+  }
+
+  .web_reserveMobileBackButton__rbc3p {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: -moz-fit-content;
+    width: fit-content;
+    margin: 14px 14px 0;
+    border: 1px solid #d6dfec;
+    border-radius: 999px;
+    background: #f8fbff;
+    color: #003082;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .web_reserveMobileBackButton__rbc3p span {
+    font-size: 18px;
+    line-height: 1;
   }
 
   .web_plansListPanel__41xlV {
@@ -7084,11 +7119,16 @@
 
 @media (max-width: 640px) {
   .web_reservesListPanel__Rz26c {
-    max-height: clamp(460px, 64dvh, 600px);
+    max-height: none;
   }
 
   .web_reservesListPanel__Rz26c .web_reserveList__sG6GI {
-    min-height: 150px;
+    min-height: 360px;
+    max-height: max(420px, calc(100dvh - 390px));
+  }
+
+  .web_reservesMobileDetailPanel__w8MKm {
+    min-height: calc(100dvh - 20px);
   }
 
   .web_plansListPanel__41xlV {

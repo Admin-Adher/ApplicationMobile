@@ -297,6 +297,21 @@ function userLabel(profile: Profile | null, authUser?: SupabaseUser | null) {
   return profile?.name || profile?.email || authUser?.email || 'BuildTrack Web';
 }
 
+function useMediaQuery(query: string) {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mediaQuery = window.matchMedia(query);
+    const update = () => setMatches(mediaQuery.matches);
+    update();
+    mediaQuery.addEventListener('change', update);
+    return () => mediaQuery.removeEventListener('change', update);
+  }, [query]);
+
+  return matches;
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -2618,6 +2633,7 @@ export default function BuildTrackWebPage() {
                 allReserves={projectScoped.reserves}
                 reserves={filteredReserves}
                 photos={projectScoped.photos}
+                selectedReserveId={selectedReserveId}
                 selectedReserve={selectedFilteredReserve}
                 setSelectedReserveId={setSelectedReserveId}
                 search={search}
@@ -3182,6 +3198,7 @@ function ReservesView(props: {
   allReserves: any[];
   reserves: any[];
   photos: any[];
+  selectedReserveId: string | null;
   selectedReserve: any;
   setSelectedReserveId: (id: string) => void;
   search: string;
@@ -3214,6 +3231,8 @@ function ReservesView(props: {
   saving: boolean;
 }) {
   const { allReserves, reserves, selectedReserve } = props;
+  const isCompactReserveView = useMediaQuery('(max-width: 1180px)');
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
   const [pdfLanguage, setPdfLanguage] = useState<TextLang>(props.defaultReportLanguage);
@@ -3225,6 +3244,12 @@ function ReservesView(props: {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [assistantVisible, setAssistantVisible] = useState(false);
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
+  const explicitlySelectedReserve = props.selectedReserveId
+    ? allReserves.find(reserve => reserve.id === props.selectedReserveId) ?? null
+    : null;
+  const mobileDetailReserve = mobileDetailOpen ? explicitlySelectedReserve : null;
+  const showMobileReserveDetail = isCompactReserveView && !!mobileDetailReserve;
+  const detailReserve = showMobileReserveDetail ? mobileDetailReserve : selectedReserve;
   const selectedAssistantReserves = selectedReserve ? [selectedReserve] : [];
   const assistantTargets =
     assistantScope === 'project'
@@ -3250,8 +3275,8 @@ function ReservesView(props: {
     props.companyFilter !== 'all' ||
     props.buildingFilter !== 'all' ||
     props.pinFilter !== 'all';
-  const selectedPhotos = reservePhotoItems(selectedReserve, props.photos);
-  const selectedLocalOnlyPhotos = localOnlyPhotoCount(selectedReserve, props.photos);
+  const selectedPhotos = reservePhotoItems(detailReserve, props.photos);
+  const selectedLocalOnlyPhotos = localOnlyPhotoCount(detailReserve, props.photos);
   const pdfCompanies = props.structuredFilters.companies;
   const pdfTargetReserves = useMemo(() => {
     if (pdfMode === 'selected') return selectedReserve ? [selectedReserve] : [];
@@ -3322,6 +3347,24 @@ function ReservesView(props: {
     setPdfLanguage(props.defaultReportLanguage);
   }, [props.defaultReportLanguage]);
 
+  useEffect(() => {
+    if (!isCompactReserveView) setMobileDetailOpen(false);
+  }, [isCompactReserveView]);
+
+  useEffect(() => {
+    if (mobileDetailOpen && (!explicitlySelectedReserve || !reserves.some(reserve => reserve.id === explicitlySelectedReserve.id))) {
+      setMobileDetailOpen(false);
+    }
+  }, [explicitlySelectedReserve, mobileDetailOpen, reserves]);
+
+  function openReserveFromList(reserve: any) {
+    props.setSelectedReserveId(reserve.id);
+    if (isCompactReserveView) {
+      setMobileDetailOpen(true);
+      setCommentText('');
+    }
+  }
+
   async function handleReservePdfExport() {
     if (pdfBusy || pdfTargetReserves.length === 0) return;
     if (pdfMode === 'selected' && selectedReserve) {
@@ -3342,7 +3385,8 @@ function ReservesView(props: {
   }
 
   return (
-    <div className={styles.reservesLayout}>
+    <div className={`${styles.reservesLayout} ${showMobileReserveDetail ? styles.reservesLayoutMobileDetail : ''}`}>
+      {!showMobileReserveDetail && (
       <section className={`${styles.panel} ${styles.reservesListPanel}`}>
         <div className={styles.reservePanelHeader}>
           <div>
@@ -3462,7 +3506,7 @@ function ReservesView(props: {
             <button
               key={reserve.id}
               className={`${styles.reserveRow} ${selectedReserve?.id === reserve.id ? styles.reserveRowActive : ''}`}
-              onClick={() => props.setSelectedReserveId(reserve.id)}
+              onClick={() => openReserveFromList(reserve)}
             >
               <div>
                 <span className={`${styles.dot} ${styles[`priority_${reserve.priority}`] ?? ''}`} />
@@ -3481,6 +3525,7 @@ function ReservesView(props: {
           {!reserves.length && <p className={styles.empty}>Aucune réserve avec ces filtres.</p>}
         </div>
       </section>
+      )}
 
       {props.canUseAssistant && assistantVisible && (
         <div
@@ -3767,26 +3812,40 @@ function ReservesView(props: {
         </div>
       )}
 
-      <section className={`${styles.panel} ${styles.reservesDetailPanel}`}>
-        {selectedReserve ? (
+      {(!isCompactReserveView || showMobileReserveDetail) && (
+      <section className={`${styles.panel} ${styles.reservesDetailPanel} ${showMobileReserveDetail ? styles.reservesMobileDetailPanel : ''}`}>
+        {showMobileReserveDetail && (
+          <button
+            type="button"
+            className={styles.reserveMobileBackButton}
+            onClick={() => {
+              setMobileDetailOpen(false);
+              setCommentText('');
+            }}
+          >
+            <span>←</span>
+            Retour aux réserves
+          </button>
+        )}
+        {detailReserve ? (
           <>
             <div className={styles.reserveDetailHeader}>
               <div>
-                <p className={styles.eyebrow}>{selectedReserve.id}</p>
-                <h2>{selectedReserve.title}</h2>
-                <span>{[selectedReserve.building, selectedReserve.level, selectedReserve.zone].filter(Boolean).join(' · ') || 'Sans localisation'}</span>
+                <p className={styles.eyebrow}>{detailReserve.id}</p>
+                <h2>{detailReserve.title}</h2>
+                <span>{[detailReserve.building, detailReserve.level, detailReserve.zone].filter(Boolean).join(' · ') || 'Sans localisation'}</span>
               </div>
-              <span className={styles.badge}>{PRIORITY_LABELS[selectedReserve.priority] ?? selectedReserve.priority}</span>
+              <span className={styles.badge}>{PRIORITY_LABELS[detailReserve.priority] ?? detailReserve.priority}</span>
             </div>
             <div className={styles.reserveDetailBody}>
-            <p className={styles.description}>{selectedReserve.description || 'Aucune description.'}</p>
+            <p className={styles.description}>{detailReserve.description || 'Aucune description.'}</p>
             <dl className={styles.metaGrid}>
-              <div><dt>Statut</dt><dd>{STATUS_LABELS[selectedReserve.status] ?? selectedReserve.status}</dd></div>
-              <div><dt>Entreprise</dt><dd>{reserveCompanies(selectedReserve).join(', ') || '—'}</dd></div>
-              <div><dt>Échéance</dt><dd>{prettyDate(selectedReserve.deadline)}</dd></div>
-              <div><dt>Plan</dt><dd>{selectedReserve.plan_id ? 'Épinglée' : 'Non épinglée'}</dd></div>
-              <div><dt>Accusé réception</dt><dd>{selectedReserve.enterprise_acknowledged_at ? prettyDate(selectedReserve.enterprise_acknowledged_at, true) : 'Manquant'}</dd></div>
-              <div><dt>Archive</dt><dd>{selectedReserve.archived_at ? prettyDate(selectedReserve.archived_at, true) : 'Active'}</dd></div>
+              <div><dt>Statut</dt><dd>{STATUS_LABELS[detailReserve.status] ?? detailReserve.status}</dd></div>
+              <div><dt>Entreprise</dt><dd>{reserveCompanies(detailReserve).join(', ') || '—'}</dd></div>
+              <div><dt>Échéance</dt><dd>{prettyDate(detailReserve.deadline)}</dd></div>
+              <div><dt>Plan</dt><dd>{detailReserve.plan_id ? 'Épinglée' : 'Non épinglée'}</dd></div>
+              <div><dt>Accusé réception</dt><dd>{detailReserve.enterprise_acknowledged_at ? prettyDate(detailReserve.enterprise_acknowledged_at, true) : 'Manquant'}</dd></div>
+              <div><dt>Archive</dt><dd>{detailReserve.archived_at ? prettyDate(detailReserve.archived_at, true) : 'Active'}</dd></div>
             </dl>
             {selectedPhotos.length ? (
               <div className={styles.reserveDetailPhotos}>
@@ -3817,7 +3876,7 @@ function ReservesView(props: {
               onSubmit={async event => {
                 event.preventDefault();
                 if (!commentText.trim()) return;
-                await props.onComment(selectedReserve, commentText);
+                await props.onComment(detailReserve, commentText);
                 setCommentText('');
               }}
             >
@@ -3849,24 +3908,25 @@ function ReservesView(props: {
             </div>
             {props.editable && (
               <div className={styles.actionBar}>
-                <button type="button" onClick={() => props.onEdit(selectedReserve)}>Modifier</button>
+                <button type="button" onClick={() => props.onEdit(detailReserve)}>Modifier</button>
                 {STATUS_OPTIONS.map(([value, label]) => (
-                  <button type="button" key={value} disabled={props.saving || selectedReserve.status === value} onClick={() => props.onStatus(selectedReserve.id, value)}>
+                  <button type="button" key={value} disabled={props.saving || detailReserve.status === value} onClick={() => props.onStatus(detailReserve.id, value)}>
                     {label}
                   </button>
                 ))}
-                <button type="button" onClick={() => props.onArchive(selectedReserve)}>{selectedReserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
-                <button type="button" className={styles.dangerButton} onClick={() => props.onDelete(selectedReserve)}>Supprimer</button>
+                <button type="button" onClick={() => props.onArchive(detailReserve)}>{detailReserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
+                <button type="button" className={styles.dangerButton} onClick={() => props.onDelete(detailReserve)}>Supprimer</button>
               </div>
             )}
-            <HistoryBlock title="Commentaires" rows={selectedReserve.comments ?? []} />
-            <HistoryBlock title="Historique" rows={selectedReserve.history ?? []} />
+            <HistoryBlock title="Commentaires" rows={detailReserve.comments ?? []} />
+            <HistoryBlock title="Historique" rows={detailReserve.history ?? []} />
             </div>
           </>
         ) : (
           <p className={styles.empty}>Sélectionnez une réserve.</p>
         )}
       </section>
+      )}
     </div>
   );
 }
@@ -7898,4 +7958,3 @@ function SimpleColumn({ title, rows, primary, secondary }: { title: string; rows
     </div>
   );
 }
-

@@ -2265,6 +2265,10 @@
   padding: 16px;
 }
 
+.reserveMobileBackButton {
+  display: none;
+}
+
 .plansLayout {
   box-sizing: border-box;
   flex: 1 1 0;
@@ -6897,17 +6901,47 @@
 
 @media (max-width: 1180px) {
   .reservesListPanel {
-    max-height: clamp(500px, 68dvh, 700px);
-    overflow: hidden;
+    max-height: none;
+    overflow: visible;
   }
 
   .reservesListPanel .reserveList {
     flex: 1 1 auto;
-    min-height: 180px;
+    min-height: 380px;
+    max-height: max(460px, calc(100dvh - 360px));
     overflow-y: auto;
     overscroll-behavior: contain;
     padding-right: 4px;
     scrollbar-gutter: stable;
+  }
+
+  .reservesLayoutMobileDetail {
+    display: block;
+  }
+
+  .reservesMobileDetailPanel {
+    min-height: min(820px, calc(100dvh - 24px));
+  }
+
+  .reserveMobileBackButton {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    width: fit-content;
+    margin: 14px 14px 0;
+    border: 1px solid #d6dfec;
+    border-radius: 999px;
+    background: #f8fbff;
+    color: #003082;
+    padding: 10px 14px;
+    font-size: 14px;
+    font-weight: 900;
+    cursor: pointer;
+  }
+
+  .reserveMobileBackButton span {
+    font-size: 18px;
+    line-height: 1;
   }
 
   .plansListPanel {
@@ -6927,11 +6961,16 @@
 
 @media (max-width: 640px) {
   .reservesListPanel {
-    max-height: clamp(460px, 64dvh, 600px);
+    max-height: none;
   }
 
   .reservesListPanel .reserveList {
-    min-height: 150px;
+    min-height: 360px;
+    max-height: max(420px, calc(100dvh - 390px));
+  }
+
+  .reservesMobileDetailPanel {
+    min-height: calc(100dvh - 20px);
   }
 
   .plansListPanel {
