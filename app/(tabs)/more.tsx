@@ -119,14 +119,14 @@ export default function MoreScreen() {
     const outilsItems: MenuItem[] = [
       ...(!isSousTraitant ? [
         { icon: 'document-text', label: t('moreScreen.items.reports.0'), subtitle: t('moreScreen.items.reports.1'), route: '/rapports', color: C.verification } as MenuItem,
+        { icon: 'folder-open', label: t('moreScreen.items.documents.0'), subtitle: t('moreScreen.items.documents.1', { count: documents.length }), route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined } as MenuItem,
       ] : []),
-      { icon: 'folder-open', label: t('moreScreen.items.documents.0'), subtitle: t('moreScreen.items.documents.1', { count: documents.length }), route: '/documents', color: C.inProgress, badge: recentDocsCount || undefined },
       { icon: 'camera', label: t('moreScreen.items.photos.0'), subtitle: t('moreScreen.items.photos.1', { count: photos.length }), route: '/photos', color: C.medium },
       ...(!isSousTraitant ? [
         { icon: 'document-text', label: t('moreScreen.items.meetingReports.0'), subtitle: t('moreScreen.items.meetingReports.1'), route: '/meeting-report', color: '#7C3AED' } as MenuItem,
         { icon: 'checkbox', label: t('moreScreen.items.checklists.0'), subtitle: t('moreScreen.items.checklists.1'), route: '/checklist', color: '#06B6D4' } as MenuItem,
+        { icon: 'document-lock', label: t('moreScreen.items.regulatoryDocs.0'), subtitle: t('moreScreen.items.regulatoryDocs.1'), route: '/reglementaire', color: '#BE185D' } as MenuItem,
       ] : []),
-      { icon: 'document-lock', label: t('moreScreen.items.regulatoryDocs.0'), subtitle: t('moreScreen.items.regulatoryDocs.1'), route: '/reglementaire', color: '#BE185D' },
     ];
     result.push({ title: t('moreScreen.sections.documents'), items: outilsItems });
 

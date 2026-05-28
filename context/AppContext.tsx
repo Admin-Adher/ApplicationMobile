@@ -775,6 +775,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return photosH.photos.filter(photo => Boolean(photo.reserveId && visibleReserveIds.has(photo.reserveId)));
   }, [authH.user?.role, photosH.photos, visibleReserves]);
 
+  const visibleDocuments = useMemo(() => {
+    // Documents are not linked to a reserve or company yet. Hide them from
+    // subcontractors so cached app data cannot expose unrelated media.
+    if (authH.user?.role === 'sous_traitant') return [];
+    return documentsH.documents;
+  }, [authH.user?.role, documentsH.documents]);
+
   // Fix 15: stats computed from pre-aggregated counts to reduce re-renders
   const stats = useMemo(() => {
     const r = visibleReserves.filter(reserve => !reserve.archivedAt);
@@ -811,7 +818,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     reserves: visibleReserves,
     companies: companiesH.companies,
     tasks: tasksH.tasks,
-    documents: documentsH.documents,
+    documents: visibleDocuments,
     photos: visiblePhotos,
     messages: messagesH.messages,
     lastReadByChannel,
@@ -915,7 +922,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     isOfflineSession: authH.isOfflineSession,
   }), [
     visibleReserves, companiesH.companies, tasksH.tasks,
-    documentsH.documents, visiblePhotos, messagesH.messages,
+    visibleDocuments, visiblePhotos, messagesH.messages,
     lastReadByChannel, isLoading, profilesH.profiles,
     channelsH.generalChannels, channelsH.customChannels,
     channelsH.groupChannels, channelsH.persistedDmChannels,

@@ -41,6 +41,10 @@ export function useDocuments() {
   const query = useQuery({
     queryKey: queryKeys.documents(),
     queryFn: async (): Promise<Document[]> => {
+      if (user?.role === 'sous_traitant') {
+        await writeCache(DOCUMENTS_CACHE_KEY, [], userId);
+        return [];
+      }
       let cached = await readCache<Document>(DOCUMENTS_CACHE_KEY, userId);
       const rqCached = queryClient.getQueryData<Document[]>(queryKeys.documents());
       if (!cached && rqCached?.length) cached = rqCached;
@@ -72,6 +76,7 @@ export function useDocuments() {
   }, [userId]);
 
   const addDocument = useCallback(async (d: Document) => {
+    if (user?.role === 'sous_traitant') return;
     const orgId = user?.organizationId ?? null;
     queryClient.setQueryData<Document[]>(queryKeys.documents(), old => {
       if ((old ?? []).some(x => x.id === d.id)) return old ?? [];

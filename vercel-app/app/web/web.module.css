@@ -2785,10 +2785,18 @@
   min-height: 0;
   height: clamp(430px, calc(100dvh - 360px), 700px);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
   gap: 14px;
   align-items: stretch;
   overflow: hidden;
+}
+
+.planWorkAreaReserveCollapsed {
+  grid-template-columns: minmax(0, 1fr) 86px;
+}
+
+.planWorkAreaWithReservePanel {
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
 }
 
 .planWorkArea .planCanvas {
@@ -2829,6 +2837,12 @@
   align-items: flex-start;
 }
 
+.planReserveHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .planReserveHeader h3 {
   margin: 0;
 }
@@ -2845,6 +2859,81 @@
   padding: 5px 8px;
   font-size: 12px;
   white-space: nowrap;
+}
+
+.planReserveHeaderActions button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #fff;
+  color: #003082;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.planReserveCollapsedRail {
+  min-height: 0;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 8px;
+  border: 1px solid #d8e0ec;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fff 0%, #f5f8ff 100%);
+  color: #003082;
+  padding: 12px 8px;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.75);
+}
+
+.planReserveCollapsedRail:hover {
+  border-color: #003082;
+  background: #eef4ff;
+}
+
+.planReserveCollapsedRail span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.planReserveCollapsedRail strong {
+  display: inline-grid;
+  place-items: center;
+  min-width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: #003082;
+  color: #fff;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.planReserveCollapsedRail em {
+  color: #64748b;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.planReserveCollapsedRail b {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #eef3fa;
+  color: #003082;
+  font-weight: 900;
 }
 
 .planReserveList {
@@ -6955,6 +7044,11 @@
     overflow: visible;
   }
 
+  .planWorkAreaReserveCollapsed,
+  .planWorkAreaWithReservePanel {
+    grid-template-columns: 1fr;
+  }
+
   .plansPreviewPanel .webPdfShell {
     height: auto;
   }
@@ -6990,6 +7084,23 @@
     max-height: none;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .planReserveCollapsedRail {
+    min-height: 72px;
+    grid-template-columns: minmax(0, 1fr) auto auto auto;
+    align-content: center;
+    justify-items: start;
+    text-align: left;
+  }
+
+  .planReserveCollapsedRail span {
+    writing-mode: horizontal-tb;
+    transform: none;
+  }
+
+  .planReserveCollapsedRail em {
+    white-space: nowrap;
   }
 }
 

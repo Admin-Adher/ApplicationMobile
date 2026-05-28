@@ -1485,6 +1485,7 @@ export default function BuildTrackWebPage() {
             return reserveId && scopedReserveIds.has(String(reserveId));
           })
         : photos;
+      const scopedDocuments = loadedProfile.role === 'sous_traitant' ? [] : documents;
 
       const nextData = {
         chantiers,
@@ -1498,7 +1499,7 @@ export default function BuildTrackWebPage() {
         lots,
         tasks,
         incidents,
-        documents,
+        documents: scopedDocuments,
         photos: scopedPhotos,
         oprs,
         notificationPreferences,
@@ -2418,7 +2419,7 @@ export default function BuildTrackWebPage() {
       visites: data.visites.filter(byProject),
       tasks: data.tasks.filter(byProject),
       incidents: data.incidents.filter(byProject),
-      documents: data.documents.filter(byProject),
+      documents: profile?.role === 'sous_traitant' ? [] : data.documents.filter(byProject),
       photos,
       oprs: data.oprs.filter(byProject),
     };
@@ -2760,7 +2761,7 @@ export default function BuildTrackWebPage() {
               <OprView oprs={projectScoped.oprs} reserves={projectScoped.reserves} setTab={setActiveTab} setSelectedReserveId={setSelectedReserveId} />
             )}
             {activeTab === 'media' && (
-              <MediaView photos={projectScoped.photos} documents={projectScoped.documents} />
+              <MediaView photos={projectScoped.photos} documents={projectScoped.documents} isSubcontractor={profile?.role === 'sous_traitant'} />
             )}
             {activeTab === 'rapports' && (
               <RapportsView
@@ -4183,6 +4184,7 @@ function PlansView({
   const [expandedBuildingKeys, setExpandedBuildingKeys] = useState<Set<string>>(() => new Set());
   const [recentBuildingKeys, setRecentBuildingKeys] = useState<string[]>(() => readStoredStringList(WEB_RECENT_BUILDINGS_KEY));
   const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
+  const [planReservePanelOpen, setPlanReservePanelOpen] = useState(false);
   const [focusedPlanReserveId, setFocusedPlanReserveId] = useState<string | null>(null);
   const [pinPlacementPreview, setPinPlacementPreview] = useState<PinPlacementPreview | null>(null);
   const [plansPdfOpen, setPlansPdfOpen] = useState(false);
@@ -4348,6 +4350,7 @@ function PlansView({
   const hasBuildingFamilyFilter = buildingFamilies.useGrouping && activeFamilyKey !== 'all';
   useEffect(() => {
     setSelectedPlanReserveId(null);
+    setPlanReservePanelOpen(false);
     setFocusedPlanReserveId(null);
     setPinPlacementPreview(null);
   }, [selectedPlan?.id]);
@@ -4683,7 +4686,7 @@ function PlansView({
                 </div>
               </div>
             )}
-            <div className={styles.planWorkArea}>
+            <div className={`${styles.planWorkArea} ${planReservePanelOpen ? styles.planWorkAreaWithReservePanel : styles.planWorkAreaReserveCollapsed}`}>
               <div className={styles.planCanvas}>
                 {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
                   <img src={selectedPlan.uri} alt={selectedPlan.name} />
@@ -4749,71 +4752,95 @@ function PlansView({
                   </div>
                 )}
               </div>
-              <aside className={styles.planReservePanel}>
-                <div className={styles.planReserveHeader}>
-                  <div>
-                    <h3>Réserves</h3>
-                    <span>{planReserves.length} sur ce plan</span>
+              {planReservePanelOpen ? (
+                <aside className={styles.planReservePanel}>
+                  <div className={styles.planReserveHeader}>
+                    <div>
+                      <h3>Réserves</h3>
+                      <span>{planReserves.length} sur ce plan</span>
+                    </div>
+                    <div className={styles.planReserveHeaderActions}>
+                      <strong>{planPins.length} épinglées</strong>
+                      <button
+                        type="button"
+                        onClick={() => setPlanReservePanelOpen(false)}
+                        aria-label="Replier les réserves du plan"
+                      >
+                        →
+                      </button>
+                    </div>
                   </div>
-                  <strong>{planPins.length} épinglées</strong>
-                </div>
-                <div className={styles.planReserveList}>
-                  {planReserves.map((reserve: any, idx: number) => (
-                    <button
-                      key={reserve.id}
-                      className={`${styles.planReserveRow} ${selectedPlanReserveId === reserve.id ? styles.planReserveRowActive : ''}`}
-                      onClick={() => setSelectedPlanReserveId(reserve.id)}
-                    >
-                      <span className={styles.planReserveNumber} style={{ background: getReservePinColor(reserve, companies ?? []) }}>{idx + 1}</span>
-                      <span>
-                        <strong>{reserve.title}</strong>
-                        <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company_name, reserve.zone].filter(Boolean).join(' · ')}</small>
-                      </span>
-                    </button>
-                  ))}
-                  {!planReserves.length && (
-                    <div className={styles.planReserveEmpty}>
-                      <strong>Aucune réserve</strong>
-                      <span>Les réserves épinglées sur ce plan apparaîtront ici.</span>
+                  <div className={styles.planReserveList}>
+                    {planReserves.map((reserve: any, idx: number) => (
+                      <button
+                        key={reserve.id}
+                        className={`${styles.planReserveRow} ${selectedPlanReserveId === reserve.id ? styles.planReserveRowActive : ''}`}
+                        onClick={() => setSelectedPlanReserveId(reserve.id)}
+                      >
+                        <span className={styles.planReserveNumber} style={{ background: getReservePinColor(reserve, companies ?? []) }}>{idx + 1}</span>
+                        <span>
+                          <strong>{reserve.title}</strong>
+                          <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company_name, reserve.zone].filter(Boolean).join(' · ')}</small>
+                        </span>
+                      </button>
+                    ))}
+                    {!planReserves.length && (
+                      <div className={styles.planReserveEmpty}>
+                        <strong>Aucune réserve</strong>
+                        <span>Les réserves épinglées sur ce plan apparaîtront ici.</span>
+                      </div>
+                    )}
+                  </div>
+                  {selectedPlanReserve && (
+                    <div className={styles.planReserveQuickCard}>
+                      <div className={styles.planReserveQuickHeader}>
+                        <span className={styles.planReserveNumber} style={{ background: getReservePinColor(selectedPlanReserve, companies ?? []) }}>
+                          {planReserves.findIndex((reserve: any) => reserve.id === selectedPlanReserve.id) + 1}
+                        </span>
+                        <div>
+                          <strong>{selectedPlanReserve.title}</strong>
+                          <small>{[STATUS_LABELS[selectedPlanReserve.status] ?? selectedPlanReserve.status, selectedPlanReserve.company_name, selectedPlanReserve.level].filter(Boolean).join(' · ')}</small>
+                        </div>
+                        <button type="button" onClick={() => setSelectedPlanReserveId(null)} aria-label="Fermer">×</button>
+                      </div>
+                      {selectedPlanReserve.description && (
+                        <p>{selectedPlanReserve.description}</p>
+                      )}
+                      <div className={styles.planReserveQuickActions}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedReserveId(selectedPlanReserve.id);
+                            setTab('reserves');
+                          }}
+                        >
+                          Voir la réserve
+                        </button>
+                        <button
+                          type="button"
+                          disabled={selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null}
+                          onClick={() => setFocusedPlanReserveId(selectedPlanReserve.id)}
+                        >
+                          {selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null ? 'Pas d’épingle' : 'Voir sur le plan'}
+                        </button>
+                      </div>
                     </div>
                   )}
-                </div>
-                {selectedPlanReserve && (
-                  <div className={styles.planReserveQuickCard}>
-                    <div className={styles.planReserveQuickHeader}>
-                      <span className={styles.planReserveNumber} style={{ background: getReservePinColor(selectedPlanReserve, companies ?? []) }}>
-                        {planReserves.findIndex((reserve: any) => reserve.id === selectedPlanReserve.id) + 1}
-                      </span>
-                      <div>
-                        <strong>{selectedPlanReserve.title}</strong>
-                        <small>{[STATUS_LABELS[selectedPlanReserve.status] ?? selectedPlanReserve.status, selectedPlanReserve.company_name, selectedPlanReserve.level].filter(Boolean).join(' · ')}</small>
-                      </div>
-                      <button type="button" onClick={() => setSelectedPlanReserveId(null)} aria-label="Fermer">×</button>
-                    </div>
-                    {selectedPlanReserve.description && (
-                      <p>{selectedPlanReserve.description}</p>
-                    )}
-                    <div className={styles.planReserveQuickActions}>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setSelectedReserveId(selectedPlanReserve.id);
-                          setTab('reserves');
-                        }}
-                      >
-                        Voir la réserve
-                      </button>
-                      <button
-                        type="button"
-                        disabled={selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null}
-                        onClick={() => setFocusedPlanReserveId(selectedPlanReserve.id)}
-                      >
-                        {selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null ? 'Pas d’épingle' : 'Voir sur le plan'}
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </aside>
+                </aside>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.planReserveCollapsedRail}
+                  onClick={() => setPlanReservePanelOpen(true)}
+                  aria-expanded={false}
+                  aria-label={`Afficher les réserves du plan (${planReserves.length})`}
+                >
+                  <span>Réserves</span>
+                  <strong>{planReserves.length}</strong>
+                  <em>{planPins.length} épinglées</em>
+                  <b>←</b>
+                </button>
+              )}
             </div>
           </>
         ) : <p className={styles.empty}>Sélectionnez un plan.</p>}
@@ -6060,7 +6087,7 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
   );
 }
 
-function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
+function MediaView({ photos, documents, isSubcontractor }: { photos: any[]; documents: any[]; isSubcontractor?: boolean }) {
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const filteredPhotos = photos.filter(photo => !q || [photo.title, photo.name, photo.comment, photo.location, photo.taken_by, photo.takenBy].join(' ').toLowerCase().includes(q));
@@ -6071,7 +6098,11 @@ function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>Médias chantier</h2>
-            <p>Photos, documents et pièces jointes synchronisés depuis le terrain.</p>
+            <p>
+              {isSubcontractor
+                ? 'Photos liées à vos réserves.'
+                : 'Photos, documents et pièces jointes synchronisés depuis le terrain.'}
+            </p>
           </div>
           <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher média, zone, auteur..." />
         </div>
@@ -6092,24 +6123,26 @@ function MediaView({ photos, documents }: { photos: any[]; documents: any[] }) {
           {!filteredPhotos.length && <p className={styles.empty}>Aucune photo trouvée.</p>}
         </div>
       </section>
-      <section className={styles.panel}>
-        <h2>Documents</h2>
-        <div className={styles.documentList}>
-          {filteredDocuments.map((document: any) => {
-            const url = assetUrl(document, 'documents');
-            return (
-              <a key={document.id ?? url} className={styles.documentRow} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
-                <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
-                <div>
-                  <strong>{document.title ?? document.name ?? document.file_name ?? 'Document'}</strong>
-                  <small>{document.category ?? 'GED'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
-                </div>
-              </a>
-            );
-          })}
-          {!filteredDocuments.length && <p className={styles.empty}>Aucun document trouvé.</p>}
-        </div>
-      </section>
+      {!isSubcontractor && (
+        <section className={styles.panel}>
+          <h2>Documents</h2>
+          <div className={styles.documentList}>
+            {filteredDocuments.map((document: any) => {
+              const url = assetUrl(document, 'documents');
+              return (
+                <a key={document.id ?? url} className={styles.documentRow} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
+                  <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
+                  <div>
+                    <strong>{document.title ?? document.name ?? document.file_name ?? 'Document'}</strong>
+                    <small>{document.category ?? 'GED'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
+                  </div>
+                </a>
+              );
+            })}
+            {!filteredDocuments.length && <p className={styles.empty}>Aucun document trouvé.</p>}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
@@ -6398,7 +6431,14 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
     {
       title: 'Documents',
       cards: [
-        { icon: 'camera', title: 'Médias', subtitle: 'Photos terrain et documents', count: documentCount, tab: 'media', tone: 'green' },
+        {
+          icon: 'camera',
+          title: 'Médias',
+          subtitle: isSubcontractor ? 'Photos liées à mes réserves' : 'Photos terrain et documents',
+          count: documentCount,
+          tab: 'media',
+          tone: 'green',
+        },
         ...(!isSubcontractor
           ? [{ icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Exports et comptes-rendus', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const }]
           : []),
