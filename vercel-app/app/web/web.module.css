@@ -6894,3 +6894,51 @@
     padding: 8px 10px;
   }
 }
+
+@media (max-width: 1180px) {
+  .reservesListPanel {
+    max-height: clamp(500px, 68dvh, 700px);
+    overflow: hidden;
+  }
+
+  .reservesListPanel .reserveList {
+    flex: 1 1 auto;
+    min-height: 180px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+    scrollbar-gutter: stable;
+  }
+
+  .plansListPanel {
+    max-height: clamp(540px, 70dvh, 760px);
+    overflow: hidden;
+  }
+
+  .plansListPanel .plansList {
+    flex: 1 1 auto;
+    min-height: 220px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (max-width: 640px) {
+  .reservesListPanel {
+    max-height: clamp(460px, 64dvh, 600px);
+  }
+
+  .reservesListPanel .reserveList {
+    min-height: 150px;
+  }
+
+  .plansListPanel {
+    max-height: clamp(460px, 64dvh, 620px);
+  }
+
+  .plansListPanel .plansList {
+    min-height: 170px;
+  }
+}

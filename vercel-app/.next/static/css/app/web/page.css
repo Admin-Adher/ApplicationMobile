@@ -7052,3 +7052,51 @@
   }
 }
 
+@media (max-width: 1180px) {
+  .web_reservesListPanel__Rz26c {
+    max-height: clamp(500px, 68dvh, 700px);
+    overflow: hidden;
+  }
+
+  .web_reservesListPanel__Rz26c .web_reserveList__sG6GI {
+    flex: 1 1 auto;
+    min-height: 180px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+    scrollbar-gutter: stable;
+  }
+
+  .web_plansListPanel__41xlV {
+    max-height: clamp(540px, 70dvh, 760px);
+    overflow: hidden;
+  }
+
+  .web_plansListPanel__41xlV .web_plansList__7wCTX {
+    flex: 1 1 auto;
+    min-height: 220px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+    scrollbar-gutter: stable;
+  }
+}
+
+@media (max-width: 640px) {
+  .web_reservesListPanel__Rz26c {
+    max-height: clamp(460px, 64dvh, 600px);
+  }
+
+  .web_reservesListPanel__Rz26c .web_reserveList__sG6GI {
+    min-height: 150px;
+  }
+
+  .web_plansListPanel__41xlV {
+    max-height: clamp(460px, 64dvh, 620px);
+  }
+
+  .web_plansListPanel__41xlV .web_plansList__7wCTX {
+    min-height: 170px;
+  }
+}
+
