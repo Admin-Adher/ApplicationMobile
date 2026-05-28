@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import styles from './web.module.css';
@@ -4362,11 +4363,16 @@ function WebPdfPlan({
 
   useEffect(() => {
     if (!isFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setIsFullscreen(false);
     };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
   }, [isFullscreen]);
 
   useEffect(() => {
@@ -4544,7 +4550,7 @@ function WebPdfPlan({
   const focusedPin = focusedReserveId ? pins.find(pin => pin.reserve.id === focusedReserveId) : null;
   const activePreview = placementPreview ?? movePreview;
 
-  return (
+  const pdfShell = (
     <div className={`${styles.webPdfShell} ${isFullscreen ? styles.webPdfShellFullscreen : ''}`}>
       <div className={styles.webPdfToolbar}>
         <div className={styles.webPdfZoomControls}>
@@ -4686,6 +4692,12 @@ function WebPdfPlan({
       </div>
     </div>
   );
+
+  if (isFullscreen && typeof document !== 'undefined') {
+    return createPortal(pdfShell, document.body);
+  }
+
+  return pdfShell;
 }
 
 function PlansView({

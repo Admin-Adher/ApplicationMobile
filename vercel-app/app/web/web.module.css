@@ -3942,7 +3942,7 @@
 .webPdfShellFullscreen {
   position: fixed;
   inset: 18px;
-  z-index: 1200;
+  z-index: 20000;
   width: auto;
   max-width: none;
   height: auto;
@@ -3951,7 +3951,11 @@
   min-height: 0;
   border: 1px solid #cbd5e1;
   border-radius: 20px;
+  isolation: isolate;
+  background: #fff;
   overflow: hidden;
+  pointer-events: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 28px 80px rgba(15, 23, 42, 0.32);
 }
 
@@ -4073,15 +4077,25 @@
 }
 
 .webPdfShellFullscreen .webPdfViewport {
+  position: relative;
+  z-index: 1;
   height: auto;
   min-height: 0;
 }
 
 .webPdfShellFullscreen .webPdfToolbar {
+  position: relative;
+  z-index: 4;
   min-width: 0;
   justify-content: flex-start;
   overflow-x: auto;
   scrollbar-width: thin;
+}
+
+.webPdfShellFullscreen .webPdfAnnotateControls,
+.webPdfShellFullscreen .webPdfMoveHint {
+  position: relative;
+  z-index: 3;
 }
 
 .webPdfShellFullscreen .webPdfToolbar > * {
