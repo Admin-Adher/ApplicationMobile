@@ -655,6 +655,50 @@
     padding: 9px 12px;
     font-size: 13px;
   }
+
+  .dashboardGreetingMark {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    font-size: 20px;
+  }
+
+  .dashboardGreeting h2 {
+    font-size: 24px;
+  }
+
+  .dashboardKpi strong {
+    margin-top: 10px;
+    font-size: 30px;
+  }
+
+  .dashboardWideMetric strong,
+  .kpi strong {
+    font-size: 24px;
+  }
+
+  .quick strong,
+  .visitStat strong,
+  .visitStatActive strong {
+    font-size: 20px;
+  }
+
+  .terrainHubIntro h2,
+  .reservePanelHeader h2,
+  .visitPanelHeader h2,
+  .reserveDetailHeader h2,
+  .visitDetailHeader h2 {
+    font-size: 24px;
+    line-height: 1.14;
+  }
+
+  .reservePdfPreviewWeb strong {
+    font-size: 22px;
+  }
+
+  .restrictedState span {
+    font-size: 34px;
+  }
 }
 
 .panel {
