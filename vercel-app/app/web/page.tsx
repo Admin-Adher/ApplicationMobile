@@ -140,12 +140,12 @@ const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: '▦' },
-  { id: 'reserves', label: 'Réserves', icon: '⚠' },
   { id: 'plans', label: 'Plans', icon: '▤' },
-  { id: 'visites', label: 'Visites', icon: '☑' },
-  { id: 'planning', label: 'Planning', icon: '◷' },
+  { id: 'reserves', label: 'Réserves', icon: '⚠' },
   { id: 'messages', label: 'Messages', icon: '○' },
   { id: 'terrain', label: 'Terrain', icon: '⌁' },
+  { id: 'visites', label: 'Visites', icon: '☑' },
+  { id: 'planning', label: 'Planning', icon: '◷' },
   { id: 'media', label: 'Médias', icon: '▧' },
   { id: 'rapports', label: 'Rapports', icon: '▤' },
   { id: 'equipes', label: 'Équipes', icon: '◎' },
@@ -156,10 +156,18 @@ const TABS = [
 type TabId = typeof TABS[number]['id'];
 
 const NAV_GROUPS: { label: string; items: TabId[] }[] = [
-  { label: 'Pilotage', items: ['dashboard', 'reserves', 'plans', 'visites', 'planning'] },
-  { label: 'Collaboration', items: ['messages', 'terrain', 'media', 'rapports'] },
-  { label: 'Administration', items: ['equipes', 'settings', 'admin'] },
+  { label: 'Navigation', items: ['dashboard', 'plans', 'reserves', 'messages', 'terrain'] },
 ];
+
+const TERRAIN_CHILD_TABS = new Set<TabId>([
+  'visites',
+  'planning',
+  'media',
+  'rapports',
+  'equipes',
+  'settings',
+  'admin',
+]);
 
 const STATUS_LABELS: Record<string, string> = {
   open: 'Ouvert',
@@ -2550,10 +2558,11 @@ export default function BuildTrackWebPage() {
               <div className={styles.navSectionItems}>
                 {group.items.map(tabId => {
                   const tab = TABS.find(item => item.id === tabId)!;
+                  const navIsActive = activeTab === tab.id || (tab.id === 'terrain' && TERRAIN_CHILD_TABS.has(activeTab));
                   return (
                     <button
                       key={tab.id}
-                      className={activeTab === tab.id ? styles.navActive : ''}
+                      className={navIsActive ? styles.navActive : ''}
                       onClick={() => { setActiveTab(tab.id); setMobileNavOpen(false); }}
                       title={sidebarCollapsed ? tab.label : undefined}
                       aria-label={tab.label}
@@ -2733,7 +2742,12 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'terrain' && (
-              <TerrainView scoped={projectScoped} data={data} />
+              <TerrainView
+                scoped={projectScoped}
+                data={data}
+                profile={profile}
+                setTab={setActiveTab}
+              />
             )}
             {activeTab === 'media' && (
               <MediaView photos={projectScoped.photos} documents={projectScoped.documents} />
@@ -6230,9 +6244,102 @@ function MessagesView({ channels, companies, selectedChannel, setSelectedChannel
   );
 }
 
-function TerrainView({ scoped, data }: any) {
+function TerrainView({ scoped, data, profile, setTab }: any) {
+  const isSubcontractor = profile?.role === 'sous_traitant';
+  const admin = isAdmin(profile);
+  const openIncidents = scoped.incidents.filter((incident: any) => incident.status !== 'resolved' && incident.status !== 'closed').length;
+  const delayedTasks = scoped.tasks.filter((task: any) => task.status === 'delayed' || task.status === 'late').length;
+  const openReserves = scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve) && reserve.status !== 'closed').length;
+  const documentCount = scoped.documents.length + scoped.photos.length;
+
+  type TerrainHubCard = {
+    icon: string;
+    title: string;
+    subtitle: string;
+    count?: number | string;
+    tab?: TabId;
+    passive?: boolean;
+    tone?: 'green' | 'red' | 'amber' | 'blue';
+  };
+
+  const sections: Array<{ title: string; cards: TerrainHubCard[] }> = [
+    {
+      title: 'Terrain quotidien',
+      cards: isSubcontractor
+        ? [
+            { icon: '⚠', title: 'Mes réserves', subtitle: 'Réserves à traiter', count: openReserves, tab: 'reserves', tone: 'amber' },
+          ]
+        : [
+            { icon: '☑', title: 'Visites chantier', subtitle: 'Contrôles, CR et réserves liées', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
+            { icon: '◷', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
+            { icon: '△', title: 'Incidents', subtitle: 'Aperçu disponible ci-dessous', count: openIncidents, passive: true, tone: openIncidents ? 'red' : 'green' },
+            { icon: '☑', title: 'OPR', subtitle: 'Aperçu disponible ci-dessous', count: scoped.oprs.length, passive: true, tone: 'blue' },
+          ],
+    },
+    {
+      title: 'Chantier',
+      cards: [
+        { icon: '▤', title: 'Plans', subtitle: 'PDF, épingles et réserves plan', count: scoped.plans.length, tab: 'plans', tone: 'blue' },
+        { icon: '⚠', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
+        ...(!isSubcontractor
+          ? [{ icon: '◎', title: 'Équipes', subtitle: 'Pointage et entreprises', count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
+          : []),
+      ],
+    },
+    {
+      title: 'Documents',
+      cards: [
+        { icon: '▧', title: 'Médias', subtitle: 'Photos terrain et documents', count: documentCount, tab: 'media', tone: 'green' },
+        ...(!isSubcontractor
+          ? [{ icon: '▤', title: 'Rapports', subtitle: 'Exports et comptes-rendus', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const }]
+          : []),
+      ],
+    },
+    {
+      title: admin ? 'Administration' : 'Compte',
+      cards: [
+        ...(admin
+          ? [{ icon: '⚙', title: 'Administration', subtitle: 'Utilisateurs et configuration', count: data.profiles.length, tab: 'admin' as TabId, tone: 'amber' as const }]
+          : []),
+        { icon: '☰', title: 'Réglages', subtitle: 'Compte, notifications et projet', tab: 'settings', tone: 'blue' },
+      ],
+    },
+  ];
+
   return (
     <div className={styles.stack}>
+      <section className={styles.terrainHub}>
+        <div className={styles.terrainHubIntro}>
+          <div>
+            <p className={styles.eyebrow}>Terrain</p>
+            <h2>Accès chantier</h2>
+            <span>Le hub reprend la logique mobile : un seul onglet pour ouvrir les outils terrain, documents et compte.</span>
+          </div>
+        </div>
+        {sections.map(section => (
+          <div key={section.title} className={styles.terrainHubSection}>
+            <h3>{section.title}</h3>
+            <div className={styles.terrainHubGrid}>
+              {section.cards.map(card => (
+                <button
+                  key={`${section.title}-${card.title}`}
+                  type="button"
+                  className={`${styles.terrainHubCard} ${card.passive ? styles.terrainHubCardPassive : ''} ${card.tone ? styles[`terrainHubCard_${card.tone}`] : ''}`}
+                  onClick={() => card.tab && setTab(card.tab)}
+                  disabled={!card.tab}
+                >
+                  <span className={styles.terrainHubIcon}>{card.icon}</span>
+                  <span className={styles.terrainHubCardText}>
+                    <strong>{card.title}</strong>
+                    <small>{card.subtitle}</small>
+                  </span>
+                  {card.count !== undefined ? <em>{card.count}</em> : null}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
+      </section>
       <div className={styles.kpiGrid}>
         <Kpi title="Incidents" value={scoped.incidents.length} hint="Sécurité / terrain" tone="red" />
         <Kpi title="Tâches" value={scoped.tasks.length} hint="Actions chantier" />
