@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import styles from './web.module.css';
@@ -144,6 +144,8 @@ const TABS = [
   { id: 'reserves', label: 'Réserves', icon: '⚠' },
   { id: 'messages', label: 'Messages', icon: '○' },
   { id: 'terrain', label: 'Terrain', icon: '⌁' },
+  { id: 'incidents', label: 'Incidents', icon: '△' },
+  { id: 'opr', label: 'OPR', icon: '☑' },
   { id: 'visites', label: 'Visites', icon: '☑' },
   { id: 'planning', label: 'Planning', icon: '◷' },
   { id: 'media', label: 'Médias', icon: '▧' },
@@ -162,6 +164,8 @@ const NAV_GROUPS: { label: string; items: TabId[] }[] = [
 const TERRAIN_CHILD_TABS = new Set<TabId>([
   'visites',
   'planning',
+  'incidents',
+  'opr',
   'media',
   'rapports',
   'equipes',
@@ -2748,6 +2752,12 @@ export default function BuildTrackWebPage() {
                 profile={profile}
                 setTab={setActiveTab}
               />
+            )}
+            {activeTab === 'incidents' && (
+              <IncidentsView incidents={projectScoped.incidents} />
+            )}
+            {activeTab === 'opr' && (
+              <OprView oprs={projectScoped.oprs} reserves={projectScoped.reserves} setTab={setActiveTab} setSelectedReserveId={setSelectedReserveId} />
             )}
             {activeTab === 'media' && (
               <MediaView photos={projectScoped.photos} documents={projectScoped.documents} />
@@ -6244,6 +6254,105 @@ function MessagesView({ channels, companies, selectedChannel, setSelectedChannel
   );
 }
 
+type TerrainHubIconName =
+  | 'warning'
+  | 'eye'
+  | 'calendar'
+  | 'shield'
+  | 'clipboard'
+  | 'map'
+  | 'people'
+  | 'camera'
+  | 'document-text'
+  | 'shield-checkmark'
+  | 'settings';
+
+function TerrainHubIcon({ name }: { name: TerrainHubIconName }) {
+  const common = {
+    vectorEffect: 'non-scaling-stroke' as const,
+  };
+  const icons = {
+    warning: (
+      <>
+        <path {...common} d="M11.1 4.4 2.8 18.6A1.7 1.7 0 0 0 4.3 21h15.4a1.7 1.7 0 0 0 1.5-2.4L12.9 4.4a1 1 0 0 0-1.8 0Z" />
+        <path {...common} d="M12 8.8v5.2" />
+        <path {...common} d="M12 17.2h.01" />
+      </>
+    ),
+    eye: (
+      <>
+        <path {...common} d="M2.5 12s3.4-6.5 9.5-6.5S21.5 12 21.5 12s-3.4 6.5-9.5 6.5S2.5 12 2.5 12Z" />
+        <circle {...common} cx="12" cy="12" r="3.2" />
+      </>
+    ),
+    calendar: (
+      <>
+        <rect {...common} x="3.5" y="5.2" width="17" height="15.3" rx="2.2" />
+        <path {...common} d="M7.8 3.5v3.4M16.2 3.5v3.4M3.8 9.4h16.4" />
+        <path {...common} d="M8 13h2M13.8 13h2M8 16.4h2M13.8 16.4h2" />
+      </>
+    ),
+    shield: (
+      <>
+        <path {...common} d="M12 3.4 4.8 6.2v5.4c0 4.7 3.1 7.7 7.2 9 4.1-1.3 7.2-4.3 7.2-9V6.2L12 3.4Z" />
+        <path {...common} d="M12 8.2v5.1" />
+        <path {...common} d="M12 16.4h.01" />
+      </>
+    ),
+    clipboard: (
+      <>
+        <path {...common} d="M9.2 4.5h5.6a2 2 0 0 1 2 2v.7H7.2v-.7a2 2 0 0 1 2-2Z" />
+        <path {...common} d="M8 6.3H6.4a2.2 2.2 0 0 0-2.2 2.2v10A2.2 2.2 0 0 0 6.4 20.7h11.2a2.2 2.2 0 0 0 2.2-2.2v-10a2.2 2.2 0 0 0-2.2-2.2H16" />
+        <path {...common} d="M8 12h8M8 15.5h5.5" />
+      </>
+    ),
+    map: (
+      <>
+        <path {...common} d="m3.6 6.2 5.2-2 6.4 2 5.2-2v13.6l-5.2 2-6.4-2-5.2 2V6.2Z" />
+        <path {...common} d="M8.8 4.2v13.6M15.2 6.2v13.6" />
+      </>
+    ),
+    people: (
+      <>
+        <circle {...common} cx="9" cy="8" r="3" />
+        <path {...common} d="M3.8 19.5c.7-3 2.6-4.8 5.2-4.8s4.5 1.8 5.2 4.8" />
+        <circle {...common} cx="16.2" cy="9.2" r="2.4" />
+        <path {...common} d="M14.6 15.1c2.8.1 4.8 1.7 5.6 4.4" />
+      </>
+    ),
+    camera: (
+      <>
+        <path {...common} d="M4.4 7.6h3l1.2-2h6.8l1.2 2h3a2 2 0 0 1 2 2v8.4a2 2 0 0 1-2 2H4.4a2 2 0 0 1-2-2V9.6a2 2 0 0 1 2-2Z" />
+        <circle {...common} cx="12" cy="13.8" r="3.5" />
+      </>
+    ),
+    'document-text': (
+      <>
+        <path {...common} d="M6.5 3.5h7.7l3.3 3.4v13.6h-11a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" />
+        <path {...common} d="M14 3.8v3.6h3.4M8 11h8M8 14.5h8M8 18h5" />
+      </>
+    ),
+    'shield-checkmark': (
+      <>
+        <path {...common} d="M12 3.4 4.8 6.2v5.4c0 4.7 3.1 7.7 7.2 9 4.1-1.3 7.2-4.3 7.2-9V6.2L12 3.4Z" />
+        <path {...common} d="m8.8 12.4 2.2 2.2 4.4-5" />
+      </>
+    ),
+    settings: (
+      <>
+        <path {...common} d="M12 8.4a3.6 3.6 0 1 1 0 7.2 3.6 3.6 0 0 1 0-7.2Z" />
+        <path {...common} d="M19.4 13.7c.1-.6.1-1.1 0-1.7l2-1.6-2-3.5-2.5 1a7.4 7.4 0 0 0-1.5-.9L15 4.4h-4L10.6 7a7.4 7.4 0 0 0-1.5.9l-2.5-1-2 3.5 2 1.6a8.4 8.4 0 0 0 0 1.7l-2 1.6 2 3.5 2.5-1c.5.4 1 .7 1.5.9l.4 2.6h4l.4-2.6c.5-.2 1-.5 1.5-.9l2.5 1 2-3.5-2-1.6Z" />
+      </>
+    ),
+  } satisfies Record<TerrainHubIconName, ReactNode>;
+
+  return (
+    <svg className={styles.terrainHubIconSvg} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      {icons[name]}
+    </svg>
+  );
+}
+
 function TerrainView({ scoped, data, profile, setTab }: any) {
   const isSubcontractor = profile?.role === 'sous_traitant';
   const admin = isAdmin(profile);
@@ -6253,7 +6362,7 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
   const documentCount = scoped.documents.length + scoped.photos.length;
 
   type TerrainHubCard = {
-    icon: string;
+    icon: TerrainHubIconName;
     title: string;
     subtitle: string;
     count?: number | string;
@@ -6267,31 +6376,31 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
       title: 'Terrain quotidien',
       cards: isSubcontractor
         ? [
-            { icon: '⚠', title: 'Mes réserves', subtitle: 'Réserves à traiter', count: openReserves, tab: 'reserves', tone: 'amber' },
+            { icon: 'warning', title: 'Mes réserves', subtitle: 'Réserves à traiter', count: openReserves, tab: 'reserves', tone: 'amber' },
           ]
         : [
-            { icon: '☑', title: 'Visites chantier', subtitle: 'Contrôles, CR et réserves liées', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
-            { icon: '◷', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
-            { icon: '△', title: 'Incidents', subtitle: 'Aperçu disponible ci-dessous', count: openIncidents, passive: true, tone: openIncidents ? 'red' : 'green' },
-            { icon: '☑', title: 'OPR', subtitle: 'Aperçu disponible ci-dessous', count: scoped.oprs.length, passive: true, tone: 'blue' },
+            { icon: 'eye', title: 'Visites chantier', subtitle: 'Contrôles, CR et réserves liées', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
+            { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
+            { icon: 'shield', title: 'Incidents', subtitle: 'Sécurité et alertes terrain', count: openIncidents, tab: 'incidents', tone: openIncidents ? 'red' : 'green' },
+            { icon: 'clipboard', title: 'OPR', subtitle: 'Opérations préalables à réception', count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
           ],
     },
     {
       title: 'Chantier',
       cards: [
-        { icon: '▤', title: 'Plans', subtitle: 'PDF, épingles et réserves plan', count: scoped.plans.length, tab: 'plans', tone: 'blue' },
-        { icon: '⚠', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
+        { icon: 'map', title: 'Plans', subtitle: 'PDF, épingles et réserves plan', count: scoped.plans.length, tab: 'plans', tone: 'blue' },
+        { icon: 'warning', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
         ...(!isSubcontractor
-          ? [{ icon: '◎', title: 'Équipes', subtitle: 'Pointage et entreprises', count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
+          ? [{ icon: 'people' as TerrainHubIconName, title: 'Équipes', subtitle: 'Pointage et entreprises', count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
           : []),
       ],
     },
     {
       title: 'Documents',
       cards: [
-        { icon: '▧', title: 'Médias', subtitle: 'Photos terrain et documents', count: documentCount, tab: 'media', tone: 'green' },
+        { icon: 'camera', title: 'Médias', subtitle: 'Photos terrain et documents', count: documentCount, tab: 'media', tone: 'green' },
         ...(!isSubcontractor
-          ? [{ icon: '▤', title: 'Rapports', subtitle: 'Exports et comptes-rendus', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const }]
+          ? [{ icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Exports et comptes-rendus', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const }]
           : []),
       ],
     },
@@ -6299,9 +6408,9 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
       title: admin ? 'Administration' : 'Compte',
       cards: [
         ...(admin
-          ? [{ icon: '⚙', title: 'Administration', subtitle: 'Utilisateurs et configuration', count: data.profiles.length, tab: 'admin' as TabId, tone: 'amber' as const }]
+          ? [{ icon: 'shield-checkmark' as TerrainHubIconName, title: 'Administration', subtitle: 'Utilisateurs et configuration', count: data.profiles.length, tab: 'admin' as TabId, tone: 'amber' as const }]
           : []),
-        { icon: '☰', title: 'Réglages', subtitle: 'Compte, notifications et projet', tab: 'settings', tone: 'blue' },
+        { icon: 'settings', title: 'Réglages', subtitle: 'Compte, notifications et projet', tab: 'settings', tone: 'blue' },
       ],
     },
   ];
@@ -6328,7 +6437,9 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
                   onClick={() => card.tab && setTab(card.tab)}
                   disabled={!card.tab}
                 >
-                  <span className={styles.terrainHubIcon}>{card.icon}</span>
+                  <span className={styles.terrainHubIcon}>
+                    <TerrainHubIcon name={card.icon} />
+                  </span>
                   <span className={styles.terrainHubCardText}>
                     <strong>{card.title}</strong>
                     <small>{card.subtitle}</small>
@@ -6340,68 +6451,78 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
           </div>
         ))}
       </section>
+    </div>
+  );
+}
+
+function IncidentsView({ incidents }: { incidents: any[] }) {
+  const openIncidents = incidents.filter(isIncidentOpenWeb);
+  return (
+    <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Incidents" value={scoped.incidents.length} hint="Sécurité / terrain" tone="red" />
-        <Kpi title="Tâches" value={scoped.tasks.length} hint="Actions chantier" />
-        <Kpi title="Photos" value={scoped.photos.length} hint="Médias terrain" tone="green" />
-        <Kpi title="Documents" value={scoped.documents.length} hint="GED chantier" tone="amber" />
+        <Kpi title="Incidents ouverts" value={openIncidents.length} hint="À traiter" tone={openIncidents.length ? 'red' : 'green'} />
+        <Kpi title="Total incidents" value={incidents.length} hint="Historique terrain" />
+        <Kpi title="Critiques" value={incidents.filter((incident: any) => incident.priority === 'critical' || incident.severity === 'critical').length} hint="Priorité haute" tone="red" />
+        <Kpi title="Clôturés" value={incidents.filter((incident: any) => !isIncidentOpenWeb(incident)).length} hint="Résolus" tone="green" />
       </div>
-      <section className={styles.panel}>
-        <div className={styles.threeCols}>
-          <SimpleColumn title="Incidents" rows={scoped.incidents} primary="title" secondary="status" />
-          <SimpleColumn title="Tâches" rows={scoped.tasks} primary="title" secondary="deadline" />
-          <SimpleColumn title="OPR" rows={scoped.oprs} primary="title" secondary="status" />
-        </div>
-      </section>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
-            <h2>Photos et documents</h2>
-            <p>Accès web rapide aux médias terrain et pièces GED déjà synchronisés.</p>
+            <h2>Incidents terrain</h2>
+            <p>Suivi sécurité et alertes remontées depuis le chantier.</p>
           </div>
         </div>
-        <div className={styles.mediaGrid}>
-          {scoped.photos.slice(0, 12).map((photo: any) => {
-            const url = assetUrl(photo, 'photos');
-            return (
-              <a
-                key={photo.id ?? url}
-                className={styles.mediaCard}
-                href={url || undefined}
-                target={url ? '_blank' : undefined}
-                aria-disabled={!url}
-              >
-                {url ? <img src={url} alt={photo.title ?? photo.name ?? 'Photo chantier'} /> : <span>Photo</span>}
-                <strong>{photo.title ?? photo.name ?? 'Photo chantier'}</strong>
-                <small>{prettyDate(photo.taken_at ?? photo.created_at, true)}</small>
-              </a>
-            );
-          })}
-          {scoped.documents.slice(0, 12).map((document: any) => {
-            const url = assetUrl(document, 'documents');
-            return (
-              <a
-                key={document.id ?? url}
-                className={styles.mediaCard}
-                href={url || undefined}
-                target={url ? '_blank' : undefined}
-                aria-disabled={!url}
-              >
-                <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
-                <strong>{document.title ?? document.name ?? document.file_name ?? 'Document'}</strong>
-                <small>{prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
-              </a>
-            );
-          })}
-          {!scoped.photos.length && !scoped.documents.length && <p className={styles.empty}>Aucun média terrain dans ce périmètre.</p>}
+        <div className={styles.compactList}>
+          {incidents.map((incident: any) => (
+            <button key={incident.id}>
+              <span>{STATUS_LABELS[incident.status] ?? incident.status ?? 'Incident'} · {prettyDate(incident.created_at ?? incident.date, true)}</span>
+              <strong>{incident.title ?? incident.name ?? incident.description ?? incident.id}</strong>
+            </button>
+          ))}
+          {!incidents.length && <p className={styles.empty}>Aucun incident terrain.</p>}
         </div>
       </section>
+    </div>
+  );
+}
+
+function OprView({ oprs, reserves, setTab, setSelectedReserveId }: {
+  oprs: any[];
+  reserves: any[];
+  setTab: (tab: TabId) => void;
+  setSelectedReserveId: (id: string) => void;
+}) {
+  const oprReserves = reserves.filter((reserve: any) => reserve.type === 'observation' || reserve.visit_type === 'opr' || reserve.source === 'opr');
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="OPR" value={oprs.length} hint="Contrôles OPR" />
+        <Kpi title="Réserves liées" value={oprReserves.length} hint="Issues des OPR" tone="amber" />
+        <Kpi title="Ouvertes" value={oprReserves.filter((reserve: any) => reserve.status !== 'closed' && !isReserveArchived(reserve)).length} hint="À suivre" tone="red" />
+        <Kpi title="Clôturées" value={oprReserves.filter((reserve: any) => reserve.status === 'closed').length} hint="Terminées" tone="green" />
+      </div>
       <section className={styles.panel}>
-        <h2>Lots et entreprises</h2>
-        <div className={styles.compactList}>
-          {data.lots.slice(0, 40).map((lot: any) => (
-            <button key={lot.id}><span>{lot.code}</span><strong>{lot.name}</strong></button>
-          ))}
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>OPR chantier</h2>
+            <p>Contrôles OPR et réserves associées au périmètre sélectionné.</p>
+          </div>
+        </div>
+        <div className={styles.threeCols}>
+          <SimpleColumn title="Contrôles" rows={oprs} primary="title" secondary="status" />
+          <div>
+            <h3>Réserves OPR</h3>
+            <div className={styles.compactList}>
+              {oprReserves.slice(0, 12).map((reserve: any) => (
+                <button key={reserve.id} type="button" onClick={() => { setSelectedReserveId(reserve.id); setTab('reserves'); }}>
+                  <span>{STATUS_LABELS[reserve.status] ?? reserve.status ?? 'Réserve'} · {reserve.building ?? reserve.batiment ?? 'Plan'}</span>
+                  <strong>{reserve.title ?? reserve.name ?? reserve.id}</strong>
+                </button>
+              ))}
+              {!oprReserves.length && <small>Aucune réserve OPR.</small>}
+            </div>
+          </div>
+          <SimpleColumn title="À réceptionner" rows={oprReserves.filter((reserve: any) => reserve.status !== 'closed')} primary="title" secondary="deadline" />
         </div>
       </section>
     </div>
