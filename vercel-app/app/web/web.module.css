@@ -2694,11 +2694,15 @@
 
 .buildingFamilyToolbarWeb {
   position: relative;
+  z-index: 35;
+  overflow: visible;
 }
 
 .buildingFamilyMoreWeb {
   position: relative;
   flex: 0 0 auto;
+  display: inline-flex;
+  overflow: visible;
 }
 
 .buildingFamilyMoreActiveWeb {
@@ -2710,9 +2714,11 @@
 .buildingFamilyPopoverWeb {
   position: absolute;
   top: calc(100% + 8px);
-  right: 0;
-  z-index: 40;
-  width: min(340px, calc(100vw - 48px));
+  left: 0;
+  right: auto;
+  z-index: 80;
+  width: min(360px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
   border: 1px solid #d8e0ec;
   border-radius: 16px;
   background: #fff;
@@ -2770,7 +2776,7 @@
 .buildingFamilyPopoverListWeb {
   display: grid;
   gap: 6px;
-  max-height: 260px;
+  max-height: min(300px, 46vh);
   margin-top: 10px;
   overflow-y: auto;
   padding-right: 3px;
@@ -7552,7 +7558,8 @@
   .buildingFamilyPopoverWeb {
     left: 0;
     right: auto;
-    width: 100%;
+    width: min(340px, calc(100vw - 36px));
+    max-width: calc(100vw - 36px);
   }
 
   .buildingAllRowWeb,
