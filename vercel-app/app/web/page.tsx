@@ -89,6 +89,20 @@ type PinPlacementPreview = {
   label: string;
 };
 
+type WebPlanDrawingTool = 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'cloud' | 'highlight';
+
+type WebPlanDrawing = {
+  id: string;
+  tool: WebPlanDrawingTool;
+  points: Array<{ x: number; y: number }>;
+  color: string;
+  strokeWidth: number;
+  text?: string;
+  fontSize?: number;
+  opacity?: number;
+  page?: number;
+};
+
 type VisitDraft = {
   title: string;
   chantierId: string;
@@ -685,14 +699,14 @@ function normalizePlanPercent(value?: any) {
   if (value == null || value === '') return null;
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
-  return Math.round(clampPercent(num));
+  return Number(clampPercent(num).toFixed(2));
 }
 
 function planCoordinateToPercent(value: any, ratioMode = false) {
   if (value == null || value === '') return null;
   const num = Number(value);
   if (!Number.isFinite(num)) return null;
-  return clampPercent(ratioMode ? num * 100 : num, 2, 98);
+  return clampPercent(ratioMode ? num * 100 : num);
 }
 
 function toBase64Download(pdfBase64: string, filename: string) {
@@ -1535,6 +1549,58 @@ export default function BuildTrackWebPage() {
     if (updateError) setError(updateError.message);
     else setData(prev => ({ ...prev, reserves: prev.reserves.map(r => r.id === reserveId ? { ...r, status } : r) }));
     setSaving(false);
+  }
+
+  async function moveReservePinWeb(reserve: any, plan: any, x: number, y: number) {
+    if (!canEdit(profile) || !reserve?.id || !plan?.id) return;
+    const nextX = normalizePlanPercent(x);
+    const nextY = normalizePlanPercent(y);
+    if (nextX == null || nextY == null) return;
+
+    const history = [
+      ...(Array.isArray(reserve.history) ? reserve.history : []),
+      makeHistory('Épingle déplacée depuis le web', userLabel(profile, authUser)),
+    ];
+    const patch = {
+      plan_id: plan.id,
+      plan_x: nextX,
+      plan_y: nextY,
+      building: getPlanBuildingName(plan) || reserve.building || '',
+      building_id: plan.building_id ?? plan.buildingId ?? reserve.building_id ?? reserve.buildingId ?? null,
+      level: getPlanLevelName(plan) || reserve.level || '',
+      level_id: plan.level_id ?? plan.levelId ?? reserve.level_id ?? reserve.levelId ?? null,
+      history,
+    };
+
+    setData(prev => ({
+      ...prev,
+      reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, ...patch } : item),
+    }));
+
+    const { error: pinError } = await supabaseBrowser
+      .from('reserves')
+      .update(patch)
+      .eq('id', reserve.id);
+    if (pinError) {
+      setError(pinError.message);
+      if (authUser) await loadEverything(authUser);
+    }
+  }
+
+  async function updatePlanAnnotationsWeb(plan: any, annotations: WebPlanDrawing[]) {
+    if (!canEdit(profile) || !plan?.id) return;
+    setData(prev => ({
+      ...prev,
+      sitePlans: prev.sitePlans.map(item => item.id === plan.id ? { ...item, annotations } : item),
+    }));
+    const { error: annotationError } = await supabaseBrowser
+      .from('site_plans')
+      .update({ annotations })
+      .eq('id', plan.id);
+    if (annotationError) {
+      setError(annotationError.message);
+      if (authUser) await loadEverything(authUser);
+    }
   }
 
   async function toggleArchive(reserve: any) {
@@ -2691,6 +2757,8 @@ export default function BuildTrackWebPage() {
                 setTab={setActiveTab}
                 onCreateReserve={(plan: any) => openReserveCreate({ plan })}
                 onCreateReserveAtPin={(plan: any, pin: ReservePinDraft) => openReserveCreate({ plan, pin })}
+                onMoveReservePin={moveReservePinWeb}
+                onUpdatePlanAnnotations={updatePlanAnnotationsWeb}
                 onGeneratePlansPdf={(plans: any[], reserves: any[], language: TextLang, companyFilter?: string | null, statusFilter?: string | null) =>
                   generateWebReport('plans', { plans, reserves, language, companyFilter, statusFilter })
                 }
@@ -3970,14 +4038,128 @@ function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
   );
 }
 
+function drawingPath(points: WebPlanDrawing['points']) {
+  return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
+}
+
+function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
+  const points = drawing.points ?? [];
+  if (!points.length) return null;
+  const first = points[0];
+  const last = points[points.length - 1] ?? first;
+  const strokeWidth = Math.max(0.14, Math.min(1.4, Number(drawing.strokeWidth || 2) * 0.22));
+  const opacity = drawing.opacity ?? (drawing.tool === 'highlight' ? 0.28 : 1);
+  const common = {
+    stroke: drawing.color || '#ef4444',
+    strokeWidth,
+    opacity,
+    vectorEffect: 'non-scaling-stroke' as const,
+  };
+
+  if (drawing.tool === 'rect' || drawing.tool === 'cloud' || drawing.tool === 'highlight') {
+    const x = Math.min(first.x, last.x);
+    const y = Math.min(first.y, last.y);
+    const width = Math.abs(last.x - first.x);
+    const height = Math.abs(last.y - first.y);
+    return (
+      <rect
+        key={key}
+        x={x}
+        y={y}
+        width={width}
+        height={height}
+        rx={drawing.tool === 'cloud' ? 2.5 : 0.7}
+        fill={drawing.tool === 'highlight' ? drawing.color || '#facc15' : 'none'}
+        {...common}
+      />
+    );
+  }
+
+  if (drawing.tool === 'ellipse') {
+    const cx = (first.x + last.x) / 2;
+    const cy = (first.y + last.y) / 2;
+    return (
+      <ellipse
+        key={key}
+        cx={cx}
+        cy={cy}
+        rx={Math.abs(last.x - first.x) / 2}
+        ry={Math.abs(last.y - first.y) / 2}
+        fill="none"
+        {...common}
+      />
+    );
+  }
+
+  if (drawing.tool === 'line' || drawing.tool === 'arrow') {
+    const angle = Math.atan2(last.y - first.y, last.x - first.x);
+    const arrowLength = Math.max(1.4, strokeWidth * 4);
+    const arrowAngle = Math.PI / 7;
+    const left = {
+      x: last.x - arrowLength * Math.cos(angle - arrowAngle),
+      y: last.y - arrowLength * Math.sin(angle - arrowAngle),
+    };
+    const right = {
+      x: last.x - arrowLength * Math.cos(angle + arrowAngle),
+      y: last.y - arrowLength * Math.sin(angle + arrowAngle),
+    };
+    return (
+      <g key={key}>
+        <line x1={first.x} y1={first.y} x2={last.x} y2={last.y} fill="none" {...common} />
+        {drawing.tool === 'arrow' && (
+          <path
+            d={`M ${left.x} ${left.y} L ${last.x} ${last.y} L ${right.x} ${right.y}`}
+            fill="none"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            {...common}
+          />
+        )}
+      </g>
+    );
+  }
+
+  if (drawing.tool === 'text') {
+    return (
+      <text
+        key={key}
+        x={first.x}
+        y={first.y}
+        fill={drawing.color || '#ef4444'}
+        fontSize={Math.max(1.6, Math.min(4.2, Number(drawing.fontSize ?? 14) / 5))}
+        fontWeight={800}
+        opacity={opacity}
+      >
+        {drawing.text}
+      </text>
+    );
+  }
+
+  return (
+    <path
+      key={key}
+      d={drawingPath(points)}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...common}
+    />
+  );
+}
+
 function WebPdfPlan({
   uri,
   name,
   pins,
   focusedReserveId,
   canCreate,
+  canMovePins,
+  canAnnotate,
+  annotations,
   placementPreview,
   onCreateReserveAtPin,
+  onPinMove,
+  onAnnotationsChange,
   onPinClick,
   onPinDoubleClick,
 }: {
@@ -3986,8 +4168,13 @@ function WebPdfPlan({
   pins: PlanPin[];
   focusedReserveId?: string | null;
   canCreate?: boolean;
+  canMovePins?: boolean;
+  canAnnotate?: boolean;
+  annotations?: WebPlanDrawing[];
   placementPreview?: PinPlacementPreview | null;
   onCreateReserveAtPin?: (x: number, y: number) => void;
+  onPinMove?: (reserveId: string, x: number, y: number) => void;
+  onAnnotationsChange?: (annotations: WebPlanDrawing[]) => void;
   onPinClick: (reserveId: string) => void;
   onPinDoubleClick: (reserveId: string) => void;
 }) {
@@ -3995,17 +4182,50 @@ function WebPdfPlan({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderTaskRef = useRef<any>(null);
   const lastFocusZoomRef = useRef('');
+  const drawingPointerRef = useRef<number | null>(null);
+  const movePreviewTimerRef = useRef<number | null>(null);
   const [scale, setScale] = useState(0);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [drawColor, setDrawColor] = useState('#ef4444');
+  const [drawWidth, setDrawWidth] = useState(2);
+  const [liveDrawing, setLiveDrawing] = useState<WebPlanDrawing | null>(null);
+  const [localAnnotations, setLocalAnnotations] = useState<WebPlanDrawing[]>(annotations ?? []);
+  const [moveMode, setMoveMode] = useState(false);
+  const [movePreview, setMovePreview] = useState<PinPlacementPreview | null>(null);
 
   useEffect(() => {
     setScale(0);
     setPageSize({ width: 0, height: 0 });
     setError('');
+    setAnnotationMode(false);
+    setLiveDrawing(null);
+    setMoveMode(false);
+    setMovePreview(null);
     lastFocusZoomRef.current = '';
   }, [uri]);
+
+  useEffect(() => {
+    setLocalAnnotations(annotations ?? []);
+  }, [annotations, uri]);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsFullscreen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isFullscreen]);
+
+  useEffect(() => {
+    return () => {
+      if (movePreviewTimerRef.current) window.clearTimeout(movePreviewTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!focusedReserveId || !scale) return;
@@ -4095,16 +4315,89 @@ function WebPdfPlan({
     };
   }, [uri, scale]);
 
-  function handlePageClick(event: MouseEvent<HTMLDivElement>) {
-    if (!canCreate) return;
+  function pagePointFromEvent(event: MouseEvent<HTMLDivElement> | PointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
-    const x = clampPercent(((event.clientX - rect.left) / rect.width) * 100);
-    const y = clampPercent(((event.clientY - rect.top) / rect.height) * 100);
+    return {
+      x: Number(clampPercent(((event.clientX - rect.left) / rect.width) * 100).toFixed(2)),
+      y: Number(clampPercent(((event.clientY - rect.top) / rect.height) * 100).toFixed(2)),
+    };
+  }
+
+  function commitAnnotations(next: WebPlanDrawing[]) {
+    setLocalAnnotations(next);
+    onAnnotationsChange?.(next);
+  }
+
+  function handlePageClick(event: MouseEvent<HTMLDivElement>) {
+    if (annotationMode) return;
+    const { x, y } = pagePointFromEvent(event);
+    if (moveMode && canMovePins && focusedReserveId) {
+      setMoveMode(false);
+      const preview: PinPlacementPreview = {
+        id: `move-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        planId: 'current',
+        x,
+        y,
+        label: 'Épingle déplacée',
+      };
+      setMovePreview(preview);
+      if (movePreviewTimerRef.current) window.clearTimeout(movePreviewTimerRef.current);
+      movePreviewTimerRef.current = window.setTimeout(() => setMovePreview(null), 850);
+      onPinMove?.(focusedReserveId, x, y);
+      return;
+    }
+    if (!canCreate) return;
     onCreateReserveAtPin?.(x, y);
   }
 
+  function handleDrawPointerDown(event: PointerEvent<SVGSVGElement>) {
+    if (!annotationMode || !canAnnotate) return;
+    event.preventDefault();
+    event.stopPropagation();
+    drawingPointerRef.current = event.pointerId;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const point = pagePointFromEvent(event);
+    setLiveDrawing({
+      id: `drawing-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      tool: 'pen',
+      points: [point],
+      color: drawColor,
+      strokeWidth: drawWidth,
+      page: 1,
+    });
+  }
+
+  function handleDrawPointerMove(event: PointerEvent<SVGSVGElement>) {
+    if (drawingPointerRef.current !== event.pointerId) return;
+    event.preventDefault();
+    const point = pagePointFromEvent(event);
+    setLiveDrawing(current => {
+      if (!current) return current;
+      const last = current.points[current.points.length - 1];
+      if (last && Math.abs(last.x - point.x) + Math.abs(last.y - point.y) < 0.1) return current;
+      return { ...current, points: [...current.points, point] };
+    });
+  }
+
+  function handleDrawPointerUp(event: PointerEvent<SVGSVGElement>) {
+    if (drawingPointerRef.current !== event.pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    drawingPointerRef.current = null;
+    setLiveDrawing(current => {
+      if (current && current.points.length > 1) {
+        commitAnnotations([...localAnnotations, current]);
+      }
+      return null;
+    });
+  }
+
+  const focusedPin = focusedReserveId ? pins.find(pin => pin.reserve.id === focusedReserveId) : null;
+  const activePreview = placementPreview ?? movePreview;
+
   return (
-    <div className={styles.webPdfShell}>
+    <div className={`${styles.webPdfShell} ${isFullscreen ? styles.webPdfShellFullscreen : ''}`}>
       <div className={styles.webPdfToolbar}>
         <div className={styles.webPdfZoomControls}>
           <button type="button" onClick={() => setScale(value => Math.max(0.08, Number(((value || 1) - 0.1).toFixed(2))))}>−</button>
@@ -4112,8 +4405,80 @@ function WebPdfPlan({
           <button type="button" onClick={() => setScale(value => Math.min(3, Number(((value || 1) + 0.1).toFixed(2))))}>+</button>
         </div>
         <button type="button" onClick={() => setScale(0)}>Adapter</button>
+        <button type="button" onClick={() => { setIsFullscreen(value => !value); setScale(0); }}>
+          {isFullscreen ? 'Réduire' : 'Grand plan'}
+        </button>
+        {canMovePins && focusedPin && (
+          <button
+            type="button"
+            className={moveMode ? styles.webPdfToolbarActive : ''}
+            onClick={() => {
+              setMoveMode(value => !value);
+              setAnnotationMode(false);
+            }}
+          >
+            {moveMode ? 'Cliquez la position' : 'Déplacer épingle'}
+          </button>
+        )}
+        {canAnnotate && (
+          <button
+            type="button"
+            className={annotationMode ? styles.webPdfToolbarActive : ''}
+            onClick={() => {
+              setAnnotationMode(value => !value);
+              setMoveMode(false);
+            }}
+          >
+            Crayon
+          </button>
+        )}
         <a href={uri} target="_blank" rel="noreferrer">Ouvrir le PDF</a>
       </div>
+      {canAnnotate && annotationMode && (
+        <div className={styles.webPdfAnnotateControls}>
+          <span>Couleur</span>
+          {['#ef4444', '#f59e0b', '#22c55e', '#2563eb', '#111827'].map(color => (
+            <button
+              key={color}
+              type="button"
+              className={drawColor === color ? styles.webPdfColorButtonActive : styles.webPdfColorButton}
+              style={{ background: color }}
+              onClick={() => setDrawColor(color)}
+              aria-label={`Couleur ${color}`}
+            />
+          ))}
+          <span>Trait</span>
+          {[1, 2, 4, 6].map(width => (
+            <button
+              key={width}
+              type="button"
+              className={`${styles.webPdfWidthButton} ${drawWidth === width ? styles.webPdfToolbarActive : ''}`}
+              onClick={() => setDrawWidth(width)}
+            >
+              {width}
+            </button>
+          ))}
+          <button
+            type="button"
+            disabled={localAnnotations.length === 0}
+            onClick={() => commitAnnotations(localAnnotations.slice(0, -1))}
+          >
+            Annuler
+          </button>
+          <button
+            type="button"
+            disabled={localAnnotations.length === 0}
+            onClick={() => commitAnnotations([])}
+          >
+            Effacer
+          </button>
+        </div>
+      )}
+      {moveMode && focusedPin && (
+        <div className={styles.webPdfMoveHint}>
+          Cliquez sur le plan pour repositionner l'épingle {focusedPin.number}.
+        </div>
+      )}
       <div ref={viewportRef} className={styles.webPdfViewport}>
         <div
           className={styles.webPdfPage}
@@ -4129,13 +4494,25 @@ function WebPdfPlan({
               <span>{error}</span>
             </div>
           )}
-          {placementPreview && (
+          <svg
+            className={`${styles.webPdfAnnotationLayer} ${annotationMode ? styles.webPdfAnnotationLayerActive : ''}`}
+            viewBox="0 0 100 100"
+            preserveAspectRatio="none"
+            onPointerDown={handleDrawPointerDown}
+            onPointerMove={handleDrawPointerMove}
+            onPointerUp={handleDrawPointerUp}
+            onPointerCancel={handleDrawPointerUp}
+          >
+            {localAnnotations.map((drawing, index) => renderWebPlanDrawing(drawing, drawing.id ?? `drawing-${index}`))}
+            {liveDrawing && renderWebPlanDrawing(liveDrawing, 'live-drawing')}
+          </svg>
+          {activePreview && (
             <div
-              key={placementPreview.id}
+              key={activePreview.id}
               className={styles.pinPlacementPreview}
-              style={{ left: `${placementPreview.x}%`, top: `${placementPreview.y}%` }}
+              style={{ left: `${activePreview.x}%`, top: `${activePreview.y}%` }}
             >
-              <span>{placementPreview.label}</span>
+              <span>{activePreview.label}</span>
             </div>
           )}
           {pins.map((pin) => (
@@ -4173,6 +4550,8 @@ function PlansView({
   setTab,
   onCreateReserve,
   onCreateReserveAtPin,
+  onMoveReservePin,
+  onUpdatePlanAnnotations,
   onGeneratePlansPdf,
   generatingReport,
   defaultReportLanguage,
@@ -4391,8 +4770,8 @@ function PlansView({
   };
   const assignOrCreatePinAt = (x: number, y: number) => {
     if (!selectedPlan) return;
-    const nextX = Math.round(clampPercent(x));
-    const nextY = Math.round(clampPercent(y));
+    const nextX = Number(clampPercent(x).toFixed(2));
+    const nextY = Number(clampPercent(y).toFixed(2));
     const preview: PinPlacementPreview = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
       planId: selectedPlan.id,
@@ -4697,8 +5076,16 @@ function PlansView({
                     pins={planPins}
                     focusedReserveId={focusedPlanReserveId}
                     canCreate={editable}
+                    canMovePins={editable}
+                    canAnnotate={editable}
+                    annotations={Array.isArray(selectedPlan.annotations) ? selectedPlan.annotations : []}
                     placementPreview={activePlacementPreview}
                     onCreateReserveAtPin={assignOrCreatePinAt}
+                    onPinMove={(reserveId, x, y) => {
+                      const reserve = planReserves.find((item: any) => item.id === reserveId);
+                      if (reserve) onMoveReservePin?.(reserve, selectedPlan, x, y);
+                    }}
+                    onAnnotationsChange={(nextAnnotations) => onUpdatePlanAnnotations?.(selectedPlan, nextAnnotations)}
                     onPinClick={(reserveId) => {
                       setSelectedPlanReserveId(reserveId);
                       setFocusedPlanReserveId(reserveId);

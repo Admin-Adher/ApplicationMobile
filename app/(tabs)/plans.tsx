@@ -1204,11 +1204,11 @@ export default function PlansScreen() {
 
   function getPinDisplaySize(id: string, base: number): number {
     const individualScale = pinSizes[id] ?? 1.0;
-    return Math.max(10, Math.round(base * individualScale));
+    return Math.max(isTablet ? 10 : 8, Math.round(base * individualScale));
   }
 
   function getPinLabelSize(size: number): number {
-    return Math.max(7, Math.min(12, Math.round(size * 0.42)));
+    return Math.max(6, Math.min(isTablet ? 11 : 10, Math.round(size * 0.48)));
   }
 
   const buildings = useMemo(() => {
@@ -1897,8 +1897,8 @@ export default function PlansScreen() {
     }
   }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier, enrichReservesForPdf, t, commonReserveText]);
 
-  const pinSize = Math.max(10, Math.round((isTablet ? 18 : 14) * pinSizeScale));
-  const clusterSize = Math.max(18, Math.round((isTablet ? 28 : 22) * pinSizeScale));
+  const pinSize = Math.max(isTablet ? 11 : 9, Math.min(isTablet ? 18 : 14, Math.round((isTablet ? 15 : 11) * pinSizeScale)));
+  const clusterSize = Math.max(isTablet ? 18 : 15, Math.min(isTablet ? 28 : 22, Math.round((isTablet ? 23 : 18) * pinSizeScale)));
   const dynW = planDimensions.width;
   const dynH = planDimensions.height;
 

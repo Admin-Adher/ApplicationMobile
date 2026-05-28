@@ -3648,8 +3648,19 @@
   min-height: 420px;
   align-self: stretch;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto minmax(0, 1fr);
   background: #fff;
+}
+
+.webPdfShellFullscreen {
+  position: fixed;
+  inset: 18px;
+  z-index: 1200;
+  min-height: 0;
+  border: 1px solid #cbd5e1;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.32);
 }
 
 .webPdfToolbar {
@@ -3689,10 +3700,70 @@
   cursor: pointer;
 }
 
+.webPdfToolbar button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.webPdfToolbarActive {
+  border-color: #003082 !important;
+  background: #003082 !important;
+  color: #fff !important;
+}
+
 .webPdfToolbar strong {
   min-width: 56px;
   text-align: center;
   color: #0f172a;
+}
+
+.webPdfAnnotateControls,
+.webPdfMoveHint {
+  z-index: 7;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border-bottom: 1px solid #dde4ee;
+  background: #f8fafc;
+}
+
+.webPdfAnnotateControls span,
+.webPdfMoveHint {
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.webPdfAnnotateControls button {
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  min-height: 34px;
+  background: #fff;
+  color: #003082;
+  padding: 7px 10px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.webPdfColorButton,
+.webPdfColorButtonActive {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px !important;
+  padding: 0 !important;
+  border-radius: 999px !important;
+}
+
+.webPdfColorButtonActive {
+  box-shadow: 0 0 0 3px #fff, 0 0 0 5px #003082;
+}
+
+.webPdfWidthButton {
+  min-width: 34px;
 }
 
 .webPdfViewport {
@@ -3707,6 +3778,11 @@
   background-size: 24px 24px;
   padding: 16px;
   scrollbar-gutter: stable;
+}
+
+.webPdfShellFullscreen .webPdfViewport {
+  height: calc(100vh - 116px);
+  min-height: 0;
 }
 
 .webPdfPage {
@@ -3724,6 +3800,22 @@
   width: 100%;
   height: 100%;
   background: #fff;
+}
+
+.webPdfAnnotationLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.webPdfAnnotationLayerActive {
+  z-index: 40;
+  pointer-events: auto;
+  cursor: crosshair;
 }
 
 .webPdfLoading,

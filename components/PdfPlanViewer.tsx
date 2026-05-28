@@ -284,7 +284,7 @@ function buildMobileHtml(
       planY: r.planY,
       color: getReservePinColor(r, companies),
       num: pinMap.get(r.id) ?? '?',
-      size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
+      size: Math.max(8, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
     }));
 
   const ghostPinsData = ghostReserves
@@ -295,7 +295,7 @@ function buildMobileHtml(
       planY: r.planY,
       color: getReservePinColor(r, companies),
       num: pinMap.get(r.id) ?? '?',
-      size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
+      size: Math.max(8, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
     }));
 
   const safeAnns = JSON.stringify(annotations ?? []);
@@ -1355,7 +1355,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         id: r.id, planX: r.planX, planY: r.planY,
         color: getReservePinColor(r, companies),
         num: pinNumberMap.get(r.id) ?? '?',
-        size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
+        size: Math.max(8, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
       }));
     const ghostData = ghostReserves
       .filter(r => r.planX != null && r.planY != null)
@@ -1364,7 +1364,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         planX: r.planX, planY: r.planY,
         color: getReservePinColor(r, companies),
         num: pinNumberMap.get(r.id) ?? '?',
-        size: Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
+        size: Math.max(8, Math.round(pinSize * (pinSizes[r.id] ?? 1.0))),
       }));
     inject(`window.updatePins(${JSON.stringify(pinsData)},${JSON.stringify(ghostData)});`);
   }, [inject, reserves, ghostReserves, pinNumberMap, pinSizes, pinSize, companies]);
@@ -2015,7 +2015,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const onPinMouseDown = (e: React.MouseEvent<HTMLDivElement>, r: Reserve) => {
     e.stopPropagation();
     if (mode === 'annotate') return;
-    const sz = Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
+    const sz = Math.max(8, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
     const el = e.currentTarget as HTMLElement;
     const startX = e.clientX;
     const startY = e.clientY;
@@ -2276,7 +2276,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             {cw > 0 && ghostPinsOnPage.map(r => {
               const col = getReservePinColor(r, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
-              const sz = Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
+              const sz = Math.max(8, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
               return (
                 <div
                   key={`ghost-${r.id}`}
@@ -2294,7 +2294,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                     userSelect: 'none',
                   } as any}
                 >
-                  <span style={{ color: '#fff', fontSize: Math.max(7, Math.round(sz * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
+                  <span style={{ color: '#fff', fontSize: Math.max(6, Math.min(10, Math.round(sz * 0.48))), fontWeight: '700', fontFamily: 'Arial' } as any}>
                     {num}
                   </span>
                 </div>
@@ -2303,7 +2303,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             {cw > 0 && pinsOnPage.map(r => {
               const col = getReservePinColor(r, companies);
               const num = pinNumberMap.get(r.id) ?? '?';
-              const sz = Math.max(10, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
+              const sz = Math.max(8, Math.round(pinSize * (pinSizes[r.id] ?? 1.0)));
               const isFocused = focusedPinId === r.id;
               return (
                 <div
@@ -2333,7 +2333,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
                   onMouseEnter={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.12)' : 'scale(1.16)'; }}
                   onMouseLeave={(e: any) => { if (!pinDragActiveRef.current) e.currentTarget.style.transform = isFocused ? 'scale(1.08)' : 'scale(1)'; }}
                 >
-                  <span style={{ color: '#fff', fontSize: Math.max(8, Math.round(sz * 0.42)), fontWeight: '700', fontFamily: 'Arial' } as any}>
+                  <span style={{ color: '#fff', fontSize: Math.max(6, Math.min(10, Math.round(sz * 0.48))), fontWeight: '700', fontFamily: 'Arial' } as any}>
                     {num}
                   </span>
                 </div>

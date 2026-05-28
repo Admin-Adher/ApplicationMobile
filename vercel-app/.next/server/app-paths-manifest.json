@@ -1,17 +1,17 @@
 {
-  "/.well-known/apple-app-site-association/route": "app/.well-known/apple-app-site-association/route.js",
-  "/api/send-email/route": "app/api/send-email/route.js",
   "/_not-found/page": "app/_not-found/page.js",
+  "/.well-known/apple-app-site-association/route": "app/.well-known/apple-app-site-association/route.js",
   "/api/request-password-reset/route": "app/api/request-password-reset/route.js",
-  "/api/cron/overdue-reserves/route": "app/api/cron/overdue-reserves/route.js",
+  "/api/send-email/route": "app/api/send-email/route.js",
   "/api/admin-notification-preferences/route": "app/api/admin-notification-preferences/route.js",
+  "/api/cron/overdue-reserves/route": "app/api/cron/overdue-reserves/route.js",
+  "/api/generate-pdf/route": "app/api/generate-pdf/route.js",
   "/api/translate-text/route": "app/api/translate-text/route.js",
   "/api/send-push/route": "app/api/send-push/route.js",
-  "/api/generate-pdf/route": "app/api/generate-pdf/route.js",
-  "/invite/page": "app/invite/page.js",
   "/page": "app/page.js",
-  "/reset-password/page": "app/reset-password/page.js",
   "/web/page": "app/web/page.js",
   "/register/page": "app/register/page.js",
+  "/invite/page": "app/invite/page.js",
+  "/reset-password/page": "app/reset-password/page.js",
   "/reserve/[id]/page": "app/reserve/[id]/page.js"
 }
