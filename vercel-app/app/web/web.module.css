@@ -3943,6 +3943,11 @@
   position: fixed;
   inset: 18px;
   z-index: 1200;
+  width: auto;
+  max-width: none;
+  height: auto;
+  max-height: none;
+  box-sizing: border-box;
   min-height: 0;
   border: 1px solid #cbd5e1;
   border-radius: 20px;
@@ -4068,8 +4073,23 @@
 }
 
 .webPdfShellFullscreen .webPdfViewport {
-  height: calc(100vh - 116px);
+  height: auto;
   min-height: 0;
+}
+
+.webPdfShellFullscreen .webPdfToolbar {
+  min-width: 0;
+  justify-content: flex-start;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.webPdfShellFullscreen .webPdfToolbar > * {
+  flex: 0 0 auto;
+}
+
+.webPdfShellFullscreen .webPdfToolbar a {
+  margin-left: auto;
 }
 
 .webPdfPage {
@@ -5721,12 +5741,14 @@
 
 .reservePhotoGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(156px, 176px));
   gap: 10px;
+  align-items: start;
 }
 
 .reservePhotoItem {
-  overflow: hidden;
+  overflow: visible;
+  min-width: 0;
   border: 1px solid #d8e0ec;
   border-radius: 13px;
   background: #fff;
@@ -5736,24 +5758,29 @@
   display: block;
   width: 100%;
   aspect-ratio: 4 / 3;
+  border-radius: 12px 12px 0 0;
   object-fit: cover;
 }
 
 .reservePhotoItem div {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
   gap: 6px;
-  padding: 7px;
+  padding: 8px;
 }
 
 .reservePhotoItem button {
+  flex: 1 1 0;
+  min-width: 0;
   border: 1px solid #d8e0ec;
   border-radius: 9px;
   background: #f8fafc;
   color: #003082;
-  padding: 7px;
+  padding: 8px 7px;
   font-size: 11px;
+  line-height: 1.1;
   font-weight: 900;
+  text-align: center;
+  white-space: nowrap;
   cursor: pointer;
 }
 

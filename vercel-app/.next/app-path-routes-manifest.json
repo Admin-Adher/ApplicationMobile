@@ -1,17 +1,17 @@
 {
   "/.well-known/apple-app-site-association/route": "/.well-known/apple-app-site-association",
   "/_not-found/page": "/_not-found",
-  "/api/request-password-reset/route": "/api/request-password-reset",
   "/api/send-email/route": "/api/send-email",
+  "/api/request-password-reset/route": "/api/request-password-reset",
   "/api/admin-notification-preferences/route": "/api/admin-notification-preferences",
   "/api/cron/overdue-reserves/route": "/api/cron/overdue-reserves",
   "/api/translate-text/route": "/api/translate-text",
   "/api/generate-pdf/route": "/api/generate-pdf",
   "/api/send-push/route": "/api/send-push",
+  "/page": "/",
   "/invite/page": "/invite",
   "/reset-password/page": "/reset-password",
-  "/register/page": "/register",
-  "/page": "/",
   "/web/page": "/web",
+  "/register/page": "/register",
   "/reserve/[id]/page": "/reserve/[id]"
 }
