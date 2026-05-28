@@ -256,6 +256,7 @@
   height: 100vh;
   height: 100dvh;
   overflow: hidden;
+  font-size: 14px;
   transition: grid-template-columns 0.18s ease;
 }
 
@@ -599,6 +600,61 @@
   padding: 48px;
   color: #64748b;
   text-align: center;
+}
+
+@media (min-width: 1181px) {
+  .workspace {
+    gap: 14px;
+  }
+
+  .topbar h1 {
+    font-size: 30px;
+    line-height: 1.08;
+  }
+
+  .topbarActions {
+    gap: 8px;
+  }
+
+  .topbarActions select {
+    min-width: 220px;
+    padding: 9px 12px;
+    font-size: 14px;
+  }
+
+  .topbarActions button {
+    min-height: 42px;
+    border-radius: 15px;
+    padding: 9px 15px;
+    font-size: 13px;
+  }
+
+  .sectionHeader {
+    margin-bottom: 10px;
+  }
+
+  .sectionHeader h2,
+  .panelHeaderCompact h2 {
+    font-size: 22px;
+    line-height: 1.16;
+  }
+
+  .sectionHeader p,
+  .panelHeaderCompact p {
+    font-size: 13px;
+  }
+
+  .inlineActions {
+    gap: 6px;
+  }
+
+  .inlineActions button,
+  .inlineActions a,
+  .panelHeaderCompact button {
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-size: 13px;
+  }
 }
 
 .panel {
@@ -6408,6 +6464,168 @@
 .topbarTitle {
   min-width: 0;
   flex: 1 1 auto;
+}
+
+@media (min-width: 1181px) {
+  .plansListPanel,
+  .plansPreviewPanel {
+    font-size: 13px;
+  }
+
+  .buildingRailHeaderWeb span {
+    font-size: 11px;
+  }
+
+  .buildingRailHeaderWeb strong {
+    font-size: 18px;
+  }
+
+  .buildingRailHeaderWeb small {
+    font-size: 12px;
+  }
+
+  .buildingRailSearchWeb {
+    border-radius: 11px;
+    padding: 8px 10px;
+  }
+
+  .buildingRailSearchWeb input {
+    font-size: 13px;
+  }
+
+  .buildingFamilyRowWeb,
+  .buildingRecentBlockWeb {
+    gap: 6px;
+  }
+
+  .buildingFamilyRowWeb button,
+  .buildingRecentButtonWeb {
+    min-height: 28px;
+    padding: 6px 9px;
+    font-size: 12px;
+  }
+
+  .buildingFamilyRowWeb em,
+  .buildingRecentButtonWeb em {
+    min-width: 17px;
+    padding: 1px 5px;
+  }
+
+  .buildingRecentBlockWeb {
+    border-radius: 12px;
+    padding: 8px;
+  }
+
+  .buildingAllRowWeb,
+  .buildingGroupButtonWeb {
+    min-height: 54px;
+    border-radius: 12px;
+    padding: 10px;
+  }
+
+  .buildingAllRowWeb span,
+  .buildingGroupIconWeb {
+    width: 30px;
+    height: 30px;
+    border-radius: 9px;
+  }
+
+  .buildingGroupButtonWeb strong,
+  .buildingPlanRowWeb strong {
+    font-size: 14px;
+  }
+
+  .buildingGroupButtonWeb small,
+  .buildingPlanRowWeb small {
+    font-size: 12px;
+  }
+
+  .buildingPlanRowWeb {
+    min-height: 48px;
+    border-radius: 9px;
+    padding: 8px 10px;
+  }
+
+  .pinToolbar {
+    grid-template-columns: minmax(190px, 0.72fr) minmax(260px, 1fr);
+    border-radius: 12px;
+    padding: 8px 10px;
+  }
+
+  .pinToolbarIntro strong {
+    font-size: 14px;
+  }
+
+  .pinToolbarIntro span {
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .pinToolbarAction {
+    min-height: 50px;
+    border-radius: 11px;
+    padding: 8px 10px;
+  }
+
+  .pinToolbarAction > span {
+    width: 28px;
+    height: 28px;
+    border-radius: 9px;
+    font-size: 16px;
+  }
+
+  .pinToolbarAction strong {
+    font-size: 12px;
+  }
+
+  .pinToolbarAction small {
+    font-size: 10px;
+  }
+
+  .webPdfToolbar {
+    gap: 6px;
+    padding: 8px;
+  }
+
+  .webPdfZoomControls {
+    gap: 4px;
+    border-radius: 10px;
+    padding: 3px;
+  }
+
+  .webPdfToolbar button,
+  .webPdfToolbar a {
+    min-width: 32px;
+    border-radius: 9px;
+    padding: 7px 9px;
+    font-size: 12px;
+  }
+
+  .webPdfToolbar strong {
+    min-width: 48px;
+    font-size: 13px;
+  }
+
+  .planReserveCollapsedRail {
+    gap: 6px;
+    padding: 10px 6px;
+  }
+
+  .planReserveCollapsedRail strong {
+    min-width: 30px;
+    height: 30px;
+    font-size: 15px;
+  }
+
+  .planReserveCollapsedRail span,
+  .planReserveCollapsedRail em {
+    font-size: 10px;
+  }
+
+  .planReserveCollapsedRail b {
+    width: 24px;
+    height: 24px;
+  }
 }
 
 @media (max-width: 1180px) {
