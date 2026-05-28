@@ -5033,8 +5033,8 @@ function PlansView({
       <section className={`${styles.panel} ${styles.plansPreviewPanel}`}>
         {selectedPlan ? (
           <>
-            <div className={styles.sectionHeader}>
-              <div>
+            <div className={`${styles.sectionHeader} ${styles.planPreviewHeader}`}>
+              <div className={styles.planPreviewTitle}>
                 <p className={styles.eyebrow}>{selectedPlan.file_type ?? 'plan'}</p>
                 <h2>{selectedPlan.name}</h2>
               </div>

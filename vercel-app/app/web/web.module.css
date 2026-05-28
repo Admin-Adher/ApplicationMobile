@@ -2880,6 +2880,38 @@
   overflow: hidden;
 }
 
+.planPreviewHeader {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.planPreviewTitle {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.planPreviewTitle h2 {
+  font-size: 22px;
+  line-height: 1.12;
+  word-break: break-word;
+}
+
+.planPreviewHeader .inlineActions {
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.planPreviewHeader .inlineActions button,
+.planPreviewHeader .inlineActions a {
+  min-height: 42px;
+  border-radius: 13px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1;
+}
+
 .planWorkArea {
   flex: 0 0 auto;
   min-height: 0;
