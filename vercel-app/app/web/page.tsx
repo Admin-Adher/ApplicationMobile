@@ -78,6 +78,7 @@ type PlanPin = {
   number: number;
   x: number;
   y: number;
+  color: string;
 };
 
 type PinPlacementPreview = {
@@ -748,6 +749,18 @@ function reserveCompanies(reserve: any): string[] {
   return Array.from(new Set(names));
 }
 
+function getCompanyColor(companyName: string, companies: any[]): string {
+  if (!companyName || companyName === '__mixed__') return '#6B7280';
+  const match = companies.find(c => sameName(c?.name, companyName));
+  return match?.color ?? '#003082';
+}
+
+function getReservePinColor(reserve: any, companies: any[]): string {
+  const names = reserveCompanies(reserve);
+  if (names.length > 1) return '#6B7280';
+  return getCompanyColor(names[0] ?? '', companies);
+}
+
 function getReservePlanId(reserve: any) {
   return String(reserve?.plan_id ?? reserve?.planId ?? '').trim();
 }
@@ -1348,6 +1361,7 @@ export default function BuildTrackWebPage() {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('buildtrack-web-sidebar-collapsed') === '1';
   });
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2478,8 +2492,16 @@ export default function BuildTrackWebPage() {
   }
 
   return (
-    <main className={`${styles.appShell} ${sidebarCollapsed ? styles.appShellCollapsed : ''}`}>
-      <aside className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : ''}`}>
+    <main className={`${styles.appShell} ${sidebarCollapsed ? styles.appShellCollapsed : ''} ${mobileNavOpen ? styles.appShellMobileNavOpen : ''}`}>
+      {mobileNavOpen && (
+        <button
+          type="button"
+          className={styles.mobileNavScrim}
+          aria-label="Fermer le menu"
+          onClick={() => setMobileNavOpen(false)}
+        />
+      )}
+      <aside className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : ''} ${mobileNavOpen ? styles.sidebarMobileOpen : ''}`}>
         <div className={styles.sidebarBrandRow}>
           <div className={styles.sidebarBrand}>
             <span className={styles.brandMarkSmall}>B</span>
@@ -2488,6 +2510,14 @@ export default function BuildTrackWebPage() {
               <span>Web</span>
             </div>
           </div>
+          <button
+            type="button"
+            className={styles.mobileNavClose}
+            aria-label="Fermer le menu"
+            onClick={() => setMobileNavOpen(false)}
+          >
+            ×
+          </button>
         </div>
         <button
           type="button"
@@ -2509,7 +2539,7 @@ export default function BuildTrackWebPage() {
                     <button
                       key={tab.id}
                       className={activeTab === tab.id ? styles.navActive : ''}
-                      onClick={() => setActiveTab(tab.id)}
+                      onClick={() => { setActiveTab(tab.id); setMobileNavOpen(false); }}
                       title={sidebarCollapsed ? tab.label : undefined}
                       aria-label={tab.label}
                     >
@@ -2534,7 +2564,15 @@ export default function BuildTrackWebPage() {
 
       <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''}`}>
         <header className={styles.topbar}>
-          <div>
+          <button
+            type="button"
+            className={styles.mobileNavBtn}
+            aria-label="Ouvrir le menu"
+            onClick={() => setMobileNavOpen(true)}
+          >
+            <span className={styles.mobileNavBtnIcon} aria-hidden="true" />
+          </button>
+          <div className={styles.topbarTitle}>
             <p className={styles.eyebrow}>Cockpit web</p>
             <h1>{TABS.find(t => t.id === activeTab)?.label}</h1>
           </div>
@@ -2616,6 +2654,7 @@ export default function BuildTrackWebPage() {
               <PlansView
                 plans={projectScoped.plans}
                 reserves={projectScoped.reserves}
+                companies={data.companies}
                 selectedPlan={selectedPlan}
                 setSelectedPlanId={setSelectedPlanId}
                 setSelectedReserveId={setSelectedReserveId}
@@ -4018,7 +4057,7 @@ function WebPdfPlan({
             <button
               key={pin.reserve.id}
               className={`${styles.pin} ${focusedReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
-              style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
+              style={{ left: `${pin.x}%`, top: `${pin.y}%`, background: pin.color }}
               title={`${pin.reserve.title} · double-clic pour ouvrir la réserve`}
               aria-label={`Mettre en avant l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
               onClick={event => {
@@ -4042,6 +4081,7 @@ function WebPdfPlan({
 function PlansView({
   plans,
   reserves,
+  companies,
   selectedPlan,
   setSelectedPlanId,
   setSelectedReserveId,
@@ -4292,6 +4332,7 @@ function PlansView({
         number: idx + 1,
         x: planCoordinateToPercent(reserve.plan_x, ratioMode),
         y: planCoordinateToPercent(reserve.plan_y, ratioMode),
+        color: getReservePinColor(reserve, companies ?? []),
       };
     })
     .filter((pin: any) => pin.x != null && pin.y != null) as PlanPin[];
@@ -4598,7 +4639,7 @@ function PlansView({
                     <button
                       key={pin.reserve.id}
                       className={`${styles.pin} ${focusedPlanReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
-                      style={{ left: `${pin.x}%`, top: `${pin.y}%` }}
+                      style={{ left: `${pin.x}%`, top: `${pin.y}%`, background: pin.color }}
                       title={`${pin.reserve.title} · double-clic pour ouvrir la réserve`}
                       aria-label={`Mettre en avant l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
                       onClick={event => {
@@ -4639,7 +4680,7 @@ function PlansView({
                       className={`${styles.planReserveRow} ${selectedPlanReserveId === reserve.id ? styles.planReserveRowActive : ''}`}
                       onClick={() => setSelectedPlanReserveId(reserve.id)}
                     >
-                      <span className={styles.planReserveNumber}>{idx + 1}</span>
+                      <span className={styles.planReserveNumber} style={{ background: getReservePinColor(reserve, companies ?? []) }}>{idx + 1}</span>
                       <span>
                         <strong>{reserve.title}</strong>
                         <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company_name, reserve.zone].filter(Boolean).join(' · ')}</small>
@@ -4656,7 +4697,7 @@ function PlansView({
                 {selectedPlanReserve && (
                   <div className={styles.planReserveQuickCard}>
                     <div className={styles.planReserveQuickHeader}>
-                      <span className={styles.planReserveNumber}>
+                      <span className={styles.planReserveNumber} style={{ background: getReservePinColor(selectedPlanReserve, companies ?? []) }}>
                         {planReserves.findIndex((reserve: any) => reserve.id === selectedPlanReserve.id) + 1}
                       </span>
                       <div>

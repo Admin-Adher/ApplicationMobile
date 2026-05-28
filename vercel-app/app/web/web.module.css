@@ -6046,62 +6046,81 @@
   cursor: pointer;
 }
 
-@media (max-width: 980px) {
+/* === Mobile drawer nav (hidden on desktop) === */
+.mobileNavBtn,
+.mobileNavClose,
+.mobileNavScrim {
+  display: none;
+}
+
+.topbarTitle {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+@media (max-width: 1180px) {
   .appShell,
   .appShellCollapsed {
-    grid-template-columns: 1fr;
-    height: auto;
-    min-height: 100vh;
-    min-height: 100dvh;
-    overflow: visible;
+    grid-template-columns: minmax(0, 1fr);
+    height: 100vh;
+    height: 100dvh;
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
-  .sidebar {
-    position: static;
-    height: auto;
-    overflow: visible;
-    border-right: 0;
-    border-bottom: 1px solid #dde4ee;
-  }
-
+  /* Sidebar becomes a fixed drawer overlaying the workspace */
+  .sidebar,
   .sidebarCollapsed {
+    position: fixed;
+    inset: 0 auto 0 0;
+    width: min(86vw, 320px);
+    z-index: 60;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease;
+    box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+    border-right: 1px solid #dde4ee;
+    border-bottom: 0;
+    padding: 20px 18px 18px;
+    overflow-y: auto;
     align-items: stretch;
-    padding: 20px;
   }
 
+  .sidebarMobileOpen {
+    transform: translateX(0);
+  }
+
+  /* Desktop collapse toggle is irrelevant on mobile */
   .sidebarToggle {
     display: none;
   }
 
+  /* Restore expanded look inside the drawer even if .sidebarCollapsed is on */
   .sidebarCollapsed .sidebarBrand div {
     display: grid;
   }
-
+  .sidebarCollapsed .sidebarBrandRow {
+    justify-content: space-between;
+  }
   .sidebarCollapsed .navList button {
     justify-content: flex-start;
     gap: 10px;
     padding: 11px 12px;
   }
-
   .sidebarCollapsed .navSectionLabel {
     display: block;
   }
-
   .sidebarCollapsed .navLabel,
   .sidebarCollapsed .userBox strong,
   .sidebarCollapsed .userBox > span,
   .sidebarCollapsed .logoutLabel {
     display: inline;
   }
-
   .sidebarCollapsed .userBox {
     place-items: stretch;
   }
-
   .sidebarCollapsed .logoutIcon {
     display: none;
   }
-
   .sidebarCollapsed .userBox button {
     width: auto;
     height: auto;
@@ -6116,24 +6135,195 @@
   }
 
   .navSectionItems {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: 1fr;
+    gap: 4px;
   }
 
   .userBox {
     margin-top: 0;
   }
 
+  /* Scrim that closes the drawer when tapped */
+  .mobileNavScrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(15, 23, 42, 0.45);
+    border: 0;
+    padding: 0;
+    cursor: pointer;
+    animation: webScrimFade 0.18s ease;
+  }
+
+  /* Close (×) inside the drawer header */
+  .mobileNavClose {
+    display: inline-grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    border: 1px solid #dde4ee;
+    background: #f8fafc;
+    color: #0f172a;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+  }
+
+  /* Hamburger in the workspace topbar */
+  .mobileNavBtn {
+    display: inline-grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    border-radius: 10px;
+    border: 1px solid #dde4ee;
+    background: #fff;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .mobileNavBtn:hover {
+    background: #f4f7fb;
+  }
+  .mobileNavBtnIcon,
+  .mobileNavBtnIcon::before,
+  .mobileNavBtnIcon::after {
+    display: block;
+    width: 18px;
+    height: 2px;
+    background: #0f172a;
+    border-radius: 1px;
+    position: relative;
+  }
+  .mobileNavBtnIcon::before,
+  .mobileNavBtnIcon::after {
+    content: '';
+    position: absolute;
+    left: 0;
+  }
+  .mobileNavBtnIcon::before { top: -6px; }
+  .mobileNavBtnIcon::after  { top: 6px; }
+
+  /* Workspace + topbar tightened for small screens */
+  .workspace {
+    padding: 14px;
+    gap: 12px;
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+  }
+  .topbar h1 {
+    font-size: 20px;
+    line-height: 1.2;
+  }
+  .eyebrow {
+    font-size: 11px;
+  }
+
+  .topbarActions {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+  .topbarActions select {
+    min-width: 0;
+    flex: 0 0 auto;
+    height: 40px;
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+  .topbarActions button {
+    flex: 1 1 auto;
+    min-width: 0;
+    min-height: 36px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    font-size: 13px;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.4),
+      0 2px 6px rgba(0, 48, 130, 0.18);
+  }
+  .topbarActions button::after {
+    display: none;
+  }
+
+  /* Prevent body scroll behind open drawer */
+  .appShellMobileNavOpen {
+    overflow: hidden;
+  }
+}
+
+@keyframes webScrimFade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@media (max-width: 1180px) {
+
   .twoCols,
-  .kpiGrid,
-  .dashboardKpiGrid,
   .dashboardWideGrid,
   .dashboardTwoColumns,
   .dashboardAlertGrid,
   .dashboardProjectGrid,
-  .quickGrid,
   .threeCols,
   .timelineGrid {
     grid-template-columns: 1fr;
+  }
+
+  /* KPI / quick-link grids: 2 columns on mobile for better density */
+  .dashboardKpiGrid,
+  .kpiGrid,
+  .quickGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  /* Compact each card on mobile */
+  .dashboardKpi {
+    padding: 10px 12px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
+  }
+  .dashboardKpi span {
+    width: 28px;
+    height: 28px;
+    font-size: 14px;
+    border-radius: 8px;
+  }
+  .dashboardKpi strong {
+    margin-top: 8px;
+    font-size: 24px;
+  }
+  .dashboardKpi em {
+    margin-top: 4px;
+    font-size: 12px;
+  }
+  .dashboardKpi small {
+    margin-top: 2px;
+    font-size: 11px;
+  }
+
+  .kpi,
+  .quick {
+    padding: 10px 12px;
+    border-radius: 12px;
+  }
+  .kpi strong {
+    margin: 4px 0 2px;
+    font-size: 22px;
+  }
+  .quick strong {
+    font-size: 20px;
+  }
+  .quick span,
+  .kpi span,
+  .kpi small {
+    font-size: 12px;
   }
 
   .dashboardHero,
@@ -6200,19 +6390,47 @@
   .workspaceReserves,
   .workspaceVisites {
     height: auto;
+    max-width: 100%;
     overflow: visible;
   }
 
-  .visitesWorkspace,
+  .visitesWorkspace {
+    grid-template-columns: 1fr;
+    flex: 0 0 auto;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+
   .visitInfoGrid {
     grid-template-columns: 1fr;
     overflow: visible;
   }
 
   .visitesListPanel,
-  .visitDetailPanel,
+  .visitDetailPanel {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: visible;
+  }
+
   .visitCardsList {
     overflow: visible;
+  }
+
+  .visitesListPanel {
+    padding: 14px;
+  }
+
+  .visitPanelHeader {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .visitPanelHeader button {
+    width: 100%;
   }
 
   .visitStatsGrid {
@@ -6223,6 +6441,51 @@
   .visitReportCardWeb {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .visitDetailHeader {
+    position: static;
+    padding: 16px;
+  }
+
+  .visitDetailActions {
+    display: grid;
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .visitDetailActions select,
+  .visitDetailActions button {
+    width: 100%;
+  }
+
+  .visitCoverHero {
+    width: calc(100% - 28px);
+    margin: 14px 14px 0;
+  }
+
+  .visitInfoGrid {
+    padding: 14px;
+  }
+
+  .visitDetailQuickActions,
+  .visitDetailBlock,
+  .visitTagList,
+  .visitReportCardWeb {
+    margin-right: 14px;
+    margin-left: 14px;
+  }
+
+  .visitReserveListWeb article {
+    grid-template-columns: 1fr;
+  }
+
+  .visitReserveListWeb article > div {
+    justify-content: stretch;
+  }
+
+  .visitReserveListWeb article > div button {
+    flex: 1 1 120px;
   }
 
   .plansListPanel,
@@ -6344,5 +6607,290 @@
 
   .visitDeadlineRow input {
     max-width: none;
+  }
+}
+
+@media (max-width: 1180px) {
+  .dashboardStack,
+  .reservesLayout,
+  .plansLayout {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+
+  .panel,
+  .reservesListPanel,
+  .reservesDetailPanel,
+  .plansListPanel,
+  .plansPreviewPanel {
+    min-width: 0;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .dashboardStack {
+    overflow: visible;
+  }
+
+  .dashboardHero {
+    padding: 16px;
+  }
+
+  .dashboardGreeting {
+    min-width: 0;
+    align-items: flex-start;
+  }
+
+  .dashboardGreeting h2 {
+    font-size: clamp(24px, 7vw, 30px);
+    line-height: 1.12;
+  }
+
+  .dashboardHeroActions,
+  .dashboardQuickActions,
+  .dashboardQuickActions button {
+    width: 100%;
+  }
+
+  .dashboardWideMetric,
+  .dashboardStatusRow,
+  .dashboardCompanyRow,
+  .dashboardCompanyClosureRow,
+  .dashboardAlertCard button {
+    min-width: 0;
+  }
+
+  .dashboardBars {
+    grid-template-columns: repeat(8, minmax(42px, 1fr));
+    overflow-x: auto;
+    padding-bottom: 4px;
+  }
+
+  .workspaceReserves,
+  .workspacePlans {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .reservesLayout,
+  .plansLayout {
+    flex: 0 0 auto;
+    gap: 14px;
+    padding-bottom: 20px;
+  }
+
+  .reservesListPanel,
+  .reservesDetailPanel,
+  .plansListPanel,
+  .plansPreviewPanel {
+    overflow: visible;
+  }
+
+  .reservePanelHeader,
+  .reserveDetailHeader,
+  .buildingRailHeaderWeb,
+  .planReserveHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .reservePanelActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .reservePanelActions button,
+  .reserveCreateButton,
+  .reservePdfOpenButton,
+  .reserveAssistantOpenButton {
+    width: 100%;
+  }
+
+  .reserveCompactToolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .reserveSearchRow,
+  .buildingRailSearchWeb {
+    min-width: 0;
+  }
+
+  .reserveRow {
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .reserveRow em {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .reserveDetailPanel {
+    display: block;
+  }
+
+  .reserveDetailBody {
+    overflow: visible;
+    padding: 14px;
+  }
+
+  .buildingRailHeaderWeb small {
+    text-align: left;
+  }
+
+  .buildingFamilyRowWeb {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .buildingFamilyRowWeb::-webkit-scrollbar {
+    display: none;
+  }
+
+  .buildingAllRowWeb,
+  .buildingGroupButtonWeb,
+  .buildingPlanRowWeb {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .buildingAllRowWeb small {
+    white-space: normal;
+    text-align: right;
+  }
+
+  .plansList {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+
+  .plansPreviewPanel .pinToolbar {
+    padding: 12px;
+  }
+
+  .planWorkArea {
+    height: auto;
+    grid-template-columns: 1fr;
+    overflow: visible;
+  }
+
+  .plansPreviewPanel .webPdfShell {
+    height: auto;
+  }
+
+  .plansPreviewPanel .webPdfViewport {
+    height: min(58vh, 520px);
+    min-height: 320px;
+    padding: 10px;
+  }
+
+  .plansPreviewPanel .planCanvas {
+    min-height: 360px;
+  }
+
+  .webPdfToolbar {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+
+  .webPdfZoomControls {
+    flex: 1 1 auto;
+  }
+
+  .webPdfToolbar a {
+    flex: 1 1 160px;
+  }
+
+  .planReservePanel {
+    overflow: visible;
+  }
+
+  .planReserveList {
+    max-height: none;
+    overflow: visible;
+    padding-right: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .workspace {
+    padding: 10px;
+  }
+
+  .topbar {
+    gap: 12px;
+  }
+
+  .dashboardHero,
+  .reservesListPanel,
+  .plansListPanel,
+  .plansPreviewPanel {
+    border-radius: 14px;
+  }
+
+  .dashboardKpiGrid,
+  .kpiGrid,
+  .quickGrid,
+  .visitStatsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dashboardKpi {
+    min-height: 118px;
+  }
+
+  .dashboardWideMetric {
+    padding: 12px;
+  }
+
+  .reservePanelActions {
+    grid-template-columns: 1fr;
+  }
+
+  .reserveFilterRail,
+  .visitFilterChips {
+    margin-inline: -2px;
+    padding-inline: 2px;
+  }
+
+  .reserveRow {
+    padding: 12px;
+  }
+
+  .reserveDetailHeader h2,
+  .visitDetailHeader h2 {
+    font-size: 24px;
+    line-height: 1.15;
+  }
+
+  .buildingAllRowWeb,
+  .buildingGroupButtonWeb,
+  .buildingPlanRowWeb {
+    gap: 8px;
+    padding: 11px;
+  }
+
+  .buildingAllRowWeb small {
+    font-size: 11px;
+  }
+
+  .plansPreviewPanel .webPdfViewport {
+    height: 52vh;
+    padding: 8px;
+  }
+
+  .plansPreviewPanel .planCanvas {
+    min-height: 320px;
+  }
+
+  .webPdfToolbar button,
+  .webPdfToolbar a {
+    padding: 8px 10px;
   }
 }

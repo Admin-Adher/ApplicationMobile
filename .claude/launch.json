@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "expo-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["start"],
+      "port": 5000
+    },
+    {
+      "name": "vercel-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "vercel-app"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}
