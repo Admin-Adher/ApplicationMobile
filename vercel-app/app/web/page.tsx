@@ -4560,6 +4560,8 @@ function PlansView({
   const [buildingQuery, setBuildingQuery] = useState('');
   const [selectedBuildingKey, setSelectedBuildingKey] = useState('all');
   const [activeFamilyKey, setActiveFamilyKey] = useState('all');
+  const [buildingFamilyMenuOpen, setBuildingFamilyMenuOpen] = useState(false);
+  const [buildingFamilyMenuQuery, setBuildingFamilyMenuQuery] = useState('');
   const [expandedBuildingKeys, setExpandedBuildingKeys] = useState<Set<string>>(() => new Set());
   const [recentBuildingKeys, setRecentBuildingKeys] = useState<string[]>(() => readStoredStringList(WEB_RECENT_BUILDINGS_KEY));
   const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
@@ -4690,12 +4692,61 @@ function PlansView({
       familyOf: new Map(realFamilies.flatMap(family => family.groups.map(group => [group.key, family.key] as const))),
     };
   }, [buildingGroups]);
+  const orderedBuildingFamilies = useMemo(
+    () => [...buildingFamilies.families].sort((a, b) => (
+      b.groups.length - a.groups.length
+      || a.label.localeCompare(b.label, 'fr', { numeric: true, sensitivity: 'base' })
+    )),
+    [buildingFamilies.families],
+  );
+  const buildingFamilyOptions = useMemo(() => (
+    buildingFamilies.useGrouping
+      ? [
+          { key: 'all', label: 'Tous', count: buildingGroups.length },
+          ...orderedBuildingFamilies.map(family => ({
+            key: family.key,
+            label: family.label,
+            count: family.groups.length,
+          })),
+        ]
+      : []
+  ), [buildingFamilies.useGrouping, buildingGroups.length, orderedBuildingFamilies]);
+  const primaryBuildingFamilyOptions = useMemo(() => {
+    const primary = buildingFamilyOptions.slice(0, 4);
+    const active = buildingFamilyOptions.find(option => option.key === activeFamilyKey);
+    if (!active || primary.some(option => option.key === active.key)) return primary;
+    return [primary[0], ...primary.slice(1, 3), active].filter(Boolean) as typeof buildingFamilyOptions;
+  }, [activeFamilyKey, buildingFamilyOptions]);
+  const visibleBuildingFamilyKeys = useMemo(
+    () => new Set(primaryBuildingFamilyOptions.map(option => option.key)),
+    [primaryBuildingFamilyOptions],
+  );
+  const hiddenBuildingFamilyOptions = useMemo(
+    () => buildingFamilyOptions.filter(option => option.key !== 'all' && !visibleBuildingFamilyKeys.has(option.key)),
+    [buildingFamilyOptions, visibleBuildingFamilyKeys],
+  );
+  const filteredHiddenBuildingFamilyOptions = useMemo(() => {
+    const query = normalizeSearchText(buildingFamilyMenuQuery);
+    if (!query) return hiddenBuildingFamilyOptions;
+    return hiddenBuildingFamilyOptions.filter(option => normalizeSearchText(option.label).includes(query));
+  }, [buildingFamilyMenuQuery, hiddenBuildingFamilyOptions]);
   useEffect(() => {
     if (!buildingFamilies.useGrouping && activeFamilyKey !== 'all') setActiveFamilyKey('all');
     if (buildingFamilies.useGrouping && activeFamilyKey !== 'all' && !buildingFamilies.families.some(family => family.key === activeFamilyKey)) {
       setActiveFamilyKey('all');
     }
   }, [activeFamilyKey, buildingFamilies]);
+  useEffect(() => {
+    if (buildingQuery.trim() || !buildingFamilies.useGrouping) {
+      setBuildingFamilyMenuOpen(false);
+      setBuildingFamilyMenuQuery('');
+    }
+  }, [buildingFamilies.useGrouping, buildingQuery]);
+  const handleSelectBuildingFamily = (key: string) => {
+    setActiveFamilyKey(key);
+    setBuildingFamilyMenuOpen(false);
+    setBuildingFamilyMenuQuery('');
+  };
   const familyFilteredBuildingGroups = useMemo(() => {
     if (buildingQuery.trim() || !buildingFamilies.useGrouping || activeFamilyKey === 'all') return buildingGroups;
     return buildingGroups.filter(group => (buildingFamilies.familyOf.get(group.key) ?? '__others__') === activeFamilyKey);
@@ -4933,24 +4984,74 @@ function PlansView({
           )}
         </label>
         {buildingFamilies.useGrouping && !buildingQuery && (
-          <div className={styles.buildingFamilyRowWeb}>
-            <button
-              type="button"
-              className={activeFamilyKey === 'all' ? styles.buildingFamilyActiveWeb : ''}
-              onClick={() => setActiveFamilyKey('all')}
-            >
-              Tous <em>{buildingGroups.length}</em>
-            </button>
-            {buildingFamilies.families.map(family => (
-              <button
-                key={family.key}
-                type="button"
-                className={activeFamilyKey === family.key ? styles.buildingFamilyActiveWeb : ''}
-                onClick={() => setActiveFamilyKey(family.key)}
-              >
-                {family.label} <em>{family.groups.length}</em>
-              </button>
-            ))}
+          <div className={styles.buildingFamilyToolbarWeb}>
+            <div className={styles.buildingFamilyRowWeb}>
+              {primaryBuildingFamilyOptions.map(option => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={activeFamilyKey === option.key ? styles.buildingFamilyActiveWeb : ''}
+                  onClick={() => handleSelectBuildingFamily(option.key)}
+                >
+                  {option.label} <em>{option.count}</em>
+                </button>
+              ))}
+              {hiddenBuildingFamilyOptions.length > 0 && (
+                <div className={styles.buildingFamilyMoreWeb}>
+                  <button
+                    type="button"
+                    className={buildingFamilyMenuOpen ? styles.buildingFamilyMoreActiveWeb : ''}
+                    aria-expanded={buildingFamilyMenuOpen}
+                    aria-controls="building-family-popover"
+                    onClick={() => setBuildingFamilyMenuOpen(open => !open)}
+                  >
+                    + {hiddenBuildingFamilyOptions.length} {hiddenBuildingFamilyOptions.length > 1 ? 'familles' : 'famille'}
+                  </button>
+                  {buildingFamilyMenuOpen && (
+                    <div id="building-family-popover" className={styles.buildingFamilyPopoverWeb}>
+                      <div className={styles.buildingFamilyPopoverHeaderWeb}>
+                        <strong>Toutes les familles</strong>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setBuildingFamilyMenuOpen(false);
+                            setBuildingFamilyMenuQuery('');
+                          }}
+                        >
+                          Fermer
+                        </button>
+                      </div>
+                      <label className={styles.buildingFamilyPopoverSearchWeb}>
+                        <span>⌕</span>
+                        <input
+                          value={buildingFamilyMenuQuery}
+                          onChange={event => setBuildingFamilyMenuQuery(event.target.value)}
+                          placeholder="Rechercher une famille..."
+                          autoFocus
+                        />
+                      </label>
+                      <div className={styles.buildingFamilyPopoverListWeb}>
+                        {filteredHiddenBuildingFamilyOptions.length > 0 ? (
+                          filteredHiddenBuildingFamilyOptions.map(option => (
+                            <button
+                              key={option.key}
+                              type="button"
+                              className={activeFamilyKey === option.key ? styles.buildingFamilyActiveWeb : ''}
+                              onClick={() => handleSelectBuildingFamily(option.key)}
+                            >
+                              <span>{option.label}</span>
+                              <em>{option.count}</em>
+                            </button>
+                          ))
+                        ) : (
+                          <p>Aucune famille trouvée.</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
         <button
