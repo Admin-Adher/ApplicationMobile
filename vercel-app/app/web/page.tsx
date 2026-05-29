@@ -3396,141 +3396,175 @@ function Dashboard({
         </section>
       )}
 
-      {totalCount > 0 && (
-        <div className={styles.dashboardThreeColumns}>
-          <section className={styles.panel}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <h2>Podium des épingles</h2>
-                <p>Entreprises avec le plus de réserves localisées sur plan.</p>
-              </div>
-              <span className={styles.dashboardPinTotal}>{pinnedReserves.length} épinglées</span>
+      {(criticalReserves.length > 0 || overdueReserves.length > 0 || lateTasks.length > 0) && (
+        <section className={styles.dashboardSectionBlock}>
+          <div className={styles.dashboardSectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>Priorités d’action</p>
+              <h2>À traiter maintenant</h2>
             </div>
-            {companyPinPodium.length ? (
-              <div className={styles.dashboardPinPodiumList}>
-                {companyPinPodium.map((company: any, index: number) => (
-                  <div key={company.id ?? company.name} className={styles.dashboardPinPodiumRow}>
-                    <span className={styles.dashboardPinPodiumRank}>{index + 1}</span>
-                    <i className={styles.dashboardPinPodiumDot} style={{ background: company.color }} />
-                    <div>
-                      <strong>{company.shortName}</strong>
-                      <small>{company.pinned} / {company.total} réserves épinglées</small>
+            <span>{criticalReserves.length + overdueReserves.length + lateTasks.length} alerte{criticalReserves.length + overdueReserves.length + lateTasks.length > 1 ? 's' : ''}</span>
+          </div>
+          <div className={styles.dashboardAlertGrid}>
+            {criticalReserves.length > 0 && (
+              <DashboardAlertList
+                title="Alertes critiques"
+                tone="red"
+                items={criticalReserves}
+                empty="Aucune réserve critique."
+                getTitle={(item: any) => item.title}
+                getMeta={(item: any) => [item.building, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
+                onOpen={() => setTab('reserves')}
+              />
+            )}
+            {overdueReserves.length > 0 && (
+              <DashboardAlertList
+                title="Réserves en retard"
+                tone="amber"
+                items={overdueReserves}
+                empty="Aucune réserve non critique en retard."
+                getTitle={(item: any) => item.title}
+                getMeta={(item: any) => [item.building, PRIORITY_LABELS[item.priority] ?? item.priority, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
+                onOpen={() => setTab('reserves')}
+              />
+            )}
+            {lateTasks.length > 0 && (
+              <DashboardAlertList
+                title="Tâches en retard"
+                tone="amber"
+                items={lateTasks}
+                empty="Aucune tâche en retard."
+                getTitle={(item: any) => item.title}
+                getMeta={(item: any) => [item.company, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
+                onOpen={() => setTab('planning')}
+              />
+            )}
+          </div>
+        </section>
+      )}
+
+      {totalCount > 0 && (
+        <section className={styles.dashboardSectionBlock}>
+          <div className={styles.dashboardSectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>Suivi chantier</p>
+              <h2>Réserves et localisation</h2>
+            </div>
+            <span>{pinnedReserves.length} réserve{pinnedReserves.length > 1 ? 's' : ''} épinglée{pinnedReserves.length > 1 ? 's' : ''}</span>
+          </div>
+          <div className={styles.dashboardReserveColumns}>
+            <section className={styles.panel}>
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2>Répartition des réserves</h2>
+                  <p>Lecture par statut avant d’aller dans le détail.</p>
+                </div>
+              </div>
+              <div className={styles.dashboardStatusList}>
+                <DashboardStatusBar label="Ouvert" count={openCount} total={totalCount} tone="amber" />
+                <DashboardStatusBar label="En cours" count={inProgressCount} total={totalCount} tone="blue" />
+                <DashboardStatusBar label="En attente" count={waitingCount} total={totalCount} tone="amber" />
+                <DashboardStatusBar label="Vérification" count={verificationCount} total={totalCount} tone="purple" />
+                <DashboardStatusBar label="Clôturé" count={closedCount} total={totalCount} tone="green" />
+              </div>
+            </section>
+
+            <section className={styles.panel}>
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2>Podium des épingles</h2>
+                  <p>Entreprises avec le plus de réserves localisées sur plan.</p>
+                </div>
+                <span className={styles.dashboardPinTotal}>{pinnedReserves.length} épinglées</span>
+              </div>
+              {companyPinPodium.length ? (
+                <div className={styles.dashboardPinPodiumList}>
+                  {companyPinPodium.map((company: any, index: number) => (
+                    <div key={company.id ?? company.name} className={styles.dashboardPinPodiumRow}>
+                      <span className={styles.dashboardPinPodiumRank}>{index + 1}</span>
+                      <i className={styles.dashboardPinPodiumDot} style={{ background: company.color }} />
+                      <div>
+                        <strong>{company.shortName}</strong>
+                        <small>{company.pinned} / {company.total} réserves épinglées</small>
+                      </div>
+                      <em>{company.pinned}</em>
                     </div>
-                    <em>{company.pinned}</em>
+                  ))}
+                </div>
+              ) : (
+                <p className={styles.empty}>Aucune réserve épinglée par entreprise.</p>
+              )}
+            </section>
+          </div>
+        </section>
+      )}
+
+      {totalCount > 0 && (
+        <section className={styles.dashboardSectionBlock}>
+          <div className={styles.dashboardSectionHeader}>
+            <div>
+              <p className={styles.eyebrow}>Pilotage entreprises</p>
+              <h2>Présence et performance</h2>
+            </div>
+          </div>
+          <div className={styles.dashboardTwoColumns}>
+            <section className={styles.panel}>
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2>Personnel aujourd’hui</h2>
+                  <p>{totalActualWorkers} présent{totalActualWorkers > 1 ? 's' : ''} / {totalPlannedWorkers} planifié{totalPlannedWorkers > 1 ? 's' : ''}</p>
+                </div>
+              </div>
+              <div className={styles.dashboardCompanyList}>
+                {companyStats.slice(0, 8).map((company: any) => {
+                  const percent = company.plannedWorkers ? Math.min(100, Math.round((company.actualWorkers / company.plannedWorkers) * 100)) : 0;
+                  return (
+                    <div key={company.id} className={styles.dashboardCompanyRow}>
+                      <span style={{ background: company.color }} />
+                      <strong>{company.shortName}</strong>
+                      <div><i style={{ width: `${percent}%`, background: company.color }} /></div>
+                      <em>{company.actualWorkers}/{company.plannedWorkers}</em>
+                    </div>
+                  );
+                })}
+                {!companyStats.length && <p className={styles.empty}>Aucune entreprise active aujourd’hui.</p>}
+              </div>
+            </section>
+
+            <section className={styles.panel}>
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2>Entreprises</h2>
+                  <p>Taux de clôture et retards par entreprise.</p>
+                </div>
+              </div>
+              <div className={styles.dashboardCompanyClosureList}>
+                {companyStats.filter((company: any) => company.total > 0).slice(0, 8).map((company: any) => (
+                  <div key={company.id} className={styles.dashboardCompanyClosureRow}>
+                    <span style={{ background: company.color }} />
+                    <strong>{company.name}</strong>
+                    <div><i style={{ width: `${company.rate}%`, background: company.rate >= 70 ? '#16a34a' : company.rate >= 40 ? '#003082' : '#f59e0b' }} /></div>
+                    <em>{company.rate}%</em>
+                    {company.overdue > 0 ? <small>{company.overdue} retard</small> : null}
                   </div>
                 ))}
+                {!companyStats.some((company: any) => company.total > 0) && <p className={styles.empty}>Aucune donnée entreprise.</p>}
               </div>
-            ) : (
-              <p className={styles.empty}>Aucune réserve épinglée par entreprise.</p>
-            )}
-          </section>
-
-          <section className={styles.panel}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <h2>Répartition des réserves</h2>
-                <p>Même ventilation que le dashboard mobile.</p>
-              </div>
-            </div>
-            <div className={styles.dashboardStatusList}>
-              <DashboardStatusBar label="Ouvert" count={openCount} total={totalCount} tone="amber" />
-              <DashboardStatusBar label="En cours" count={inProgressCount} total={totalCount} tone="blue" />
-              <DashboardStatusBar label="En attente" count={waitingCount} total={totalCount} tone="amber" />
-              <DashboardStatusBar label="Vérification" count={verificationCount} total={totalCount} tone="purple" />
-              <DashboardStatusBar label="Clôturé" count={closedCount} total={totalCount} tone="green" />
-            </div>
-          </section>
-
-          <section className={styles.panel}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <h2>Personnel aujourd’hui</h2>
-                <p>{totalActualWorkers} présent{totalActualWorkers > 1 ? 's' : ''} / {totalPlannedWorkers} planifié{totalPlannedWorkers > 1 ? 's' : ''}</p>
-              </div>
-            </div>
-            <div className={styles.dashboardCompanyList}>
-              {companyStats.slice(0, 8).map((company: any) => {
-                const percent = company.plannedWorkers ? Math.min(100, Math.round((company.actualWorkers / company.plannedWorkers) * 100)) : 0;
-                return (
-                  <div key={company.id} className={styles.dashboardCompanyRow}>
-                    <span style={{ background: company.color }} />
-                    <strong>{company.shortName}</strong>
-                    <div><i style={{ width: `${percent}%`, background: company.color }} /></div>
-                    <em>{company.actualWorkers}/{company.plannedWorkers}</em>
-                  </div>
-                );
-              })}
-              {!companyStats.length && <p className={styles.empty}>Aucune entreprise active aujourd’hui.</p>}
-            </div>
-          </section>
-        </div>
+            </section>
+          </div>
+        </section>
       )}
 
       {totalCount > 0 && (
-        <div className={styles.dashboardTwoColumns}>
-          <section className={styles.panel}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <h2>Analytics</h2>
-                <p>Réserves créées et clôturées sur les 8 dernières semaines.</p>
-              </div>
+        <section className={styles.panel}>
+          <div className={styles.sectionHeader}>
+            <div>
+              <h2>Tendance chantier</h2>
+              <p>Réserves créées et clôturées sur les 8 dernières semaines.</p>
             </div>
-            <DashboardWeekTrend weeks={weekStats} />
-          </section>
-
-          <section className={styles.panel}>
-            <div className={styles.sectionHeader}>
-              <div>
-                <h2>Entreprises</h2>
-                <p>Taux de clôture et retards par entreprise.</p>
-              </div>
-            </div>
-            <div className={styles.dashboardCompanyClosureList}>
-              {companyStats.filter((company: any) => company.total > 0).slice(0, 8).map((company: any) => (
-                <div key={company.id} className={styles.dashboardCompanyClosureRow}>
-                  <span style={{ background: company.color }} />
-                  <strong>{company.name}</strong>
-                  <div><i style={{ width: `${company.rate}%`, background: company.rate >= 70 ? '#16a34a' : company.rate >= 40 ? '#003082' : '#f59e0b' }} /></div>
-                  <em>{company.rate}%</em>
-                  {company.overdue > 0 ? <small>{company.overdue} retard</small> : null}
-                </div>
-              ))}
-              {!companyStats.some((company: any) => company.total > 0) && <p className={styles.empty}>Aucune donnée entreprise.</p>}
-            </div>
-          </section>
-        </div>
-      )}
-
-      {(criticalReserves.length > 0 || overdueReserves.length > 0 || lateTasks.length > 0) && (
-        <div className={styles.dashboardAlertGrid}>
-          <DashboardAlertList
-            title="Alertes critiques"
-            tone="red"
-            items={criticalReserves}
-            empty="Aucune réserve critique."
-            getTitle={(item: any) => item.title}
-            getMeta={(item: any) => [item.building, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
-            onOpen={() => setTab('reserves')}
-          />
-          <DashboardAlertList
-            title="Réserves en retard"
-            tone="amber"
-            items={overdueReserves}
-            empty="Aucune réserve non critique en retard."
-            getTitle={(item: any) => item.title}
-            getMeta={(item: any) => [item.building, PRIORITY_LABELS[item.priority] ?? item.priority, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
-            onOpen={() => setTab('reserves')}
-          />
-          <DashboardAlertList
-            title="Tâches en retard"
-            tone="amber"
-            items={lateTasks}
-            empty="Aucune tâche en retard."
-            getTitle={(item: any) => item.title}
-            getMeta={(item: any) => [item.company, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
-            onOpen={() => setTab('planning')}
-          />
-        </div>
+          </div>
+          <DashboardWeekTrend weeks={weekStats} />
+        </section>
       )}
 
       <section className={styles.panel}>

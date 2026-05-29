@@ -990,6 +990,7 @@
 .dashboardWideGrid,
 .dashboardTwoColumns,
 .dashboardThreeColumns,
+.dashboardReserveColumns,
 .dashboardAlertGrid,
 .dashboardProjectGrid {
   display: grid;
@@ -1194,8 +1195,60 @@
   align-items: stretch;
 }
 
+.dashboardAlertGrid > :only-child {
+  grid-column: 1 / -1;
+}
+
 .dashboardThreeColumns {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.dashboardSectionBlock {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.dashboardSectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.dashboardSectionHeader > div {
+  min-width: 0;
+}
+
+.dashboardSectionHeader h2,
+.dashboardSectionHeader p {
+  margin: 0;
+}
+
+.dashboardSectionHeader h2 {
+  color: #0f172a;
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.dashboardSectionHeader > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #003082;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.dashboardReserveColumns {
+  grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
   align-items: stretch;
 }
 
@@ -7502,6 +7555,7 @@
   .dashboardWideGrid,
   .dashboardTwoColumns,
   .dashboardThreeColumns,
+  .dashboardReserveColumns,
   .dashboardAlertGrid,
   .dashboardProjectGrid,
   .threeCols,
@@ -8120,6 +8174,16 @@
 
   .dashboardWideMetric {
     padding: 12px;
+  }
+
+  .dashboardSectionHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .dashboardSectionHeader h2 {
+    font-size: 20px;
   }
 
   .reservePanelActions {
