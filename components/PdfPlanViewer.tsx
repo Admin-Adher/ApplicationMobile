@@ -1877,6 +1877,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const pinchZoom = useRef(1);
   const lastTouchEndTime = useRef(0);
   const lastTapRef = useRef<{ t: number; x: number; y: number }>({ t: 0, x: 0, y: 0 });
+  const mousePanCleanupRef = useRef<(() => void) | null>(null);
 
   const pinDragRef = useRef<{ id: string; el: HTMLElement; startX: number; startY: number; origLeft: number; origTop: number; sz: number } | null>(null);
   const pinDragActiveRef = useRef(false);
@@ -2085,18 +2086,69 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
 
   const PAN_CLICK_THRESHOLD = 8;
 
-  const onContainerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType !== 'mouse') return;
-    if (Date.now() - lastTouchEndTime.current < 500) return;
-    downPos.current = { x: e.clientX, y: e.clientY };
-    if (mode === 'annotate') return;
-    if ((e.target as HTMLElement).closest('[data-pin]')) return;
-    e.preventDefault();
-    e.currentTarget.setPointerCapture(e.pointerId);
+  const isPinEventTarget = (target: EventTarget | null) =>
+    target instanceof HTMLElement && Boolean(target.closest('[data-pin]'));
+
+  const beginContainerPan = (
+    clientX: number,
+    clientY: number,
+    target: EventTarget | null,
+    cursorTarget?: HTMLElement,
+  ) => {
+    if (Date.now() - lastTouchEndTime.current < 500) return false;
+    downPos.current = { x: clientX, y: clientY };
+    if (mode === 'annotate') return false;
+    if (isPinEventTarget(target)) return false;
     panning.current = true;
     panningDidMove.current = false;
-    panStart.current = { x: e.clientX, y: e.clientY, px: panXRef.current, py: panYRef.current };
-    e.currentTarget.style.cursor = 'grabbing';
+    panStart.current = { x: clientX, y: clientY, px: panXRef.current, py: panYRef.current };
+    if (cursorTarget) cursorTarget.style.cursor = 'grabbing';
+    return true;
+  };
+
+  const moveContainerPan = (clientX: number, clientY: number) => {
+    if (!panning.current) return false;
+    const moved = Math.abs(clientX - downPos.current.x) + Math.abs(clientY - downPos.current.y);
+    if (moved >= PAN_CLICK_THRESHOLD) panningDidMove.current = true;
+    panXRef.current = panStart.current.px + (clientX - panStart.current.x);
+    panYRef.current = panStart.current.py + (clientY - panStart.current.y);
+    applyT();
+    return true;
+  };
+
+  const finishContainerPan = (
+    clientX: number,
+    clientY: number,
+    target: EventTarget | null,
+    cursorTarget?: HTMLElement,
+  ) => {
+    if (Date.now() - lastTouchEndTime.current < 500) {
+      panning.current = false;
+      panningDidMove.current = false;
+      return;
+    }
+    const wasPanning = panning.current;
+    const wasDragPan = panningDidMove.current;
+    panning.current = false;
+    panningDidMove.current = false;
+    if (cursorTarget) cursorTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
+    if (mode === 'view' && canCreate && cw > 0 && wasPanning && !wasDragPan) {
+      const moved = Math.abs(clientX - downPos.current.x) + Math.abs(clientY - downPos.current.y);
+      if (moved < PAN_CLICK_THRESHOLD && !isPinEventTarget(target)) {
+        const { x, y } = screenToCanvas(clientX, clientY);
+        if (x >= 0 && x <= cw && y >= 0 && y <= ch) {
+          const { px, py } = toPercent(x, y);
+          onPlanTap(px, py);
+        }
+      }
+    }
+  };
+
+  const onContainerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
+    if (!beginContainerPan(e.clientX, e.clientY, e.target, e.currentTarget)) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
   };
 
   const onContainerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -2126,12 +2178,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         pinDragRef.current = null;
       }
     }
-    if (!panning.current) return;
-    const moved = Math.abs(e.clientX - downPos.current.x) + Math.abs(e.clientY - downPos.current.y);
-    if (moved >= PAN_CLICK_THRESHOLD) panningDidMove.current = true;
-    panXRef.current = panStart.current.px + (e.clientX - panStart.current.x);
-    panYRef.current = panStart.current.py + (e.clientY - panStart.current.y);
-    applyT();
+    moveContainerPan(e.clientX, e.clientY);
   };
 
   const onContainerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -2164,21 +2211,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       return;
     }
     if (Date.now() - lastTouchEndTime.current < 500) return;
-    const wasPanning = panning.current;
-    const wasDragPan = panningDidMove.current;
-    panning.current = false;
-    panningDidMove.current = false;
-    e.currentTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
-    if (mode === 'view' && canCreate && cw > 0 && wasPanning && !wasDragPan) {
-      const moved = Math.abs(e.clientX - downPos.current.x) + Math.abs(e.clientY - downPos.current.y);
-      if (moved < PAN_CLICK_THRESHOLD && !(e.target as HTMLElement).closest('[data-pin]')) {
-        const { x, y } = screenToCanvas(e.clientX, e.clientY);
-        if (x >= 0 && x <= cw && y >= 0 && y <= ch) {
-          const { px, py } = toPercent(x, y);
-          onPlanTap(px, py);
-        }
-      }
-    }
+    finishContainerPan(e.clientX, e.clientY, e.target, e.currentTarget);
   };
 
   const onContainerPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -2190,6 +2223,38 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     panningDidMove.current = false;
     e.currentTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
   };
+
+  const onContainerMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
+    if (mode === 'annotate' || isPinEventTarget(e.target)) return;
+    const container = e.currentTarget as HTMLElement;
+    const started = panning.current || beginContainerPan(e.clientX, e.clientY, e.target, container);
+    if (!started || typeof window === 'undefined') return;
+    e.preventDefault();
+    mousePanCleanupRef.current?.();
+    const handleMove = (ev: MouseEvent) => {
+      if (!panning.current) return;
+      ev.preventDefault();
+      moveContainerPan(ev.clientX, ev.clientY);
+    };
+    const handleUp = (ev: MouseEvent) => {
+      ev.preventDefault();
+      mousePanCleanupRef.current?.();
+      mousePanCleanupRef.current = null;
+      finishContainerPan(ev.clientX, ev.clientY, ev.target, container);
+    };
+    window.addEventListener('mousemove', handleMove, { passive: false });
+    window.addEventListener('mouseup', handleUp, { passive: false });
+    mousePanCleanupRef.current = () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  };
+
+  useEffect(() => () => {
+    mousePanCleanupRef.current?.();
+    mousePanCleanupRef.current = null;
+  }, []);
 
   const onPinMouseDown = (e: React.MouseEvent<HTMLDivElement>, r: Reserve) => {
     e.stopPropagation();
@@ -2412,11 +2477,13 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
           onPointerMove={onContainerPointerMove as any}
           onPointerUp={onContainerPointerUp as any}
           onPointerCancel={onContainerPointerCancel as any}
+          onMouseDown={onContainerMouseDown as any}
           onWheel={onWheel as any}
           onTouchStart={onTouchStart as any}
           onTouchMove={onTouchMove as any}
           onTouchEnd={onTouchEnd as any}
           onDoubleClick={onContainerDblClick as any}
+          onDragStart={(e: any) => e.preventDefault()}
           style={{
             flex: 1, overflow: 'hidden', position: 'relative',
             cursor: mode === 'annotate' ? 'crosshair' : 'grab',
