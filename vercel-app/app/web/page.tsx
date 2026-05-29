@@ -3494,8 +3494,8 @@ function Dashboard({
       )}
 
       <div className={styles.dashboardKpiGrid}>
-        <DashboardKpi title="Total réserves" value={totalCount} hint="Toutes les réserves actives" tone="blue" icon="☷" onClick={() => setTab('reserves')} />
-        <DashboardKpi title="Actives" value={openCount + inProgressCount} hint={`${openCount} ouvertes · ${inProgressCount} en cours`} tone="amber" icon="!" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="Total réserves" value={totalCount} hint="Toutes les réserves non archivées" tone="blue" icon="☷" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="À traiter" value={openCount + inProgressCount} hint={`${openCount} ouvertes · ${inProgressCount} en cours`} tone="amber" icon="!" onClick={() => setTab('reserves')} />
         <DashboardKpi title="Critiques" value={criticalReserves.length} hint="Priorité critique non clôturée" tone="red" icon="△" onClick={() => setTab('reserves')} />
         <DashboardKpi title="Clôturées" value={closedCount} hint={`${progress}% d’avancement`} tone="green" icon="✓" onClick={() => setTab('reserves')} />
       </div>
