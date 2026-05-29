@@ -383,6 +383,7 @@ var mode='view',tool='pen',color='#EF4444',sw=2;
 var live=null,undos=[];
 var cw=0,ch=0,pageNum=1,pageCount=0,pdfDoc=null;
 var zoom=1,panX=0,panY=0;
+var MIN_ZOOM=0.2,MAX_ZOOM=3.5;
 var panning=false,panSX=0,panSY=0,panSPX=0,panSPY=0;
 var pinchDist0=0,pinchZoom0=1;
 var touchSX=0,touchSY=0,isDragging=false,drawing=false;
@@ -404,6 +405,7 @@ var textOverlay=document.getElementById('text-overlay');
 var textInput=document.getElementById('text-input');
 
 function post(obj){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(obj));}}
+function clampZoom(value){return Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,value));}
 function postAnnotationState(){
   post({type:'annotationState',canUndo:undos.length>0,canClear:draws.length>0,annotationCount:draws.length});
 }
@@ -718,7 +720,7 @@ function focusPin(id,center){
   if(!pin)return;
   var vw=container.clientWidth||window.innerWidth||1;
   var vh=container.clientHeight||window.innerHeight||1;
-  var targetZoom=Math.min(4,Math.max(zoom,1.8));
+  var targetZoom=Math.min(MAX_ZOOM,Math.max(zoom,1.8));
   var px=(pin.planX/100)*cw;
   var py=(pin.planY/100)*ch;
   zoom=targetZoom;
@@ -1001,7 +1003,7 @@ container.addEventListener('touchmove',function(e){
     var midY=(t[0].clientY+t[1].clientY)/2;
     var r=container.getBoundingClientRect();
     var cx=midX-r.left,cy=midY-r.top;
-    var newZ=Math.min(12,Math.max(0.2,pinchZoom0*(dist/pinchDist0)));
+    var newZ=clampZoom(pinchZoom0*(dist/pinchDist0));
     panX=cx-(cx-panX)*newZ/zoom;
     panY=cy-(cy-panY)*newZ/zoom;
     zoom=newZ;markInteracting();applyT();
@@ -1055,7 +1057,7 @@ container.addEventListener('touchend',function(e){
     if(isDoubleTap){
       var r=container.getBoundingClientRect();
       var cx=ct.clientX-r.left,cy=ct.clientY-r.top;
-      var nz=zoom>=4?1:Math.min(12,zoom*2.5);
+      var nz=zoom>=MAX_ZOOM?1:clampZoom(zoom*2.5);
       panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
       zoom=nz;applyT();
       post({type:'zoomChange',zoom:zoom});
@@ -1131,7 +1133,7 @@ window.goPage=function(n){
 window.zoomIn=function(){
   markInteracting();
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
-  var nz=Math.min(12,zoom*1.4);
+  var nz=clampZoom(zoom*1.4);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
   zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
   endInteractionSoon();
@@ -1140,7 +1142,7 @@ window.zoomIn=function(){
 window.zoomOut=function(){
   markInteracting();
   var cx=window.innerWidth/2,cy=window.innerHeight/2;
-  var nz=Math.max(0.2,zoom/1.4);
+  var nz=clampZoom(zoom/1.4);
   panX=cx-(cx-panX)*nz/zoom;panY=cy-(cy-panY)*nz/zoom;
   zoom=nz;applyT();post({type:'zoomChange',zoom:zoom});
   endInteractionSoon();
@@ -1868,6 +1870,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const panXRef = useRef(0);
   const panYRef = useRef(0);
   const panning = useRef(false);
+  const panningDidMove = useRef(false);
   const panStart = useRef({ x: 0, y: 0, px: 0, py: 0 });
   const downPos = useRef({ x: 0, y: 0 });
   const pinchDist = useRef(0);
@@ -2080,17 +2083,24 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
     onAnnotationsChange(next);
   };
 
-  const onContainerDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const PAN_CLICK_THRESHOLD = 8;
+
+  const onContainerPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
     if (Date.now() - lastTouchEndTime.current < 500) return;
     downPos.current = { x: e.clientX, y: e.clientY };
     if (mode === 'annotate') return;
     if ((e.target as HTMLElement).closest('[data-pin]')) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
     panning.current = true;
+    panningDidMove.current = false;
     panStart.current = { x: e.clientX, y: e.clientY, px: panXRef.current, py: panYRef.current };
     e.currentTarget.style.cursor = 'grabbing';
   };
 
-  const onContainerMove = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onContainerPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
     if (pinDragActiveRef.current && pinDragRef.current) {
       pinDragDidMoveRef.current = true;
       pinLatestClientRef.current = { x: e.clientX, y: e.clientY };
@@ -2117,12 +2127,18 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       }
     }
     if (!panning.current) return;
+    const moved = Math.abs(e.clientX - downPos.current.x) + Math.abs(e.clientY - downPos.current.y);
+    if (moved >= PAN_CLICK_THRESHOLD) panningDidMove.current = true;
     panXRef.current = panStart.current.px + (e.clientX - panStart.current.x);
     panYRef.current = panStart.current.py + (e.clientY - panStart.current.y);
     applyT();
   };
 
-  const onContainerUp = (e: React.MouseEvent<HTMLDivElement>) => {
+  const onContainerPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
     if (pinLpTimerRef.current) { clearTimeout(pinLpTimerRef.current); pinLpTimerRef.current = null; }
     if (pinDragActiveRef.current && pinDragRef.current) {
       if (pinRafRef.current) { cancelAnimationFrame(pinRafRef.current); pinRafRef.current = null; }
@@ -2148,11 +2164,14 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       return;
     }
     if (Date.now() - lastTouchEndTime.current < 500) return;
+    const wasPanning = panning.current;
+    const wasDragPan = panningDidMove.current;
     panning.current = false;
+    panningDidMove.current = false;
     e.currentTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
-    if (mode === 'view' && canCreate && cw > 0) {
+    if (mode === 'view' && canCreate && cw > 0 && wasPanning && !wasDragPan) {
       const moved = Math.abs(e.clientX - downPos.current.x) + Math.abs(e.clientY - downPos.current.y);
-      if (moved < 6 && !(e.target as HTMLElement).closest('[data-pin]')) {
+      if (moved < PAN_CLICK_THRESHOLD && !(e.target as HTMLElement).closest('[data-pin]')) {
         const { x, y } = screenToCanvas(e.clientX, e.clientY);
         if (x >= 0 && x <= cw && y >= 0 && y <= ch) {
           const { px, py } = toPercent(x, y);
@@ -2160,6 +2179,16 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         }
       }
     }
+  };
+
+  const onContainerPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== 'mouse') return;
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    }
+    panning.current = false;
+    panningDidMove.current = false;
+    e.currentTarget.style.cursor = mode === 'annotate' ? 'crosshair' : 'grab';
   };
 
   const onPinMouseDown = (e: React.MouseEvent<HTMLDivElement>, r: Reserve) => {
@@ -2379,10 +2408,10 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       {!loading && !error && (
         <div
           ref={containerRef as any}
-          onMouseDown={onContainerDown as any}
-          onMouseMove={onContainerMove as any}
-          onMouseUp={onContainerUp as any}
-          onMouseLeave={onContainerUp as any}
+          onPointerDown={onContainerPointerDown as any}
+          onPointerMove={onContainerPointerMove as any}
+          onPointerUp={onContainerPointerUp as any}
+          onPointerCancel={onContainerPointerCancel as any}
           onWheel={onWheel as any}
           onTouchStart={onTouchStart as any}
           onTouchMove={onTouchMove as any}
