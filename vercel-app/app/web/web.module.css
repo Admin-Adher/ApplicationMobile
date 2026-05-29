@@ -4173,6 +4173,20 @@
   background-size: 24px 24px;
   padding: 16px;
   scrollbar-gutter: stable;
+  cursor: grab;
+  user-select: none;
+  overscroll-behavior: contain;
+}
+
+.webPdfViewportPanning,
+.webPdfViewportPanning * {
+  cursor: grabbing !important;
+}
+
+.webPdfViewport canvas,
+.webPdfViewport img {
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .webPdfShellFullscreen .webPdfViewport {

@@ -4539,11 +4539,22 @@ function WebPdfPlan({
   const lastFocusZoomRef = useRef('');
   const drawingPointerRef = useRef<number | null>(null);
   const movePreviewTimerRef = useRef<number | null>(null);
+  const suppressNextPageClickRef = useRef(false);
+  const panStateRef = useRef({
+    active: false,
+    pointerId: -1,
+    startX: 0,
+    startY: 0,
+    scrollLeft: 0,
+    scrollTop: 0,
+    moved: false,
+  });
   const [scale, setScale] = useState(0);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
   const [drawColor, setDrawColor] = useState('#ef4444');
   const [drawWidth, setDrawWidth] = useState(4);
@@ -4688,7 +4699,72 @@ function WebPdfPlan({
     onAnnotationsChange?.(next);
   }
 
+  function isPdfPanControl(target: EventTarget | null) {
+    if (!(target instanceof Element)) return false;
+    return Boolean(target.closest('button, a, input, select, textarea, [role="button"], [data-pdf-pan-ignore="true"]'));
+  }
+
+  function handleViewportPointerDown(event: PointerEvent<HTMLDivElement>) {
+    if (annotationMode) return;
+    if (event.pointerType === 'mouse' && event.button !== 0) return;
+    if (isPdfPanControl(event.target)) return;
+    const viewport = viewportRef.current;
+    if (!viewport || (viewport.scrollWidth <= viewport.clientWidth && viewport.scrollHeight <= viewport.clientHeight)) return;
+    panStateRef.current = {
+      active: true,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setIsPanning(true);
+  }
+
+  function handleViewportPointerMove(event: PointerEvent<HTMLDivElement>) {
+    const panState = panStateRef.current;
+    if (!panState.active || panState.pointerId !== event.pointerId) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const deltaX = event.clientX - panState.startX;
+    const deltaY = event.clientY - panState.startY;
+    if (!panState.moved && Math.hypot(deltaX, deltaY) > 4) {
+      panState.moved = true;
+    }
+    viewport.scrollLeft = panState.scrollLeft - deltaX;
+    viewport.scrollTop = panState.scrollTop - deltaY;
+    if (panState.moved) event.preventDefault();
+  }
+
+  function finishViewportPan(event: PointerEvent<HTMLDivElement>) {
+    const panState = panStateRef.current;
+    if (!panState.active || panState.pointerId !== event.pointerId) return;
+    if (panState.moved) {
+      suppressNextPageClickRef.current = true;
+      window.setTimeout(() => {
+        suppressNextPageClickRef.current = false;
+      }, 120);
+    }
+    panStateRef.current = {
+      active: false,
+      pointerId: -1,
+      startX: 0,
+      startY: 0,
+      scrollLeft: 0,
+      scrollTop: 0,
+      moved: false,
+    };
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    setIsPanning(false);
+  }
+
   function handlePageClick(event: MouseEvent<HTMLDivElement>) {
+    if (suppressNextPageClickRef.current) {
+      suppressNextPageClickRef.current = false;
+      return;
+    }
     if (annotationMode) return;
     const { x, y } = pagePointFromEvent(event);
     if (moveMode && canMovePins && focusedReserveId) {
@@ -4844,7 +4920,14 @@ function WebPdfPlan({
           Cliquez sur le plan pour repositionner l'épingle {focusedPin.number}.
         </div>
       )}
-      <div ref={viewportRef} className={styles.webPdfViewport}>
+      <div
+        ref={viewportRef}
+        className={`${styles.webPdfViewport} ${isPanning ? styles.webPdfViewportPanning : ''}`}
+        onPointerDown={handleViewportPointerDown}
+        onPointerMove={handleViewportPointerMove}
+        onPointerUp={finishViewportPan}
+        onPointerCancel={finishViewportPan}
+      >
         <div
           className={styles.webPdfPage}
           style={pageSize.width && pageSize.height ? { width: pageSize.width, height: pageSize.height } : undefined}
