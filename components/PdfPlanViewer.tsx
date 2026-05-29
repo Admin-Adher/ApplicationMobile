@@ -49,7 +49,7 @@ const PALETTE = [
   '#3B82F6', '#8B5CF6', '#EC4899', '#1A2742', '#FFFFFF',
 ];
 
-const WIDTHS = [1, 2, 3, 5, 8];
+const WIDTHS = [1, 3, 6, 10, 16];
 const PLAN_DATA_URL_CACHE_LIMIT = 5;
 const PLAN_PREVIEW_CACHE_LIMIT = 8;
 const PLAN_DATA_URL_CACHE_MAX_BYTES = 20 * 1024 * 1024;
@@ -1347,7 +1347,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [mode, setMode] = useState<'view' | 'annotate'>('view');
   const [tool, setTool] = useState<PlanDrawingTool>('pen');
   const [color, setColor] = useState('#EF4444');
-  const [sw, setSw] = useState(2);
+  const [sw, setSw] = useState(3);
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(1);
   const [showPalette, setShowPalette] = useState(false);
@@ -1738,7 +1738,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const [mode, setMode] = useState<'view' | 'annotate'>('view');
   const [tool, setTool] = useState<PlanDrawingTool>('pen');
   const [color, setColor] = useState('#EF4444');
-  const [sw, setSw] = useState(2);
+  const [sw, setSw] = useState(3);
   const [draws, setDraws] = useState<PlanDrawing[]>(annotations ?? []);
   const [live, setLive] = useState<PlanDrawing | null>(null);
   const [undos, setUndos] = useState<PlanDrawing[][]>([]);

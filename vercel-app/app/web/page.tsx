@@ -178,7 +178,7 @@ const EMPTY_DATA: WebState = {
 const PDFJS_VERSION = '5.7.284';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 const PHOTO_ANNOTATION_COLORS = ['#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#FFFFFF', '#111827'];
-const PHOTO_ANNOTATION_STROKES = [3, 6, 10];
+const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
@@ -282,14 +282,28 @@ function SidebarNavIcon({ name, active = false }: { name: NavIconName; active?: 
     ),
     hammer: active ? (
       <>
-        <path d="M14.1 4.1 19.9 9.9l-2.1 2.1-2-2-8.55 8.55a2.15 2.15 0 0 1-3.04-3.04L12.75 7l-1.05-1.05 2.4-1.85Z" fill="currentColor" />
-        <path d="m13.1 3.1 1-1 6.8 6.8-1 1-6.8-6.8Z" fill="currentColor" opacity="0.7" />
+        <path
+          d="M13.15 3.5a1.35 1.35 0 0 1 1.9 0l5.45 5.45a1.35 1.35 0 0 1 0 1.9l-1.05 1.05a1.35 1.35 0 0 1-1.9 0L12.1 6.45a1.35 1.35 0 0 1 0-1.9l1.05-1.05Z"
+          fill="currentColor"
+        />
+        <path
+          d="M12.8 8.6 4.35 17.05a2.05 2.05 0 0 0 2.9 2.9l8.45-8.45"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="3"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+        <path d="m11.55 7.35 5.1 5.1" stroke="#fff" strokeWidth="1.7" strokeLinecap="round" opacity="0.85" />
       </>
     ) : (
       <>
-        <path d="m13.2 4.1 6.7 6.7" {...strokeProps} />
-        <path d="m16.4 7.3-9.2 9.2a2.1 2.1 0 1 1-3-3l9.2-9.2" {...strokeProps} />
-        <path d="m11.5 5.9 2.6-2.1 5.1 5.1-2.1 2.6" {...strokeProps} />
+        <path
+          d="M13.15 3.5a1.35 1.35 0 0 1 1.9 0l5.45 5.45a1.35 1.35 0 0 1 0 1.9l-1.05 1.05a1.35 1.35 0 0 1-1.9 0L12.1 6.45a1.35 1.35 0 0 1 0-1.9l1.05-1.05Z"
+          {...strokeProps}
+        />
+        <path d="M12.8 8.6 4.35 17.05a2.05 2.05 0 0 0 2.9 2.9l8.45-8.45" {...strokeProps} />
+        <path d="m11.55 7.35 5.1 5.1" {...strokeProps} />
       </>
     ),
     'alert-circle': (
@@ -4282,7 +4296,7 @@ function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
   if (!points.length) return null;
   const first = points[0];
   const last = points[points.length - 1] ?? first;
-  const strokeWidth = Math.max(0.14, Math.min(1.4, Number(drawing.strokeWidth || 2) * 0.22));
+  const strokeWidth = Math.max(0.18, Math.min(3.4, Number(drawing.strokeWidth || 3) * 0.22));
   const opacity = drawing.opacity ?? (drawing.tool === 'highlight' ? 0.28 : 1);
   const common = {
     stroke: drawing.color || '#ef4444',
@@ -4426,7 +4440,7 @@ function WebPdfPlan({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
   const [drawColor, setDrawColor] = useState('#ef4444');
-  const [drawWidth, setDrawWidth] = useState(2);
+  const [drawWidth, setDrawWidth] = useState(4);
   const [liveDrawing, setLiveDrawing] = useState<WebPlanDrawing | null>(null);
   const [localAnnotations, setLocalAnnotations] = useState<WebPlanDrawing[]>(annotations ?? []);
   const [moveMode, setMoveMode] = useState(false);
@@ -4688,7 +4702,7 @@ function WebPdfPlan({
             />
           ))}
           <span>Trait</span>
-          {[1, 2, 4, 6].map(width => (
+          {[1, 4, 8, 14].map(width => (
             <button
               key={width}
               type="button"
@@ -7670,7 +7684,7 @@ function PhotoAnnotationLayer({ annotations, compact = false }: { annotations?: 
               points={annotation.points!.map(point => `${point.x},${point.y}`).join(' ')}
               fill="none"
               stroke={annotation.color}
-              strokeWidth={Math.max(0.35, (annotation.strokeWidth ?? 6) * (compact ? 0.12 : 0.18))}
+              strokeWidth={Math.max(0.35, (annotation.strokeWidth ?? 8) * (compact ? 0.12 : 0.18))}
               strokeLinecap="round"
               strokeLinejoin="round"
               vectorEffect="non-scaling-stroke"
@@ -7721,7 +7735,7 @@ function PhotoAnnotatorModal({
   const [annotations, setAnnotations] = useState<WebPhotoAnnotation[]>(() => normalizePhotoAnnotations(photo.annotations));
   const [activeTool, setActiveTool] = useState<WebPhotoAnnotationTool>('dot');
   const [selectedColor, setSelectedColor] = useState(PHOTO_ANNOTATION_COLORS[0]);
-  const [strokeWidth, setStrokeWidth] = useState(6);
+  const [strokeWidth, setStrokeWidth] = useState(8);
   const [currentStroke, setCurrentStroke] = useState<WebPhotoAnnotation | null>(null);
   const currentStrokeRef = useRef<WebPhotoAnnotation | null>(null);
   const stageRef = useRef<HTMLButtonElement | null>(null);

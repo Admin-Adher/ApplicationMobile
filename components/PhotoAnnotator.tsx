@@ -32,7 +32,7 @@ const TOOLS: { key: AnnotationTool; icon: string }[] = [
   { key: 'pen', icon: 'pencil' },
 ];
 
-const STROKE_WIDTHS = [3, 6, 10];
+const STROKE_WIDTHS = [2, 8, 18];
 
 interface Props {
   photoUri: string;
@@ -56,7 +56,7 @@ export function PhotoAnnotationOverlay({
   const [markers, setMarkers] = useState<PhotoAnnotation[]>(annotations);
   const [selectedColor, setSelectedColor] = useState(MARKER_COLORS[0].value);
   const [activeTool, setActiveTool] = useState<AnnotationTool>('point');
-  const [selectedStrokeWidth, setSelectedStrokeWidth] = useState(6);
+  const [selectedStrokeWidth, setSelectedStrokeWidth] = useState(8);
   const [currentStroke, setCurrentStroke] = useState<PhotoAnnotation | null>(null);
   const currentStrokeRef = useRef<PhotoAnnotation | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -257,7 +257,7 @@ export function PhotoAnnotationOverlay({
 
   function renderPenStroke(m: PhotoAnnotation, thumbnail = false) {
     const points = m.points?.length ? m.points : [{ x: m.x, y: m.y }];
-    const dotSize = Math.max(thumbnail ? 2 : 3, Math.min(thumbnail ? 6 : 14, (m.strokeWidth ?? 6) * (thumbnail ? 0.45 : 1)));
+    const dotSize = Math.max(thumbnail ? 2 : 3, Math.min(thumbnail ? 8 : 18, (m.strokeWidth ?? 8) * (thumbnail ? 0.45 : 1)));
     return (
       <View key={m.id} style={StyleSheet.absoluteFill} pointerEvents="none">
         {points.map((point, index) => (
@@ -516,7 +516,7 @@ export function PhotoWithAnnotations({
 }) {
   function renderThumbnailPenStroke(m: PhotoAnnotation) {
     const points = m.points?.length ? m.points : [{ x: m.x, y: m.y }];
-    const dotSize = Math.max(2, Math.min(6, (m.strokeWidth ?? 6) * 0.45));
+    const dotSize = Math.max(2, Math.min(8, (m.strokeWidth ?? 8) * 0.45));
     return (
       <View key={m.id} style={StyleSheet.absoluteFill} pointerEvents="none">
         {points.map((point, index) => (
