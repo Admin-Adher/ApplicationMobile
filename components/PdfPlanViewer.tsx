@@ -141,6 +141,20 @@ function escapeHtmlText(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+function getPlanDrawingSignature(drawings: PlanDrawing[] | undefined | null): string {
+  const normalized = (drawings ?? []).map(d => ({
+    id: d.id,
+    tool: d.tool,
+    page: d.page ?? 1,
+    color: d.color,
+    strokeWidth: d.strokeWidth,
+    text: d.text ?? '',
+    fontSize: d.fontSize ?? null,
+    points: d.points ?? [],
+  }));
+  return JSON.stringify(normalized);
+}
+
 export interface PdfPlanViewerProps {
   planUri: string;
   planId: string;
@@ -390,6 +404,25 @@ var textOverlay=document.getElementById('text-overlay');
 var textInput=document.getElementById('text-input');
 
 function post(obj){if(window.ReactNativeWebView){window.ReactNativeWebView.postMessage(JSON.stringify(obj));}}
+function postAnnotationState(){
+  post({type:'annotationState',canUndo:undos.length>0,canClear:draws.length>0,annotationCount:draws.length});
+}
+var hasLocalAnnotationChanges=false;
+var lastLocalAnnotationSignature=JSON.stringify(draws);
+function annotationSignature(items){
+  try{return JSON.stringify((Array.isArray(items)?items:[]).map(function(d){return {id:d.id,tool:d.tool,page:d.page||1,color:d.color,strokeWidth:d.strokeWidth,text:d.text||'',fontSize:d.fontSize||null,points:d.points||[]};}));}
+  catch(e){return '';}
+}
+function postAnnotationsChange(){
+  hasLocalAnnotationChanges=true;
+  lastLocalAnnotationSignature=annotationSignature(draws);
+  post({type:'annotationsChange',annotations:draws,canUndo:undos.length>0,canClear:draws.length>0});
+}
+function rememberUndo(){
+  undos.push(JSON.parse(JSON.stringify(draws)));
+  if(undos.length>20)undos.shift();
+  postAnnotationState();
+}
 
 function setInteracting(active){
   interactionActive=active;
@@ -433,9 +466,13 @@ function getPinVisualScale(mult,rawSize){
   var safeZoom=Math.max(zoom||1,1);
   var baseSize=Math.max(1,rawSize||PIN_SIZE||1);
   var densityScale=getPinDensityScale();
-  var targetScreenSize=Math.max(10,Math.min(18,baseSize*densityScale));
-  var scale=(targetScreenSize/baseSize)/safeZoom;
-  return Math.max(0.08,Math.min(1.12,scale*(mult||1)));
+  var count=Math.max((pinsData&&pinsData.length)||0,(ghostPinsData&&ghostPinsData.length)||0);
+  var minReadableSize=count>=160?14.5:15.5;
+  var maxReadableSize=count>=160?18:19;
+  var targetScreenSize=Math.max(minReadableSize,Math.min(maxReadableSize,baseSize*densityScale*(mult||1)));
+  var scale=targetScreenSize/(baseSize*safeZoom);
+  var minScale=minReadableSize/(baseSize*safeZoom);
+  return Math.max(minScale,Math.min(1.12,scale));
 }
 
 function setPinScaleMultiplier(el,mult,rawSize){
@@ -443,6 +480,12 @@ function setPinScaleMultiplier(el,mult,rawSize){
   var size=parseFloat(el.getAttribute('data-pin-size')||String(PIN_SIZE))||PIN_SIZE;
   el.setAttribute('data-pin-scale-mult',String(mult||1));
   el.style.transform='scale('+getPinVisualScale(mult||1,size)+')';
+}
+
+function getPinLabelFontSize(num,rawSize){
+  var digits=String(num||'').length;
+  var ratio=digits>=3?0.54:(digits===2?0.6:0.66);
+  return Math.max(8,Math.round((rawSize||PIN_SIZE)*ratio));
 }
 
 function applyPinVisualScale(){
@@ -559,7 +602,8 @@ function renderGhostPins(){
     setPinScaleMultiplier(div,1,sz);
     var span=document.createElement('span');
     span.textContent=String(pin.num);
-    span.style.fontSize=Math.max(7,Math.round(sz*0.52))+'px';
+    span.style.fontSize=getPinLabelFontSize(pin.num,sz)+'px';
+    span.style.lineHeight='1';
     div.appendChild(span);
     ghostLayer.appendChild(div);
   });
@@ -586,7 +630,8 @@ function renderPins(){
     setPinScaleMultiplier(div,isFocused?1.18:1,sz);
     var span=document.createElement('span');
     span.textContent=String(pin.num);
-    span.style.fontSize=Math.max(7,Math.round(sz*0.52))+'px';
+    span.style.fontSize=getPinLabelFontSize(pin.num,sz)+'px';
+    span.style.lineHeight='1';
     div.appendChild(span);
 
     var lpTimer=null,pinDrag=false,pinMoved=false,psx=0,psy=0;
@@ -995,11 +1040,10 @@ container.addEventListener('touchend',function(e){
     drawing=false;
     if(live.points.length>=1){
       var fin=Object.assign({},live,{id:genId()});
-      undos.push(JSON.parse(JSON.stringify(draws)));
-      if(undos.length>20)undos.shift();
+      rememberUndo();
       draws.push(fin);
       renderAnns();
-      post({type:'annotationsChange',annotations:draws});
+      postAnnotationsChange();
     }
     live=null;renderLive();
   } else if(!isDragging&&!isPinching&&(Date.now()-lastPinchEndTime>300)&&mode==='view'&&e.changedTouches.length===1&&e.touches.length===0){
@@ -1042,9 +1086,9 @@ function commitText(){
   var val=textInput.value.trim();
   if(val&&pendingTextPos){
     var d={id:genId(),tool:'text',points:[{x:pendingTextPos.pctX,y:pendingTextPos.pctY}],color:color,strokeWidth:sw,text:val,fontSize:14};
-    undos.push(JSON.parse(JSON.stringify(draws)));
+    rememberUndo();
     draws.push(d);renderAnns();
-    post({type:'annotationsChange',annotations:draws});
+    postAnnotationsChange();
   }
   textOverlay.style.display='none';pendingTextPos=null;
 }
@@ -1055,19 +1099,32 @@ window.setState=function(s){
   if(s.color!==undefined)color=s.color;
   if(s.strokeWidth!==undefined)sw=s.strokeWidth;
 };
-window.setAnnotations=function(anns){draws=anns;renderAnns();};
+window.setAnnotations=function(anns,force){
+  anns=Array.isArray(anns)?anns:[];
+  var incomingSignature=annotationSignature(anns);
+  if(!force&&hasLocalAnnotationChanges&&incomingSignature!==lastLocalAnnotationSignature&&anns.length<draws.length){
+    postAnnotationState();
+    return;
+  }
+  draws=anns;
+  if(incomingSignature===lastLocalAnnotationSignature)hasLocalAnnotationChanges=false;
+  renderAnns();postAnnotationState();
+};
 window.updatePins=function(newPins,newGhosts){pinsData=newPins;if(newGhosts)ghostPinsData=newGhosts;renderGhostPins();renderPins();if(focusedPinId)focusPin(focusedPinId,false);};
 window.setFocusedPin=function(id){focusPin(id,true);};
-window.undo=function(){
+window.undoAnnotation=function(){
   if(!undos.length)return;
   draws=undos.pop();renderAnns();
-  post({type:'annotationsChange',annotations:draws});
+  postAnnotationsChange();
 };
-window.clearAll=function(){
-  undos.push(JSON.parse(JSON.stringify(draws)));
+window.undo=window.undoAnnotation;
+window.clearAllAnnotations=function(){
+  if(!draws.length)return;
+  rememberUndo();
   draws=[];renderAnns();
-  post({type:'annotationsChange',annotations:draws});
+  postAnnotationsChange();
 };
+window.clearAll=window.clearAllAnnotations;
 window.goPage=function(n){
   if(n>=1&&n<=pageCount&&pdfDoc){pageNum=n;renderPage(n);}
 };
@@ -1358,6 +1415,16 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const [page, setPage] = useState(1);
   const [showPalette, setShowPalette] = useState(false);
   const [showWidths, setShowWidths] = useState(false);
+  const serializedAnnotations = JSON.stringify(annotations ?? []);
+  const externalAnnotationSignature = getPlanDrawingSignature(annotations);
+  const externalAnnotationCount = annotations?.length ?? 0;
+  const hasPendingLocalAnnotationsRef = useRef(false);
+  const localAnnotationSignatureRef = useRef(externalAnnotationSignature);
+  const localAnnotationCountRef = useRef(externalAnnotationCount);
+  const [annotationActions, setAnnotationActions] = useState({
+    canUndo: false,
+    canClear: externalAnnotationCount > 0,
+  });
 
   const inject = useCallback((js: string) => {
     webViewRef.current?.injectJavaScript(`(function(){${js}})(); true;`);
@@ -1383,9 +1450,21 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
     inject(`window.setState(${JSON.stringify({ mode, tool, color, strokeWidth: sw })});`);
   }, [inject, mode, tool, color, sw]);
 
-  const injectAnnotations = useCallback(() => {
-    inject(`window.setAnnotations(${JSON.stringify(annotations ?? [])});`);
-  }, [inject, planId, annotations]);
+  const injectAnnotations = useCallback((force = false) => {
+    const shouldKeepLocalAnnotations =
+      !force &&
+      hasPendingLocalAnnotationsRef.current &&
+      externalAnnotationSignature !== localAnnotationSignatureRef.current &&
+      externalAnnotationCount < localAnnotationCountRef.current;
+
+    if (shouldKeepLocalAnnotations) return;
+
+    inject(`window.setAnnotations(${serializedAnnotations},${force ? 'true' : 'false'});`);
+    if (externalAnnotationSignature === localAnnotationSignatureRef.current) {
+      hasPendingLocalAnnotationsRef.current = false;
+      localAnnotationCountRef.current = externalAnnotationCount;
+    }
+  }, [inject, serializedAnnotations, externalAnnotationSignature, externalAnnotationCount]);
 
   const injectPins = useCallback(() => {
     const pinsData = reserves
@@ -1414,7 +1493,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
   const injectViewerSnapshot = useCallback(() => {
     injectToolState();
-    injectAnnotations();
+    injectAnnotations(true);
     injectPins();
     injectFocusedPin();
   }, [injectToolState, injectAnnotations, injectPins, injectFocusedPin]);
@@ -1424,7 +1503,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   }, [injectToolState]);
 
   useEffect(() => {
-    injectAnnotations();
+    injectAnnotations(false);
   }, [injectAnnotations]);
 
   useEffect(() => {
@@ -1434,6 +1513,20 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   useEffect(() => {
     injectFocusedPin();
   }, [injectFocusedPin]);
+
+  useEffect(() => {
+    hasPendingLocalAnnotationsRef.current = false;
+    localAnnotationSignatureRef.current = externalAnnotationSignature;
+    localAnnotationCountRef.current = externalAnnotationCount;
+    setAnnotationActions({ canUndo: false, canClear: externalAnnotationCount > 0 });
+  }, [planId]);
+
+  useEffect(() => {
+    const canClear = hasPendingLocalAnnotationsRef.current
+      ? localAnnotationCountRef.current > 0
+      : externalAnnotationCount > 0;
+    setAnnotationActions(prev => ({ ...prev, canClear }));
+  }, [externalAnnotationCount]);
 
   const onMessage = useCallback((event: any) => {
     try {
@@ -1448,7 +1541,20 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
       } else if (msg.type === 'pinFocus') {
         onPinFocus?.(msg.reserveId);
       } else if (msg.type === 'annotationsChange') {
-        onAnnotationsChange(msg.annotations);
+        const nextAnnotations = Array.isArray(msg.annotations) ? msg.annotations : [];
+        hasPendingLocalAnnotationsRef.current = true;
+        localAnnotationSignatureRef.current = getPlanDrawingSignature(nextAnnotations);
+        localAnnotationCountRef.current = nextAnnotations.length;
+        setAnnotationActions({
+          canUndo: typeof msg.canUndo === 'boolean' ? msg.canUndo : false,
+          canClear: typeof msg.canClear === 'boolean' ? msg.canClear : nextAnnotations.length > 0,
+        });
+        onAnnotationsChange(nextAnnotations);
+      } else if (msg.type === 'annotationState') {
+        setAnnotationActions({
+          canUndo: !!msg.canUndo,
+          canClear: !!msg.canClear,
+        });
       } else if (msg.type === 'pageCount') {
         setPageCount(msg.count);
         setPage(1);
@@ -1500,7 +1606,8 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
     inject(`window.goPage(${n});`);
   }
 
-  const hasAnns = (annotations ?? []).length > 0;
+  const canUndoAnnotation = annotationActions.canUndo;
+  const canClearAnnotations = annotationActions.canClear;
 
   return (
     <View style={mob.root}>
@@ -1640,15 +1747,19 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
                 <View style={[mob.widthLine, { height: sw + 2, backgroundColor: color }]} />
               </TouchableOpacity>
               <View style={mob.sep} />
-              <TouchableOpacity style={mob.ib} onPress={() => inject('window.undo();')}>
-                <Ionicons name="arrow-undo" size={13} color={C.text} />
+              <TouchableOpacity
+                style={[mob.ib, !canUndoAnnotation && mob.ibOff]}
+                onPress={() => inject('window.undoAnnotation && window.undoAnnotation();')}
+                disabled={!canUndoAnnotation}
+              >
+                <Ionicons name="arrow-undo" size={13} color={canUndoAnnotation ? C.text : C.textMuted} />
               </TouchableOpacity>
               <TouchableOpacity
-                style={[mob.ib, !hasAnns && mob.ibOff]}
-                onPress={() => inject('window.clearAll();')}
-                disabled={!hasAnns}
+                style={[mob.ib, !canClearAnnotations && mob.ibOff]}
+                onPress={() => inject('window.clearAllAnnotations && window.clearAllAnnotations();')}
+                disabled={!canClearAnnotations}
               >
-                <Ionicons name="trash-outline" size={13} color={hasAnns ? '#EF4444' : C.textMuted} />
+                <Ionicons name="trash-outline" size={13} color={canClearAnnotations ? '#EF4444' : C.textMuted} />
               </TouchableOpacity>
             </View>
           </View>
