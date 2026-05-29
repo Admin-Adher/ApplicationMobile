@@ -1044,6 +1044,11 @@ function normalizePlanPercent(value?: any) {
   return Number(clampPercent(num).toFixed(2));
 }
 
+function normalizeStoredPlanPercent(value?: any) {
+  const percent = normalizePlanPercent(value);
+  return percent == null ? null : Math.round(clampPercent(percent));
+}
+
 function planCoordinateToPercent(value: any, ratioMode = false) {
   if (value == null || value === '') return null;
   const num = Number(value);
@@ -1921,7 +1926,9 @@ export default function BuildTrackWebPage() {
     if (!canEdit(profile) || !reserve?.id || !plan?.id) return false;
     const nextX = normalizePlanPercent(x);
     const nextY = normalizePlanPercent(y);
-    if (nextX == null || nextY == null) return false;
+    const storedX = normalizeStoredPlanPercent(nextX);
+    const storedY = normalizeStoredPlanPercent(nextY);
+    if (nextX == null || nextY == null || storedX == null || storedY == null) return false;
 
     const history = [
       ...(Array.isArray(reserve.history) ? reserve.history : []),
@@ -1929,8 +1936,8 @@ export default function BuildTrackWebPage() {
     ];
     const patch = {
       plan_id: plan.id,
-      plan_x: nextX,
-      plan_y: nextY,
+      plan_x: storedX,
+      plan_y: storedY,
       building: getPlanBuildingName(plan) || reserve.building || '',
       building_id: plan.building_id ?? plan.buildingId ?? reserve.building_id ?? reserve.buildingId ?? null,
       level: getPlanLevelName(plan) || reserve.level || '',
@@ -2344,8 +2351,8 @@ export default function BuildTrackWebPage() {
       comments: existing?.comments ?? [],
       history,
       plan_id: reserveDraft.planId || null,
-      plan_x: reserveDraft.planId ? normalizePlanPercent(reserveDraft.planX) : null,
-      plan_y: reserveDraft.planId ? normalizePlanPercent(reserveDraft.planY) : null,
+      plan_x: reserveDraft.planId ? normalizeStoredPlanPercent(reserveDraft.planX) : null,
+      plan_y: reserveDraft.planId ? normalizeStoredPlanPercent(reserveDraft.planY) : null,
       lot_id: reserveDraft.lotId || null,
       visite_id: reserveDraft.visiteId || null,
       chantier_id: reserveDraft.chantierId || null,
