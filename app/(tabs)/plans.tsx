@@ -3530,7 +3530,9 @@ export default function PlansScreen() {
                 onPinFocus={(reserveId) => {
                   setFocusedPinIdRef.current(reserveId);
                   if (focusedPinTimerRef.current) clearTimeout(focusedPinTimerRef.current);
-                  focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
+                  if (reserveId) {
+                    focusedPinTimerRef.current = setTimeout(() => setFocusedPinIdRef.current(null), 5000);
+                  }
                 }}
                 pinSizes={pinSizes}
                 focusedPinId={focusedPinId}

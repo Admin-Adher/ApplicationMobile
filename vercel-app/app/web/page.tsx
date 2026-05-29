@@ -596,6 +596,39 @@ function isReserveArchived(reserve: any) {
   return Boolean(reserve?.archived_at ?? reserve?.archivedAt);
 }
 
+function isReserveClosed(reserve: any) {
+  return String(reserve?.status ?? '').toLowerCase() === 'closed';
+}
+
+function getReserveCreatedSortKey(reserve: any) {
+  return String(reserve?.createdAt ?? reserve?.created_at ?? reserve?.created ?? reserve?.date ?? '');
+}
+
+function comparePlanPinReserveOrder(a: any, b: any) {
+  const byCreated = getReserveCreatedSortKey(a).localeCompare(getReserveCreatedSortKey(b));
+  if (byCreated !== 0) return byCreated;
+  return String(a?.id ?? '').localeCompare(String(b?.id ?? ''));
+}
+
+function shouldNumberReserveOnPlan(reserve: any, focusedReserveId?: string | null) {
+  const reserveId = String(reserve?.id ?? '');
+  const focusedId = focusedReserveId ? String(focusedReserveId) : '';
+  return !isReserveArchived(reserve) && (!isReserveClosed(reserve) || Boolean(focusedId && reserveId === focusedId));
+}
+
+function createPlanPinNumberMap(reserves: any[]) {
+  const map = new Map<string, number>();
+  [...reserves].sort(comparePlanPinReserveOrder).forEach((reserve, index) => {
+    const id = String(reserve?.id ?? '');
+    if (id) map.set(id, index + 1);
+  });
+  return map;
+}
+
+function getPlanPinNumber(numberMap: Map<string, number>, reserve: any) {
+  return numberMap.get(String(reserve?.id ?? ''));
+}
+
 function isReserveOverdue(reserve: any) {
   if (!reserve?.deadline || ['closed', 'verification'].includes(String(reserve?.status ?? ''))) return false;
   const deadline = new Date(reserve.deadline);
@@ -1046,6 +1079,12 @@ function getReservePlanId(reserve: any) {
   return String(reserve?.plan_id ?? reserve?.planId ?? '').trim();
 }
 
+function hasReservePlanPin(reserve: any) {
+  return Boolean(getReservePlanId(reserve)) &&
+    normalizePlanPercent(reserve?.plan_x ?? reserve?.planX) != null &&
+    normalizePlanPercent(reserve?.plan_y ?? reserve?.planY) != null;
+}
+
 function reserveMatchesCompanyName(reserve: any, companyName?: string | null) {
   const target = String(companyName ?? '').trim();
   if (!target) return false;
@@ -1242,9 +1281,25 @@ async function toPdfReserveItemsForPlanReport(reserves: any[]) {
         REPORT_MAX_PHOTOS_PER_RESERVE,
         Math.floor(REPORT_MAX_TOTAL_REMOTE_PHOTOS / reserves.length),
       );
+  const planReserveBuckets = new Map<string, any[]>();
+  for (const reserve of reserves) {
+    const planId = getReservePlanId(reserve);
+    if (!planId) continue;
+    const bucket = planReserveBuckets.get(planId) ?? [];
+    bucket.push(reserve);
+    planReserveBuckets.set(planId, bucket);
+  }
+  const pinNumberMapsByPlan = new Map<string, Map<string, number>>();
+  for (const [planId, planReserves] of planReserveBuckets) {
+    pinNumberMapsByPlan.set(planId, createPlanPinNumberMap(planReserves));
+  }
 
   return reserves.map((reserve, index) => {
-    const item = toPdfReserveItem(reserve, index);
+    const planPinNumber = pinNumberMapsByPlan.get(getReservePlanId(reserve))?.get(String(reserve?.id ?? ''));
+    const item = {
+      ...toPdfReserveItem(reserve, index),
+      ...(planPinNumber ? { num: planPinNumber } : {}),
+    };
     if (maxPhotosPerReserve <= 0 || item.photos.length === 0) {
       return { ...item, photos: [] };
     }
@@ -2567,11 +2622,13 @@ export default function BuildTrackWebPage() {
       const planPins = reservePlanId
         ? projectScoped.reserves.filter((reserve: any) =>
             String(reserve.plan_id ?? reserve.planId ?? '') === String(reservePlanId) &&
+            shouldNumberReserveOnPlan(reserve, targetReserve?.id) &&
             normalizePlanPercent(reserve.plan_x ?? reserve.planX) != null &&
             normalizePlanPercent(reserve.plan_y ?? reserve.planY) != null
           )
         : [];
-      const pinNum = targetReserve ? Math.max(1, planPins.findIndex((reserve: any) => String(reserve.id) === String(targetReserve.id)) + 1) : undefined;
+      const planPinNumberMap = createPlanPinNumberMap(planPins);
+      const pinNum = targetReserve ? planPinNumberMap.get(String(targetReserve.id)) : undefined;
       const reservePlanImageUri = type === 'individual_reserve' && reservePlan
         ? await getPlanImageForReserveReport(reservePlan)
         : null;
@@ -3218,6 +3275,26 @@ function Dashboard({
     .filter((company: any) => company.total > 0 || company.actualWorkers > 0 || company.plannedWorkers > 0)
     .sort((a: any, b: any) => b.rate - a.rate);
 
+  const pinnedReserves = activeReserves.filter(hasReservePlanPin);
+  const companyPinPodium = data.companies
+    .map((company: any) => {
+      const companyReserves = activeReserves.filter((reserve: any) =>
+        reserveCompanies(reserve).some(name => sameName(name, company.name))
+      );
+      const pinned = companyReserves.filter(hasReservePlanPin).length;
+      return {
+        id: company.id,
+        name: company.name,
+        shortName: company.short_name ?? company.shortName ?? company.name,
+        color: company.color ?? '#003082',
+        total: companyReserves.length,
+        pinned,
+      };
+    })
+    .filter((company: any) => company.pinned > 0)
+    .sort((a: any, b: any) => b.pinned - a.pinned || String(a.name).localeCompare(String(b.name)))
+    .slice(0, 5);
+
   const totalActualWorkers = companyStats.reduce((sum: number, company: any) => sum + company.actualWorkers, 0);
   const totalPlannedWorkers = companyStats.reduce((sum: number, company: any) => sum + company.plannedWorkers, 0);
   const projectCards = selectedProjectId === 'all'
@@ -3320,7 +3397,34 @@ function Dashboard({
       )}
 
       {totalCount > 0 && (
-        <div className={styles.dashboardTwoColumns}>
+        <div className={styles.dashboardThreeColumns}>
+          <section className={styles.panel}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <h2>Podium des épingles</h2>
+                <p>Entreprises avec le plus de réserves localisées sur plan.</p>
+              </div>
+              <span className={styles.dashboardPinTotal}>{pinnedReserves.length} épinglées</span>
+            </div>
+            {companyPinPodium.length ? (
+              <div className={styles.dashboardPinPodiumList}>
+                {companyPinPodium.map((company: any, index: number) => (
+                  <div key={company.id ?? company.name} className={styles.dashboardPinPodiumRow}>
+                    <span className={styles.dashboardPinPodiumRank}>{index + 1}</span>
+                    <i className={styles.dashboardPinPodiumDot} style={{ background: company.color }} />
+                    <div>
+                      <strong>{company.shortName}</strong>
+                      <small>{company.pinned} / {company.total} réserves épinglées</small>
+                    </div>
+                    <em>{company.pinned}</em>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className={styles.empty}>Aucune réserve épinglée par entreprise.</p>
+            )}
+          </section>
+
           <section className={styles.panel}>
             <div className={styles.sectionHeader}>
               <div>
@@ -4411,6 +4515,7 @@ function WebPdfPlan({
   onAnnotationsChange,
   onPinClick,
   onPinDoubleClick,
+  onClearFocus,
 }: {
   uri: string;
   name: string;
@@ -4426,6 +4531,7 @@ function WebPdfPlan({
   onAnnotationsChange?: (annotations: WebPlanDrawing[]) => void;
   onPinClick: (reserveId: string) => void;
   onPinDoubleClick: (reserveId: string) => void;
+  onClearFocus?: () => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -4598,6 +4704,11 @@ function WebPdfPlan({
       if (movePreviewTimerRef.current) window.clearTimeout(movePreviewTimerRef.current);
       movePreviewTimerRef.current = window.setTimeout(() => setMovePreview(null), 850);
       onPinMove?.(focusedReserveId, x, y);
+      return;
+    }
+    if (focusedReserveId) {
+      setMoveMode(false);
+      onClearFocus?.();
       return;
     }
     if (!canCreate) return;
@@ -4841,6 +4952,14 @@ function PlansView({
   const planReserves = useMemo(
     () => selectedPlan ? reserves.filter((r: any) => getReservePlanId(r) === String(selectedPlan.id)) : [],
     [reserves, selectedPlan?.id],
+  );
+  const displayPlanReserves = useMemo(
+    () => planReserves.filter((reserve: any) => shouldNumberReserveOnPlan(reserve, selectedPlanReserveId ?? focusedPlanReserveId)),
+    [focusedPlanReserveId, planReserves, selectedPlanReserveId],
+  );
+  const planPinNumberMap = useMemo(
+    () => createPlanPinNumberMap(displayPlanReserves),
+    [displayPlanReserves],
   );
   const exportablePlanReserves = useMemo(
     () => planReserves.filter((reserve: any) => !isReserveArchived(reserve)),
@@ -5098,15 +5217,15 @@ function PlansView({
       onCreateReserveAtPin(selectedPlan, { planId: selectedPlan.id, x: nextX, y: nextY });
     }, 520);
   };
-  const planPins = planReserves
-    .map((reserve: any, idx: number) => {
+  const planPins = displayPlanReserves
+    .map((reserve: any) => {
       const rawX = Number(reserve.plan_x);
       const rawY = Number(reserve.plan_y);
       // Historical web pins could be saved as 0..1. Mobile pins are 0..100.
       const ratioMode = Number.isFinite(rawX) && Number.isFinite(rawY) && Math.abs(rawX) <= 1 && Math.abs(rawY) <= 1;
       return {
         reserve,
-        number: idx + 1,
+        number: getPlanPinNumber(planPinNumberMap, reserve) ?? 0,
         x: planCoordinateToPercent(reserve.plan_x, ratioMode),
         y: planCoordinateToPercent(reserve.plan_y, ratioMode),
         color: getReservePinColor(reserve, companies ?? []),
@@ -5452,6 +5571,7 @@ function PlansView({
                       setFocusedPlanReserveId(reserveId);
                     }}
                     onPinDoubleClick={openReserveFromPin}
+                    onClearFocus={() => setFocusedPlanReserveId(null)}
                   />
                 ) : (
                   <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
@@ -5462,6 +5582,10 @@ function PlansView({
                     className={`${styles.pinClickLayer} ${styles.pinCreateLayer}`}
                     aria-label="Cliquer pour créer une réserve à cet endroit"
                     onClick={event => {
+                      if (focusedPlanReserveId) {
+                        setFocusedPlanReserveId(null);
+                        return;
+                      }
                       const rect = event.currentTarget.getBoundingClientRect();
                       assignOrCreatePinAt(
                         ((event.clientX - rect.left) / rect.width) * 100,
@@ -5505,7 +5629,7 @@ function PlansView({
                   <div className={styles.planReserveHeader}>
                     <div>
                       <h3>Réserves</h3>
-                      <span>{planReserves.length} sur ce plan</span>
+                      <span>{displayPlanReserves.length} sur ce plan</span>
                     </div>
                     <div className={styles.planReserveHeaderActions}>
                       <strong>{planPins.length} épinglées</strong>
@@ -5519,20 +5643,22 @@ function PlansView({
                     </div>
                   </div>
                   <div className={styles.planReserveList}>
-                    {planReserves.map((reserve: any, idx: number) => (
+                    {displayPlanReserves.map((reserve: any) => (
                       <button
                         key={reserve.id}
                         className={`${styles.planReserveRow} ${selectedPlanReserveId === reserve.id ? styles.planReserveRowActive : ''}`}
                         onClick={() => setSelectedPlanReserveId(reserve.id)}
                       >
-                        <span className={styles.planReserveNumber} style={{ background: getReservePinColor(reserve, companies ?? []) }}>{idx + 1}</span>
+                        <span className={styles.planReserveNumber} style={{ background: getReservePinColor(reserve, companies ?? []) }}>
+                          {getPlanPinNumber(planPinNumberMap, reserve) ?? '—'}
+                        </span>
                         <span>
                           <strong>{reserve.title}</strong>
                           <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company_name, reserve.zone].filter(Boolean).join(' · ')}</small>
                         </span>
                       </button>
                     ))}
-                    {!planReserves.length && (
+                    {!displayPlanReserves.length && (
                       <div className={styles.planReserveEmpty}>
                         <strong>Aucune réserve</strong>
                         <span>Les réserves épinglées sur ce plan apparaîtront ici.</span>
@@ -5543,7 +5669,7 @@ function PlansView({
                     <div className={styles.planReserveQuickCard}>
                       <div className={styles.planReserveQuickHeader}>
                         <span className={styles.planReserveNumber} style={{ background: getReservePinColor(selectedPlanReserve, companies ?? []) }}>
-                          {planReserves.findIndex((reserve: any) => reserve.id === selectedPlanReserve.id) + 1}
+                          {getPlanPinNumber(planPinNumberMap, selectedPlanReserve) ?? '—'}
                         </span>
                         <div>
                           <strong>{selectedPlanReserve.title}</strong>
@@ -5581,10 +5707,10 @@ function PlansView({
                   className={styles.planReserveCollapsedRail}
                   onClick={() => setPlanReservePanelOpen(true)}
                   aria-expanded={false}
-                  aria-label={`Afficher les réserves du plan (${planReserves.length})`}
+                  aria-label={`Afficher les réserves du plan (${displayPlanReserves.length})`}
                 >
                   <span>Réserves</span>
-                  <strong>{planReserves.length}</strong>
+                  <strong>{displayPlanReserves.length}</strong>
                   <em>{planPins.length} épinglées</em>
                   <b>←</b>
                 </button>

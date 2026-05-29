@@ -989,6 +989,7 @@
 .dashboardKpiGrid,
 .dashboardWideGrid,
 .dashboardTwoColumns,
+.dashboardThreeColumns,
 .dashboardAlertGrid,
 .dashboardProjectGrid {
   display: grid;
@@ -1193,6 +1194,11 @@
   align-items: stretch;
 }
 
+.dashboardThreeColumns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: stretch;
+}
+
 .dashboardStatusList {
   display: grid;
   gap: 12px;
@@ -1306,6 +1312,93 @@
   padding: 4px 8px;
   font-weight: 850;
   white-space: nowrap;
+}
+
+.dashboardPinTotal {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #003082;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.dashboardPinPodiumList {
+  display: grid;
+  gap: 10px;
+}
+
+.dashboardPinPodiumRow {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dbe4f0;
+  border-radius: 18px;
+  background: #f8fafc;
+}
+
+.dashboardPinPodiumRank {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: #003082;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.dashboardPinPodiumRow:nth-child(1) .dashboardPinPodiumRank {
+  background: #f59e0b;
+}
+
+.dashboardPinPodiumRow:nth-child(2) .dashboardPinPodiumRank {
+  background: #64748b;
+}
+
+.dashboardPinPodiumRow:nth-child(3) .dashboardPinPodiumRank {
+  background: #b45309;
+}
+
+.dashboardPinPodiumDot {
+  width: 10px;
+  height: 36px;
+  border-radius: 999px;
+}
+
+.dashboardPinPodiumRow div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.dashboardPinPodiumRow strong {
+  overflow: hidden;
+  color: #0f172a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dashboardPinPodiumRow small {
+  color: #64748b;
+  font-weight: 750;
+}
+
+.dashboardPinPodiumRow em {
+  justify-self: end;
+  color: #003082;
+  font-size: 28px;
+  font-style: normal;
+  font-weight: 950;
 }
 
 .dashboardChart {
@@ -7394,6 +7487,7 @@
   .twoCols,
   .dashboardWideGrid,
   .dashboardTwoColumns,
+  .dashboardThreeColumns,
   .dashboardAlertGrid,
   .dashboardProjectGrid,
   .threeCols,

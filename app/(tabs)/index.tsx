@@ -53,6 +53,13 @@ function parseDateSafe(s: string): Date | null {
   return isNaN(d.getTime()) ? null : d;
 }
 
+function hasReservePlanPin(reserve: any): boolean {
+  const planId = reserve?.planId ?? reserve?.plan_id;
+  const x = reserve?.planX ?? reserve?.plan_x;
+  const y = reserve?.planY ?? reserve?.plan_y;
+  return Boolean(planId) && x != null && y != null && Number.isFinite(Number(x)) && Number.isFinite(Number(y));
+}
+
 function KPICard({
   label, value, color, icon, bg, onPress,
 }: {
@@ -321,6 +328,34 @@ export default function DashboardScreen() {
     }
     return companies;
   }, [isSousTraitant, userCompany, companies]);
+
+  const pinnedVisibleReserves = useMemo(
+    () => activeVisibleReserves.filter(hasReservePlanPin),
+    [activeVisibleReserves],
+  );
+
+  const companyPinPodium = useMemo(() => {
+    return visibleCompanies
+      .map(company => {
+        const companyReserves = activeVisibleReserves.filter(r =>
+          r.company === company.name ||
+          (Array.isArray(r.companies) && r.companies.includes(company.name))
+        );
+        const pinned = companyReserves.filter(hasReservePlanPin).length;
+        const total = companyReserves.length;
+        return {
+          id: company.id,
+          name: company.name,
+          shortName: (company as any).shortName ?? (company as any).short_name ?? company.name,
+          color: company.color ?? C.primary,
+          pinned,
+          total,
+        };
+      })
+      .filter(company => company.pinned > 0)
+      .sort((a, b) => b.pinned - a.pinned || a.name.localeCompare(b.name))
+      .slice(0, 3);
+  }, [activeVisibleReserves, visibleCompanies]);
 
   return (
     <View style={styles.container}>
@@ -673,6 +708,54 @@ export default function DashboardScreen() {
               <View style={[styles.progressFill, { width: `${visibleStats.progress}%` as any }]} />
             </View>
             <Text style={styles.progressHint}>{t('dashboard.closedProgress', { closed: visibleStats.closed, total: visibleStats.total })}</Text>
+          </View>
+        )}
+
+        {visibleStats.total > 0 && (
+          <View style={styles.card}>
+            <View style={styles.pinPodiumHeader}>
+              <View style={styles.pinPodiumTitleBlock}>
+                <Text style={styles.cardTitle}>{t('dashboard.pinPodiumTitle')}</Text>
+                <Text style={styles.cardSub}>{t('dashboard.pinPodiumSubtitle')}</Text>
+              </View>
+              <View style={styles.pinPodiumTotalBadge}>
+                <Ionicons name="location-outline" size={13} color={C.primary} />
+                <Text style={styles.pinPodiumTotalText}>
+                  {t('dashboard.pinPodiumTotal', { count: pinnedVisibleReserves.length })}
+                </Text>
+              </View>
+            </View>
+            {companyPinPodium.length === 0 ? (
+              <Text style={styles.emptyAnalytics}>{t('dashboard.pinPodiumEmpty')}</Text>
+            ) : (
+              <View style={styles.pinPodiumList}>
+                {companyPinPodium.map((company, index) => (
+                  <View key={company.id ?? company.name} style={styles.pinPodiumRow}>
+                    <View style={[
+                      styles.pinPodiumRank,
+                      index === 0 && styles.pinPodiumRankGold,
+                      index === 1 && styles.pinPodiumRankSilver,
+                      index === 2 && styles.pinPodiumRankBronze,
+                    ]}>
+                      <Text style={styles.pinPodiumRankText}>{index + 1}</Text>
+                    </View>
+                    <View style={[styles.pinPodiumColor, { backgroundColor: company.color }]} />
+                    <View style={styles.pinPodiumBody}>
+                      <Text style={styles.pinPodiumCompany} numberOfLines={1}>{company.shortName}</Text>
+                      <Text style={styles.pinPodiumMeta}>
+                        {t('dashboard.pinPodiumRatio', { pinned: company.pinned, total: company.total })}
+                      </Text>
+                    </View>
+                    <View style={styles.pinPodiumScore}>
+                      <Text style={styles.pinPodiumScoreValue}>{company.pinned}</Text>
+                      <Text style={styles.pinPodiumScoreLabel}>
+                        {t('dashboard.pinPodiumPinned', { count: company.pinned })}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
           </View>
         )}
 
@@ -1131,6 +1214,37 @@ const styles = StyleSheet.create({
   tabSwitchTextActive: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
   chartSubtitle: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 12 },
   emptyAnalytics: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', paddingVertical: 20 },
+  pinPodiumHeader: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10, marginBottom: 12 },
+  pinPodiumTitleBlock: { flex: 1, minWidth: 0 },
+  pinPodiumTotalBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: C.primaryBg, borderRadius: 999,
+    paddingHorizontal: 9, paddingVertical: 5, flexShrink: 0,
+  },
+  pinPodiumTotalText: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.primary },
+  pinPodiumList: { gap: 8 },
+  pinPodiumRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 9, paddingHorizontal: 10,
+    borderWidth: 1, borderColor: C.border, borderRadius: 12,
+    backgroundColor: C.surface2,
+  },
+  pinPodiumRank: {
+    width: 26, height: 26, borderRadius: 13,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: C.primary,
+  },
+  pinPodiumRankGold: { backgroundColor: '#F59E0B' },
+  pinPodiumRankSilver: { backgroundColor: '#64748B' },
+  pinPodiumRankBronze: { backgroundColor: '#B45309' },
+  pinPodiumRankText: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
+  pinPodiumColor: { width: 8, height: 34, borderRadius: 6 },
+  pinPodiumBody: { flex: 1, minWidth: 0 },
+  pinPodiumCompany: { fontSize: 13, fontFamily: 'Inter_700Bold', color: C.text },
+  pinPodiumMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 1 },
+  pinPodiumScore: { alignItems: 'flex-end', minWidth: 66 },
+  pinPodiumScoreValue: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.primary },
+  pinPodiumScoreLabel: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
 
   chartContainer: { gap: 8 },
   chartLegend: { flexDirection: 'row', gap: 16, marginBottom: 8 },
