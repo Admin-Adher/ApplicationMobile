@@ -115,6 +115,8 @@ type PinPlacementPreview = {
   label: string;
 };
 
+type PinMoveResult = Promise<boolean | void> | boolean | void;
+
 type WebPlanDrawingTool = 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'cloud' | 'highlight';
 
 type WebPlanDrawing = {
@@ -807,6 +809,73 @@ function getReserveBuildingKey(reserve: any) {
   if (id) return `id:${id}`;
   const name = String(reserve?.building_name ?? reserve?.building ?? reserve?.batiment ?? '').trim();
   return name ? `name:${normalizeSearchText(name)}` : '__none__';
+}
+
+function getReserveBuildingInfo(reserve: any, plansById?: Map<string, any>, project?: any | null) {
+  const directId = String(reserve?.building_id ?? reserve?.buildingId ?? '').trim();
+  const directName = String(reserve?.building_name ?? reserve?.building ?? reserve?.batiment ?? '').trim();
+  if (directId || directName) {
+    const name = directName || getBuildingNameById(project, directId) || 'Sans bâtiment';
+    return {
+      key: directId ? `id:${directId}` : name === 'Sans bâtiment' ? '__none__' : `name:${normalizeSearchText(name)}`,
+      name,
+      selectable: name !== 'Sans bâtiment',
+    };
+  }
+
+  const planId = getReservePlanId(reserve);
+  const plan = planId && plansById ? plansById.get(planId) : null;
+  if (plan) {
+    const location = getPlanDisplayLocation(plan, project);
+    const buildingId = location.buildingId || getPlanBuildingId(plan);
+    const name = location.building || getPlanBuildingName(plan);
+    return {
+      key: buildingId ? `id:${buildingId}` : name === 'Sans bâtiment' ? '__none__' : `name:${normalizeSearchText(name)}`,
+      name,
+      selectable: name !== 'Sans bâtiment',
+    };
+  }
+
+  return { key: '__none__', name: 'Sans bâtiment', selectable: false };
+}
+
+function buildReserveBuildingBreakdown(reserves: any[], plansById: Map<string, any>, project?: any | null) {
+  const groups = new Map<string, {
+    key: string;
+    name: string;
+    selectable: boolean;
+    total: number;
+    pinned: number;
+    overdue: number;
+    open: number;
+    closed: number;
+  }>();
+
+  for (const reserve of reserves) {
+    const info = getReserveBuildingInfo(reserve, plansById, project);
+    const current = groups.get(info.key) ?? {
+      key: info.key,
+      name: info.name,
+      selectable: info.selectable,
+      total: 0,
+      pinned: 0,
+      overdue: 0,
+      open: 0,
+      closed: 0,
+    };
+    current.total += 1;
+    current.pinned += hasReservePlanPin(reserve) ? 1 : 0;
+    current.overdue += isReserveOverdue(reserve) ? 1 : 0;
+    current.open += reserve.status === 'closed' ? 0 : 1;
+    current.closed += reserve.status === 'closed' ? 1 : 0;
+    groups.set(info.key, current);
+  }
+
+  return Array.from(groups.values()).sort((a, b) =>
+    b.total - a.total ||
+    b.pinned - a.pinned ||
+    a.name.localeCompare(b.name)
+  );
 }
 
 function parseBuildingFamily(name: string) {
@@ -1849,10 +1918,10 @@ export default function BuildTrackWebPage() {
   }
 
   async function moveReservePinWeb(reserve: any, plan: any, x: number, y: number) {
-    if (!canEdit(profile) || !reserve?.id || !plan?.id) return;
+    if (!canEdit(profile) || !reserve?.id || !plan?.id) return false;
     const nextX = normalizePlanPercent(x);
     const nextY = normalizePlanPercent(y);
-    if (nextX == null || nextY == null) return;
+    if (nextX == null || nextY == null) return false;
 
     const history = [
       ...(Array.isArray(reserve.history) ? reserve.history : []),
@@ -1868,20 +1937,33 @@ export default function BuildTrackWebPage() {
       level_id: plan.level_id ?? plan.levelId ?? reserve.level_id ?? reserve.levelId ?? null,
       history,
     };
+    const previousReserve = data.reserves.find(item => item.id === reserve.id) ?? reserve;
+    setError('');
 
     setData(prev => ({
       ...prev,
       reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, ...patch } : item),
     }));
 
-    const { error: pinError } = await supabaseBrowser
+    const { data: savedReserve, error: pinError } = await supabaseBrowser
       .from('reserves')
       .update(patch)
-      .eq('id', reserve.id);
-    if (pinError) {
-      setError(pinError.message);
-      if (authUser) await loadEverything(authUser);
+      .eq('id', reserve.id)
+      .select('id, plan_id, plan_x, plan_y, building, building_id, level, level_id, history')
+      .maybeSingle();
+    if (pinError || !savedReserve) {
+      setData(prev => ({
+        ...prev,
+        reserves: prev.reserves.map(item => item.id === reserve.id ? previousReserve : item),
+      }));
+      setError(pinError?.message ?? "Déplacement refusé : la réserve n'a pas été mise à jour côté serveur.");
+      return false;
     }
+    setData(prev => ({
+      ...prev,
+      reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, ...savedReserve } : item),
+    }));
+    return true;
   }
 
   async function updatePlanAnnotationsWeb(plan: any, annotations: WebPlanDrawing[]) {
@@ -2792,12 +2874,22 @@ export default function BuildTrackWebPage() {
     };
   }, [data, selectedProjectId, profile]);
 
+  const activeProjectForReserveFilters = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
+  const reserveFilterPlansById = useMemo(
+    () => new Map<string, any>(projectScoped.plans.map((plan: any) => [String(plan.id), plan] as [string, any])),
+    [projectScoped.plans]
+  );
+
   const reserveStructuredFilters = useMemo(() => {
     const active = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve));
     const companies = Array.from(new Set(active.flatMap(reserve => reserveCompanies(reserve)).filter(Boolean))).sort((a, b) => a.localeCompare(b));
-    const buildings = Array.from(new Set(active.map(reserve => String(reserve.building ?? '').trim()).filter(Boolean))).sort((a, b) => a.localeCompare(b));
+    const buildings = Array.from(new Set(active
+      .map(reserve => getReserveBuildingInfo(reserve, reserveFilterPlansById, activeProjectForReserveFilters))
+      .filter(info => info.selectable)
+      .map(info => info.name)
+    )).sort((a, b) => a.localeCompare(b));
     return { companies, buildings };
-  }, [projectScoped.reserves]);
+  }, [projectScoped.reserves, reserveFilterPlansById, activeProjectForReserveFilters]);
 
   const filteredReserves = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -2820,7 +2912,10 @@ export default function BuildTrackWebPage() {
       }
       if (priorityFilter !== 'all' && r.priority !== priorityFilter) return false;
       if (companyFilter !== 'all' && !reserveCompanies(r).includes(companyFilter)) return false;
-      if (buildingFilter !== 'all' && !sameName(r.building, buildingFilter)) return false;
+      if (buildingFilter !== 'all') {
+        const buildingInfo = getReserveBuildingInfo(r, reserveFilterPlansById, activeProjectForReserveFilters);
+        if (!sameName(buildingInfo.name, buildingFilter)) return false;
+      }
       if (pinFilter === 'pinned' && !r.plan_id) return false;
       if (pinFilter === 'unpinned' && r.plan_id) return false;
       if (!q) return true;
@@ -2828,7 +2923,7 @@ export default function BuildTrackWebPage() {
         r.id,
         r.title,
         r.description,
-        r.building,
+        getReserveBuildingInfo(r, reserveFilterPlansById, activeProjectForReserveFilters).name,
         r.level,
         r.zone,
         STATUS_LABELS[r.status] ?? r.status,
@@ -2837,7 +2932,7 @@ export default function BuildTrackWebPage() {
       ].join(' ').toLowerCase();
       return haystack.includes(q);
     });
-  }, [projectScoped.reserves, search, statusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter]);
+  }, [projectScoped.reserves, search, statusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
 
   const selectedReserve = projectScoped.reserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
@@ -3007,6 +3102,8 @@ export default function BuildTrackWebPage() {
                 selectedProjectId={selectedProjectId}
                 canCreate={canEdit(profile)}
                 setTab={setActiveTab}
+                setSelectedProjectId={setSelectedProjectId}
+                setBuildingFilter={setBuildingFilter}
                 onCreateReserve={() => openReserveCreate()}
                 onCreateVisit={openVisitCreate}
               />
@@ -3211,6 +3308,8 @@ function Dashboard({
   selectedProjectId,
   canCreate,
   setTab,
+  setSelectedProjectId,
+  setBuildingFilter,
   onCreateReserve,
   onCreateVisit,
 }: any) {
@@ -3229,6 +3328,13 @@ function Dashboard({
   const project = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
   const firstName = String(profile?.name ?? authUser?.email ?? 'BuildTrack').split(' ')[0];
   const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  const plansById = new Map<string, any>(data.sitePlans.map((plan: any) => [String(plan.id), plan] as [string, any]));
+  const openBuildingInReserves = (building: any, chantierId?: string) => {
+    if (!building?.selectable) return;
+    if (chantierId) setSelectedProjectId(chantierId);
+    setBuildingFilter(building.name);
+    setTab('reserves');
+  };
 
   const weekStats = (() => {
     const now = new Date();
@@ -3301,15 +3407,18 @@ function Dashboard({
     ? data.chantiers.map((chantier: any) => {
       const reserves = data.reserves.filter((reserve: any) => getChantierId(reserve) === chantier.id && !isReserveArchived(reserve));
       const closed = reserves.filter((reserve: any) => reserve.status === 'closed').length;
+      const buildings = buildReserveBuildingBreakdown(reserves, plansById, chantier);
       return {
         id: chantier.id,
         name: chantier.name,
         total: reserves.length,
         progress: reserves.length ? Math.round((closed / reserves.length) * 100) : 0,
         overdue: reserves.filter(isReserveOverdue).length,
+        buildings,
       };
     })
     : [];
+  const buildingBreakdown = buildReserveBuildingBreakdown(activeReserves, plansById, project);
 
   return (
     <div className={styles.dashboardStack}>
@@ -3353,6 +3462,24 @@ function Dashboard({
                   <i style={{ width: `${chantier.progress}%` }} />
                 </div>
                 <em>{chantier.progress}%</em>
+                {chantier.buildings.length ? (
+                  <div className={styles.dashboardProjectBuildings}>
+                    {chantier.buildings.slice(0, 4).map((building: any) => (
+                      <button
+                        key={building.key}
+                        type="button"
+                        disabled={!building.selectable}
+                        onClick={() => openBuildingInReserves(building, chantier.id)}
+                      >
+                        <span>{building.name}</span>
+                        <strong>{building.total}</strong>
+                      </button>
+                    ))}
+                    {chantier.buildings.length > 4 && (
+                      <small>+{chantier.buildings.length - 4} bâtiment{chantier.buildings.length - 4 > 1 ? 's' : ''}</small>
+                    )}
+                  </div>
+                ) : null}
               </article>
             ))}
           </div>
@@ -3453,46 +3580,85 @@ function Dashboard({
             <span>{pinnedReserves.length} réserve{pinnedReserves.length > 1 ? 's' : ''} épinglée{pinnedReserves.length > 1 ? 's' : ''}</span>
           </div>
           <div className={styles.dashboardReserveColumns}>
-            <section className={styles.panel}>
-              <div className={styles.sectionHeader}>
-                <div>
-                  <h2>Répartition des réserves</h2>
-                  <p>Lecture par statut avant d’aller dans le détail.</p>
+            <div className={styles.dashboardReserveSummaryStack}>
+              <section className={styles.panel}>
+                <div className={styles.sectionHeader}>
+                  <div>
+                    <h2>Répartition des réserves</h2>
+                    <p>Lecture par statut avant d’aller dans le détail.</p>
+                  </div>
                 </div>
-              </div>
-              <div className={styles.dashboardStatusList}>
-                <DashboardStatusBar label="Ouvert" count={openCount} total={totalCount} tone="amber" />
-                <DashboardStatusBar label="En cours" count={inProgressCount} total={totalCount} tone="blue" />
-                <DashboardStatusBar label="En attente" count={waitingCount} total={totalCount} tone="amber" />
-                <DashboardStatusBar label="Vérification" count={verificationCount} total={totalCount} tone="purple" />
-                <DashboardStatusBar label="Clôturé" count={closedCount} total={totalCount} tone="green" />
-              </div>
-            </section>
+                <div className={styles.dashboardStatusList}>
+                  <DashboardStatusBar label="Ouvert" count={openCount} total={totalCount} tone="amber" />
+                  <DashboardStatusBar label="En cours" count={inProgressCount} total={totalCount} tone="blue" />
+                  <DashboardStatusBar label="En attente" count={waitingCount} total={totalCount} tone="amber" />
+                  <DashboardStatusBar label="Vérification" count={verificationCount} total={totalCount} tone="purple" />
+                  <DashboardStatusBar label="Clôturé" count={closedCount} total={totalCount} tone="green" />
+                </div>
+              </section>
 
-            <section className={styles.panel}>
+              <section className={styles.panel}>
+                <div className={styles.sectionHeader}>
+                  <div>
+                    <h2>Podium des épingles</h2>
+                    <p>Entreprises avec le plus de réserves localisées sur plan.</p>
+                  </div>
+                  <span className={styles.dashboardPinTotal}>{pinnedReserves.length} épinglées</span>
+                </div>
+                {companyPinPodium.length ? (
+                  <div className={styles.dashboardPinPodiumList}>
+                    {companyPinPodium.map((company: any, index: number) => (
+                      <div key={company.id ?? company.name} className={styles.dashboardPinPodiumRow}>
+                        <span className={styles.dashboardPinPodiumRank}>{index + 1}</span>
+                        <i className={styles.dashboardPinPodiumDot} style={{ background: company.color }} />
+                        <div>
+                          <strong>{company.shortName}</strong>
+                          <small>{company.pinned} / {company.total} réserves épinglées</small>
+                        </div>
+                        <em>{company.pinned}</em>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className={styles.empty}>Aucune réserve épinglée par entreprise.</p>
+                )}
+              </section>
+            </div>
+
+            <section className={`${styles.panel} ${styles.dashboardBuildingBreakdownPanel}`}>
               <div className={styles.sectionHeader}>
                 <div>
-                  <h2>Podium des épingles</h2>
-                  <p>Entreprises avec le plus de réserves localisées sur plan.</p>
+                  <h2>Répartition par bâtiment</h2>
+                  <p>Où se concentrent les réserves et les épingles du chantier.</p>
                 </div>
-                <span className={styles.dashboardPinTotal}>{pinnedReserves.length} épinglées</span>
+                <span className={styles.dashboardPinTotal}>{buildingBreakdown.length} bâtiment{buildingBreakdown.length > 1 ? 's' : ''}</span>
               </div>
-              {companyPinPodium.length ? (
-                <div className={styles.dashboardPinPodiumList}>
-                  {companyPinPodium.map((company: any, index: number) => (
-                    <div key={company.id ?? company.name} className={styles.dashboardPinPodiumRow}>
-                      <span className={styles.dashboardPinPodiumRank}>{index + 1}</span>
-                      <i className={styles.dashboardPinPodiumDot} style={{ background: company.color }} />
-                      <div>
-                        <strong>{company.shortName}</strong>
-                        <small>{company.pinned} / {company.total} réserves épinglées</small>
-                      </div>
-                      <em>{company.pinned}</em>
-                    </div>
-                  ))}
+              {buildingBreakdown.length ? (
+                <div className={styles.dashboardBuildingBreakdownList}>
+                  {buildingBreakdown.slice(0, 10).map((building: any) => {
+                    const width = totalCount ? Math.max(5, Math.round((building.total / totalCount) * 100)) : 0;
+                    return (
+                      <button
+                        key={building.key}
+                        type="button"
+                        disabled={!building.selectable}
+                        className={styles.dashboardBuildingBreakdownRow}
+                        onClick={() => openBuildingInReserves(building)}
+                      >
+                        <span className={styles.dashboardBuildingBreakdownMain}>
+                          <strong>{building.name}</strong>
+                          <small>{building.pinned} épinglée{building.pinned > 1 ? 's' : ''} · {building.overdue} retard</small>
+                        </span>
+                        <span className={styles.dashboardBuildingBreakdownMeta}>
+                          <b>{building.total}</b>
+                          <i><em style={{ width: `${width}%` }} /></i>
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
               ) : (
-                <p className={styles.empty}>Aucune réserve épinglée par entreprise.</p>
+                <p className={styles.empty}>Aucun bâtiment à afficher.</p>
               )}
             </section>
           </div>
@@ -4561,7 +4727,7 @@ function WebPdfPlan({
   annotations?: WebPlanDrawing[];
   placementPreview?: PinPlacementPreview | null;
   onCreateReserveAtPin?: (x: number, y: number) => void;
-  onPinMove?: (reserveId: string, x: number, y: number) => void;
+  onPinMove?: (reserveId: string, x: number, y: number) => PinMoveResult;
   onAnnotationsChange?: (annotations: WebPlanDrawing[]) => void;
   onPinClick: (reserveId: string) => void;
   onPinDoubleClick: (reserveId: string) => void;
@@ -4794,7 +4960,7 @@ function WebPdfPlan({
     setIsPanning(false);
   }
 
-  function handlePageClick(event: MouseEvent<HTMLDivElement>) {
+  async function handlePageClick(event: MouseEvent<HTMLDivElement>) {
     if (suppressNextPageClickRef.current) {
       suppressNextPageClickRef.current = false;
       return;
@@ -4803,6 +4969,8 @@ function WebPdfPlan({
     const { x, y } = pagePointFromEvent(event);
     if (moveMode && canMovePins && focusedReserveId) {
       setMoveMode(false);
+      const moveResult = await Promise.resolve(onPinMove?.(focusedReserveId, x, y));
+      if (moveResult === false) return;
       const preview: PinPlacementPreview = {
         id: `move-${Date.now()}-${Math.random().toString(36).slice(2)}`,
         planId: 'current',
@@ -4813,7 +4981,6 @@ function WebPdfPlan({
       setMovePreview(preview);
       if (movePreviewTimerRef.current) window.clearTimeout(movePreviewTimerRef.current);
       movePreviewTimerRef.current = window.setTimeout(() => setMovePreview(null), 850);
-      onPinMove?.(focusedReserveId, x, y);
       return;
     }
     if (focusedReserveId) {
@@ -5680,7 +5847,8 @@ function PlansView({
                     onCreateReserveAtPin={assignOrCreatePinAt}
                     onPinMove={(reserveId, x, y) => {
                       const reserve = planReserves.find((item: any) => item.id === reserveId);
-                      if (reserve) onMoveReservePin?.(reserve, selectedPlan, x, y);
+                      if (!reserve) return false;
+                      return onMoveReservePin?.(reserve, selectedPlan, x, y) ?? false;
                     }}
                     onAnnotationsChange={(nextAnnotations) => onUpdatePlanAnnotations?.(selectedPlan, nextAnnotations)}
                     onPinClick={(reserveId) => {
