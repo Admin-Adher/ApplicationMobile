@@ -429,15 +429,20 @@ function getPinDensityScale(){
   return 1;
 }
 
-function getPinVisualScale(mult){
+function getPinVisualScale(mult,rawSize){
   var safeZoom=Math.max(zoom||1,1);
-  var scale=getPinDensityScale()/safeZoom;
+  var baseSize=Math.max(1,rawSize||PIN_SIZE||1);
+  var densityScale=getPinDensityScale();
+  var targetScreenSize=Math.max(10,Math.min(18,baseSize*densityScale));
+  var scale=(targetScreenSize/baseSize)/safeZoom;
   return Math.max(0.08,Math.min(1.12,scale*(mult||1)));
 }
 
-function setPinScaleMultiplier(el,mult){
+function setPinScaleMultiplier(el,mult,rawSize){
+  if(rawSize)el.setAttribute('data-pin-size',String(rawSize));
+  var size=parseFloat(el.getAttribute('data-pin-size')||String(PIN_SIZE))||PIN_SIZE;
   el.setAttribute('data-pin-scale-mult',String(mult||1));
-  el.style.transform='scale('+getPinVisualScale(mult||1)+')';
+  el.style.transform='scale('+getPinVisualScale(mult||1,size)+')';
 }
 
 function applyPinVisualScale(){
@@ -445,7 +450,8 @@ function applyPinVisualScale(){
   for(var i=0;i<els.length;i++){
     var el=els[i];
     var mult=parseFloat(el.getAttribute('data-pin-scale-mult')||'1')||1;
-    el.style.transform='scale('+getPinVisualScale(mult)+')';
+    var size=parseFloat(el.getAttribute('data-pin-size')||String(PIN_SIZE))||PIN_SIZE;
+    el.style.transform='scale('+getPinVisualScale(mult,size)+')';
   }
 }
 
@@ -550,10 +556,10 @@ function renderGhostPins(){
     div.style.pointerEvents='none';
     div.style.border='1.5px solid rgba(255,255,255,0.35)';
     div.style.boxShadow='none';
-    setPinScaleMultiplier(div,1);
+    setPinScaleMultiplier(div,1,sz);
     var span=document.createElement('span');
     span.textContent=String(pin.num);
-    span.style.fontSize=Math.max(7,Math.round(sz*0.42))+'px';
+    span.style.fontSize=Math.max(7,Math.round(sz*0.52))+'px';
     div.appendChild(span);
     ghostLayer.appendChild(div);
   });
@@ -577,10 +583,10 @@ function renderPins(){
       div.style.boxShadow='0 0 0 4px rgba(251,191,36,0.32), 0 0 14px rgba(251,191,36,0.72), 0 4px 12px rgba(0,0,0,0.5)';
       div.style.zIndex='30';
     }
-    setPinScaleMultiplier(div,isFocused?1.18:1);
+    setPinScaleMultiplier(div,isFocused?1.18:1,sz);
     var span=document.createElement('span');
     span.textContent=String(pin.num);
-    span.style.fontSize=Math.max(7,Math.round(sz*0.42))+'px';
+    span.style.fontSize=Math.max(7,Math.round(sz*0.52))+'px';
     div.appendChild(span);
 
     var lpTimer=null,pinDrag=false,pinMoved=false,psx=0,psy=0;
