@@ -322,7 +322,7 @@ html,body{width:100%;height:100%;overflow:hidden;background:#0F1117;touch-action
 #cur-svg{position:absolute;top:0;left:0;pointer-events:all;}
 #ghost-layer{position:absolute;top:0;left:0;}
 #pins-layer{position:absolute;top:0;left:0;}
-  .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.42);cursor:pointer;transition:box-shadow 0.15s,border-color 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;}
+  .pin{position:absolute;border-radius:50%;display:flex;align-items:center;justify-content:center;border:1.5px solid rgba(255,255,255,0.85);box-shadow:0 2px 8px rgba(0,0,0,0.42);cursor:pointer;transition:box-shadow 0.15s,border-color 0.15s;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:none;transform-origin:center center;}
   .pin-focused{animation:pinPulse 1.05s ease-in-out infinite;z-index:30;}
   .pin span{color:#fff;font-weight:700;font-family:Arial;line-height:1;pointer-events:none;}
   #container.is-interacting .pin{box-shadow:none;transition:none;border-color:rgba(255,255,255,0.62);}
@@ -408,7 +408,7 @@ function endInteractionSoon(){
   interactionTimer=setTimeout(function(){setInteracting(false);},160);
 }
 
-function applyTNow(){inner.style.transform='translate3d('+panX+'px,'+panY+'px,0) scale('+zoom+')';}
+function applyTNow(){inner.style.transform='translate3d('+panX+'px,'+panY+'px,0) scale('+zoom+')';applyPinVisualScale();}
 
 function applyT(){
   if(transformRaf!==null)return;
@@ -416,6 +416,37 @@ function applyT(){
     transformRaf=null;
     applyTNow();
   });
+}
+
+function getPinDensityScale(){
+  var count=(pinsData&&pinsData.length)||0;
+  var ghostCount=(ghostPinsData&&ghostPinsData.length)||0;
+  count=Math.max(count,ghostCount);
+  if(count>=160)return 0.62;
+  if(count>=100)return 0.72;
+  if(count>=60)return 0.82;
+  if(count>=35)return 0.9;
+  return 1;
+}
+
+function getPinVisualScale(mult){
+  var safeZoom=Math.max(zoom||1,1);
+  var scale=getPinDensityScale()/safeZoom;
+  return Math.max(0.08,Math.min(1.12,scale*(mult||1)));
+}
+
+function setPinScaleMultiplier(el,mult){
+  el.setAttribute('data-pin-scale-mult',String(mult||1));
+  el.style.transform='scale('+getPinVisualScale(mult||1)+')';
+}
+
+function applyPinVisualScale(){
+  var els=document.querySelectorAll('.pin');
+  for(var i=0;i<els.length;i++){
+    var el=els[i];
+    var mult=parseFloat(el.getAttribute('data-pin-scale-mult')||'1')||1;
+    el.style.transform='scale('+getPinVisualScale(mult)+')';
+  }
 }
 
 function screenToCanvas(sx,sy){
@@ -519,6 +550,7 @@ function renderGhostPins(){
     div.style.pointerEvents='none';
     div.style.border='1.5px solid rgba(255,255,255,0.35)';
     div.style.boxShadow='none';
+    setPinScaleMultiplier(div,1);
     var span=document.createElement('span');
     span.textContent=String(pin.num);
     span.style.fontSize=Math.max(7,Math.round(sz*0.42))+'px';
@@ -545,6 +577,7 @@ function renderPins(){
       div.style.boxShadow='0 0 0 4px rgba(251,191,36,0.32), 0 0 14px rgba(251,191,36,0.72), 0 4px 12px rgba(0,0,0,0.5)';
       div.style.zIndex='30';
     }
+    setPinScaleMultiplier(div,isFocused?1.18:1);
     var span=document.createElement('span');
     span.textContent=String(pin.num);
     span.style.fontSize=Math.max(7,Math.round(sz*0.42))+'px';
@@ -566,7 +599,7 @@ function renderPins(){
           pinDrag=true;
           div.style.transition='none';
           div.style.willChange='transform';
-          div.style.transform='scale(1.12)';
+          setPinScaleMultiplier(div,1.28);
           div.style.boxShadow='0 8px 28px rgba(0,0,0,0.75)';
           div.style.zIndex='999';
         }
@@ -598,7 +631,7 @@ function renderPins(){
       clearTimeout(lpTimer);lpTimer=null;
       if(rafId){cancelAnimationFrame(rafId);rafId=null;}
       div.style.willChange='';
-      div.style.transform='';div.style.zIndex='';div.style.transition='';
+      setPinScaleMultiplier(div,isFocused?1.18:1);div.style.zIndex='';div.style.transition='';
       div.style.boxShadow='';
       if(pinDrag&&pinMoved){
         var cx=parseFloat(div.style.left)+half;
@@ -617,7 +650,7 @@ function renderPins(){
       if(rafId){cancelAnimationFrame(rafId);rafId=null;}
       pinDrag=false;pinMoved=false;
       div.style.willChange='';
-      div.style.transform='';div.style.boxShadow='';div.style.zIndex='';div.style.transition='';
+      setPinScaleMultiplier(div,isFocused?1.18:1);div.style.boxShadow='';div.style.zIndex='';div.style.transition='';
       div.style.left=((pin.planX/100)*cw-half)+'px';
       div.style.top=((pin.planY/100)*ch-half)+'px';
     },{passive:true});

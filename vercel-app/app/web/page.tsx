@@ -59,6 +59,30 @@ type ReserveDraft = {
   photos: WebPhotoDraft[];
 };
 
+type WebPhotoAnnotationPoint = {
+  x: number;
+  y: number;
+};
+
+type WebPhotoAnnotationTool = 'dot' | 'arrow' | 'rect' | 'text' | 'measure' | 'pen';
+
+type WebPhotoAnnotation = {
+  id: string;
+  x: number;
+  y: number;
+  color: string;
+  label: string;
+  tool?: WebPhotoAnnotationTool;
+  x2?: number;
+  y2?: number;
+  width?: number;
+  height?: number;
+  text?: string;
+  fontSize?: number;
+  points?: WebPhotoAnnotationPoint[];
+  strokeWidth?: number;
+};
+
 type WebPhotoDraft = {
   id: string;
   uri: string;
@@ -66,6 +90,7 @@ type WebPhotoDraft = {
   kind?: 'defect' | 'resolution';
   file?: File;
   existing?: boolean;
+  annotations?: WebPhotoAnnotation[];
 };
 
 type ReservePinDraft = {
@@ -152,6 +177,8 @@ const EMPTY_DATA: WebState = {
 
 const PDFJS_VERSION = '5.7.284';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
+const PHOTO_ANNOTATION_COLORS = ['#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#FFFFFF', '#111827'];
+const PHOTO_ANNOTATION_STROKES = [3, 6, 10];
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
@@ -792,6 +819,54 @@ function assetDedupeKey(url: string) {
   }
 }
 
+function createPhotoAnnotationId() {
+  const webCrypto = globalThis.crypto;
+  return webCrypto && 'randomUUID' in webCrypto
+    ? webCrypto.randomUUID()
+    : `photo-annotation-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function normalizePhotoAnnotations(value: any): WebPhotoAnnotation[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((item, index) => {
+    const rawPoints = Array.isArray(item?.points) ? item.points : [];
+    const points = rawPoints
+      .map((point: any) => ({ x: Number(point?.x), y: Number(point?.y) }))
+      .filter((point: WebPhotoAnnotationPoint) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .map((point: WebPhotoAnnotationPoint) => ({
+        x: Number(clampPercent(point.x).toFixed(2)),
+        y: Number(clampPercent(point.y).toFixed(2)),
+      }));
+    const x = Number(item?.x);
+    const y = Number(item?.y);
+    const toolValue = String(item?.tool ?? 'dot');
+    const tool = ['dot', 'arrow', 'rect', 'text', 'measure', 'pen'].includes(toolValue)
+      ? toolValue as WebPhotoAnnotationTool
+      : 'dot';
+
+    return {
+      id: String(item?.id ?? createPhotoAnnotationId()),
+      x: Number.isFinite(x) ? Number(clampPercent(x).toFixed(2)) : points[0]?.x ?? 50,
+      y: Number.isFinite(y) ? Number(clampPercent(y).toFixed(2)) : points[0]?.y ?? 50,
+      color: String(item?.color ?? PHOTO_ANNOTATION_COLORS[index % PHOTO_ANNOTATION_COLORS.length]),
+      label: String(item?.label ?? item?.text ?? (index + 1)),
+      tool,
+      points,
+      strokeWidth: Number.isFinite(Number(item?.strokeWidth)) ? Number(item.strokeWidth) : undefined,
+      text: item?.text ? String(item.text) : undefined,
+      fontSize: Number.isFinite(Number(item?.fontSize)) ? Number(item.fontSize) : undefined,
+      x2: Number.isFinite(Number(item?.x2)) ? Number(clampPercent(Number(item.x2)).toFixed(2)) : undefined,
+      y2: Number.isFinite(Number(item?.y2)) ? Number(clampPercent(Number(item.y2)).toFixed(2)) : undefined,
+      width: Number.isFinite(Number(item?.width)) ? Number(item.width) : undefined,
+      height: Number.isFinite(Number(item?.height)) ? Number(item.height) : undefined,
+    };
+  });
+}
+
+function photoAnnotationsFrom(photo: any) {
+  return normalizePhotoAnnotations(photo?.annotations ?? photo?.photo_annotations ?? photo?.photoAnnotations);
+}
+
 function reservePhotoItems(reserve: any, photos: any[]) {
   if (!reserve) return [];
   const fromReserve = Array.isArray(reserve.photos) ? reserve.photos : [];
@@ -808,8 +883,12 @@ function reservePhotoItems(reserve: any, photos: any[]) {
     const uri = assetUrl(photo, 'photos');
     if (!uri) return;
     const key = assetDedupeKey(uri) || String(photo.id ?? uri);
-    if (!byKey.has(key)) {
-      byKey.set(key, { ...photo, uri });
+    const normalizedPhoto = { ...photo, uri, annotations: photoAnnotationsFrom(photo) };
+    const existingPhoto = byKey.get(key);
+    if (!existingPhoto) {
+      byKey.set(key, normalizedPhoto);
+    } else if (!photoAnnotationsFrom(existingPhoto).length && normalizedPhoto.annotations.length) {
+      byKey.set(key, { ...existingPhoto, annotations: normalizedPhoto.annotations });
     }
   });
   return Array.from(byKey.values());
@@ -1443,6 +1522,7 @@ function reserveToDraft(reserve: any): ReserveDraft {
           name: photo.name ?? 'Photo',
           kind: photo.kind === 'resolution' ? 'resolution' : 'defect',
           existing: true,
+          annotations: photoAnnotationsFrom(photo),
         })).filter((photo: WebPhotoDraft) => !!photo.uri)
       : (reserve.photo_uri ?? reserve.photoUri)
         ? [{
@@ -1451,6 +1531,7 @@ function reserveToDraft(reserve: any): ReserveDraft {
             name: 'Photo',
             kind: 'defect' as const,
             existing: true,
+            annotations: photoAnnotationsFrom(reserve),
           }].filter((photo: WebPhotoDraft) => !!photo.uri)
         : [],
   };
@@ -2016,6 +2097,7 @@ export default function BuildTrackWebPage() {
         takenAt: new Date().toISOString(),
         takenBy: userLabel(profile, authUser),
         name: photo.name ?? 'Photo',
+        annotations: normalizePhotoAnnotations(photo.annotations),
       }));
     const newPhotos = draft.photos.filter(photo => photo.file);
     const uploadedPhotos: any[] = [];
@@ -2032,6 +2114,7 @@ export default function BuildTrackWebPage() {
         takenAt,
         takenBy: userLabel(profile, authUser),
         name: photo.name ?? photo.file.name,
+        annotations: normalizePhotoAnnotations(photo.annotations),
       });
       photoRows.push({
         id: photoId,
@@ -4098,8 +4181,11 @@ function ReservesView(props: {
                 <div className={styles.reserveDetailPhotoGrid}>
                   {selectedPhotos.map(photo => (
                     <a key={photo.id ?? photo.uri} href={photo.uri} target="_blank" rel="noreferrer">
-                      <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} />
-                      <span>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
+                      <span className={styles.photoAnnotationFrame}>
+                        <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} />
+                        <PhotoAnnotationLayer annotations={photoAnnotationsFrom(photo)} compact />
+                      </span>
+                      <span className={styles.reservePhotoKindBadge}>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
                     </a>
                   ))}
                 </div>
@@ -7570,6 +7656,265 @@ function TextAssistControls({
   );
 }
 
+function PhotoAnnotationLayer({ annotations, compact = false }: { annotations?: WebPhotoAnnotation[]; compact?: boolean }) {
+  const normalized = normalizePhotoAnnotations(annotations);
+  if (!normalized.length) return null;
+  return (
+    <span className={styles.photoAnnotationLayer} aria-hidden="true">
+      <svg className={styles.photoAnnotationSvg} viewBox="0 0 100 100" preserveAspectRatio="none">
+        {normalized
+          .filter(annotation => annotation.tool === 'pen' && (annotation.points?.length ?? 0) > 1)
+          .map(annotation => (
+            <polyline
+              key={annotation.id}
+              points={annotation.points!.map(point => `${point.x},${point.y}`).join(' ')}
+              fill="none"
+              stroke={annotation.color}
+              strokeWidth={Math.max(0.35, (annotation.strokeWidth ?? 6) * (compact ? 0.12 : 0.18))}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+      </svg>
+      {normalized
+        .filter(annotation => annotation.tool !== 'pen')
+        .map(annotation => (
+          <span
+            key={annotation.id}
+            className={[
+              styles.photoAnnotationMarker,
+              annotation.tool === 'text' ? styles.photoAnnotationMarkerText : '',
+              annotation.tool === 'rect' ? styles.photoAnnotationMarkerRect : '',
+              annotation.tool === 'measure' ? styles.photoAnnotationMarkerMeasure : '',
+            ].filter(Boolean).join(' ')}
+            style={{
+              left: `${annotation.x}%`,
+              top: `${annotation.y}%`,
+              '--marker-color': annotation.color,
+            } as React.CSSProperties}
+          >
+            {annotation.tool === 'text'
+              ? annotation.label
+              : annotation.tool === 'arrow'
+                ? '↗'
+                : annotation.tool === 'rect'
+                  ? ''
+                  : annotation.tool === 'measure'
+                    ? '↔'
+                    : annotation.label.slice(0, 2)}
+          </span>
+        ))}
+    </span>
+  );
+}
+
+function PhotoAnnotatorModal({
+  photo,
+  onClose,
+  onSave,
+}: {
+  photo: WebPhotoDraft;
+  onClose: () => void;
+  onSave: (annotations: WebPhotoAnnotation[]) => void;
+}) {
+  const [annotations, setAnnotations] = useState<WebPhotoAnnotation[]>(() => normalizePhotoAnnotations(photo.annotations));
+  const [activeTool, setActiveTool] = useState<WebPhotoAnnotationTool>('dot');
+  const [selectedColor, setSelectedColor] = useState(PHOTO_ANNOTATION_COLORS[0]);
+  const [strokeWidth, setStrokeWidth] = useState(6);
+  const [currentStroke, setCurrentStroke] = useState<WebPhotoAnnotation | null>(null);
+  const currentStrokeRef = useRef<WebPhotoAnnotation | null>(null);
+  const stageRef = useRef<HTMLButtonElement | null>(null);
+
+  function pointFromEvent(event: PointerEvent<HTMLButtonElement>): WebPhotoAnnotationPoint {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect) return { x: 50, y: 50 };
+    return {
+      x: Number(clampPercent(((event.clientX - rect.left) / Math.max(1, rect.width)) * 100).toFixed(2)),
+      y: Number(clampPercent(((event.clientY - rect.top) / Math.max(1, rect.height)) * 100).toFixed(2)),
+    };
+  }
+
+  function shouldAppendPoint(points: WebPhotoAnnotationPoint[], point: WebPhotoAnnotationPoint) {
+    const last = points[points.length - 1];
+    if (!last) return true;
+    return Math.hypot(point.x - last.x, point.y - last.y) >= 0.35;
+  }
+
+  function beginStroke(event: PointerEvent<HTMLButtonElement>) {
+    const point = pointFromEvent(event);
+    const stroke: WebPhotoAnnotation = {
+      id: createPhotoAnnotationId(),
+      x: point.x,
+      y: point.y,
+      color: selectedColor,
+      label: 'Crayon',
+      tool: 'pen',
+      points: [point],
+      strokeWidth,
+    };
+    currentStrokeRef.current = stroke;
+    setCurrentStroke(stroke);
+  }
+
+  function moveStroke(event: PointerEvent<HTMLButtonElement>) {
+    const stroke = currentStrokeRef.current;
+    if (!stroke) return;
+    const point = pointFromEvent(event);
+    const points = stroke.points ?? [];
+    if (!shouldAppendPoint(points, point)) return;
+    const next = { ...stroke, points: [...points, point] };
+    currentStrokeRef.current = next;
+    setCurrentStroke(next);
+  }
+
+  function finishStroke() {
+    const stroke = currentStrokeRef.current;
+    if (!stroke) return;
+    if ((stroke.points?.length ?? 0) > 1) {
+      setAnnotations(prev => [...prev, stroke]);
+    }
+    currentStrokeRef.current = null;
+    setCurrentStroke(null);
+  }
+
+  function addAnnotation(point: WebPhotoAnnotationPoint) {
+    if (activeTool === 'text') {
+      const text = typeof window !== 'undefined' ? window.prompt("Texte de l'annotation") : '';
+      if (!text?.trim()) return;
+      setAnnotations(prev => [
+        ...prev,
+        {
+          id: createPhotoAnnotationId(),
+          x: point.x,
+          y: point.y,
+          color: selectedColor,
+          label: text.trim(),
+          text: text.trim(),
+          tool: 'text',
+        },
+      ]);
+      return;
+    }
+
+    setAnnotations(prev => [
+      ...prev,
+      {
+        id: createPhotoAnnotationId(),
+        x: point.x,
+        y: point.y,
+        color: selectedColor,
+        label: activeTool === 'measure'
+          ? `M${prev.filter(item => item.tool === 'measure').length + 1}`
+          : String(prev.filter(item => item.tool !== 'pen').length + 1),
+        tool: activeTool,
+      },
+    ]);
+  }
+
+  function handlePointerDown(event: PointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    stageRef.current?.setPointerCapture?.(event.pointerId);
+    if (activeTool === 'pen') {
+      beginStroke(event);
+      return;
+    }
+    addAnnotation(pointFromEvent(event));
+  }
+
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
+    <div className={styles.photoAnnotatorBackdrop} role="dialog" aria-modal="true">
+      <div className={styles.photoAnnotatorPanel}>
+        <div className={styles.photoAnnotatorHeader}>
+          <div>
+            <p className={styles.eyebrow}>Photo</p>
+            <h2>Annoter la photo</h2>
+            <span>{photo.name ?? 'Photo réserve'}</span>
+          </div>
+          <button type="button" onClick={onClose}>Fermer</button>
+        </div>
+        <div className={styles.photoAnnotatorToolbar}>
+          <div className={styles.photoAnnotatorTools}>
+            {[
+              ['dot', 'Point'],
+              ['text', 'Texte'],
+              ['arrow', 'Flèche'],
+              ['rect', 'Zone'],
+              ['measure', 'Mesure'],
+              ['pen', 'Crayon'],
+            ].map(([tool, label]) => (
+              <button
+                key={tool}
+                type="button"
+                className={activeTool === tool ? styles.photoAnnotatorToolActive : ''}
+                onClick={() => setActiveTool(tool as WebPhotoAnnotationTool)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className={styles.photoAnnotatorSwatches}>
+            {PHOTO_ANNOTATION_COLORS.map(color => (
+              <button
+                key={color}
+                type="button"
+                className={selectedColor === color ? styles.photoAnnotatorSwatchActive : ''}
+                style={{ background: color }}
+                onClick={() => setSelectedColor(color)}
+                aria-label={`Couleur ${color}`}
+              />
+            ))}
+          </div>
+          {activeTool === 'pen' ? (
+            <div className={styles.photoAnnotatorStrokes}>
+              {PHOTO_ANNOTATION_STROKES.map(size => (
+                <button
+                  key={size}
+                  type="button"
+                  className={strokeWidth === size ? styles.photoAnnotatorStrokeActive : ''}
+                  onClick={() => setStrokeWidth(size)}
+                >
+                  <span style={{ height: size, background: selectedColor }} />
+                  {size}
+                </button>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <button
+          type="button"
+          ref={stageRef}
+          className={styles.photoAnnotatorStage}
+          onPointerDown={handlePointerDown}
+          onPointerMove={event => {
+            if (activeTool === 'pen' && currentStrokeRef.current) moveStroke(event);
+          }}
+          onPointerUp={finishStroke}
+          onPointerCancel={finishStroke}
+          onPointerLeave={finishStroke}
+        >
+          <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} draggable={false} />
+          <PhotoAnnotationLayer annotations={[...annotations, ...(currentStroke ? [currentStroke] : [])]} />
+        </button>
+        <div className={styles.photoAnnotatorFooter}>
+          <button type="button" onClick={() => setAnnotations(prev => prev.slice(0, -1))} disabled={!annotations.length}>
+            Annuler le dernier
+          </button>
+          <button type="button" onClick={() => setAnnotations([])} disabled={!annotations.length}>
+            Effacer
+          </button>
+          <button type="button" onClick={() => onSave(normalizePhotoAnnotations(annotations))}>
+            Valider
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, onClose, onSubmit, onToggleCompany }: {
   mode: 'create' | 'edit';
   draft: ReserveDraft;
@@ -7582,6 +7927,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
   onToggleCompany: (companyName: string) => void;
 }) {
   const [showTemplates, setShowTemplates] = useState(false);
+  const [annotatingPhoto, setAnnotatingPhoto] = useState<WebPhotoDraft | null>(null);
   const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
   const project = data.chantiers.find(item => item.id === projectId) ?? null;
   const plans = data.sitePlans.filter(plan => getChantierId(plan) === projectId);
@@ -7665,6 +8011,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
           name: file.name,
           kind: 'defect' as const,
           file,
+          annotations: [],
         })),
       ],
     }));
@@ -7683,6 +8030,18 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
           : photo
       ),
     }));
+  }
+
+  function savePhotoAnnotations(photoId: string, annotations: WebPhotoAnnotation[]) {
+    setDraft(prev => ({
+      ...prev,
+      photos: prev.photos.map(photo =>
+        photo.id === photoId
+          ? { ...photo, annotations: normalizePhotoAnnotations(annotations) }
+          : photo
+      ),
+    }));
+    setAnnotatingPhoto(null);
   }
 
   function applyBuilding(buildingId: string) {
@@ -7880,8 +8239,18 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                 <div className={styles.reservePhotoGrid}>
                   {draft.photos.map(photo => (
                     <div key={photo.id} className={styles.reservePhotoItem}>
-                      <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} />
-                      <div>
+                      <button
+                        type="button"
+                        className={styles.reservePhotoPreviewButton}
+                        onClick={() => setAnnotatingPhoto(photo)}
+                      >
+                        <span className={styles.photoAnnotationFrame}>
+                          <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} />
+                          <PhotoAnnotationLayer annotations={photo.annotations} compact />
+                        </span>
+                      </button>
+                      <div className={styles.reservePhotoActions}>
+                        <button type="button" onClick={() => setAnnotatingPhoto(photo)}>Annoter</button>
                         <button type="button" onClick={() => togglePhotoKind(photo.id)}>
                           {photo.kind === 'resolution' ? 'Levée' : 'Constat'}
                         </button>
@@ -8102,6 +8471,13 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
           <button type="button" onClick={onClose}>Annuler</button>
           <button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : mode === 'edit' ? 'Enregistrer' : 'Créer'}</button>
         </div>
+        {annotatingPhoto ? (
+          <PhotoAnnotatorModal
+            photo={annotatingPhoto}
+            onClose={() => setAnnotatingPhoto(null)}
+            onSave={annotations => savePhotoAnnotations(annotatingPhoto.id, annotations)}
+          />
+        ) : null}
       </form>
     </div>
   );

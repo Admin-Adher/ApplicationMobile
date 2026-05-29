@@ -3598,7 +3598,7 @@
   margin: 0;
 }
 
-.reserveDetailPhotos span {
+.reserveDetailPhotos > div:first-child span {
   color: #64748b;
   font-size: 12px;
   font-weight: 800;
@@ -3619,14 +3619,20 @@
   min-height: 106px;
 }
 
-.reserveDetailPhotoGrid img {
-  width: 100%;
+.reserveDetailPhotoGrid .photoAnnotationFrame {
   height: 128px;
+  border-radius: 14px;
+  aspect-ratio: auto;
+}
+
+.reserveDetailPhotoGrid .photoAnnotationFrame img {
+  width: 100%;
+  height: 100%;
   object-fit: cover;
   display: block;
 }
 
-.reserveDetailPhotoGrid span {
+.reserveDetailPhotoGrid .reservePhotoKindBadge {
   position: absolute;
   left: 8px;
   bottom: 8px;
@@ -5768,22 +5774,28 @@
   background: #fff;
 }
 
-.reservePhotoItem img {
+.reservePhotoPreviewButton {
   display: block;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  border-radius: 12px 12px 0 0;
-  object-fit: cover;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
 }
 
-.reservePhotoItem div {
+.reservePhotoItem .photoAnnotationFrame {
+  border-radius: 12px 12px 0 0;
+}
+
+.reservePhotoActions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 8px;
 }
 
-.reservePhotoItem button {
-  flex: 1 1 0;
+.reservePhotoActions button {
+  flex: 1 1 72px;
   min-width: 0;
   border: 1px solid #d8e0ec;
   border-radius: 9px;
@@ -5796,6 +5808,274 @@
   text-align: center;
   white-space: nowrap;
   cursor: pointer;
+}
+
+.photoAnnotationFrame {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
+  background: #e5e7eb;
+}
+
+.photoAnnotationFrame img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photoAnnotationLayer {
+  position: absolute !important;
+  inset: 0;
+  display: block;
+  pointer-events: none;
+}
+
+.photoAnnotationSvg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.photoAnnotationMarker {
+  position: absolute !important;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  background: var(--marker-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 900;
+  text-align: center;
+  line-height: 1;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.28);
+}
+
+.photoAnnotationMarkerText {
+  max-width: 116px;
+  height: auto;
+  min-height: 22px;
+  border-radius: 8px;
+  line-height: 1.15;
+}
+
+.photoAnnotationMarkerRect {
+  width: 32px;
+  min-width: 32px;
+  height: 24px;
+  padding: 0;
+  border: 3px solid var(--marker-color);
+  border-radius: 5px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.photoAnnotationMarkerMeasure {
+  min-width: 30px;
+}
+
+.photoAnnotatorBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 160;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.58);
+}
+
+.photoAnnotatorPanel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  width: min(1120px, 96vw);
+  max-height: 94vh;
+  overflow: hidden;
+  border: 1px solid #d9e3f1;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.35);
+}
+
+.photoAnnotatorHeader {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 20px 24px;
+  border-bottom: 1px solid #e5edf7;
+}
+
+.photoAnnotatorHeader h2,
+.photoAnnotatorHeader p {
+  margin: 0;
+}
+
+.photoAnnotatorHeader h2 {
+  font-size: 26px;
+}
+
+.photoAnnotatorHeader span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+}
+
+.photoAnnotatorHeader button,
+.photoAnnotatorTools button,
+.photoAnnotatorStrokes button,
+.photoAnnotatorFooter button {
+  border: 1px solid #d8e0ec;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #003082;
+  padding: 9px 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.photoAnnotatorToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 18px;
+  border-bottom: 1px solid #e5edf7;
+  background: #f8fafc;
+}
+
+.photoAnnotatorTools,
+.photoAnnotatorSwatches,
+.photoAnnotatorStrokes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.photoAnnotatorTools .photoAnnotatorToolActive,
+.photoAnnotatorStrokes .photoAnnotatorStrokeActive {
+  border-color: #003082;
+  background: #003082;
+  color: #fff;
+}
+
+.photoAnnotatorSwatches button {
+  width: 30px;
+  height: 30px;
+  border: 2px solid #d8e0ec;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.photoAnnotatorSwatches .photoAnnotatorSwatchActive {
+  border-color: #003082;
+  box-shadow: 0 0 0 3px rgba(0, 48, 130, 0.18);
+}
+
+.photoAnnotatorStrokes button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.photoAnnotatorStrokes button span {
+  display: block;
+  width: 30px;
+  border-radius: 999px;
+}
+
+.photoAnnotatorStage {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: #111827;
+  cursor: crosshair;
+}
+
+.photoAnnotatorStage img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+.photoAnnotatorFooter {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 18px;
+  border-top: 1px solid #e5edf7;
+}
+
+.photoAnnotatorFooter button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.photoAnnotatorFooter button:last-child {
+  border-color: #003082;
+  background: #003082;
+  color: #fff;
+}
+
+@media (max-width: 720px) {
+  .photoAnnotatorBackdrop {
+    padding: 8px;
+  }
+
+  .photoAnnotatorPanel {
+    width: 100%;
+    max-height: 96vh;
+    border-radius: 18px;
+  }
+
+  .photoAnnotatorHeader {
+    align-items: flex-start;
+    padding: 16px;
+  }
+
+  .photoAnnotatorHeader h2 {
+    font-size: 22px;
+  }
+
+  .photoAnnotatorToolbar {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .photoAnnotatorTools button,
+  .photoAnnotatorStrokes button,
+  .photoAnnotatorFooter button {
+    padding: 8px 10px;
+    font-size: 12px;
+  }
+
+  .photoAnnotatorStage img {
+    min-height: 300px;
+  }
+
+  .photoAnnotatorFooter {
+    justify-content: stretch;
+  }
+
+  .photoAnnotatorFooter button {
+    flex: 1;
+  }
 }
 
 .reserveNotice,

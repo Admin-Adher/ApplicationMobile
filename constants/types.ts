@@ -26,7 +26,12 @@ export type IncidentStatus = 'open' | 'investigating' | 'resolved';
 export type ChantierStatus = 'active' | 'completed' | 'paused';
 export type VisiteStatus = 'planned' | 'in_progress' | 'completed';
 export type OprStatus = 'draft' | 'in_progress' | 'signed';
-export type AnnotationTool = 'dot' | 'arrow' | 'rect' | 'text' | 'measure';
+export type AnnotationTool = 'dot' | 'arrow' | 'rect' | 'text' | 'measure' | 'pen';
+
+export interface PhotoAnnotationPoint {
+  x: number;
+  y: number;
+}
 export type PlanDrawingTool = 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'cloud' | 'highlight';
 
 export interface PlanDrawingPoint {
@@ -330,6 +335,8 @@ export interface PhotoAnnotation {
   height?: number;
   text?: string;
   fontSize?: number;
+  points?: PhotoAnnotationPoint[];
+  strokeWidth?: number;
 }
 
 export interface ReservePhoto {

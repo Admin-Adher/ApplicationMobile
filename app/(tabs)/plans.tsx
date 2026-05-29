@@ -150,6 +150,14 @@ function computeClusters(reserves: Reserve[], scale: number, numberMap: Map<stri
   return clusters;
 }
 
+function getPlanPinDensityScale(pinCount: number): number {
+  if (pinCount >= 160) return 0.62;
+  if (pinCount >= 100) return 0.72;
+  if (pinCount >= 60) return 0.82;
+  if (pinCount >= 35) return 0.9;
+  return 1;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
   verification: '#8B5CF6', closed: '#10B981',
@@ -1204,11 +1212,26 @@ export default function PlansScreen() {
 
   function getPinDisplaySize(id: string, base: number): number {
     const individualScale = pinSizes[id] ?? 1.0;
-    return Math.max(isTablet ? 10 : 8, Math.round(base * individualScale));
+    const zoom = Math.max(displayScale, 1);
+    const densityScale = getPlanPinDensityScale(pinNumberMap.size);
+    const desiredScreenSize = base * individualScale * densityScale;
+    const minScreenSize = isTablet ? 5 : 4;
+    return parseFloat((Math.max(minScreenSize, desiredScreenSize) / zoom).toFixed(2));
   }
 
   function getPinLabelSize(size: number): number {
-    return Math.max(6, Math.min(isTablet ? 11 : 10, Math.round(size * 0.48)));
+    const zoom = Math.max(displayScale, 1);
+    const screenSize = size * zoom;
+    const targetScreenSize = Math.max(5, Math.min(isTablet ? 10 : 9, Math.round(screenSize * 0.48)));
+    return Math.max(1, parseFloat((targetScreenSize / zoom).toFixed(2)));
+  }
+
+  function getClusterDisplaySize(base: number): number {
+    const zoom = Math.max(displayScale, 1);
+    const densityScale = getPlanPinDensityScale(pinNumberMap.size);
+    const desiredScreenSize = base * densityScale * 0.95;
+    const minScreenSize = isTablet ? 7 : 6;
+    return parseFloat((Math.max(minScreenSize, desiredScreenSize) / zoom).toFixed(2));
   }
 
   const buildings = useMemo(() => {
@@ -3585,7 +3608,7 @@ export default function PlansScreen() {
                   {ghostClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
                     const baseId = cluster.items[0]?.id ?? '';
-                    const sz = isCluster ? clusterSize : getPinDisplaySize(baseId, pinSize);
+                    const sz = isCluster ? getClusterDisplaySize(clusterSize) : getPinDisplaySize(baseId, pinSize);
                     const color = getCompanyColor(cluster.dominantCompany, companies);
                     return (
                       <View key={`ghost-${ci}`} style={{
@@ -3606,7 +3629,7 @@ export default function PlansScreen() {
                     const color = getCompanyColor(cluster.dominantCompany, companies);
                     const isHighlighted = !isCluster && highlightedReserveId === pinId;
                     const isFocused = !isCluster && focusedPinId === pinId;
-                    const baseSz = isCluster ? clusterSize : getPinDisplaySize(pinId, pinSize);
+                    const baseSz = isCluster ? getClusterDisplaySize(clusterSize) : getPinDisplaySize(pinId, pinSize);
                     const sz = isFocused ? Math.round(baseSz * 1.1) : baseSz;
                     const isDraggingThis = draggingPinId === pinId;
                     return (
@@ -3675,7 +3698,7 @@ export default function PlansScreen() {
                               draggingPinMovedRef.current = false;
                               draggingPinPosRef.current = null;
                               draggingFirstMoveRef.current = false;
-                              const initSz = isCluster ? clusterSize : getPinDisplaySize(pinId, pinSize);
+                              const initSz = isCluster ? getClusterDisplaySize(clusterSize) : getPinDisplaySize(pinId, pinSize);
                               draggingAnimSzHalf.current = initSz / 2;
                               draggingAnimX.setValue((cluster.cx / 100) * dynWRef.current);
                               draggingAnimY.setValue((cluster.cy / 100) * dynHRef.current);
