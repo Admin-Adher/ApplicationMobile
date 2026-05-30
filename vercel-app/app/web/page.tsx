@@ -9258,8 +9258,182 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
             ))}
           </div>
         )}
+        {canManageProject ? (
+          <WeasyPrintLab
+            data={data}
+            scoped={scoped}
+            selectedProjectId={selectedProjectId}
+          />
+        ) : null}
       </section>
       )}
+    </div>
+  );
+}
+
+function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; scoped: any; selectedProjectId: string }) {
+  const { lang } = useWebI18n();
+  const [status, setStatus] = useState<any>(null);
+  const [checking, setChecking] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [includePhotos, setIncludePhotos] = useState(false);
+  const [reportLanguage, setReportLanguage] = useState<TextLang>(
+    (lang === 'en' || lang === 'es' ? lang : 'fr') as TextLang
+  );
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const activeReserves = useMemo(() => {
+    const source = selectedProjectId === 'all' ? data.reserves : scoped.reserves;
+    return (source ?? []).filter((reserve: any) => !isReserveArchived(reserve));
+  }, [data.reserves, scoped.reserves, selectedProjectId]);
+  const selectedProject = selectedProjectId === 'all'
+    ? null
+    : data.chantiers.find(project => String(project.id) === String(selectedProjectId)) ?? null;
+  const projectName = selectedProject?.name ?? (selectedProjectId === 'all' ? 'Tous les chantiers' : 'Chantier');
+  const sampleCount = Math.min(activeReserves.length, 30);
+
+  const authHeaders = async () => {
+    const { data: authData } = await supabaseBrowser.auth.getSession();
+    return {
+      'Content-Type': 'application/json',
+      ...(authData.session?.access_token ? { Authorization: `Bearer ${authData.session.access_token}` } : {}),
+    };
+  };
+
+  const checkService = useCallback(async () => {
+    setChecking(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/lab/weasyprint', { headers: await authHeaders() });
+      const result = await response.json().catch(() => ({}));
+      setStatus(result);
+      if (!response.ok || result.error) {
+        setMessage({ ok: false, text: result.error ?? 'Controle du service WeasyPrint impossible.' });
+      }
+    } catch (err: any) {
+      setMessage({ ok: false, text: err?.message ?? 'Controle du service WeasyPrint impossible.' });
+    } finally {
+      setChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void checkService();
+  }, [checkService]);
+
+  const buildPayload = () => {
+    const targetReserves = activeReserves.slice(0, 30);
+    const photoPrepared = includePhotos
+      ? withPdfRemoteReservePhotoList(targetReserves, 2, 24)
+      : targetReserves.map((reserve: any) => ({ ...reserve, photos: [] }));
+    return {
+      type: 'global_reserves',
+      chantierName: projectName,
+      companyFilter: selectedProjectId === 'all' ? 'Tous les chantiers' : null,
+      generatedAt: new Date().toISOString(),
+      language: reportLanguage,
+      reserves: photoPrepared.map((reserve: any, index: number) => {
+        const companies = reserveCompanies(reserve);
+        return {
+          ...reserve,
+          id: reserve.id ?? `lab-${index + 1}`,
+          num: reserve.num ?? reserve.number ?? index + 1,
+          title: reserve.title ?? reserve.name ?? `Reserve ${index + 1}`,
+          company: companies.join(', '),
+          companies,
+          building: reserve.building ?? reserve.building_name ?? reserve.buildingName ?? '',
+          level: reserve.level ?? reserve.floor ?? '',
+          status: reserve.status ?? 'open',
+          priority: reserve.priority ?? 'medium',
+          deadline: reserve.deadline ?? reserve.due_date ?? '',
+          photos: includePhotos ? reserve.photos ?? [] : [],
+        };
+      }),
+    };
+  };
+
+  const renderWeasyPrint = async () => {
+    if (sampleCount === 0) {
+      setMessage({ ok: false, text: 'Aucune reserve disponible pour ce test.' });
+      return;
+    }
+    setRendering(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/lab/weasyprint', {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: JSON.stringify(buildPayload()),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.success) {
+        throw new Error(result.error ?? 'Rendu WeasyPrint impossible.');
+      }
+      toBase64Download(result.pdfBase64, result.filename ?? `BuildTrack_WeasyPrint_${reportLanguage}.pdf`);
+      setMessage({
+        ok: true,
+        text: `PDF WeasyPrint genere (${Math.round(Number(result.bytes ?? 0) / 1024)} Ko).`,
+      });
+    } catch (err: any) {
+      setMessage({ ok: false, text: err?.message ?? 'Rendu WeasyPrint impossible.' });
+    } finally {
+      setRendering(false);
+    }
+  };
+
+  const configured = status?.configured === true;
+  const healthy = status?.healthy === true;
+  const unavailable = status?.configured === false;
+
+  return (
+    <div className={styles.weasyLabCard}>
+      <div className={styles.weasyLabHeader}>
+        <span><IonIcon name="construct-outline" /></span>
+        <div>
+          <strong>Lab PDF WeasyPrint</strong>
+          <small>POC admin isole. Le PDF de production reste sur Puppeteer.</small>
+        </div>
+        <em className={healthy ? styles.weasyLabStatusOk : configured ? styles.weasyLabStatusWarn : styles.weasyLabStatusOff}>
+          {healthy ? 'Service pret' : configured ? 'A verifier' : 'Non configure'}
+        </em>
+      </div>
+
+      <div className={styles.weasyLabBody}>
+        <div className={styles.weasyLabSummary}>
+          <div><span>Rapport</span><strong>Reserves globales</strong></div>
+          <div><span>Chantier</span><strong>{projectName}</strong></div>
+          <div><span>Echantillon</span><strong>{sampleCount} reserves</strong></div>
+        </div>
+
+        <div className={styles.weasyLabControls}>
+          <label>
+            <span>Langue PDF</span>
+            <select value={reportLanguage} onChange={event => setReportLanguage(event.target.value as TextLang)}>
+              {TEXT_LANG_OPTIONS.map(option => (
+                <option key={option.value} value={option.value}>{option.label} - {option.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className={styles.weasyLabToggle}>
+            <input type="checkbox" checked={includePhotos} onChange={event => setIncludePhotos(event.target.checked)} />
+            <span>Inclure les photos distantes du rapport</span>
+          </label>
+        </div>
+
+        {unavailable ? (
+          <p className={styles.settingsNotice}>Configurez <code>WEASYPRINT_POC_URL</code> avec l'URL <code>/render</code> du service WeasyPrint pour activer le test depuis le web.</p>
+        ) : null}
+        {status?.error ? <p className={styles.settingsNotice}>{status.error}</p> : null}
+        {message ? <p className={message.ok ? styles.weasyLabSuccess : styles.weasyLabError}>{message.text}</p> : null}
+
+        <div className={styles.weasyLabActions}>
+          <button type="button" onClick={checkService} disabled={checking || rendering}>
+            {checking ? 'Verification...' : 'Verifier le service'}
+          </button>
+          <button type="button" onClick={renderWeasyPrint} disabled={rendering || checking || !configured || sampleCount === 0}>
+            {rendering ? 'Generation...' : 'Tester WeasyPrint'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,12 @@
+services:
+  weasyprint-poc:
+    build: .
+    ports:
+      - "8010:8010"
+    environment:
+      WEASYPRINT_ALLOW_REMOTE: ${WEASYPRINT_ALLOW_REMOTE:-0}
+      WEASYPRINT_ALLOWED_FILE_ROOT: /work
+      WEASYPRINT_MAX_HTML_BYTES: 12000000
+    volumes:
+      - ./samples:/work/samples:ro
+      - ./out:/work/out
