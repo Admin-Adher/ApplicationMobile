@@ -241,10 +241,31 @@ function localChromiumExecutablePath() {
   return candidates.find(candidate => existsSync(candidate)) ?? null;
 }
 
-async function resolvePuppeteerExecutablePath(chromium: typeof import('@sparticuz/chromium-min')) {
+async function loadChromiumRuntime() {
+  try {
+    return {
+      chromium: (await import('@sparticuz/chromium')).default as any,
+      bundled: true,
+    };
+  } catch {
+    return {
+      chromium: (await import('@sparticuz/chromium-min')).default as any,
+      bundled: false,
+    };
+  }
+}
+
+async function resolvePuppeteerExecutablePath(chromium: any, bundled: boolean) {
   const localExecutablePath = localChromiumExecutablePath();
   if (localExecutablePath) {
     return { executablePath: localExecutablePath, local: true };
+  }
+
+  if (bundled && !process.env.CHROMIUM_PACK_URL) {
+    return {
+      executablePath: await chromium.executablePath(),
+      local: false,
+    };
   }
 
   const chromiumUrl =
@@ -261,18 +282,24 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
   let browser: any = null;
 
   try {
-    let chromium: typeof import('@sparticuz/chromium-min');
     let puppeteer: typeof import('puppeteer-core');
+    let chromium: any;
+    let bundledChromium = false;
 
     try {
-      chromium = (await import('@sparticuz/chromium-min')).default as any;
+      const runtime = await loadChromiumRuntime();
+      chromium = runtime.chromium;
+      bundledChromium = runtime.bundled;
       puppeteer = (await import('puppeteer-core')).default as any;
     } catch (importErr: any) {
       console.error('[generate-pdf] Import error:', importErr?.message);
       throw new Error('Puppeteer non disponible sur ce runtime');
     }
 
-    const runtime = await resolvePuppeteerExecutablePath(chromium);
+    chromium.setHeadlessMode = true;
+    chromium.setGraphicsMode = false;
+
+    const runtime = await resolvePuppeteerExecutablePath(chromium, bundledChromium);
 
     browser = await (puppeteer as any).launch({
       args: [

@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@sparticuz/chromium": "^123.0.0",
     "@sparticuz/chromium-min": "^123.0.0",
     "@supabase/supabase-js": "^2.101.1",
     "@types/nodemailer": "^8.0.0",
