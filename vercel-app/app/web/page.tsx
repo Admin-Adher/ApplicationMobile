@@ -4324,6 +4324,8 @@ function ReservesView(props: {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [assistantVisible, setAssistantVisible] = useState(false);
   const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
+  const [photoCopyFeedback, setPhotoCopyFeedback] = useState<'idle' | 'copied' | 'error'>('idle');
+  const photoCopyFeedbackTimeoutRef = useRef<number | null>(null);
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
   const explicitlySelectedReserve = props.selectedReserveId
     ? allReserves.find(reserve => reserve.id === props.selectedReserveId) ?? null
@@ -4444,6 +4446,16 @@ function ReservesView(props: {
   }, [detailReserve?.id]);
 
   useEffect(() => {
+    setPhotoCopyFeedback('idle');
+  }, [lightboxPhoto?.uri]);
+
+  useEffect(() => () => {
+    if (photoCopyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(photoCopyFeedbackTimeoutRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
     if (photoLightboxIndex === null) return;
     if (photoLightboxIndex >= selectedPhotos.length) {
       setPhotoLightboxIndex(selectedPhotos.length ? selectedPhotos.length - 1 : null);
@@ -4480,9 +4492,28 @@ function ReservesView(props: {
     setPhotoLightboxIndex(index => index === null ? index : (index + direction + selectedPhotos.length) % selectedPhotos.length);
   }
 
+  function showPhotoCopyFeedback(state: 'copied' | 'error') {
+    if (photoCopyFeedbackTimeoutRef.current !== null) {
+      window.clearTimeout(photoCopyFeedbackTimeoutRef.current);
+    }
+    setPhotoCopyFeedback(state);
+    photoCopyFeedbackTimeoutRef.current = window.setTimeout(() => {
+      setPhotoCopyFeedback('idle');
+      photoCopyFeedbackTimeoutRef.current = null;
+    }, 2200);
+  }
+
   async function copyLightboxPhotoLink() {
-    if (!lightboxPhoto?.uri || typeof navigator === 'undefined' || !navigator.clipboard) return;
-    await navigator.clipboard.writeText(lightboxPhoto.uri);
+    if (!lightboxPhoto?.uri || typeof navigator === 'undefined' || !navigator.clipboard) {
+      showPhotoCopyFeedback('error');
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(lightboxPhoto.uri);
+      showPhotoCopyFeedback('copied');
+    } catch {
+      showPhotoCopyFeedback('error');
+    }
   }
 
   async function handleReservePdfExport() {
@@ -5092,8 +5123,30 @@ function ReservesView(props: {
 
             <footer className={styles.reservePhotoLightboxFooter}>
               <span>{lightboxPhoto.name ?? lightboxPhoto.comment ?? 'Photo réserve'}</span>
+              {photoCopyFeedback !== 'idle' && (
+                <span
+                  className={`${styles.reservePhotoLightboxCopyFeedback} ${photoCopyFeedback === 'error' ? styles.reservePhotoLightboxCopyFeedbackError : ''}`}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {photoCopyFeedback === 'copied' ? 'Lien copié' : 'Copie impossible'}
+                </span>
+              )}
               <div>
-                <button type="button" onClick={() => void copyLightboxPhotoLink()} disabled={!lightboxPhoto.uri}>Copier le lien</button>
+                <button
+                  type="button"
+                  className={
+                    photoCopyFeedback === 'copied'
+                      ? styles.reservePhotoLightboxCopiedButton
+                      : photoCopyFeedback === 'error'
+                        ? styles.reservePhotoLightboxCopyErrorButton
+                        : ''
+                  }
+                  onClick={() => void copyLightboxPhotoLink()}
+                  disabled={!lightboxPhoto.uri}
+                >
+                  {photoCopyFeedback === 'copied' ? 'Lien copié' : photoCopyFeedback === 'error' ? 'Réessayer' : 'Copier le lien'}
+                </button>
                 <a href={lightboxPhoto.uri} target="_blank" rel="noreferrer">Ouvrir dans un onglet</a>
               </div>
             </footer>
