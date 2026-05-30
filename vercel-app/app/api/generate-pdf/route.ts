@@ -5,6 +5,7 @@ import { sendEmail } from '@/lib/sender';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { createClient } from '@supabase/supabase-js';
 import { normalizeEmailLanguage, type EmailLanguage } from '@/lib/templates';
+import { existsSync } from 'node:fs';
 
 export const maxDuration = 60;
 export const runtime = 'nodejs';
@@ -222,6 +223,40 @@ async function waitForPdfImages(page: any) {
   }
 }
 
+function localChromiumExecutablePath() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    process.env.CHROME_PATH,
+    process.env.GOOGLE_CHROME_BIN,
+    process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Google\\Chrome\\Application\\chrome.exe` : null,
+    process.env.ProgramFiles ? `${process.env.ProgramFiles}\\Google\\Chrome\\Application\\chrome.exe` : null,
+    process.env['ProgramFiles(x86)'] ? `${process.env['ProgramFiles(x86)']}\\Google\\Chrome\\Application\\chrome.exe` : null,
+    process.env.LOCALAPPDATA ? `${process.env.LOCALAPPDATA}\\Microsoft\\Edge\\Application\\msedge.exe` : null,
+    process.env.ProgramFiles ? `${process.env.ProgramFiles}\\Microsoft\\Edge\\Application\\msedge.exe` : null,
+    process.env['ProgramFiles(x86)'] ? `${process.env['ProgramFiles(x86)']}\\Microsoft\\Edge\\Application\\msedge.exe` : null,
+  ]
+    .map(value => String(value ?? '').trim())
+    .filter(Boolean);
+
+  return candidates.find(candidate => existsSync(candidate)) ?? null;
+}
+
+async function resolvePuppeteerExecutablePath(chromium: typeof import('@sparticuz/chromium-min')) {
+  const localExecutablePath = localChromiumExecutablePath();
+  if (localExecutablePath) {
+    return { executablePath: localExecutablePath, local: true };
+  }
+
+  const chromiumUrl =
+    process.env.CHROMIUM_PACK_URL ??
+    'https://github.com/Sparticuz/chromium/releases/download/v123.0.0/chromium-v123.0.0-pack.tar';
+
+  return {
+    executablePath: await (chromium as any).executablePath(chromiumUrl),
+    local: false,
+  };
+}
+
 async function renderPdfBuffer(html: string): Promise<Buffer> {
   let browser: any = null;
 
@@ -237,23 +272,17 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
       throw new Error('Puppeteer non disponible sur ce runtime');
     }
 
-    const chromiumUrl =
-      process.env.CHROMIUM_PACK_URL ??
-      'https://github.com/Sparticuz/chromium/releases/download/v123.0.0/chromium-v123.0.0-pack.tar';
-
-    const executablePath =
-      process.env.PUPPETEER_EXECUTABLE_PATH ||
-      await (chromium as any).executablePath(chromiumUrl);
+    const runtime = await resolvePuppeteerExecutablePath(chromium);
 
     browser = await (puppeteer as any).launch({
       args: [
-        ...(chromium as any).args,
+        ...(runtime.local ? [] : (chromium as any).args),
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--no-sandbox',
       ],
-      defaultViewport: (chromium as any).defaultViewport,
-      executablePath,
+      defaultViewport: (chromium as any).defaultViewport ?? { width: 1280, height: 720 },
+      executablePath: runtime.executablePath,
       headless: true,
     });
 
