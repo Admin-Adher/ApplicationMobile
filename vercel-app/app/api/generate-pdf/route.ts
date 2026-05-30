@@ -122,6 +122,8 @@ const PDF_REMOTE_IMAGE_TIMEOUT_MS = 10000;
 const PDF_REMOTE_IMAGE_SOURCE_MAX_BYTES = 24 * 1024 * 1024;
 const PDF_REMOTE_IMAGE_TOTAL_MAX_BYTES = 40 * 1024 * 1024;
 const PDF_REMOTE_IMAGE_RENDER_WIDTH = 900;
+const PDF_SET_CONTENT_TIMEOUT_MS = 15000;
+const PDF_IMAGE_WAIT_TIMEOUT_MS = 12000;
 const CHROMIUM_AL2023_LIB_PATH = '/tmp/al2023/lib';
 const CHROMIUM_AL2023_LIB_SENTINEL = `${CHROMIUM_AL2023_LIB_PATH}/libnss3.so`;
 const DEFAULT_CHROMIUM_PACK_URL = 'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar';
@@ -296,29 +298,58 @@ async function inlineRemoteImagesForPdf(html: string) {
 
 async function waitForPdfImages(page: any) {
   try {
-    await page.evaluate(async () => {
+    return await page.evaluate(async (timeoutMs: number) => {
       const images = Array.from(document.images);
-      await Promise.all(images.map(image => {
-        if (image.complete && image.naturalWidth > 0) {
-          return image.decode?.().catch(() => undefined) ?? Promise.resolve();
-        }
+      const summary = {
+        total: images.length,
+        loaded: 0,
+        failed: 0,
+        timedOut: false,
+      };
 
-        return new Promise(resolve => {
-          const done = () => resolve(undefined);
-          const timer = window.setTimeout(done, 9000);
-          image.addEventListener('load', () => {
-            window.clearTimeout(timer);
-            done();
-          }, { once: true });
-          image.addEventListener('error', () => {
-            window.clearTimeout(timer);
-            done();
-          }, { once: true });
-        }).then(() => image.decode?.().catch(() => undefined));
-      }));
-    });
+      await Promise.race([
+        Promise.all(images.map(image => {
+          if (image.complete && image.naturalWidth > 0) {
+            summary.loaded += 1;
+            return image.decode?.().catch(() => undefined) ?? Promise.resolve();
+          }
+
+          return new Promise(resolve => {
+            const done = (loaded: boolean) => {
+              if (loaded && image.naturalWidth > 0) summary.loaded += 1;
+              else summary.failed += 1;
+              resolve(undefined);
+            };
+            const timer = window.setTimeout(() => done(false), 9000);
+            image.addEventListener('load', () => {
+              window.clearTimeout(timer);
+              done(true);
+            }, { once: true });
+            image.addEventListener('error', () => {
+              window.clearTimeout(timer);
+              done(false);
+            }, { once: true });
+          }).then(() => image.decode?.().catch(() => undefined));
+        })),
+        new Promise<void>(resolve => {
+          window.setTimeout(() => {
+            summary.timedOut = true;
+            resolve();
+          }, timeoutMs);
+        }),
+      ]);
+
+      return summary;
+    }, PDF_IMAGE_WAIT_TIMEOUT_MS);
   } catch (error: any) {
     console.warn('[generate-pdf] Image wait skipped:', error?.message ?? error);
+    return {
+      total: null,
+      loaded: null,
+      failed: null,
+      timedOut: true,
+      error: error?.message ?? String(error),
+    };
   }
 }
 
@@ -470,13 +501,29 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
 
     diagnostic.stage = 'new-page';
     const page = await browser.newPage();
+    const blockedExternalRequests: string[] = [];
+    await page.setRequestInterception(true);
+    page.on('request', (request: any) => {
+      const requestUrl = String(request.url?.() ?? '');
+      if (/^https?:\/\//i.test(requestUrl)) {
+        if (blockedExternalRequests.length < 12) {
+          blockedExternalRequests.push(requestUrl.slice(0, 240));
+        }
+        request.abort().catch(() => undefined);
+        return;
+      }
+      request.continue().catch(() => undefined);
+    });
+    diagnostic.externalRequestBlocking = 'http-and-https';
     diagnostic.stage = 'inline-images';
     const pdfHtml = await inlineRemoteImagesForPdf(html);
     diagnostic.inlinedHtmlLength = pdfHtml.length;
     diagnostic.stage = 'set-content';
-    await page.setContent(pdfHtml, { waitUntil: 'networkidle0', timeout: 30000 });
+    await page.setContent(pdfHtml, { waitUntil: 'domcontentloaded', timeout: PDF_SET_CONTENT_TIMEOUT_MS });
+    diagnostic.blockedExternalRequestCount = blockedExternalRequests.length;
+    diagnostic.blockedExternalRequestSample = blockedExternalRequests;
     diagnostic.stage = 'wait-images';
-    await waitForPdfImages(page);
+    diagnostic.imageWait = await waitForPdfImages(page);
 
     diagnostic.stage = 'render-pdf';
     const pdfBuffer = await page.pdf({
