@@ -9382,7 +9382,16 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
 
   const configured = status?.configured === true;
   const healthy = status?.healthy === true;
+  const unhealthy = configured && status?.healthy === false;
   const unavailable = status?.configured === false;
+  const statusText = healthy ? 'Service pret' : unhealthy ? 'Service KO' : configured ? 'A verifier' : 'Non configure';
+  const statusClass = healthy
+    ? styles.weasyLabStatusOk
+    : unhealthy
+      ? styles.weasyLabStatusError
+      : configured
+        ? styles.weasyLabStatusWarn
+        : styles.weasyLabStatusOff;
 
   return (
     <div className={styles.weasyLabCard}>
@@ -9392,9 +9401,7 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
           <strong>Lab PDF WeasyPrint</strong>
           <small>POC admin isole. Le PDF de production reste sur Puppeteer.</small>
         </div>
-        <em className={healthy ? styles.weasyLabStatusOk : configured ? styles.weasyLabStatusWarn : styles.weasyLabStatusOff}>
-          {healthy ? 'Service pret' : configured ? 'A verifier' : 'Non configure'}
-        </em>
+        <em className={statusClass}>{statusText}</em>
       </div>
 
       <div className={styles.weasyLabBody}>
@@ -9422,6 +9429,7 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
         {unavailable ? (
           <p className={styles.settingsNotice}>Configurez <code>WEASYPRINT_POC_URL</code> avec l'URL <code>/render</code> du service WeasyPrint pour activer le test depuis le web.</p>
         ) : null}
+        {status?.target ? <p className={styles.settingsMuted}>URL cible testee : <code>{status.target}</code></p> : null}
         {status?.error ? <p className={styles.settingsNotice}>{status.error}</p> : null}
         {message ? <p className={message.ok ? styles.weasyLabSuccess : styles.weasyLabError}>{message.text}</p> : null}
 
@@ -9429,7 +9437,7 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
           <button type="button" onClick={checkService} disabled={checking || rendering}>
             {checking ? 'Verification...' : 'Verifier le service'}
           </button>
-          <button type="button" onClick={renderWeasyPrint} disabled={rendering || checking || !configured || sampleCount === 0}>
+          <button type="button" onClick={renderWeasyPrint} disabled={rendering || checking || !configured || unhealthy || sampleCount === 0}>
             {rendering ? 'Generation...' : 'Tester WeasyPrint'}
           </button>
         </div>

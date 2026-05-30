@@ -46,6 +46,15 @@ function renderUrl() {
   return (process.env.WEASYPRINT_POC_URL || process.env.WEASYPRINT_RENDER_URL || '').trim();
 }
 
+function targetLabel(url: string) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return url || null;
+  }
+}
+
 function healthUrl() {
   const explicit = (process.env.WEASYPRINT_HEALTH_URL || '').trim();
   if (explicit) return explicit;
@@ -62,6 +71,17 @@ function healthUrl() {
   } catch {
     return '';
   }
+}
+
+function looksLikeHtml(value: string, contentType?: string | null) {
+  return /text\/html/i.test(contentType ?? '') || /^\s*<!doctype\s+html/i.test(value) || /^\s*<html[\s>]/i.test(value);
+}
+
+function serviceResponseError(status: number, body: string, contentType?: string | null) {
+  if (looksLikeHtml(body, contentType)) {
+    return `L'URL WeasyPrint configuree repond avec une page HTML (${status}), probablement une page 404 Next/Vercel. WEASYPRINT_POC_URL doit pointer vers le service Python WeasyPrint, par exemple https://votre-service/render.`;
+  }
+  return body.slice(0, 1200) || `Service WeasyPrint indisponible (${status})`;
 }
 
 function buildHtml(payload: any) {
@@ -123,24 +143,28 @@ export async function GET(req: NextRequest) {
 
   const health = healthUrl();
   if (!health) {
-    return NextResponse.json({ success: true, configured: true, healthy: null, renderUrl: url });
+    return NextResponse.json({ success: true, configured: true, healthy: null, target: targetLabel(url) });
   }
 
   try {
     const response = await fetch(health, { cache: 'no-store', signal: AbortSignal.timeout(5000) });
     const body = await response.text();
+    const contentType = response.headers.get('content-type');
     return NextResponse.json({
       success: true,
       configured: true,
       healthy: response.ok,
       status: response.status,
-      health: body ? body.slice(0, 1000) : null,
+      target: targetLabel(url),
+      health: response.ok && body ? body.slice(0, 1000) : null,
+      error: response.ok ? null : serviceResponseError(response.status, body, contentType),
     });
   } catch (err: any) {
     return NextResponse.json({
       success: true,
       configured: true,
       healthy: false,
+      target: targetLabel(url),
       error: err?.message ?? 'Service WeasyPrint injoignable',
     });
   }
@@ -171,9 +195,19 @@ export async function POST(req: NextRequest) {
 
     if (!response.ok) {
       const message = await response.text();
+      const contentType = response.headers.get('content-type');
       return NextResponse.json({
         success: false,
-        error: message.slice(0, 1200) || `Service WeasyPrint indisponible (${response.status})`,
+        error: serviceResponseError(response.status, message, contentType),
+      }, { status: 502 });
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && !/application\/pdf/i.test(contentType)) {
+      const message = await response.text();
+      return NextResponse.json({
+        success: false,
+        error: serviceResponseError(response.status, message, contentType),
       }, { status: 502 });
     }
 

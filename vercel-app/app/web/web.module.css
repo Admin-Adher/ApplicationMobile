@@ -8775,6 +8775,11 @@
   color: #92400e;
 }
 
+.weasyLabStatusError {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .weasyLabStatusOff {
   background: #e2e8f0;
   color: #475569;
