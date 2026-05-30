@@ -1,3 +1,18 @@
+@font-face {
+  font-family: "BuildTrackIonicons";
+  src: url("/fonts/Ionicons.ttf") format("truetype");
+  font-display: block;
+}
+
+.ionIcon {
+  display: inline-block;
+  font-family: "BuildTrackIonicons";
+  font-style: normal;
+  font-weight: 400;
+  line-height: 1;
+  text-rendering: auto;
+}
+
 .loginPage,
 .appShell {
   min-height: 100vh;
@@ -239,6 +254,177 @@
 .messageForm button:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+.projectDropdown {
+  position: relative;
+  z-index: 35;
+  width: min(320px, 100%);
+  min-width: 240px;
+}
+
+.topbarActions .projectDropdownButton {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 50px;
+  border: 1px solid #d8e0ec;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.94), rgba(248, 251, 255, 0.82)),
+    radial-gradient(circle at 18% 12%, rgba(0, 48, 130, 0.08), transparent 42%);
+  color: #0f172a;
+  padding: 8px 12px;
+  overflow: visible;
+  text-align: left;
+  text-shadow: none;
+  white-space: normal;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 10px 24px rgba(15, 23, 42, 0.07);
+}
+
+.topbarActions .projectDropdownButton::before,
+.topbarActions .projectDropdownButton::after,
+.topbarActions .projectDropdownOption::before,
+.topbarActions .projectDropdownOption::after,
+.topbarActions .projectDropdownOptionActive::before,
+.topbarActions .projectDropdownOptionActive::after {
+  display: none;
+}
+
+.projectDropdownDot,
+.projectDropdownOptionDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+}
+
+.projectDropdownValue {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.projectDropdownValue strong {
+  overflow: hidden;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectDropdownValue small {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectDropdownChevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #003082;
+  font-size: 18px;
+}
+
+.projectDropdownMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: 90;
+  display: grid;
+  gap: 4px;
+  max-height: min(340px, 58vh);
+  overflow-y: auto;
+  border: 1px solid #d8e0ec;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.96);
+  padding: 8px;
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.18);
+  backdrop-filter: blur(18px) saturate(150%);
+  -webkit-backdrop-filter: blur(18px) saturate(150%);
+}
+
+.topbarActions .projectDropdownOption,
+.topbarActions .projectDropdownOptionActive {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #0f172a;
+  padding: 9px 10px;
+  overflow: visible;
+  text-align: left;
+  text-shadow: none;
+  white-space: normal;
+  box-shadow: none;
+}
+
+.topbarActions .projectDropdownOption:last-child,
+.topbarActions .projectDropdownOptionActive:last-child {
+  min-width: 0;
+}
+
+.topbarActions .projectDropdownOption:hover,
+.topbarActions .projectDropdownOptionActive {
+  background: #eaf0ff;
+  color: #003082;
+}
+
+.projectDropdownOption span:nth-child(2),
+.projectDropdownOptionActive span:nth-child(2) {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.projectDropdownOption strong,
+.projectDropdownOptionActive strong {
+  overflow: hidden;
+  color: inherit;
+  font-size: 13px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectDropdownOption small,
+.projectDropdownOptionActive small {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projectDropdownOptionActive small {
+  color: #315ca8;
+}
+
+.projectDropdownOption em,
+.projectDropdownOptionActive em {
+  display: inline-flex;
+  color: #003082;
+  font-style: normal;
+  font-size: 17px;
 }
 
 .error,
@@ -7302,6 +7488,361 @@
   gap: 10px;
 }
 
+.settingsShell {
+  display: grid;
+  gap: 16px;
+}
+
+.settingsTabs {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  border: 1px solid #dde4ee;
+  border-radius: 14px;
+  background: #fff;
+  padding: 10px;
+  scrollbar-width: thin;
+}
+
+.settingsTabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  min-height: 42px;
+  border: 1px solid #dde4ee;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.settingsTabs button span {
+  color: inherit;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.settingsTabs button strong {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.settingsTabs .settingsTabActive {
+  border-color: #003082;
+  background: #eaf0ff;
+  color: #003082;
+  box-shadow: 0 8px 20px rgba(0, 48, 130, 0.12);
+}
+
+.settingsSectionStack {
+  display: grid;
+  gap: 16px;
+}
+
+.settingsCard {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #dde4ee;
+  border-radius: 8px;
+  background: #fff;
+  padding: 18px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.settingsMuted {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.settingsNotice {
+  margin: 0;
+  border: 1px solid #dbe5f0;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #475569;
+  padding: 12px 14px;
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
+.settingsInlineFields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settingsInlineFields label {
+  display: grid;
+  gap: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.settingsInlineFields input {
+  min-height: 40px;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 0 10px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.settingsStats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.settingsStats div {
+  display: grid;
+  gap: 4px;
+  min-height: 84px;
+  border: 1px solid #dde4ee;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 14px;
+}
+
+.settingsStats strong {
+  color: #003082;
+  font-size: 24px;
+  font-weight: 950;
+}
+
+.settingsStats span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.settingsQuickGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.settingsQuickGrid button,
+.settingsGhostButton {
+  min-height: 42px;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #eaf0ff;
+  color: #003082;
+  padding: 10px 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.settingsChipBlock {
+  display: grid;
+  gap: 9px;
+}
+
+.settingsChipBlock > span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 950;
+  text-transform: uppercase;
+}
+
+.settingsChipBlock div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settingsChipBlock button {
+  min-height: 38px;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #64748b;
+  padding: 0 13px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.settingsChipBlock small {
+  color: #64748b;
+  line-height: 1.45;
+}
+
+.settingsChipBlock .settingsChipActive {
+  border-color: #003082;
+  background: #eaf0ff;
+  color: #003082;
+}
+
+.attendanceTable {
+  display: grid;
+  gap: 10px;
+}
+
+.attendanceRow {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) minmax(150px, 220px) minmax(150px, 220px) minmax(44px, auto);
+  align-items: center;
+  column-gap: 14px;
+  row-gap: 10px;
+  border: 1px solid #eef2f7;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.attendanceRow > span {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+}
+
+.attendanceRow strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.attendanceRow label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.attendanceRow input {
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  box-sizing: border-box;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 0 8px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.attendanceRow em {
+  min-width: 44px;
+  justify-self: end;
+  align-self: center;
+  padding-top: 16px;
+  color: #003082;
+  font-style: normal;
+  font-weight: 950;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.settingsGhostButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.integrationGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.integrationCard {
+  display: grid;
+  gap: 8px;
+  min-height: 126px;
+  border: 1px solid #dde4ee;
+  border-radius: 8px;
+  background: #fff;
+  padding: 16px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.integrationCard span {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #eaf0ff;
+  color: #003082;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.integrationCard strong {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 950;
+}
+
+.integrationCard small {
+  color: #64748b;
+  font-weight: 800;
+}
+
+@media (max-width: 980px) {
+  .settingsStats,
+  .settingsQuickGrid,
+  .integrationGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .attendanceRow {
+    grid-template-columns: auto minmax(120px, 1fr) minmax(110px, 0.55fr) minmax(110px, 0.55fr) minmax(44px, auto);
+  }
+
+  .attendanceRow label,
+  .attendanceRow em {
+    grid-column: auto;
+  }
+}
+
+@media (max-width: 640px) {
+  .settingsTabs {
+    padding: 8px;
+  }
+
+  .settingsStats,
+  .settingsQuickGrid,
+  .settingsInlineFields,
+  .integrationGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .settingsTabs button strong {
+    font-size: 13px;
+  }
+
+  .attendanceRow {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .attendanceRow label,
+  .attendanceRow em {
+    grid-column: 2;
+  }
+
+  .attendanceRow em {
+    justify-self: start;
+    padding-top: 0;
+  }
+}
+
 .toggleRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -7327,6 +7868,869 @@
   height: 26px;
   accent-color: #003082;
   cursor: pointer;
+}
+
+.languageManager {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 16px;
+  padding: 24px;
+  border: 1px solid #dde4ee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.languageManagerTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #0f172a;
+}
+
+.languageManagerTitle span,
+.languageSummary > span {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #003082;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.languageManagerTitle strong {
+  font-size: 20px;
+  font-weight: 950;
+}
+
+.languageManager p {
+  margin: 0;
+  color: #64748b;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.languageSummary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #eef3ff;
+}
+
+.languageSummary div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.languageSummary strong {
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.languageSummary small,
+.languageHint {
+  color: #64748b;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.languageOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.languageOptions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 46px;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #f1f5f9;
+  color: #334155;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+
+.languageOptions button span {
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 950;
+}
+
+.languageOptions button span .ionIcon {
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.languageOptions button strong {
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.languageOptions .languageOptionActive {
+  border-color: #003082;
+  background: #eaf0ff;
+  color: #003082;
+}
+
+.languageOptions .languageOptionActive span {
+  color: #003082;
+}
+
+.accountInfoCard,
+.accountProfileCard,
+.accountFormCard,
+.accountActionButton,
+.accountDiagnosticCard {
+  margin-bottom: 16px;
+  border: 1px solid #dde4ee;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.08);
+}
+
+.accountInfoCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+}
+
+.accountInfoIcon,
+.accountAvatar,
+.accountFormTitle span,
+.accountActionButton > span,
+.accountLogoutButton span {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: #eaf0ff;
+  color: #003082;
+  font-size: 12px;
+  font-weight: 950;
+}
+
+.accountInfoCard div:last-child,
+.accountProfileCard div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.accountInfoCard strong,
+.accountProfileCard strong,
+.accountFormTitle strong,
+.accountLogoutButton strong {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 950;
+}
+
+.accountInfoCard span,
+.accountProfileCard span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: #64748b;
+  line-height: 1.35;
+}
+
+.accountProfileCard {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+}
+
+.accountAvatar {
+  background: #fee2e2;
+  color: #dc2626;
+  font-size: 16px;
+}
+
+.accountProfileCard em {
+  margin-left: auto;
+  border-radius: 10px;
+  background: #fef2f2;
+  color: #b42318;
+  padding: 7px 10px;
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.accountFormCard {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.accountFormTitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.accountFormCard form {
+  display: grid;
+  gap: 12px;
+}
+
+.accountFormCard label {
+  display: grid;
+  gap: 7px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.accountFormCard input,
+.accountFormCard textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 12px 13px;
+  font: inherit;
+  font-weight: 700;
+  outline: none;
+}
+
+.accountFormCard textarea {
+  min-height: 112px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.accountFormCard input:focus,
+.accountFormCard textarea:focus {
+  border-color: #003082;
+  box-shadow: 0 0 0 3px rgba(0, 48, 130, 0.12);
+}
+
+.accountFormCard button,
+.accountLogoutButton {
+  min-height: 42px;
+  width: max-content;
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #eaf0ff;
+  color: #003082;
+  padding: 10px 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.accountFormCard button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.accountDivider {
+  height: 1px;
+  background: #eef2f7;
+}
+
+.accountMessageOk,
+.accountMessageError {
+  margin: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.accountMessageOk {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.accountMessageError {
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.accountLogoutButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  justify-content: flex-start;
+  border-color: #fecaca;
+  background: #fff;
+  color: #dc2626;
+}
+
+.accountActionButton {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.accountActionButton div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.accountActionButton small {
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.accountActionButton em {
+  color: #003082;
+  font-style: normal;
+  font-size: 22px;
+  font-weight: 950;
+}
+
+.accountDiagnosticCard {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+}
+
+.accountDiagnosticCard dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.accountDiagnosticCard dl div {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.3fr);
+  gap: 10px;
+  border-top: 1px solid #eef2f7;
+  padding-top: 8px;
+}
+
+.accountDiagnosticCard dt {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.accountDiagnosticCard dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: #0f172a;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.accountLogoutButton span {
+  width: 38px;
+  height: 38px;
+  background: #fef2f2;
+  color: #dc2626;
+}
+
+.accountLogoutButton strong {
+  color: #dc2626;
+}
+
+/* APK-aligned settings surface */
+.settingsShell {
+  width: 100%;
+  max-width: none;
+  align-self: stretch;
+  display: grid;
+  gap: 10px;
+}
+
+.settingsShell > .panel {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settingsShell > .panel > .sectionHeader {
+  display: none;
+}
+
+.settingsTabs {
+  gap: 6px;
+  margin: 0 -2px 8px;
+  padding: 0 2px 8px;
+  border: 0;
+  border-bottom: 1px solid #dde4ee;
+  border-radius: 0;
+  background: transparent;
+}
+
+.settingsTabs button {
+  min-height: 40px;
+  gap: 6px;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 7px 12px;
+  box-shadow: none;
+}
+
+.settingsTabs button span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: inherit;
+}
+
+.settingsTabs button span .ionIcon {
+  font-size: 16px;
+}
+
+.settingsTabs button strong {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.settingsTabs .settingsTabActive {
+  border-color: #003082;
+  background: #eaf0ff;
+  box-shadow: none;
+}
+
+.settingsSectionStack {
+  gap: 8px;
+}
+
+.settingsCard,
+.languageManager,
+.accountInfoCard,
+.accountProfileCard,
+.accountFormCard,
+.accountActionButton,
+.accountDiagnosticToggle,
+.accountDiagnosticCard,
+.accountLogoutButton {
+  margin-bottom: 8px;
+  border: 1px solid #dde4ee;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.settingsCard,
+.languageManager,
+.accountFormCard,
+.accountDiagnosticCard {
+  padding: 16px;
+}
+
+.settingsCard {
+  gap: 12px;
+}
+
+.settingsStats {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.settingsStats div {
+  min-height: 78px;
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.06);
+}
+
+.settingsStats strong {
+  font-size: 22px;
+}
+
+.settingsQuickGrid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.settingsQuickGrid button,
+.settingsGhostButton,
+.accountFormCard button,
+.diagnosticRefreshButton {
+  min-height: 44px;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border-radius: 10px;
+  border-color: #cbd8ec;
+  background: #eaf0ff;
+  color: #003082;
+  font-weight: 850;
+}
+
+.accountFormCard button:disabled {
+  opacity: 0.5;
+}
+
+.languageManager {
+  display: grid;
+  gap: 12px;
+}
+
+.languageManagerTitle,
+.accountFormTitle {
+  gap: 6px;
+}
+
+.languageManagerTitle span,
+.accountFormTitle span {
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0;
+  background: transparent;
+  color: #003082;
+}
+
+.languageManagerTitle span .ionIcon,
+.accountFormTitle span .ionIcon,
+.accountInfoIcon .ionIcon,
+.accountActionButton > span .ionIcon,
+.accountLogoutButton span .ionIcon,
+.accountDiagnosticToggle > span .ionIcon,
+.diagnosticRefreshButton .ionIcon {
+  font-size: 18px;
+}
+
+.languageManagerTitle strong,
+.accountFormTitle strong {
+  font-size: 15px;
+  line-height: 1.2;
+}
+
+.languageManager p,
+.settingsMuted,
+.settingsNotice {
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.languageSummary {
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.languageSummary > span {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+}
+
+.languageSummary strong {
+  font-size: 15px;
+}
+
+.languageSummary small,
+.languageHint {
+  font-size: 12px;
+}
+
+.languageOptions {
+  gap: 8px;
+}
+
+.languageOptions button {
+  min-height: 40px;
+  border-radius: 12px;
+  padding: 8px 11px;
+}
+
+.accountInfoCard {
+  align-items: flex-start;
+  gap: 8px;
+  padding: 16px;
+}
+
+.accountInfoIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 0;
+  background: transparent;
+  color: #003082;
+}
+
+.accountInfoCard div:last-child {
+  gap: 3px;
+}
+
+.accountInfoCard strong {
+  font-size: 15px;
+}
+
+.accountInfoCard b {
+  color: #0f172a;
+  font-size: 16px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.accountInfoCard span {
+  color: #8a94a6;
+  font-size: 13px;
+}
+
+.accountProfileCard {
+  gap: 12px;
+  padding: 14px;
+}
+
+.accountAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+}
+
+.accountProfileCard div {
+  flex: 1 1 auto;
+}
+
+.accountProfileCard strong {
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.accountProfileCard span {
+  font-size: 13px;
+}
+
+.accountProfileCard em {
+  border-radius: 8px;
+  padding: 6px 9px;
+  font-size: 11px;
+}
+
+.accountFormCard {
+  gap: 12px;
+}
+
+.accountFormCard form {
+  gap: 10px;
+}
+
+.accountFormCard label {
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0;
+}
+
+.accountFormCard input,
+.accountFormCard textarea {
+  min-height: 52px;
+  border-radius: 10px;
+  background: #f1f5fb;
+  padding: 12px 14px;
+  font-weight: 500;
+}
+
+.accountDivider {
+  margin: 4px 0;
+}
+
+.accountActionButton {
+  border-color: #c084fc55;
+}
+
+.accountActionButton,
+.accountDiagnosticToggle,
+.accountLogoutButton {
+  min-height: 64px;
+  padding: 14px;
+}
+
+.accountActionButton > span,
+.accountDiagnosticToggle > span,
+.accountLogoutButton span {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+}
+
+.accountActionButton > span {
+  background: #f3e8ff;
+  color: #8b5cf6;
+}
+
+.accountDiagnosticToggle {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.accountDiagnosticToggle > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f3f4f6;
+  color: #64748b;
+}
+
+.accountDiagnosticToggle > span.diagnosticIconOk {
+  background: #ecfdf5;
+  color: #10b981;
+}
+
+.accountDiagnosticToggle div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.accountDiagnosticToggle strong {
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 850;
+}
+
+.accountDiagnosticToggle small {
+  overflow: hidden;
+  color: #8a94a6;
+  font-size: 12px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountDiagnosticToggle em,
+.accountLogoutButton em {
+  color: #8a94a6;
+  font-style: normal;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.accountDiagnosticCard {
+  gap: 10px;
+  margin-top: 0;
+}
+
+.accountDiagnosticCard dl {
+  gap: 0;
+}
+
+.accountDiagnosticCard dl div {
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 0;
+  border-bottom: 1px solid #eef2f7;
+}
+
+.accountDiagnosticCard dt,
+.accountDiagnosticCard dd {
+  font-size: 12px;
+}
+
+.accountDiagnosticCard dd {
+  text-align: right;
+}
+
+.diagnosticOkBox {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 2px 0 0;
+  border: 1px solid #a7f3d0;
+  border-radius: 10px;
+  background: #ecfdf5;
+  color: #065f46;
+  padding: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.diagnosticOkBox .ionIcon {
+  flex: 0 0 auto;
+  color: #10b981;
+  font-size: 16px;
+}
+
+.diagnosticRefreshButton {
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.accountLogoutButton {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  border-color: #fca5a555;
+  padding: 14px;
+}
+
+.accountLogoutButton strong {
+  font-size: 15px;
+}
+
+.integrationGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.integrationCard {
+  min-height: auto;
+  border-radius: 14px;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+
+.toggleRow {
+  border-radius: 12px;
+  background: #fff;
+}
+
+@media (max-width: 980px) {
+  .settingsStats,
+  .settingsQuickGrid,
+  .integrationGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .settingsStats,
+  .settingsQuickGrid,
+  .integrationGrid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* === Mobile drawer nav (hidden on desktop) === */
@@ -7670,12 +9074,19 @@
   }
 
   .topbarActions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     width: 100%;
-    flex-direction: column;
     align-items: stretch;
     gap: 6px;
   }
+  .projectDropdown {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
   .topbarActions select {
+    grid-column: 1 / -1;
     min-width: 0;
     flex: 0 0 auto;
     height: 40px;
@@ -7684,14 +9095,24 @@
   }
   .topbarActions button {
     flex: 1 1 auto;
+    width: 100%;
     min-width: 0;
     min-height: 36px;
-    padding: 8px 12px;
+    overflow: hidden;
+    padding: 8px 6px;
     border-radius: 10px;
-    font-size: 13px;
+    font-size: 12px;
+    line-height: 1.1;
+    letter-spacing: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-shadow: 0 1px 1px rgba(0, 24, 68, 0.34);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.4),
       0 2px 6px rgba(0, 48, 130, 0.18);
+  }
+  .topbarActions button:last-child {
+    min-width: 0;
   }
   .topbarActions button::after {
     display: none;
@@ -7784,15 +9205,21 @@
   }
 
   .dashboardHero,
-  .dashboardProgressHeader,
-  .dashboardHeroActions {
+  .dashboardProgressHeader {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .dashboardQuickActions {
+  .dashboardHeroActions {
     display: grid;
     grid-template-columns: 1fr;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .dashboardQuickActions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     width: 100%;
   }
 
@@ -7973,10 +9400,40 @@
   .topbar,
   .topbarActions {
     align-items: stretch;
+  }
+
+  .topbar {
     flex-direction: column;
   }
 
+  .topbarActions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .projectDropdown {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-width: 0;
+  }
+
   .topbarActions select {
+    grid-column: 1 / -1;
+    min-width: 0;
+  }
+
+  .topbarActions button {
+    min-width: 0;
+    overflow: hidden;
+    padding-inline: 6px;
+    font-size: 12px;
+    line-height: 1.1;
+    letter-spacing: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .topbarActions button:last-child {
     min-width: 0;
   }
 

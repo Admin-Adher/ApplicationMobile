@@ -29,11 +29,19 @@ type Profile = {
   preferred_language?: SupportedLang | null;
 };
 
+type Organization = {
+  id: string;
+  name?: string | null;
+  slug?: string | null;
+  created_at?: string | null;
+};
+
 type WebState = {
   chantiers: any[];
   reserves: any[];
   sitePlans: any[];
   companies: any[];
+  organizations: Organization[];
   visites: any[];
   messages: any[];
   channels: any[];
@@ -174,6 +182,7 @@ const EMPTY_DATA: WebState = {
   reserves: [],
   sitePlans: [],
   companies: [],
+  organizations: [],
   visites: [],
   messages: [],
   channels: [],
@@ -188,6 +197,8 @@ const EMPTY_DATA: WebState = {
 };
 
 const PDFJS_VERSION = '5.7.284';
+const WEB_LANGUAGE_PREFERENCE_KEY = 'buildtrack-web-language-preference-v1';
+const WEB_LANGUAGE_LEGACY_KEY = 'buildtrack-web-language';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 const PHOTO_ANNOTATION_COLORS = ['#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#FFFFFF', '#111827'];
 const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
@@ -205,8 +216,8 @@ const TABS = [
   { id: 'media', label: 'Médias', icon: 'images' },
   { id: 'rapports', label: 'Rapports', icon: 'document-text' },
   { id: 'equipes', label: 'Équipes', icon: 'people-circle' },
-  { id: 'settings', label: 'Réglages', icon: 'options' },
-  { id: 'admin', label: 'Admin', icon: 'settings' },
+  { id: 'settings', label: 'Paramètres', icon: 'options' },
+  { id: 'admin', label: 'Administration', icon: 'settings' },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -218,18 +229,26 @@ const NAV_GROUPS: { label: string; items: TabId[] }[] = [
 
 type WebI18nValue = {
   lang: SupportedLang;
+  languagePreference: WebLanguagePreference;
+  deviceLanguage: SupportedLang;
   locale: string;
   t: WebTranslator;
   setLang: (lang: SupportedLang) => void | Promise<void>;
+  setLanguagePreference: (preference: WebLanguagePreference) => void | Promise<void>;
 };
+
+type WebLanguagePreference = 'auto' | SupportedLang;
 
 const defaultWebT = createWebT('fr');
 
 const WebI18nContext = createContext<WebI18nValue>({
   lang: 'fr',
+  languagePreference: 'auto',
+  deviceLanguage: 'fr',
   locale: localeForLang('fr'),
   t: defaultWebT,
   setLang: () => undefined,
+  setLanguagePreference: () => undefined,
 });
 
 function useWebI18n() {
@@ -240,25 +259,28 @@ function tabLabel(tabId: TabId, t: WebTranslator) {
   return t(`nav.${tabId}`);
 }
 
-function WebLanguageSwitcher({ className = '' }: { className?: string }) {
-  const { lang, setLang, t } = useWebI18n();
+function readStoredWebLanguagePreference(): { preference: WebLanguagePreference; hasStored: boolean } {
+  if (typeof window === 'undefined') return { preference: 'auto', hasStored: false };
+  const stored = window.localStorage.getItem(WEB_LANGUAGE_PREFERENCE_KEY);
+  if (stored === 'auto' || stored === 'fr' || stored === 'en' || stored === 'es') {
+    return { preference: stored, hasStored: true };
+  }
+  const legacy = window.localStorage.getItem(WEB_LANGUAGE_LEGACY_KEY);
+  if (legacy === 'fr' || legacy === 'en' || legacy === 'es') {
+    return { preference: legacy, hasStored: true };
+  }
+  return { preference: 'auto', hasStored: false };
+}
 
-  return (
-    <div className={`${styles.webLanguageSwitcher} ${className}`.trim()} role="group" aria-label={t('common.language')}>
-      {WEB_LANGUAGES.map(option => (
-        <button
-          key={option.code}
-          type="button"
-          className={option.code === lang ? styles.webLanguageSwitcherActive : undefined}
-          onClick={() => setLang(option.code)}
-          title={option.label}
-          aria-pressed={option.code === lang}
-        >
-          {option.shortLabel}
-        </button>
-      ))}
-    </div>
-  );
+function resolveWebLanguagePreference(preference: WebLanguagePreference, profileLanguage?: SupportedLang | null, deviceLanguage: SupportedLang = getBrowserLang()) {
+  if (preference !== 'auto') return preference;
+  return profileLanguage ?? deviceLanguage;
+}
+
+function storeWebLanguagePreference(preference: WebLanguagePreference, effectiveLanguage: SupportedLang) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(WEB_LANGUAGE_PREFERENCE_KEY, preference);
+  window.localStorage.setItem(WEB_LANGUAGE_LEGACY_KEY, effectiveLanguage);
 }
 
 const STATIC_I18N_ATTRIBUTES = ['placeholder', 'aria-label', 'title', 'alt'] as const;
@@ -567,8 +589,8 @@ const RESERVE_FILTER_OPTIONS = [
 ] as const;
 
 const ROLE_LABELS: Record<string, string> = {
-  super_admin: 'Super admin',
-  admin: 'Admin',
+  super_admin: 'Super administrateur',
+  admin: 'Administrateur',
   conducteur: 'Conducteur de travaux',
   chef_equipe: "Chef d'équipe",
   sous_traitant: 'Sous-traitant',
@@ -1883,6 +1905,95 @@ function channelLabel(channel: any, companies: any[]) {
   return channel?.name ?? channel?.id ?? 'Canal';
 }
 
+function ProjectDropdown({ projects, selectedProjectId, onSelect }: {
+  projects: any[];
+  selectedProjectId: string;
+  onSelect: (projectId: string) => void;
+}) {
+  const { t } = useWebI18n();
+  const [open, setOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const selectedProject = selectedProjectId === 'all'
+    ? null
+    : projects.find(project => String(project.id) === String(selectedProjectId)) ?? null;
+  const selectedLabel = selectedProject?.name ?? t('common.allProjects');
+  const selectedMeta = selectedProject
+    ? t('projectDropdown.activeProject')
+    : t('projectDropdown.projectCount', { count: projects.length });
+  const options = [
+    { id: 'all', name: t('common.allProjects'), meta: t('projectDropdown.projectCount', { count: projects.length }) },
+    ...projects.map(project => ({
+      id: String(project.id),
+      name: project.name ?? 'Chantier',
+      meta: String(project.location ?? project.city ?? project.address ?? t('projectDropdown.activeProject')),
+    })),
+  ];
+
+  useEffect(() => {
+    if (!open) return undefined;
+    function closeOnOutside(event: globalThis.MouseEvent) {
+      if (!dropdownRef.current?.contains(event.target as Node)) setOpen(false);
+    }
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') setOpen(false);
+    }
+    document.addEventListener('mousedown', closeOnOutside);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutside);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div className={styles.projectDropdown} ref={dropdownRef}>
+      <button
+        type="button"
+        className={styles.projectDropdownButton}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={() => setOpen(value => !value)}
+      >
+        <span className={styles.projectDropdownDot} aria-hidden="true" />
+        <span className={styles.projectDropdownValue}>
+          <strong>{selectedLabel}</strong>
+          <small>{selectedMeta}</small>
+        </span>
+        <span className={styles.projectDropdownChevron}>
+          <IonIcon name={open ? 'chevron-up' : 'chevron-down'} />
+        </span>
+      </button>
+      {open ? (
+        <div className={styles.projectDropdownMenu} role="listbox" aria-label={t('common.allProjects')}>
+          {options.map(option => {
+            const active = option.id === selectedProjectId;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="option"
+                aria-selected={active}
+                className={active ? styles.projectDropdownOptionActive : styles.projectDropdownOption}
+                onClick={() => {
+                  onSelect(option.id);
+                  setOpen(false);
+                }}
+              >
+                <span className={styles.projectDropdownOptionDot} aria-hidden="true" />
+                <span>
+                  <strong>{option.name}</strong>
+                  <small>{option.meta}</small>
+                </span>
+                {active ? <em><IonIcon name="checkmark-circle" /></em> : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 async function fetchScopedTable<T = any>(
   table: string,
   profile: Profile,
@@ -1941,36 +2052,71 @@ export default function BuildTrackWebPage() {
     return window.localStorage.getItem('buildtrack-web-sidebar-collapsed') === '1';
   });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [deviceLanguage, setDeviceLanguage] = useState<SupportedLang>(() => getBrowserLang());
+  const [webLanguagePreference, setWebLanguagePreferenceState] = useState<WebLanguagePreference>(() => readStoredWebLanguagePreference().preference);
   const [webLang, setWebLangState] = useState<SupportedLang>(() => {
     if (typeof window === 'undefined') return 'fr';
-    return normalizeLang(window.localStorage.getItem('buildtrack-web-language') ?? getBrowserLang());
+    const { preference } = readStoredWebLanguagePreference();
+    return resolveWebLanguagePreference(preference, null, getBrowserLang());
   });
 
-  const handleWebLangChange = useCallback(async (nextLang: SupportedLang) => {
+  const handleWebLanguagePreferenceChange = useCallback(async (nextPreference: WebLanguagePreference) => {
+    const nextDeviceLanguage = getBrowserLang();
+    const nextProfileLanguage = nextPreference === 'auto' ? null : nextPreference;
+    const nextLang = resolveWebLanguagePreference(nextPreference, nextProfileLanguage, nextDeviceLanguage);
+    setDeviceLanguage(nextDeviceLanguage);
+    setWebLanguagePreferenceState(nextPreference);
     setWebLangState(nextLang);
     setReportLanguage(nextLang);
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('buildtrack-web-language', nextLang);
-    }
+    storeWebLanguagePreference(nextPreference, nextLang);
+
     const profileId = profile?.id ?? authUser?.id;
     if (!profileId) return;
     const { error: languageError } = await supabaseBrowser
       .from('profiles')
-      .update({ preferred_language: nextLang })
+      .update({ preferred_language: nextProfileLanguage })
       .eq('id', profileId);
     if (languageError) {
-      setError(languageError.message);
+      setError(translateWebStaticText("La langue a été changée localement, mais n'a pas encore pu être synchronisée.", nextLang));
       return;
     }
-    setProfile(previous => previous ? { ...previous, preferred_language: nextLang } : previous);
+    setProfile(previous => previous ? { ...previous, preferred_language: nextProfileLanguage } : previous);
+    setData(previous => ({
+      ...previous,
+      profiles: previous.profiles.map(user => user.id === profileId ? { ...user, preferred_language: nextProfileLanguage } : user),
+    }));
   }, [authUser?.id, profile?.id]);
+
+  const handleWebLangChange = useCallback(async (nextLang: SupportedLang) => {
+    await handleWebLanguagePreferenceChange(nextLang);
+  }, [handleWebLanguagePreferenceChange]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const updateDeviceLanguage = () => {
+        const nextDeviceLanguage = getBrowserLang();
+        setDeviceLanguage(nextDeviceLanguage);
+        if (webLanguagePreference === 'auto' && !profile?.preferred_language) {
+          setWebLangState(nextDeviceLanguage);
+          setReportLanguage(nextDeviceLanguage);
+          storeWebLanguagePreference('auto', nextDeviceLanguage);
+        }
+      };
+      window.addEventListener('languagechange', updateDeviceLanguage);
+      return () => window.removeEventListener('languagechange', updateDeviceLanguage);
+    }
+    return undefined;
+  }, [profile?.preferred_language, webLanguagePreference]);
 
   const i18n = useMemo<WebI18nValue>(() => ({
     lang: webLang,
+    languagePreference: webLanguagePreference,
+    deviceLanguage,
     locale: localeForLang(webLang),
     t: createWebT(webLang),
     setLang: handleWebLangChange,
-  }), [handleWebLangChange, webLang]);
+    setLanguagePreference: handleWebLanguagePreferenceChange,
+  }), [deviceLanguage, handleWebLangChange, handleWebLanguagePreferenceChange, webLang, webLanguagePreference]);
   const { t } = i18n;
 
   useEffect(() => {
@@ -2025,20 +2171,29 @@ export default function BuildTrackWebPage() {
         return;
       }
 
-      const preferredLang = normalizeLang(loadedProfile.preferred_language ?? webLang);
+      const storedPreference = readStoredWebLanguagePreference();
+      const profileLanguage = loadedProfile.preferred_language ? normalizeLang(loadedProfile.preferred_language) : null;
+      const nextPreference: WebLanguagePreference = storedPreference.hasStored
+        ? storedPreference.preference
+        : profileLanguage ?? 'auto';
+      const nextDeviceLanguage = getBrowserLang();
+      const preferredLang = resolveWebLanguagePreference(nextPreference, profileLanguage, nextDeviceLanguage);
+      setDeviceLanguage(nextDeviceLanguage);
+      setWebLanguagePreferenceState(nextPreference);
       if (preferredLang !== webLang) {
         setWebLangState(preferredLang);
         if (typeof window !== 'undefined') {
-          window.localStorage.setItem('buildtrack-web-language', preferredLang);
+          window.localStorage.setItem(WEB_LANGUAGE_LEGACY_KEY, preferredLang);
         }
       }
       setReportLanguage(preferredLang);
-      setProfile({ ...loadedProfile, preferred_language: preferredLang });
+      setProfile({ ...loadedProfile, preferred_language: profileLanguage });
       const [
         chantiers,
         reserves,
         sitePlans,
         companies,
+        organizations,
         visites,
         messages,
         channels,
@@ -2055,6 +2210,7 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('reserves', loadedProfile, { order: 'created_at' }),
         fetchScopedTable('site_plans', loadedProfile, { order: 'created_at' }),
         fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true }),
+        fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false }),
         fetchScopedTable('visites', loadedProfile, { order: 'created_at' }),
         fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800 }),
         fetchScopedTable('channels', loadedProfile, { order: 'created_at' }),
@@ -2083,6 +2239,7 @@ export default function BuildTrackWebPage() {
         reserves: scopedReserves,
         sitePlans,
         companies,
+        organizations,
         visites,
         messages,
         channels,
@@ -2851,11 +3008,40 @@ export default function BuildTrackWebPage() {
       ...prev,
       profiles: prev.profiles.map(user => user.id === userId ? { ...user, ...patch } : user),
     }));
+    if (userId === profile?.id || userId === authUser?.id) {
+      setProfile(previous => previous ? { ...previous, ...patch } : previous);
+      if (patch.preferred_language !== undefined) {
+        const nextPreference: WebLanguagePreference = patch.preferred_language ?? 'auto';
+        const nextLang = resolveWebLanguagePreference(nextPreference, patch.preferred_language ?? null, deviceLanguage);
+        setWebLanguagePreferenceState(nextPreference);
+        setWebLangState(nextLang);
+        setReportLanguage(nextLang);
+        storeWebLanguagePreference(nextPreference, nextLang);
+      }
+    }
     const { error: profileError } = await supabaseBrowser
       .from('profiles')
       .update(patch)
       .eq('id', userId);
     if (profileError) setError(profileError.message);
+  }
+
+  async function updateOwnProfile(patch: Partial<Profile>) {
+    const profileId = profile?.id ?? authUser?.id;
+    if (!profileId) throw new Error('Utilisateur introuvable.');
+    setProfile(previous => previous ? { ...previous, ...patch } : previous);
+    setData(prev => ({
+      ...prev,
+      profiles: prev.profiles.map(user => user.id === profileId ? { ...user, ...patch } : user),
+    }));
+    const { error: profileError } = await supabaseBrowser
+      .from('profiles')
+      .update(patch)
+      .eq('id', profileId);
+    if (profileError) {
+      setError(profileError.message);
+      throw profileError;
+    }
   }
 
   async function updateNotificationField(field: string, value: boolean | string) {
@@ -2883,6 +3069,22 @@ export default function BuildTrackWebPage() {
         ? prev.notificationPreferences.map(row => row.user_id === authUser.id ? (saved ?? payload) : row)
         : [saved ?? payload, ...prev.notificationPreferences],
     }));
+  }
+
+  async function updateProjectSettings(projectId: string, patch: Record<string, any>) {
+    if (!canEdit(profile)) return;
+    setData(prev => ({
+      ...prev,
+      chantiers: prev.chantiers.map(project => project.id === projectId ? { ...project, ...patch } : project),
+    }));
+    const { error: projectError } = await supabaseBrowser
+      .from('chantiers')
+      .update(patch)
+      .eq('id', projectId);
+    if (projectError) {
+      setError(projectError.message);
+      throw projectError;
+    }
   }
 
   function projectName() {
@@ -3183,7 +3385,6 @@ export default function BuildTrackWebPage() {
             <p className={styles.eyebrow}>{t('login.eyebrow')}</p>
             <h1>{t('login.title')}</h1>
             <p className={styles.muted}>{t('login.subtitle')}</p>
-            <WebLanguageSwitcher className={styles.loginLanguage} />
             <form className={styles.loginForm} onSubmit={handleLogin}>
               <label>{t('common.email')}</label>
               <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required />
@@ -3290,11 +3491,11 @@ export default function BuildTrackWebPage() {
             <h1>{tabLabel(activeTab, t)}</h1>
           </div>
           <div className={styles.topbarActions}>
-            <select value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}>
-              <option value="all">{t('common.allProjects')}</option>
-              {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-            </select>
-            <WebLanguageSwitcher />
+            <ProjectDropdown
+              projects={data.chantiers}
+              selectedProjectId={selectedProjectId}
+              onSelect={setSelectedProjectId}
+            />
             {canEdit(profile) && (
               <>
                 <button type="button" onClick={() => openReserveCreate()}>{t('common.newReserve')}</button>
@@ -3480,8 +3681,20 @@ export default function BuildTrackWebPage() {
               <SettingsView
                 profile={profile}
                 authUser={authUser}
+                data={data}
+                scoped={projectScoped}
+                selectedProjectId={selectedProjectId}
                 preferences={data.notificationPreferences}
+                languagePreference={webLanguagePreference}
+                deviceLanguage={deviceLanguage}
+                onUpdateLanguagePreference={handleWebLanguagePreferenceChange}
+                onUpdateOwnProfile={updateOwnProfile}
                 onUpdateNotificationField={updateNotificationField}
+                onUpdateProject={updateProjectSettings}
+                onUpdateCompanyField={updateCompanyField}
+                onOpenTab={setActiveTab}
+                onOpenAdmin={() => setActiveTab('admin')}
+                onLogout={async () => { await supabaseBrowser.auth.signOut(); }}
               />
             )}
             {activeTab === 'admin' && (
@@ -7791,13 +8004,13 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
       title: 'Terrain quotidien',
       cards: isSubcontractor
         ? [
-            { icon: 'warning', title: 'Mes réserves', subtitle: 'Réserves à traiter', count: openReserves, tab: 'reserves', tone: 'amber' },
+            { icon: 'warning', title: 'Mes réserves', subtitle: 'Réserves de mon entreprise', count: openReserves, tab: 'reserves', tone: 'amber' },
           ]
         : [
-            { icon: 'eye', title: 'Visites chantier', subtitle: 'Contrôles, CR et réserves liées', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
+            { icon: 'eye', title: 'Visites chantier', subtitle: 'Compte-rendu visite', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
             { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
-            { icon: 'shield', title: 'Incidents', subtitle: 'Sécurité et alertes terrain', count: openIncidents, tab: 'incidents', tone: openIncidents ? 'red' : 'green' },
-            { icon: 'clipboard', title: 'OPR', subtitle: 'Opérations préalables à réception', count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
+            { icon: 'shield', title: 'Incidents', subtitle: 'Signalements terrain', count: openIncidents, tab: 'incidents', tone: openIncidents ? 'red' : 'green' },
+            { icon: 'clipboard', title: 'OPR', subtitle: 'Opérations de réception', count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
           ],
     },
     {
@@ -7806,7 +8019,7 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
         { icon: 'map', title: 'Plans', subtitle: 'PDF, épingles et réserves plan', count: scoped.plans.length, tab: 'plans', tone: 'blue' },
         { icon: 'warning', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
         ...(!isSubcontractor
-          ? [{ icon: 'people' as TerrainHubIconName, title: 'Équipes', subtitle: 'Pointage et entreprises', count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
+          ? [{ icon: 'people' as TerrainHubIconName, title: 'Équipes', subtitle: `${data.companies.length} entreprise(s)`, count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
           : []),
       ],
     },
@@ -7822,7 +8035,7 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
           tone: 'green',
         },
         ...(!isSubcontractor
-          ? [{ icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Exports et comptes-rendus', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const }]
+          ? [{ icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Journalier, hebdo', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const }]
           : []),
       ],
     },
@@ -7830,9 +8043,9 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
       title: admin ? 'Administration' : 'Compte',
       cards: [
         ...(admin
-          ? [{ icon: 'shield-checkmark' as TerrainHubIconName, title: 'Administration', subtitle: 'Utilisateurs et configuration', count: data.profiles.length, tab: 'admin' as TabId, tone: 'amber' as const }]
+          ? [{ icon: 'shield-checkmark' as TerrainHubIconName, title: 'Administration', subtitle: 'Utilisateurs & accès', count: data.profiles.length, tab: 'admin' as TabId, tone: 'amber' as const }]
           : []),
-        { icon: 'settings', title: 'Réglages', subtitle: 'Compte, notifications et projet', tab: 'settings', tone: 'blue' },
+        { icon: 'settings', title: 'Paramètres', subtitle: 'Projet & présences', tab: 'settings', tone: 'blue' },
       ],
     },
   ];
@@ -8024,50 +8237,696 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
   );
 }
 
-function prefValue(preferences: any[], authUser: SupabaseUser | null, field: string, fallback = true) {
+function prefValue(preferences: any[], authUser: SupabaseUser | null, field: string, fallback: any = true) {
   const row = preferences.find(item => item.user_id === authUser?.id);
   return row?.[field] ?? fallback;
 }
 
-function SettingsView({ profile, authUser, preferences, onUpdateNotificationField }: {
+type SettingsTabId = 'compte' | 'notifications' | 'project' | 'attendance' | 'integrations';
+type IonIconName =
+  | 'apps-outline'
+  | 'business-outline'
+  | 'chatbubbles-outline'
+  | 'checkmark-circle'
+  | 'checkmark-circle-outline'
+  | 'chevron-down'
+  | 'chevron-forward'
+  | 'chevron-up'
+  | 'construct-outline'
+  | 'language-outline'
+  | 'lock-closed-outline'
+  | 'log-out-outline'
+  | 'notifications-outline'
+  | 'options-outline'
+  | 'people-outline'
+  | 'person-circle-outline'
+  | 'person-outline'
+  | 'phone-portrait-outline'
+  | 'pulse-outline'
+  | 'refresh'
+  | 'shield'
+  | 'shield-checkmark-outline'
+  | 'time-outline'
+  | 'warning-outline';
+
+const IONICON_CODEPOINTS: Record<IonIconName, string> = {
+  'apps-outline': '\uEA23',
+  'business-outline': '\uEAC8',
+  'chatbubbles-outline': '\uEB19',
+  'checkmark-circle': '\uEB1F',
+  'checkmark-circle-outline': '\uEB20',
+  'chevron-down': '\uEB33',
+  'chevron-forward': '\uEB3C',
+  'chevron-up': '\uEB42',
+  'construct-outline': '\uEB88',
+  'language-outline': '\uECAB',
+  'lock-closed-outline': '\uECC9',
+  'log-out-outline': '\uECD2',
+  'notifications-outline': '\uED80',
+  'options-outline': '\uED8C',
+  'people-outline': '\uEDA4',
+  'person-circle-outline': '\uEDAB',
+  'person-outline': '\uEDAD',
+  'phone-portrait-outline': '\uEDB6',
+  'pulse-outline': '\uEDF8',
+  'refresh': '\uEE15',
+  'shield': '\uEE78',
+  'shield-checkmark-outline': '\uEE7A',
+  'time-outline': '\uEEDF',
+  'warning-outline': '\uEF2A',
+};
+
+function IonIcon({ name }: { name: IonIconName }) {
+  return <i aria-hidden="true" className={styles.ionIcon}>{IONICON_CODEPOINTS[name]}</i>;
+}
+
+function SettingsView({ profile, authUser, data, scoped, selectedProjectId, preferences, languagePreference, deviceLanguage, onUpdateLanguagePreference, onUpdateOwnProfile, onUpdateNotificationField, onUpdateProject, onUpdateCompanyField, onOpenTab, onOpenAdmin, onLogout }: {
   profile: Profile | null;
   authUser: SupabaseUser | null;
+  data: WebState;
+  scoped: any;
+  selectedProjectId: string;
   preferences: any[];
+  languagePreference: WebLanguagePreference;
+  deviceLanguage: SupportedLang;
+  onUpdateLanguagePreference: (preference: WebLanguagePreference) => void | Promise<void>;
+  onUpdateOwnProfile: (patch: Partial<Profile>) => Promise<void>;
   onUpdateNotificationField: (field: string, value: boolean | string) => void;
+  onUpdateProject: (projectId: string, patch: Record<string, any>) => Promise<void>;
+  onUpdateCompanyField: (companyId: string, field: 'planned_workers' | 'actual_workers' | 'hours_worked', value: number) => void | Promise<void>;
+  onOpenTab: (tab: TabId) => void;
+  onOpenAdmin: () => void;
+  onLogout: () => void | Promise<void>;
 }) {
+  const { lang, t } = useWebI18n();
+  const [settingsTab, setSettingsTab] = useState<SettingsTabId>('compte');
+  const activeLanguage = WEB_LANGUAGES.find(item => item.code === lang) ?? WEB_LANGUAGES[0];
+  const [displayName, setDisplayName] = useState(profile?.name ?? '');
+  const [savingName, setSavingName] = useState(false);
+  const [nameMessage, setNameMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+  const [passwordMessage, setPasswordMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const selectedProject = selectedProjectId === 'all' ? null : data.chantiers.find(project => project.id === selectedProjectId) ?? null;
+  const [projectNameDraft, setProjectNameDraft] = useState(selectedProject?.name ?? '');
+  const [projectDescriptionDraft, setProjectDescriptionDraft] = useState(selectedProject?.description ?? '');
+  const [savingProject, setSavingProject] = useState(false);
+  const [projectMessage, setProjectMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [defaultArrivalTime, setDefaultArrivalTime] = useState('08:00');
+  const [standardDayHours, setStandardDayHours] = useState(8);
+  const [diagnosticOpen, setDiagnosticOpen] = useState(false);
+  const profileInitials = initials(profile?.name ?? authUser?.email);
+  const accountEmail = profile?.email ?? authUser?.email ?? '';
+  const roleLabel = profile?.role_label ?? profile?.role ?? t('common.user');
+  const organization = profile?.organization_id
+    ? data.organizations.find(item => String(item.id) === String(profile.organization_id)) ?? null
+    : null;
+  const organizationName = organization?.name ?? profile?.organization_id ?? '';
+  const organizationSlug = organization?.slug
+    ? `/${organization.slug}`
+    : profile?.organization_id ?? '';
+  const canManageProject = isAdmin(profile);
+  const canEditAttendance = canEdit(profile);
+  const isSubcontractor = profile?.role === 'sous_traitant';
+  const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: IonIconName }> = [
+    { id: 'compte', label: t('settings.account'), icon: 'person-circle-outline' },
+    { id: 'notifications', label: t('settings.notifications'), icon: 'notifications-outline' },
+    { id: 'project', label: t('settings.project'), icon: 'construct-outline' },
+    ...(!isSubcontractor ? [{ id: 'attendance' as const, label: t('settings.attendance'), icon: 'people-outline' as const }] : []),
+    { id: 'integrations', label: t('settings.integrations'), icon: 'apps-outline' },
+  ];
+  const visibleCompanies = data.companies;
+  const projectDisplayName = selectedProject?.name ?? (selectedProjectId === 'all' ? 'Tous les chantiers' : 'Chantier');
+  const quietHoursStart = String(prefValue(preferences, authUser, 'quiet_hours_start', '19:00'));
+  const quietHoursEnd = String(prefValue(preferences, authUser, 'quiet_hours_end', '07:00'));
+  const projectDocumentCount = (scoped.documents?.length ?? 0) + (scoped.photos?.length ?? 0);
+  const diagnosticOk = Boolean(profile && authUser);
+
+  useEffect(() => {
+    setDisplayName(profile?.name ?? '');
+  }, [profile?.name]);
+
+  useEffect(() => {
+    if (settingsTab === 'attendance' && isSubcontractor) setSettingsTab('compte');
+  }, [isSubcontractor, settingsTab]);
+
+  useEffect(() => {
+    setProjectNameDraft(selectedProject?.name ?? '');
+    setProjectDescriptionDraft(selectedProject?.description ?? '');
+    setProjectMessage(null);
+  }, [selectedProject?.id, selectedProject?.name, selectedProject?.description]);
+
+  async function handleSaveName(event: React.FormEvent) {
+    event.preventDefault();
+    const nextName = displayName.trim();
+    if (!nextName || nextName === profile?.name) return;
+    setSavingName(true);
+    setNameMessage(null);
+    try {
+      await onUpdateOwnProfile({ name: nextName });
+      setNameMessage({ ok: true, text: t('settings.profile.nameSaved') });
+    } catch (err: any) {
+      setNameMessage({ ok: false, text: err?.message ?? t('settings.profile.nameSaveError') });
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  async function handleChangePassword(event: React.FormEvent) {
+    event.preventDefault();
+    if (newPassword.length < 6) {
+      setPasswordMessage({ ok: false, text: t('settings.profile.passwordTooShort') });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordMessage({ ok: false, text: t('settings.profile.passwordMismatch') });
+      return;
+    }
+    if (!accountEmail) {
+      setPasswordMessage({ ok: false, text: t('settings.profile.passwordChangeError') });
+      return;
+    }
+    setSavingPassword(true);
+    setPasswordMessage(null);
+    try {
+      const { error: signInError } = await supabaseBrowser.auth.signInWithPassword({ email: accountEmail, password: currentPassword });
+      if (signInError) {
+        setPasswordMessage({ ok: false, text: t('settings.profile.currentPasswordInvalid') });
+        return;
+      }
+      const { error: updateError } = await supabaseBrowser.auth.updateUser({ password: newPassword });
+      if (updateError) throw updateError;
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      setPasswordMessage({ ok: true, text: t('settings.profile.passwordChanged') });
+    } catch (err: any) {
+      setPasswordMessage({ ok: false, text: err?.message ?? t('settings.profile.passwordChangeError') });
+    } finally {
+      setSavingPassword(false);
+    }
+  }
+
+  async function handleSaveProject(event: React.FormEvent) {
+    event.preventDefault();
+    if (!selectedProject) {
+      setProjectMessage({ ok: false, text: t('settings.projectTab.selectProjectFirst') });
+      return;
+    }
+    const nextName = projectNameDraft.trim();
+    if (!nextName) {
+      setProjectMessage({ ok: false, text: t('settings.projectTab.nameRequired') });
+      return;
+    }
+    setSavingProject(true);
+    setProjectMessage(null);
+    try {
+      await onUpdateProject(selectedProject.id, {
+        name: nextName,
+        description: projectDescriptionDraft.trim(),
+      });
+      setProjectMessage({ ok: true, text: t('settings.projectTab.savedText') });
+    } catch (err: any) {
+      setProjectMessage({ ok: false, text: err?.message ?? t('settings.profile.nameSaveError') });
+    } finally {
+      setSavingProject(false);
+    }
+  }
+
+  const renderNotificationToggle = (field: string, titleKey: string, textKey: string, fallback = true) => (
+    <ToggleRow
+      label={t(titleKey)}
+      hint={t(textKey)}
+      checked={!!prefValue(preferences, authUser, field, fallback)}
+      onChange={value => onUpdateNotificationField(field, value)}
+    />
+  );
+
   return (
-    <div className={styles.twoCols}>
+    <div className={styles.settingsShell}>
+      <div className={styles.settingsTabs} role="tablist" aria-label={t('nav.settings')}>
+        {settingsTabs.map(tab => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={settingsTab === tab.id}
+            className={settingsTab === tab.id ? styles.settingsTabActive : ''}
+            onClick={() => setSettingsTab(tab.id)}
+          >
+            <span><IonIcon name={tab.icon} /></span>
+            <strong>{tab.label}</strong>
+          </button>
+        ))}
+      </div>
+
+      {settingsTab === 'compte' && (
       <section className={styles.panel}>
         <div className={styles.sectionHeader}>
           <div>
-            <p className={styles.eyebrow}>Compte</p>
+            <p className={styles.eyebrow}>{t('settings.account')}</p>
             <h2>{profile?.name ?? authUser?.email}</h2>
             <p>{profile?.role_label ?? profile?.role} · {profile?.email ?? authUser?.email}</p>
           </div>
         </div>
-        <dl className={styles.metaGrid}>
-          <div><dt>ID utilisateur</dt><dd>{profile?.id ?? authUser?.id}</dd></div>
-          <div><dt>Organisation</dt><dd>{profile?.organization_id ?? '—'}</dd></div>
-          <div><dt>Entreprise</dt><dd>{profile?.company_id ?? '—'}</dd></div>
-          <div><dt>Langue</dt><dd>{profile?.preferred_language?.toUpperCase() ?? 'Auto'}</dd></div>
-        </dl>
+        {profile?.organization_id ? (
+          <div className={styles.accountInfoCard}>
+            <div className={styles.accountInfoIcon}><IonIcon name="business-outline" /></div>
+            <div>
+              <strong>{t('settings.organization')}</strong>
+              <b>{organizationName}</b>
+              <span>{organizationSlug}</span>
+            </div>
+          </div>
+        ) : null}
+        <div className={styles.languageManager}>
+          <div className={styles.languageManagerTitle}>
+            <span><IonIcon name="language-outline" /></span>
+            <strong>{t('settings.language')}</strong>
+          </div>
+          <p>{t('settings.languageDescription')}</p>
+          <div className={styles.languageSummary}>
+            <span>{activeLanguage.shortLabel}</span>
+            <div>
+              <strong>{activeLanguage.nativeName}</strong>
+              <small>
+                {languagePreference === 'auto'
+                  ? `${t('common.automatic')} · ${t('settings.languageDevice')} ${deviceLanguage.toUpperCase()}`
+                  : t('settings.languageSaved')}
+              </small>
+            </div>
+          </div>
+          <div className={styles.languageOptions}>
+            <button
+              type="button"
+              className={languagePreference === 'auto' ? styles.languageOptionActive : ''}
+              onClick={() => { void onUpdateLanguagePreference('auto'); }}
+            >
+              <span><IonIcon name="phone-portrait-outline" /></span>
+              <strong>{t('common.automatic')}</strong>
+            </button>
+            {WEB_LANGUAGES.map(option => {
+              const active = languagePreference === option.code;
+              return (
+                <button
+                  key={option.code}
+                  type="button"
+                  className={active ? styles.languageOptionActive : ''}
+                  onClick={() => { void onUpdateLanguagePreference(option.code); }}
+                >
+                  <span>{option.shortLabel}</span>
+                  <strong>{option.nativeName}</strong>
+                </button>
+              );
+            })}
+          </div>
+          <small className={styles.languageHint}>{t('settings.languageAutoHint')}</small>
+        </div>
+        <div className={styles.accountProfileCard}>
+          <div className={styles.accountAvatar}>{profileInitials}</div>
+          <div>
+            <strong>{profile?.name ?? authUser?.email ?? '—'}</strong>
+            <span>{accountEmail || '—'}</span>
+          </div>
+          <em>{roleLabel}</em>
+        </div>
+        <div className={styles.accountFormCard}>
+          <div className={styles.accountFormTitle}>
+            <span><IonIcon name="person-outline" /></span>
+            <strong>{t('settings.profile.title')}</strong>
+          </div>
+          <form onSubmit={handleSaveName}>
+            <label>
+              {t('settings.profile.displayName')}
+              <input
+                value={displayName}
+                onChange={event => {
+                  setDisplayName(event.target.value);
+                  setNameMessage(null);
+                }}
+                placeholder={t('settings.profile.displayNamePlaceholder')}
+                autoComplete="name"
+              />
+            </label>
+            {nameMessage ? <p className={nameMessage.ok ? styles.accountMessageOk : styles.accountMessageError}>{nameMessage.text}</p> : null}
+            <button type="submit" disabled={savingName || !displayName.trim() || displayName.trim() === profile?.name}>
+              <IonIcon name={savingName ? 'refresh' : 'checkmark-circle-outline'} />
+              {savingName ? t('settings.profile.saving') : t('settings.profile.saveName')}
+            </button>
+          </form>
+          <div className={styles.accountDivider} />
+          <div className={styles.accountFormTitle}>
+            <span><IonIcon name="lock-closed-outline" /></span>
+            <strong>{t('settings.profile.changePassword')}</strong>
+          </div>
+          <form onSubmit={handleChangePassword}>
+            <label>
+              {t('settings.profile.currentPassword')}
+              <input
+                value={currentPassword}
+                onChange={event => {
+                  setCurrentPassword(event.target.value);
+                  setPasswordMessage(null);
+                }}
+                type="password"
+                autoComplete="current-password"
+              />
+            </label>
+            <label>
+              {t('settings.profile.newPassword')}
+              <input
+                value={newPassword}
+                onChange={event => {
+                  setNewPassword(event.target.value);
+                  setPasswordMessage(null);
+                }}
+                type="password"
+                autoComplete="new-password"
+              />
+            </label>
+            <label>
+              {t('settings.profile.confirmPassword')}
+              <input
+                value={confirmPassword}
+                onChange={event => {
+                  setConfirmPassword(event.target.value);
+                  setPasswordMessage(null);
+                }}
+                type="password"
+                autoComplete="new-password"
+              />
+            </label>
+            {passwordMessage ? <p className={passwordMessage.ok ? styles.accountMessageOk : styles.accountMessageError}>{passwordMessage.text}</p> : null}
+            <button type="submit" disabled={savingPassword || !currentPassword || !newPassword || !confirmPassword}>
+              <IonIcon name={savingPassword ? 'refresh' : 'shield-checkmark-outline'} />
+              {savingPassword ? t('settings.profile.checking') : t('settings.profile.changePasswordAction')}
+            </button>
+          </form>
+        </div>
+        {profile?.role === 'super_admin' ? (
+          <button type="button" className={styles.accountActionButton} onClick={onOpenAdmin}>
+            <span><IonIcon name="shield" /></span>
+            <div>
+              <strong>{t('settings.superAdmin.title')}</strong>
+              <small>{t('settings.superAdmin.subtitle')}</small>
+            </div>
+            <em><IonIcon name="chevron-forward" /></em>
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={styles.accountDiagnosticToggle}
+          onClick={() => setDiagnosticOpen(open => !open)}
+          aria-expanded={diagnosticOpen}
+        >
+          <span className={diagnosticOk ? styles.diagnosticIconOk : ''}>
+            <IonIcon name={diagnosticOk ? 'checkmark-circle' : 'pulse-outline'} />
+          </span>
+          <div>
+            <strong>{t('settings.diagnostic.title')}</strong>
+            <small>{diagnosticOk ? t('settings.diagnostic.allSynced') : t('settings.diagnostic.checkConsistency')}</small>
+          </div>
+          <em><IonIcon name={diagnosticOpen ? 'chevron-up' : 'chevron-down'} /></em>
+        </button>
+        {diagnosticOpen ? (
+          <div className={styles.accountDiagnosticCard}>
+            <dl>
+              <div><dt>{t('settings.diagnostic.userId')}</dt><dd>{profile?.id ?? authUser?.id ?? '—'}</dd></div>
+              <div><dt>{t('settings.diagnostic.localRole')}</dt><dd>{roleLabel}</dd></div>
+              <div><dt>{t('settings.diagnostic.serverRole')}</dt><dd>{roleLabel}</dd></div>
+              <div><dt>{t('settings.diagnostic.localOrg')}</dt><dd>{profile?.organization_id ?? '—'}</dd></div>
+              <div><dt>{t('settings.diagnostic.serverOrg')}</dt><dd>{profile?.organization_id ?? '—'}</dd></div>
+              <div><dt>{t('settings.diagnostic.session')}</dt><dd>{authUser ? t('settings.diagnostic.sessionActive') : t('settings.diagnostic.none')}</dd></div>
+            </dl>
+            <p className={styles.diagnosticOkBox}>
+              <IonIcon name="checkmark-circle" />
+              <span>{t('settings.diagnostic.profileSynced')}</span>
+            </p>
+            <button type="button" className={styles.diagnosticRefreshButton}>
+              <IonIcon name="refresh" />
+              <strong>{t('settings.diagnostic.refresh')}</strong>
+            </button>
+          </div>
+        ) : null}
+        <button type="button" className={styles.accountLogoutButton} onClick={() => { void onLogout(); }}>
+          <span><IonIcon name="log-out-outline" /></span>
+          <strong>{t('settings.logoutAction')}</strong>
+          <em><IonIcon name="chevron-forward" /></em>
+        </button>
       </section>
+      )}
+
+      {settingsTab === 'notifications' && (
       <section className={styles.panel}>
         <div className={styles.sectionHeader}>
           <div>
-            <p className={styles.eyebrow}>Notifications</p>
-            <h2>Préférences personnelles</h2>
-            <p>Ces réglages sont stockés dans Supabase et restent cohérents avec l’application mobile.</p>
+            <p className={styles.eyebrow}>{t('settings.notifications')}</p>
+            <h2>{t('settings.channels')}</h2>
+            <p>{t('settings.notifications.subtitle')}</p>
           </div>
         </div>
-        <div className={styles.toggleList}>
-          <ToggleRow label="Notifications app" hint="Alertes visibles dans BuildTrack." checked={!!prefValue(preferences, authUser, 'in_app_enabled')} onChange={value => onUpdateNotificationField('in_app_enabled', value)} />
-          <ToggleRow label="Notifications push" hint="Alertes natives tablette ou téléphone." checked={!!prefValue(preferences, authUser, 'push_enabled')} onChange={value => onUpdateNotificationField('push_enabled', value)} />
-          <ToggleRow label="Notifications email" hint="Emails automatiques réserves et rappels." checked={!!prefValue(preferences, authUser, 'email_enabled')} onChange={value => onUpdateNotificationField('email_enabled', value)} />
-          <ToggleRow label="Messages par email" hint="Recevoir les messages importants par mail." checked={!!prefValue(preferences, authUser, 'messages_email', false)} onChange={value => onUpdateNotificationField('messages_email', value)} />
-          <ToggleRow label="Heures calmes" hint="Suspend les push non critiques." checked={!!prefValue(preferences, authUser, 'quiet_hours_enabled', false)} onChange={value => onUpdateNotificationField('quiet_hours_enabled', value)} />
+        <div className={styles.settingsSectionStack}>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="phone-portrait-outline" /></span>
+              <strong>{t('settings.deviceState')}</strong>
+            </div>
+            <p className={styles.settingsMuted}>{t('settings.pushStatus.webUnavailable')}</p>
+          </div>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="options-outline" /></span>
+              <strong>{t('settings.channels')}</strong>
+            </div>
+            <div className={styles.toggleList}>
+              {renderNotificationToggle('in_app_enabled', 'settings.notificationSwitches.inAppTitle', 'settings.notificationSwitches.inAppText')}
+              {renderNotificationToggle('push_enabled', 'settings.notificationSwitches.pushTitle', 'settings.notificationSwitches.pushText')}
+              {renderNotificationToggle('email_enabled', 'settings.notificationSwitches.emailTitle', 'settings.notificationSwitches.emailText')}
+              {renderNotificationToggle('quiet_hours_enabled', 'settings.notificationSwitches.quietHoursTitle', 'settings.notificationSwitches.quietHoursText', false)}
+            </div>
+            {!!prefValue(preferences, authUser, 'quiet_hours_enabled', false) && (
+              <div className={styles.settingsInlineFields}>
+                <label>
+                  {t('settings.quietHoursStart')}
+                  <input type="time" value={quietHoursStart} onChange={event => onUpdateNotificationField('quiet_hours_start', event.target.value)} />
+                </label>
+                <label>
+                  {t('settings.quietHoursEnd')}
+                  <input type="time" value={quietHoursEnd} onChange={event => onUpdateNotificationField('quiet_hours_end', event.target.value)} />
+                </label>
+              </div>
+            )}
+          </div>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="chatbubbles-outline" /></span>
+              <strong>{t('settings.messages')}</strong>
+            </div>
+            <div className={styles.toggleList}>
+              {renderNotificationToggle('messages_in_app', 'settings.notificationSwitches.messagesInAppTitle', 'settings.notificationSwitches.messagesInAppText')}
+              {renderNotificationToggle('messages_push', 'settings.notificationSwitches.messagesPushTitle', 'settings.notificationSwitches.messagesPushText')}
+              {renderNotificationToggle('messages_email', 'settings.notificationSwitches.messagesEmailTitle', 'settings.notificationSwitches.messagesEmailText', false)}
+            </div>
+          </div>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="warning-outline" /></span>
+              <strong>{t('settings.reserves')}</strong>
+            </div>
+            <div className={styles.toggleList}>
+              {renderNotificationToggle('reserve_created_push', 'settings.notificationSwitches.reserveCreatedPushTitle', 'settings.notificationSwitches.reserveCreatedPushText')}
+              {renderNotificationToggle('reserve_created_email', 'settings.notificationSwitches.reserveCreatedEmailTitle', 'settings.notificationSwitches.reserveCreatedEmailText')}
+              {renderNotificationToggle('reserve_status_push', 'settings.notificationSwitches.reserveStatusPushTitle', 'settings.notificationSwitches.reserveStatusPushText')}
+              {renderNotificationToggle('reserve_status_email', 'settings.notificationSwitches.reserveStatusEmailTitle', 'settings.notificationSwitches.reserveStatusEmailText')}
+              {renderNotificationToggle('reserve_critical_in_app', 'settings.notificationSwitches.reserveCriticalInAppTitle', 'settings.notificationSwitches.reserveCriticalInAppText')}
+              {renderNotificationToggle('reserve_critical_push', 'settings.notificationSwitches.reserveCriticalPushTitle', 'settings.notificationSwitches.reserveCriticalPushText')}
+              {renderNotificationToggle('reserve_critical_email', 'settings.notificationSwitches.reserveCriticalEmailTitle', 'settings.notificationSwitches.reserveCriticalEmailText')}
+              {renderNotificationToggle('critical_always_push', 'settings.notificationSwitches.criticalAlwaysPushTitle', 'settings.notificationSwitches.criticalAlwaysPushText')}
+            </div>
+          </div>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="time-outline" /></span>
+              <strong>{t('settings.dueDatesAndOverdues')}</strong>
+            </div>
+            <div className={styles.toggleList}>
+              {renderNotificationToggle('due_soon_in_app', 'settings.notificationSwitches.dueSoonInAppTitle', 'settings.notificationSwitches.dueSoonInAppText')}
+              {renderNotificationToggle('reserve_overdue_in_app', 'settings.notificationSwitches.reserveOverdueInAppTitle', 'settings.notificationSwitches.reserveOverdueInAppText')}
+              {renderNotificationToggle('reserve_overdue_push', 'settings.notificationSwitches.reserveOverduePushTitle', 'settings.notificationSwitches.reserveOverduePushText')}
+              {renderNotificationToggle('reserve_overdue_email', 'settings.notificationSwitches.reserveOverdueEmailTitle', 'settings.notificationSwitches.reserveOverdueEmailText')}
+              {renderNotificationToggle('task_late_in_app', 'settings.notificationSwitches.taskLateInAppTitle', 'settings.notificationSwitches.taskLateInAppText')}
+            </div>
+            <p className={styles.settingsNotice}>{t('settings.notificationSwitches.overdueEmailInfo')}</p>
+          </div>
+          <p className={styles.settingsNotice}>{t('settings.securityEmailsNotice')}</p>
         </div>
       </section>
+      )}
+
+      {settingsTab === 'project' && (
+      <section className={styles.panel}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <p className={styles.eyebrow}>{t('settings.project')}</p>
+            <h2>{projectDisplayName}</h2>
+            <p>{t('settings.projectTab.projectNameInfo')}</p>
+          </div>
+        </div>
+        <div className={styles.settingsStats}>
+          <div><strong>{scoped.reserves.length}</strong><span>{t('settings.projectTab.stats.reserves')}</span></div>
+          <div><strong>{visibleCompanies.length}</strong><span>{t('settings.projectTab.stats.companies')}</span></div>
+          <div><strong>{projectDocumentCount}</strong><span>{t('settings.projectTab.stats.documents')}</span></div>
+          <div><strong>{scoped.incidents.length}</strong><span>{t('settings.projectTab.stats.incidents')}</span></div>
+        </div>
+        <div className={styles.settingsSectionStack}>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="options-outline" /></span>
+              <strong>{t('settings.projectTab.quickAccess')}</strong>
+            </div>
+            <div className={styles.settingsQuickGrid}>
+              <button type="button" onClick={() => onOpenTab('equipes')}>{t('settings.projectTab.quickTeams')}</button>
+              <button type="button" onClick={() => onOpenTab('rapports')}>{t('settings.projectTab.quickReports')}</button>
+              <button type="button" onClick={() => onOpenTab('plans')}>{t('settings.projectTab.quickPlans')}</button>
+              <button type="button" onClick={() => onOpenTab('planning')}>{t('settings.projectTab.quickPlanning')}</button>
+            </div>
+          </div>
+          <div className={styles.accountFormCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="construct-outline" /></span>
+              <strong>{t('settings.projectTab.projectInfo')}</strong>
+            </div>
+            {canManageProject && selectedProject ? (
+              <form onSubmit={handleSaveProject}>
+                <label>
+                  {t('settings.projectTab.projectName')}
+                  <input value={projectNameDraft} onChange={event => { setProjectNameDraft(event.target.value); setProjectMessage(null); }} placeholder={t('settings.projectTab.projectNamePlaceholder')} />
+                </label>
+                <label>
+                  {t('settings.projectTab.description')}
+                  <textarea value={projectDescriptionDraft} onChange={event => { setProjectDescriptionDraft(event.target.value); setProjectMessage(null); }} placeholder={t('settings.projectTab.descriptionPlaceholder')} rows={4} />
+                </label>
+                {projectMessage ? <p className={projectMessage.ok ? styles.accountMessageOk : styles.accountMessageError}>{projectMessage.text}</p> : null}
+                <button type="submit" disabled={savingProject || !projectNameDraft.trim()}>
+                  {savingProject ? t('settings.projectTab.saving') : t('common.save')}
+                </button>
+              </form>
+            ) : (
+              <p className={styles.settingsNotice}>
+                {canManageProject ? t('settings.projectTab.selectProjectFirst') : t('settings.projectTab.adminOnly')}
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+      )}
+
+      {settingsTab === 'attendance' && !isSubcontractor && (
+      <section className={styles.panel}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <p className={styles.eyebrow}>{t('settings.attendance')}</p>
+            <h2>{t('settings.attendanceTab.todayAttendance')}</h2>
+            <p>{t('settings.attendanceTab.standardDayHint')}</p>
+          </div>
+        </div>
+        <div className={styles.settingsSectionStack}>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="time-outline" /></span>
+              <strong>{t('settings.attendanceTab.preferences')}</strong>
+            </div>
+            <div className={styles.settingsChipBlock}>
+              <span>{t('settings.attendanceTab.defaultArrival')}</span>
+              <div>
+                {['06:30', '07:00', '07:30', '08:00', '08:30'].map(time => (
+                  <button key={time} type="button" className={defaultArrivalTime === time ? styles.settingsChipActive : ''} onClick={() => setDefaultArrivalTime(time)}>{time}</button>
+                ))}
+              </div>
+              <small>{t('settings.attendanceTab.defaultArrivalHint')}</small>
+            </div>
+            <div className={styles.accountDivider} />
+            <div className={styles.settingsChipBlock}>
+              <span>{t('settings.attendanceTab.standardDay')}</span>
+              <div>
+                {[6, 7, 8, 9, 10].map(hours => (
+                  <button key={hours} type="button" className={standardDayHours === hours ? styles.settingsChipActive : ''} onClick={() => setStandardDayHours(hours)}>{hours}h</button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className={styles.settingsCard}>
+            <div className={styles.accountFormTitle}>
+              <span><IonIcon name="people-outline" /></span>
+              <strong>{t('settings.attendanceTab.todayAttendance')}</strong>
+            </div>
+            {visibleCompanies.length ? (
+              <div className={styles.attendanceTable}>
+                {visibleCompanies.map(company => {
+                  const actual = Number(company.actual_workers ?? company.actualWorkers ?? 0);
+                  const planned = Number(company.planned_workers ?? company.plannedWorkers ?? 0);
+                  const hours = Number(company.hours_worked ?? company.hoursWorked ?? actual * standardDayHours);
+                  return (
+                    <div key={company.id} className={styles.attendanceRow}>
+                      <span style={{ backgroundColor: company.color ?? '#003082' }} />
+                      <strong>{company.name}</strong>
+                      <label>
+                        Présents
+                        <input type="number" min={0} value={actual} disabled={!canEditAttendance} onChange={event => onUpdateCompanyField(company.id, 'actual_workers', Number(event.target.value))} />
+                      </label>
+                      <label>
+                        Planifiés
+                        <input type="number" min={0} value={planned} disabled={!canEditAttendance} onChange={event => onUpdateCompanyField(company.id, 'planned_workers', Number(event.target.value))} />
+                      </label>
+                      <em>{hours}h</em>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className={styles.settingsNotice}>{t('settings.attendanceTab.noConfiguredCompany')}</p>
+            )}
+            <button type="button" className={styles.settingsGhostButton} disabled>{t('settings.attendanceTab.saveSnapshotActionFull')}</button>
+            <p className={styles.settingsMuted}>{t('settings.attendanceTab.noHistoryText')}</p>
+          </div>
+        </div>
+      </section>
+      )}
+
+      {settingsTab === 'integrations' && (
+      <section className={styles.panel}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <p className={styles.eyebrow}>{t('settings.integrations')}</p>
+            <h2>{t('settings.integrationsTab.title')}</h2>
+            <p>{t('settings.integrationsTab.subtitle')}</p>
+          </div>
+        </div>
+        {!canManageProject ? (
+          <p className={styles.settingsNotice}>{t('settings.integrationsTab.adminOnlyText')}</p>
+        ) : (
+          <div className={styles.integrationGrid}>
+            {[
+              t('settings.integrationsTab.projectManagement'),
+              t('settings.integrationsTab.bim'),
+              t('settings.integrationsTab.regulatoryDocs'),
+              t('settings.integrationsTab.geolocation'),
+              t('settings.integrationsTab.fieldForms'),
+              t('settings.integrationsTab.documentsSignature'),
+              t('settings.integrationsTab.weatherHr'),
+            ].map((label, index) => (
+              <div key={label} className={styles.integrationCard}>
+                <span>{String(index + 1).padStart(2, '0')}</span>
+                <strong>{label}</strong>
+                <small>{t('settings.integrationsTab.manage')}</small>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+      )}
     </div>
   );
 }
