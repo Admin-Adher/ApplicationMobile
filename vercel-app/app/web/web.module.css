@@ -9081,6 +9081,38 @@
   color: #991b1b;
 }
 
+.weasyCompareError strong {
+  display: block;
+}
+
+.weasyCompareError details {
+  width: min(720px, 100%);
+  margin-top: 14px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff;
+  color: #475569;
+  text-align: left;
+}
+
+.weasyCompareError summary {
+  padding: 10px 12px;
+  color: #991b1b;
+  cursor: pointer;
+}
+
+.weasyCompareError pre {
+  max-height: 280px;
+  margin: 0;
+  overflow: auto;
+  border-top: 1px solid #fecaca;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .weasyCompareLoading {
   color: #64748b;
 }

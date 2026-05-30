@@ -6,6 +6,7 @@ import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { createClient } from '@supabase/supabase-js';
 import { normalizeEmailLanguage, type EmailLanguage } from '@/lib/templates';
 import { existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 
 export const maxDuration = 60;
 export const runtime = 'nodejs';
@@ -63,6 +64,55 @@ function pdfRuntimeErrorMessage(error: any) {
     return "Le moteur PDF serveur n'est pas disponible sur cet environnement. Utilisez l'impression PDF du navigateur.";
   }
   return error?.message ?? 'Generation PDF impossible.';
+}
+
+function compactPdfError(error: any) {
+  const stack = String(error?.stack ?? '')
+    .split('\n')
+    .slice(0, 8)
+    .join('\n');
+
+  return {
+    name: String(error?.name ?? error?.constructor?.name ?? 'Error'),
+    message: String(error?.message ?? error ?? ''),
+    code: error?.code ? String(error.code) : null,
+    stack: stack || null,
+  };
+}
+
+function basePdfDiagnostic() {
+  return {
+    id: randomUUID(),
+    stage: 'init',
+    runtime: 'nodejs',
+    node: process.version,
+    platform: process.platform,
+    arch: process.arch,
+    vercel: Boolean(process.env.VERCEL),
+    vercelRegion: process.env.VERCEL_REGION ?? null,
+    awsExecutionEnv: process.env.AWS_EXECUTION_ENV ?? null,
+    awsLambdaRuntime: process.env.AWS_LAMBDA_JS_RUNTIME ?? null,
+    hasChromiumPackUrl: Boolean(process.env.CHROMIUM_PACK_URL),
+    hasPuppeteerExecutablePath: Boolean(process.env.PUPPETEER_EXECUTABLE_PATH),
+    hasChromePath: Boolean(process.env.CHROME_PATH || process.env.GOOGLE_CHROME_BIN),
+  } as Record<string, any>;
+}
+
+function enrichPdfError(error: any, diagnostic: Record<string, any>) {
+  const enriched = error instanceof Error ? error : new Error(String(error ?? 'Erreur PDF'));
+  (enriched as any).pdfDiagnostic = {
+    ...diagnostic,
+    error: compactPdfError(enriched),
+  };
+  return enriched;
+}
+
+function pdfErrorDiagnostic(error: any, context: Record<string, any>) {
+  return {
+    ...(error?.pdfDiagnostic ?? basePdfDiagnostic()),
+    ...context,
+    error: error?.pdfDiagnostic?.error ?? compactPdfError(error),
+  };
 }
 
 const PDF_REMOTE_IMAGE_LIMIT = 160;
@@ -242,29 +292,43 @@ function localChromiumExecutablePath() {
 }
 
 async function loadChromiumRuntime() {
+  const attempts: any[] = [];
   try {
     return {
       chromium: (await import('@sparticuz/chromium')).default as any,
       bundled: true,
+      packageName: '@sparticuz/chromium',
+      attempts,
     };
-  } catch {
-    return {
-      chromium: (await import('@sparticuz/chromium-min')).default as any,
-      bundled: false,
-    };
+  } catch (error: any) {
+    attempts.push({ packageName: '@sparticuz/chromium', error: compactPdfError(error) });
+    try {
+      return {
+        chromium: (await import('@sparticuz/chromium-min')).default as any,
+        bundled: false,
+        packageName: '@sparticuz/chromium-min',
+        attempts,
+      };
+    } catch (fallbackError: any) {
+      attempts.push({ packageName: '@sparticuz/chromium-min', error: compactPdfError(fallbackError) });
+      const err = new Error('Chromium runtime introuvable');
+      (err as any).chromiumImportAttempts = attempts;
+      throw err;
+    }
   }
 }
 
 async function resolvePuppeteerExecutablePath(chromium: any, bundled: boolean) {
   const localExecutablePath = localChromiumExecutablePath();
   if (localExecutablePath) {
-    return { executablePath: localExecutablePath, local: true };
+    return { executablePath: localExecutablePath, local: true, source: 'local-browser' };
   }
 
   if (bundled && !process.env.CHROMIUM_PACK_URL) {
     return {
       executablePath: await chromium.executablePath(),
       local: false,
+      source: '@sparticuz/chromium',
     };
   }
 
@@ -275,11 +339,17 @@ async function resolvePuppeteerExecutablePath(chromium: any, bundled: boolean) {
   return {
     executablePath: await (chromium as any).executablePath(chromiumUrl),
     local: false,
+    source: process.env.CHROMIUM_PACK_URL ? 'CHROMIUM_PACK_URL' : 'default-pack-url',
+    chromiumUrl,
   };
 }
 
 async function renderPdfBuffer(html: string): Promise<Buffer> {
   let browser: any = null;
+  const diagnostic: Record<string, any> = {
+    ...basePdfDiagnostic(),
+    htmlLength: html.length,
+  };
 
   try {
     let puppeteer: typeof import('puppeteer-core');
@@ -287,20 +357,33 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
     let bundledChromium = false;
 
     try {
+      diagnostic.stage = 'load-runtime';
       const runtime = await loadChromiumRuntime();
       chromium = runtime.chromium;
       bundledChromium = runtime.bundled;
+      diagnostic.chromiumPackage = runtime.packageName;
+      diagnostic.bundledChromium = runtime.bundled;
+      diagnostic.chromiumImportAttempts = runtime.attempts;
       puppeteer = (await import('puppeteer-core')).default as any;
+      diagnostic.puppeteerLoaded = true;
     } catch (importErr: any) {
       console.error('[generate-pdf] Import error:', importErr?.message);
-      throw new Error('Puppeteer non disponible sur ce runtime');
+      diagnostic.importAttempts = importErr?.chromiumImportAttempts ?? null;
+      throw enrichPdfError(new Error('Puppeteer non disponible sur ce runtime'), diagnostic);
     }
 
+    diagnostic.stage = 'configure-chromium';
     chromium.setHeadlessMode = true;
     chromium.setGraphicsMode = false;
 
+    diagnostic.stage = 'resolve-executable';
     const runtime = await resolvePuppeteerExecutablePath(chromium, bundledChromium);
+    diagnostic.executableSource = runtime.source;
+    diagnostic.executablePath = runtime.executablePath;
+    diagnostic.usesLocalBrowser = runtime.local;
+    diagnostic.chromiumUrl = runtime.chromiumUrl ?? null;
 
+    diagnostic.stage = 'launch-browser';
     browser = await (puppeteer as any).launch({
       args: [
         ...(runtime.local ? [] : (chromium as any).args),
@@ -312,17 +395,33 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
       executablePath: runtime.executablePath,
       headless: true,
     });
+    diagnostic.browserLaunched = true;
 
+    diagnostic.stage = 'new-page';
     const page = await browser.newPage();
+    diagnostic.stage = 'inline-images';
     const pdfHtml = await inlineRemoteImagesForPdf(html);
+    diagnostic.inlinedHtmlLength = pdfHtml.length;
+    diagnostic.stage = 'set-content';
     await page.setContent(pdfHtml, { waitUntil: 'networkidle0', timeout: 30000 });
+    diagnostic.stage = 'wait-images';
     await waitForPdfImages(page);
 
-    return await page.pdf({
+    diagnostic.stage = 'render-pdf';
+    const pdfBuffer = await page.pdf({
       format: 'A4',
       printBackground: true,
       margin: { top: '15mm', bottom: '15mm', left: '12mm', right: '12mm' },
     });
+    diagnostic.stage = 'done';
+    diagnostic.pdfBytes = pdfBuffer.length;
+    return pdfBuffer;
+  } catch (error: any) {
+    console.error('[generate-pdf] PDF diagnostic:', {
+      ...diagnostic,
+      error: compactPdfError(error),
+    });
+    throw enrichPdfError(error, diagnostic);
   } finally {
     if (browser) {
       await browser.close().catch((closeError: any) => {
@@ -486,7 +585,14 @@ export async function POST(req: NextRequest) {
       pdfBuffer = await renderPdfBuffer(html);
     } catch (pdfError: any) {
       const friendlyError = pdfRuntimeErrorMessage(pdfError);
-      console.error('[generate-pdf] PDF runtime unavailable:', pdfError?.message ?? pdfError);
+      const diagnostic = pdfErrorDiagnostic(pdfError, {
+        payloadType: type,
+        reserveCount: Array.isArray(payload.reserves) ? payload.reserves.length : null,
+        planCount: Array.isArray(payload.plans) ? payload.plans.length : null,
+        hasSendByEmail: Boolean(payload.sendByEmail),
+        htmlLength: html.length,
+      });
+      console.error('[generate-pdf] PDF runtime unavailable:', diagnostic);
 
       if (!payload.sendByEmail) {
         return NextResponse.json(
@@ -495,14 +601,29 @@ export async function POST(req: NextRequest) {
             fallback: 'browser_print',
             printHtml: html,
             message: friendlyError,
+            diagnostic,
           },
-          { headers }
+          {
+            headers: {
+              ...headers,
+              'X-BuildTrack-PDF-Fallback': 'browser_print',
+              'X-BuildTrack-PDF-Diagnostic-Id': String(diagnostic.id ?? ''),
+              'X-BuildTrack-PDF-Diagnostic-Stage': String(diagnostic.stage ?? ''),
+            },
+          }
         );
       }
 
       return NextResponse.json(
-        { success: false, error: friendlyError },
-        { status: 503, headers }
+        { success: false, error: friendlyError, diagnostic },
+        {
+          status: 503,
+          headers: {
+            ...headers,
+            'X-BuildTrack-PDF-Diagnostic-Id': String(diagnostic.id ?? ''),
+            'X-BuildTrack-PDF-Diagnostic-Stage': String(diagnostic.stage ?? ''),
+          },
+        }
       );
     }
 

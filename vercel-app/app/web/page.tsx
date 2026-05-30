@@ -9290,6 +9290,7 @@ type WeasyLabPdfResult = {
   url?: string;
   bytes?: number;
   error?: string;
+  debug?: Record<string, any>;
 };
 
 type WeasyLabComparison = {
@@ -9579,35 +9580,133 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
     };
   };
 
+  const summarizePdfPayload = (payload: any) => ({
+    type: payload?.type ?? null,
+    language: payload?.language ?? null,
+    chantierName: payload?.chantierName ?? null,
+    reserveCount: Array.isArray(payload?.reserves) ? payload.reserves.length : null,
+    planCount: Array.isArray(payload?.plans) ? payload.plans.length : null,
+    hasIndividualReserve: Boolean(payload?.reserve),
+    visitId: payload?.visit?.id ?? null,
+    hasPhotos: Array.isArray(payload?.reserves)
+      ? payload.reserves.some((reserve: any) => Array.isArray(reserve?.photos) && reserve.photos.length > 0)
+      : Array.isArray(payload?.reserve?.photos) && payload.reserve.photos.length > 0,
+  });
+
+  const logPdfEndpoint = (level: 'info' | 'warn' | 'error', title: string, debug: Record<string, any>) => {
+    const logger = level === 'error' ? console.error : level === 'warn' ? console.warn : console.info;
+    console.groupCollapsed(`[BuildTrack PDF] ${title}`);
+    logger(debug);
+    if (debug.result?.diagnostic) {
+      console.info('[BuildTrack PDF] Diagnostic serveur', debug.result.diagnostic);
+    }
+    console.groupEnd();
+  };
+
   const renderPdfFromEndpoint = async (endpoint: string, payload: any, headers: Record<string, string>, fallbackFilename: string) => {
+    const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const payloadSummary = summarizePdfPayload(payload);
     const response = await fetch(endpoint, {
       method: 'POST',
       headers,
       body: JSON.stringify(payload),
     });
     const raw = await response.text();
+    const durationMs = Math.round((typeof performance !== 'undefined' ? performance.now() : Date.now()) - startedAt);
     let result: any = {};
     try {
       result = raw ? JSON.parse(raw) : {};
-    } catch {
-      throw new Error(raw.slice(0, 240) || 'Réponse PDF invalide.');
+    } catch (parseError: any) {
+      const debug = {
+        requestId,
+        endpoint,
+        fallbackFilename,
+        durationMs,
+        response: {
+          ok: response.ok,
+          status: response.status,
+          statusText: response.statusText,
+          contentType: response.headers.get('content-type'),
+          diagnosticId: response.headers.get('X-BuildTrack-PDF-Diagnostic-Id'),
+          diagnosticStage: response.headers.get('X-BuildTrack-PDF-Diagnostic-Stage'),
+        },
+        payload: payloadSummary,
+        rawPreview: raw.slice(0, 600),
+        parseError: parseError?.message ?? String(parseError),
+      };
+      logPdfEndpoint('error', `${payloadSummary.type ?? 'pdf'} ${endpoint} JSON invalide (${durationMs}ms)`, debug);
+      const error = new Error(raw.slice(0, 240) || 'Réponse PDF invalide.');
+      (error as any).pdfDebug = debug;
+      throw error;
     }
+
+    const debug = {
+      requestId,
+      endpoint,
+      fallbackFilename,
+      durationMs,
+      response: {
+        ok: response.ok,
+        status: response.status,
+        statusText: response.statusText,
+        contentType: response.headers.get('content-type'),
+        diagnosticId: response.headers.get('X-BuildTrack-PDF-Diagnostic-Id'),
+        diagnosticStage: response.headers.get('X-BuildTrack-PDF-Diagnostic-Stage'),
+      },
+      payload: payloadSummary,
+      result: {
+        success: Boolean(result.success),
+        fallback: result.fallback ?? null,
+        hasPdfBase64: Boolean(result.pdfBase64),
+        pdfBase64Chars: result.pdfBase64 ? String(result.pdfBase64).length : 0,
+        hasPrintHtml: Boolean(result.printHtml),
+        printHtmlChars: result.printHtml ? String(result.printHtml).length : 0,
+        filename: result.filename ?? null,
+        bytes: result.bytes ?? null,
+        message: result.message ?? null,
+        error: result.error ?? null,
+        diagnostic: result.diagnostic ?? null,
+      },
+    };
+
     if (!response.ok || !result.success) {
-      throw new Error(result.error ?? 'Génération PDF impossible.');
+      logPdfEndpoint('error', `${payloadSummary.type ?? 'pdf'} ${endpoint} HTTP/JSON KO (${durationMs}ms)`, debug);
+      const error = new Error(result.error ?? 'Génération PDF impossible.');
+      (error as any).pdfDebug = debug;
+      throw error;
     }
     if (!result.pdfBase64) {
+      logPdfEndpoint('error', `${payloadSummary.type ?? 'pdf'} ${endpoint} sans PDF (${durationMs}ms)`, debug);
       if (result.printHtml) {
-        throw new Error('Le moteur actuel n’a pas produit de PDF réel. Vérifiez la disponibilité de Puppeteer/Chrome.');
+        const diagnostic = result.diagnostic;
+        const suffix = diagnostic?.id || diagnostic?.stage
+          ? ` Diagnostic ${diagnostic?.id ?? 'sans-id'} à l’étape ${diagnostic?.stage ?? 'inconnue'}.`
+          : '';
+        const error = new Error(`${result.message ?? 'Le moteur actuel n’a pas produit de PDF réel.'}${suffix}`);
+        (error as any).pdfDebug = debug;
+        throw error;
       }
-      throw new Error('Aucun PDF reçu.');
+      const error = new Error('Aucun PDF reçu.');
+      (error as any).pdfDebug = debug;
+      throw error;
     }
     const url = pdfBase64ToObjectUrl(result.pdfBase64);
-    if (!url) throw new Error('Prévisualisation PDF indisponible dans ce navigateur.');
+    if (!url) {
+      logPdfEndpoint('error', `${payloadSummary.type ?? 'pdf'} ${endpoint} object URL KO (${durationMs}ms)`, debug);
+      const error = new Error('Prévisualisation PDF indisponible dans ce navigateur.');
+      (error as any).pdfDebug = debug;
+      throw error;
+    }
+    logPdfEndpoint('info', `${payloadSummary.type ?? 'pdf'} ${endpoint} OK (${durationMs}ms)`, debug);
     return {
       url,
       filename: result.filename ?? fallbackFilename,
       bytes: Number(result.bytes ?? Math.round((String(result.pdfBase64).length * 3) / 4)),
       kind: 'pdf' as const,
+      debug,
     };
   };
 
@@ -9652,9 +9751,11 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
         currentPdf.filename = currentResult.value.filename;
         currentPdf.bytes = currentResult.value.bytes;
         currentPdf.kind = currentResult.value.kind;
+        currentPdf.debug = currentResult.value.debug;
         nextUrls.push(currentResult.value.url);
       } else {
         currentPdf.error = currentResult.reason?.message ?? 'Génération Puppeteer impossible.';
+        currentPdf.debug = currentResult.reason?.pdfDebug ?? undefined;
       }
 
       if (weasyResult.status === 'fulfilled') {
@@ -9662,9 +9763,11 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
         weasyPdf.filename = weasyResult.value.filename;
         weasyPdf.bytes = weasyResult.value.bytes;
         weasyPdf.kind = weasyResult.value.kind;
+        weasyPdf.debug = weasyResult.value.debug;
         nextUrls.push(weasyResult.value.url);
       } else {
         weasyPdf.error = weasyResult.reason?.message ?? 'Rendu WeasyPrint impossible.';
+        weasyPdf.debug = weasyResult.reason?.pdfDebug ?? undefined;
       }
 
       comparisonUrlsRef.current = nextUrls;
@@ -9726,7 +9829,15 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
       {pdf.url ? (
         <iframe className={styles.weasyCompareFrame} src={pdf.url} title={pdf.label} />
       ) : pdf.error ? (
-        <p className={styles.weasyCompareError}>{pdf.error}</p>
+        <div className={styles.weasyCompareError}>
+          <strong>{pdf.error}</strong>
+          {pdf.debug ? (
+            <details>
+              <summary>Diagnostic technique</summary>
+              <pre>{JSON.stringify(pdf.debug, null, 2)}</pre>
+            </details>
+          ) : null}
+        </div>
       ) : (
         <p className={styles.weasyCompareLoading}>Génération du PDF...</p>
       )}
