@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: buildtrack-weasyprint-poc
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    envVars:
+      - key: WEASYPRINT_HOST
+        value: 0.0.0.0
+      - key: WEASYPRINT_PORT
+        value: 10000
+      - key: WEASYPRINT_ALLOWED_FILE_ROOT
+        value: /work
+      - key: WEASYPRINT_MAX_HTML_BYTES
+        value: "12000000"
+      - key: WEASYPRINT_ALLOW_REMOTE
+        value: "1"

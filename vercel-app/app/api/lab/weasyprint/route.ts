@@ -55,6 +55,13 @@ function targetLabel(url: string) {
   }
 }
 
+function placeholderUrlError(url: string) {
+  if (/ton-service-weasyprint|votre-service|example\.com/i.test(url)) {
+    return "WEASYPRINT_POC_URL contient encore l'URL d'exemple. Deployeez le service WeasyPrint POC, puis remplacez cette valeur par l'URL reelle terminee par /render.";
+  }
+  return null;
+}
+
 function healthUrl() {
   const explicit = (process.env.WEASYPRINT_HEALTH_URL || '').trim();
   if (explicit) return explicit;
@@ -80,6 +87,9 @@ function looksLikeHtml(value: string, contentType?: string | null) {
 function serviceResponseError(status: number, body: string, contentType?: string | null) {
   if (looksLikeHtml(body, contentType)) {
     return `L'URL WeasyPrint configuree repond avec une page HTML (${status}), probablement une page 404 Next/Vercel. WEASYPRINT_POC_URL doit pointer vers le service Python WeasyPrint, par exemple https://votre-service/render.`;
+  }
+  if (status === 404 && /^not found\s*$/i.test(body.trim())) {
+    return "Le service cible repond 404 Not Found. Verifiez que le service WeasyPrint POC est bien deploye et que WEASYPRINT_POC_URL finit par /render.";
   }
   return body.slice(0, 1200) || `Service WeasyPrint indisponible (${status})`;
 }
@@ -140,6 +150,16 @@ export async function GET(req: NextRequest) {
       message: 'WEASYPRINT_POC_URL non configuree',
     });
   }
+  const placeholderError = placeholderUrlError(url);
+  if (placeholderError) {
+    return NextResponse.json({
+      success: true,
+      configured: true,
+      healthy: false,
+      target: targetLabel(url),
+      error: placeholderError,
+    });
+  }
 
   const health = healthUrl();
   if (!health) {
@@ -180,6 +200,10 @@ export async function POST(req: NextRequest) {
       success: false,
       error: 'WEASYPRINT_POC_URL non configuree. Configurez l URL /render du service WeasyPrint POC.',
     }, { status: 503 });
+  }
+  const placeholderError = placeholderUrlError(url);
+  if (placeholderError) {
+    return NextResponse.json({ success: false, error: placeholderError }, { status: 503 });
   }
 
   try {

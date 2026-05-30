@@ -33,6 +33,24 @@ $env:WEASYPRINT_POC_URL = "http://127.0.0.1:8010/render"
 
 Dans l'interface web, le test apparait pour les admins dans `Parametres > Integrations BTP > Lab PDF WeasyPrint`.
 
+## Deployer sur Render
+
+Le fichier `render.yaml` permet de creer un service Docker Render depuis ce dossier.
+
+Depuis Render :
+
+1. Creer un nouveau Blueprint depuis le depot GitHub.
+2. Choisir le fichier `poc/weasyprint/render.yaml`.
+3. Attendre le deploiement du service `buildtrack-weasyprint-poc`.
+4. Copier l'URL publique du service, puis configurer Vercel :
+
+```text
+WEASYPRINT_POC_URL=https://<votre-service-render>.onrender.com/render
+WEASYPRINT_HEALTH_URL=https://<votre-service-render>.onrender.com/health
+```
+
+Important : `https://ton-service-weasyprint.onrender.com/render` est seulement un exemple. Il faut utiliser l'URL reelle donnee par Render.
+
 ## Generer le rapport de test
 
 Dans un autre terminal, depuis ce dossier :
