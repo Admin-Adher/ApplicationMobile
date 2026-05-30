@@ -1,8 +1,18 @@
 ﻿'use client';
 
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
+import {
+  WEB_LANGUAGES,
+  createWebT,
+  getBrowserLang,
+  localeForLang,
+  normalizeLang,
+  translateWebStaticText,
+  type SupportedLang,
+  type WebTranslator,
+} from '@/lib/i18n';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import styles from './web.module.css';
 
@@ -16,7 +26,7 @@ type Profile = {
   role_label?: string | null;
   organization_id?: string | null;
   company_id?: string | null;
-  preferred_language?: 'fr' | 'en' | 'es' | null;
+  preferred_language?: SupportedLang | null;
 };
 
 type WebState = {
@@ -205,6 +215,159 @@ type NavIconName = typeof TABS[number]['icon'];
 const NAV_GROUPS: { label: string; items: TabId[] }[] = [
   { label: 'Navigation', items: ['dashboard', 'plans', 'reserves', 'messages', 'terrain'] },
 ];
+
+type WebI18nValue = {
+  lang: SupportedLang;
+  locale: string;
+  t: WebTranslator;
+  setLang: (lang: SupportedLang) => void | Promise<void>;
+};
+
+const defaultWebT = createWebT('fr');
+
+const WebI18nContext = createContext<WebI18nValue>({
+  lang: 'fr',
+  locale: localeForLang('fr'),
+  t: defaultWebT,
+  setLang: () => undefined,
+});
+
+function useWebI18n() {
+  return useContext(WebI18nContext);
+}
+
+function tabLabel(tabId: TabId, t: WebTranslator) {
+  return t(`nav.${tabId}`);
+}
+
+function WebLanguageSwitcher({ className = '' }: { className?: string }) {
+  const { lang, setLang, t } = useWebI18n();
+
+  return (
+    <div className={`${styles.webLanguageSwitcher} ${className}`.trim()} role="group" aria-label={t('common.language')}>
+      {WEB_LANGUAGES.map(option => (
+        <button
+          key={option.code}
+          type="button"
+          className={option.code === lang ? styles.webLanguageSwitcherActive : undefined}
+          onClick={() => setLang(option.code)}
+          title={option.label}
+          aria-pressed={option.code === lang}
+        >
+          {option.shortLabel}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const STATIC_I18N_ATTRIBUTES = ['placeholder', 'aria-label', 'title', 'alt'] as const;
+
+function WebStaticI18nBridge() {
+  const { lang } = useWebI18n();
+  const textSourcesRef = useRef<WeakMap<Text, string>>(new WeakMap());
+
+  const translateTextNode = useCallback((node: Text) => {
+    const parent = node.parentElement;
+    if (!parent || parent.closest('script, style, noscript, textarea, code, pre, [data-bt-i18n-skip="true"]')) return;
+    const current = node.nodeValue ?? '';
+    if (!/[A-Za-zÀ-ÿ]/.test(current)) return;
+    const sources = textSourcesRef.current;
+    const previousSource = sources.get(node);
+    const previousTranslation = previousSource ? translateWebStaticText(previousSource, lang) : null;
+    const source = previousSource && current === previousTranslation ? previousSource : current;
+    sources.set(node, source);
+    const next = translateWebStaticText(source, lang);
+    if (node.nodeValue !== next) node.nodeValue = next;
+  }, [lang]);
+
+  const translateElementAttributes = useCallback((element: Element) => {
+    if (!(element instanceof HTMLElement)) return;
+    if (element.closest('[data-bt-i18n-skip="true"]')) return;
+    for (const attr of STATIC_I18N_ATTRIBUTES) {
+      const current = element.getAttribute(attr);
+      if (!current || !/[A-Za-zÀ-ÿ]/.test(current)) continue;
+      const sourceAttr = `data-bt-i18n-${attr}`;
+      const previousSource = element.getAttribute(sourceAttr);
+      const previousTranslation = previousSource ? translateWebStaticText(previousSource, lang) : null;
+      const source = previousSource && current === previousTranslation ? previousSource : current;
+      if (previousSource !== source) element.setAttribute(sourceAttr, source);
+      const next = translateWebStaticText(source, lang);
+      if (current !== next) element.setAttribute(attr, next);
+    }
+  }, [lang]);
+
+  const translateTree = useCallback((root: Node) => {
+    if (root.nodeType === Node.TEXT_NODE) {
+      translateTextNode(root as Text);
+      return;
+    }
+    if (root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) {
+      return;
+    }
+
+    const elementRoot = root.nodeType === Node.ELEMENT_NODE ? root as Element : null;
+    if (elementRoot) translateElementAttributes(elementRoot);
+
+    const parent = root as ParentNode;
+    if ('querySelectorAll' in parent) {
+      parent.querySelectorAll('*').forEach(translateElementAttributes);
+    }
+
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    let current = walker.nextNode();
+    while (current) {
+      translateTextNode(current as Text);
+      current = walker.nextNode();
+    }
+  }, [translateElementAttributes, translateTextNode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const originalConfirm = window.confirm;
+    const originalAlert = window.alert;
+    const wrappedConfirm: typeof window.confirm = (message?: string) =>
+      originalConfirm.call(window, translateWebStaticText(String(message ?? ''), lang));
+    const wrappedAlert: typeof window.alert = (message?: any) =>
+      originalAlert.call(window, typeof message === 'string' ? translateWebStaticText(message, lang) : message);
+
+    window.confirm = wrappedConfirm;
+    window.alert = wrappedAlert;
+
+    return () => {
+      if (window.confirm === wrappedConfirm) window.confirm = originalConfirm;
+      if (window.alert === wrappedAlert) window.alert = originalAlert;
+    };
+  }, [lang]);
+
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.documentElement.lang = lang;
+    const root = document.body;
+    translateTree(root);
+    const observer = new MutationObserver(records => {
+      for (const record of records) {
+        if (record.type === 'characterData') {
+          translateTextNode(record.target as Text);
+        } else if (record.type === 'attributes') {
+          translateElementAttributes(record.target as Element);
+        } else {
+          record.addedNodes.forEach(translateTree);
+        }
+      }
+    });
+    observer.observe(root, {
+      attributes: true,
+      attributeFilter: [...STATIC_I18N_ATTRIBUTES],
+      childList: true,
+      characterData: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [lang, translateElementAttributes, translateTextNode, translateTree]);
+
+  return null;
+}
 
 const TERRAIN_CHILD_TABS = new Set<TabId>([
   'visites',
@@ -560,14 +723,18 @@ function isoWeekFromISO(value: string) {
   return Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
 }
 
-function autoVisitTitle(type: VisitDraft['visitType'], date: string) {
-  return `${VISIT_TYPE_LABELS[type]} — S${isoWeekFromISO(date)}`;
+function visitWeekPrefix(lang: SupportedLang) {
+  return lang === 'en' ? 'W' : 'S';
 }
 
-function makeVisitChecklist(type: VisitDraft['visitType']) {
+function autoVisitTitle(type: VisitDraft['visitType'], date: string, lang: SupportedLang = 'fr') {
+  return `${translateWebStaticText(VISIT_TYPE_LABELS[type], lang)} — ${visitWeekPrefix(lang)}${isoWeekFromISO(date)}`;
+}
+
+function makeVisitChecklist(type: VisitDraft['visitType'], lang: SupportedLang = 'fr') {
   return (VISIT_CHECKLIST_TEMPLATES[type] ?? []).map(label => ({
     id: crypto.randomUUID(),
-    label,
+    label: translateWebStaticText(label, lang),
     checked: false,
   }));
 }
@@ -1680,11 +1847,11 @@ function reserveToDraft(reserve: any): ReserveDraft {
   };
 }
 
-function createVisitDraft(projectId: string, conducteur: string): VisitDraft {
+function createVisitDraft(projectId: string, conducteur: string, lang: SupportedLang = 'fr'): VisitDraft {
   const date = todayISO();
   const visitType: VisitDraft['visitType'] = 'controle';
   return {
-    title: autoVisitTitle(visitType, date),
+    title: autoVisitTitle(visitType, date, lang),
     chantierId: projectId,
     date,
     startTime: '08:00',
@@ -1699,7 +1866,7 @@ function createVisitDraft(projectId: string, conducteur: string): VisitDraft {
     visitedLocations: [],
     reserveDeadlineDate: '',
     notes: '',
-    checklistItems: makeVisitChecklist(visitType),
+    checklistItems: makeVisitChecklist(visitType, lang),
     companyIds: [],
     participants: [],
     tags: [],
@@ -1774,6 +1941,37 @@ export default function BuildTrackWebPage() {
     return window.localStorage.getItem('buildtrack-web-sidebar-collapsed') === '1';
   });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const [webLang, setWebLangState] = useState<SupportedLang>(() => {
+    if (typeof window === 'undefined') return 'fr';
+    return normalizeLang(window.localStorage.getItem('buildtrack-web-language') ?? getBrowserLang());
+  });
+
+  const handleWebLangChange = useCallback(async (nextLang: SupportedLang) => {
+    setWebLangState(nextLang);
+    setReportLanguage(nextLang);
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem('buildtrack-web-language', nextLang);
+    }
+    const profileId = profile?.id ?? authUser?.id;
+    if (!profileId) return;
+    const { error: languageError } = await supabaseBrowser
+      .from('profiles')
+      .update({ preferred_language: nextLang })
+      .eq('id', profileId);
+    if (languageError) {
+      setError(languageError.message);
+      return;
+    }
+    setProfile(previous => previous ? { ...previous, preferred_language: nextLang } : previous);
+  }, [authUser?.id, profile?.id]);
+
+  const i18n = useMemo<WebI18nValue>(() => ({
+    lang: webLang,
+    locale: localeForLang(webLang),
+    t: createWebT(webLang),
+    setLang: handleWebLangChange,
+  }), [handleWebLangChange, webLang]);
+  const { t } = i18n;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -1822,12 +2020,20 @@ export default function BuildTrackWebPage() {
       if (profileError) throw profileError;
       const loadedProfile = (profileRows?.[0] ?? null) as Profile | null;
       if (!loadedProfile) {
-        setError("Profil introuvable. Vérifiez que l'invitation a bien été acceptée.");
+        setError(t('login.missingProfile'));
         setLoading(false);
         return;
       }
 
-      setProfile(loadedProfile);
+      const preferredLang = normalizeLang(loadedProfile.preferred_language ?? webLang);
+      if (preferredLang !== webLang) {
+        setWebLangState(preferredLang);
+        if (typeof window !== 'undefined') {
+          window.localStorage.setItem('buildtrack-web-language', preferredLang);
+        }
+      }
+      setReportLanguage(preferredLang);
+      setProfile({ ...loadedProfile, preferred_language: preferredLang });
       const [
         chantiers,
         reserves,
@@ -1895,7 +2101,7 @@ export default function BuildTrackWebPage() {
       setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
     } catch (err: any) {
-      setError(err?.message ?? 'Chargement impossible.');
+      setError(err?.message ?? t('login.loadError'));
     } finally {
       setLoading(false);
     }
@@ -2081,7 +2287,7 @@ export default function BuildTrackWebPage() {
   async function translateReserveTexts(targets: any[], language: TextLang) {
     if (!isAdmin(profile)) return;
     const candidates = targets.filter(reserve => reserve.title?.trim() || reserve.description?.trim());
-    const langLabel = TEXT_LANG_OPTIONS.find(option => option.value === language)?.label ?? language.toUpperCase();
+    const langLabel = translateWebStaticText(TEXT_LANG_OPTIONS.find(option => option.value === language)?.label ?? language.toUpperCase(), webLang);
     if (!candidates.length) {
       setError('Aucune réserve à traduire dans cette sélection.');
       return;
@@ -2165,7 +2371,7 @@ export default function BuildTrackWebPage() {
 
   function openVisitCreate() {
     setError('');
-    setVisitDraft(createVisitDraft(currentProjectId(), userLabel(profile, authUser)));
+    setVisitDraft(createVisitDraft(currentProjectId(), userLabel(profile, authUser), webLang));
     setVisitModalOpen(true);
   }
 
@@ -2508,7 +2714,7 @@ export default function BuildTrackWebPage() {
     const payloads = recurrenceOffsets.map((offset, index) => ({
       ...basePayload,
       id: `VIS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-      title: recurrenceOffsets.length > 1 ? `${title} — S${index + 1}` : title,
+      title: recurrenceOffsets.length > 1 ? `${title} — ${visitWeekPrefix(webLang)}${index + 1}` : title,
       date: addDaysISO(visitDraft.date, offset),
       status: index === 0 ? visitDraft.status : 'planned',
     }));
@@ -2969,32 +3175,38 @@ export default function BuildTrackWebPage() {
 
   if (!session || !authUser) {
     return (
-      <main className={styles.loginPage}>
-        <section className={styles.loginPanel}>
-          <div className={styles.brandMark}>B</div>
-          <p className={styles.eyebrow}>BuildTrack Web</p>
-          <h1>Connectez-vous au cockpit chantier</h1>
-          <p className={styles.muted}>Même base Supabase, mêmes rôles, mêmes réserves que l’application mobile.</p>
-          <form className={styles.loginForm} onSubmit={handleLogin}>
-            <label>Email</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required />
-            <label>Mot de passe</label>
-            <input value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="current-password" required />
-            {error ? <p className={styles.error}>{error}</p> : null}
-            <button disabled={saving}>{saving ? 'Connexion...' : 'Se connecter'}</button>
-          </form>
-        </section>
-      </main>
+      <WebI18nContext.Provider value={i18n}>
+        <WebStaticI18nBridge />
+        <main className={styles.loginPage}>
+          <section className={styles.loginPanel}>
+            <div className={styles.brandMark}>B</div>
+            <p className={styles.eyebrow}>{t('login.eyebrow')}</p>
+            <h1>{t('login.title')}</h1>
+            <p className={styles.muted}>{t('login.subtitle')}</p>
+            <WebLanguageSwitcher className={styles.loginLanguage} />
+            <form className={styles.loginForm} onSubmit={handleLogin}>
+              <label>{t('common.email')}</label>
+              <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required />
+              <label>{t('common.password')}</label>
+              <input value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="current-password" required />
+              {error ? <p className={styles.error}>{error}</p> : null}
+              <button disabled={saving}>{saving ? t('common.loggingIn') : t('common.login')}</button>
+            </form>
+          </section>
+        </main>
+      </WebI18nContext.Provider>
     );
   }
 
   return (
-    <main className={`${styles.appShell} ${sidebarCollapsed ? styles.appShellCollapsed : ''} ${mobileNavOpen ? styles.appShellMobileNavOpen : ''}`}>
+    <WebI18nContext.Provider value={i18n}>
+      <WebStaticI18nBridge />
+      <main className={`${styles.appShell} ${sidebarCollapsed ? styles.appShellCollapsed : ''} ${mobileNavOpen ? styles.appShellMobileNavOpen : ''}`}>
       {mobileNavOpen && (
         <button
           type="button"
           className={styles.mobileNavScrim}
-          aria-label="Fermer le menu"
+          aria-label={t('common.closeMenu')}
           onClick={() => setMobileNavOpen(false)}
         />
       )}
@@ -3010,7 +3222,7 @@ export default function BuildTrackWebPage() {
           <button
             type="button"
             className={styles.mobileNavClose}
-            aria-label="Fermer le menu"
+            aria-label={t('common.closeMenu')}
             onClick={() => setMobileNavOpen(false)}
           >
             ×
@@ -3020,31 +3232,32 @@ export default function BuildTrackWebPage() {
           type="button"
           className={`${styles.sidebarToggle} ${sidebarCollapsed ? styles.sidebarToggleCollapsed : ''}`}
           onClick={() => setSidebarCollapsed(value => !value)}
-          aria-label={sidebarCollapsed ? 'Déplier le menu principal' : 'Plier le menu principal'}
-          title={sidebarCollapsed ? 'Déplier le menu' : 'Plier le menu'}
+          aria-label={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
+          title={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
         >
           <span className={styles.sidebarToggleChevron} aria-hidden="true" />
         </button>
-        <nav className={styles.navList} aria-label="Menu principal">
+        <nav className={styles.navList} aria-label={t('common.mainMenu')}>
           {NAV_GROUPS.map(group => (
             <div key={group.label} className={styles.navSection}>
-              <span className={styles.navSectionLabel}>{group.label}</span>
+              <span className={styles.navSectionLabel}>{t(`nav.group.${group.label.toLowerCase()}`)}</span>
               <div className={styles.navSectionItems}>
                 {group.items.map(tabId => {
                   const tab = TABS.find(item => item.id === tabId)!;
+                  const label = tabLabel(tab.id, t);
                   const navIsActive = activeTab === tab.id || (tab.id === 'terrain' && TERRAIN_CHILD_TABS.has(activeTab));
                   return (
                     <button
                       key={tab.id}
                       className={navIsActive ? styles.navActive : ''}
                       onClick={() => { setActiveTab(tab.id); setMobileNavOpen(false); }}
-                      title={sidebarCollapsed ? tab.label : undefined}
-                      aria-label={tab.label}
+                      title={sidebarCollapsed ? label : undefined}
+                      aria-label={label}
                     >
                       <span className={styles.navIcon}>
                         <SidebarNavIcon name={tab.icon} active={navIsActive} />
                       </span>
-                      <span className={styles.navLabel}>{tab.label}</span>
+                      <span className={styles.navLabel}>{label}</span>
                     </button>
                   );
                 })}
@@ -3054,10 +3267,10 @@ export default function BuildTrackWebPage() {
         </nav>
         <div className={styles.userBox}>
           <strong>{profile?.name ?? authUser.email}</strong>
-          <span>{profile?.role_label ?? profile?.role ?? 'Utilisateur'}</span>
-          <button onClick={() => supabaseBrowser.auth.signOut()} title="Déconnexion">
+          <span>{profile?.role_label ?? profile?.role ?? t('common.user')}</span>
+          <button onClick={() => supabaseBrowser.auth.signOut()} title={t('common.logout')}>
             <span className={styles.logoutIcon}>⎋</span>
-            <span className={styles.logoutLabel}>Déconnexion</span>
+            <span className={styles.logoutLabel}>{t('common.logout')}</span>
           </button>
         </div>
       </aside>
@@ -3067,28 +3280,29 @@ export default function BuildTrackWebPage() {
           <button
             type="button"
             className={styles.mobileNavBtn}
-            aria-label="Ouvrir le menu"
+            aria-label={t('common.openMenu')}
             onClick={() => setMobileNavOpen(true)}
           >
             <span className={styles.mobileNavBtnIcon} aria-hidden="true" />
           </button>
           <div className={styles.topbarTitle}>
-            <p className={styles.eyebrow}>Cockpit web</p>
-            <h1>{TABS.find(t => t.id === activeTab)?.label}</h1>
+            <p className={styles.eyebrow}>{t('shell.cockpitWeb')}</p>
+            <h1>{tabLabel(activeTab, t)}</h1>
           </div>
           <div className={styles.topbarActions}>
             <select value={selectedProjectId} onChange={e => setSelectedProjectId(e.target.value)}>
-              <option value="all">Tous les chantiers</option>
+              <option value="all">{t('common.allProjects')}</option>
               {data.chantiers.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
             </select>
+            <WebLanguageSwitcher />
             {canEdit(profile) && (
               <>
-                <button type="button" onClick={() => openReserveCreate()}>Nouvelle réserve</button>
-                <button type="button" onClick={openVisitCreate}>Nouvelle visite</button>
+                <button type="button" onClick={() => openReserveCreate()}>{t('common.newReserve')}</button>
+                <button type="button" onClick={openVisitCreate}>{t('common.newVisit')}</button>
               </>
             )}
             <button onClick={() => session.user && loadEverything(session.user)} disabled={loading}>
-              {loading ? 'Synchronisation...' : 'Synchroniser'}
+              {loading ? t('common.syncing') : t('common.sync')}
             </button>
           </div>
         </header>
@@ -3096,7 +3310,7 @@ export default function BuildTrackWebPage() {
         {error ? <div className={styles.alert}>{error}</div> : null}
 
         {loading ? (
-          <div className={styles.loadingBlock}>Chargement des données BuildTrack...</div>
+          <div className={styles.loadingBlock}>{t('common.loadingData')}</div>
         ) : (
           <>
             {activeTab === 'dashboard' && (
@@ -3302,7 +3516,8 @@ export default function BuildTrackWebPage() {
           onToggleCompany={toggleVisitCompany}
         />
       )}
-    </main>
+      </main>
+    </WebI18nContext.Provider>
   );
 }
 
@@ -5219,6 +5434,7 @@ function PlansView({
   defaultReportLanguage,
   editable,
 }: any) {
+  const { t } = useWebI18n();
   const [buildingQuery, setBuildingQuery] = useState('');
   const [selectedBuildingKey, setSelectedBuildingKey] = useState('all');
   const [activeFamilyKey, setActiveFamilyKey] = useState('all');
@@ -5731,7 +5947,7 @@ function PlansView({
         >
           <span>▦</span>
           <strong>Tous les bâtiments</strong>
-          <small>{plans.length} plans · {totalReserveCount} réserves</small>
+          <small>{plans.length} {t('common.plans').toLowerCase()} · {totalReserveCount} {t('common.reserves').toLowerCase()}</small>
         </button>
         <div className={`${styles.list} ${styles.plansList}`}>
           {!buildingQuery && recentBuildingGroups.length > 0 && !hasBuildingFamilyFilter ? (
@@ -8926,6 +9142,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
   onSubmit: (event: React.FormEvent) => void;
   onToggleCompany: (companyId: string) => void;
 }) {
+  const { lang } = useWebI18n();
   const [buildingQuery, setBuildingQuery] = useState('');
   const [newChecklistLabel, setNewChecklistLabel] = useState('');
   const [participantSearch, setParticipantSearch] = useState('');
@@ -8951,7 +9168,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
   const companyById = new Map(data.companies.map(company => [company.id, company]));
   const selectedCompanyCount = draft.companyIds.length;
   const checklistDone = draft.checklistItems.filter(item => item.checked).length;
-  const suggestedTitle = autoVisitTitle(draft.visitType, draft.date || todayISO());
+  const suggestedTitle = autoVisitTitle(draft.visitType, draft.date || todayISO(), lang);
   const canUseSuggestedTitle = draft.title.trim() !== suggestedTitle;
   const existingUserParticipants = useMemo(() => {
     const query = normalizeSearchText(participantSearch);
@@ -8988,25 +9205,25 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
 
   function updateVisitType(type: VisitDraft['visitType']) {
     setDraft(prev => {
-      const previousAutoTitle = autoVisitTitle(prev.visitType, prev.date || todayISO());
+      const previousAutoTitle = autoVisitTitle(prev.visitType, prev.date || todayISO(), lang);
       const shouldRefreshTitle = !prev.title.trim() || prev.title.trim() === previousAutoTitle;
       return {
         ...prev,
         visitType: type,
-        title: shouldRefreshTitle ? autoVisitTitle(type, prev.date || todayISO()) : prev.title,
-        checklistItems: makeVisitChecklist(type),
+        title: shouldRefreshTitle ? autoVisitTitle(type, prev.date || todayISO(), lang) : prev.title,
+        checklistItems: makeVisitChecklist(type, lang),
       };
     });
   }
 
   function updateVisitDate(date: string) {
     setDraft(prev => {
-      const previousAutoTitle = autoVisitTitle(prev.visitType, prev.date || todayISO());
+      const previousAutoTitle = autoVisitTitle(prev.visitType, prev.date || todayISO(), lang);
       const shouldRefreshTitle = !prev.title.trim() || prev.title.trim() === previousAutoTitle;
       return {
         ...prev,
         date,
-        title: shouldRefreshTitle ? autoVisitTitle(prev.visitType, date || todayISO()) : prev.title,
+        title: shouldRefreshTitle ? autoVisitTitle(prev.visitType, date || todayISO(), lang) : prev.title,
       };
     });
   }
@@ -9388,7 +9605,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
                 <strong>Checklist de contrôle</strong>
                 <span>{draft.checklistItems.length ? `${checklistDone}/${draft.checklistItems.length} points validés.` : 'Choisissez un type ou ajoutez vos propres points.'}</span>
               </div>
-              <button type="button" className={styles.secondaryBtn} onClick={() => setDraft(prev => ({ ...prev, checklistItems: makeVisitChecklist(prev.visitType) }))}>
+              <button type="button" className={styles.secondaryBtn} onClick={() => setDraft(prev => ({ ...prev, checklistItems: makeVisitChecklist(prev.visitType, lang) }))}>
                 Recharger le modèle
               </button>
             </div>
