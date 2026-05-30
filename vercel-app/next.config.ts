@@ -2,6 +2,13 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   outputFileTracingRoot: process.cwd(),
+  serverExternalPackages: ['@sparticuz/chromium', '@sparticuz/chromium-min', 'puppeteer-core'],
+  outputFileTracingIncludes: {
+    '/api/generate-pdf': [
+      './node_modules/@sparticuz/chromium/bin/**/*',
+      './node_modules/@sparticuz/chromium-min/bin/**/*',
+    ],
+  },
   async headers() {
     return [
       {

@@ -95,6 +95,8 @@ function basePdfDiagnostic() {
     hasChromiumPackUrl: Boolean(process.env.CHROMIUM_PACK_URL),
     hasPuppeteerExecutablePath: Boolean(process.env.PUPPETEER_EXECUTABLE_PATH),
     hasChromePath: Boolean(process.env.CHROME_PATH || process.env.GOOGLE_CHROME_BIN),
+    ldLibraryPath: process.env.LD_LIBRARY_PATH ?? null,
+    fontconfigPath: process.env.FONTCONFIG_PATH ?? null,
   } as Record<string, any>;
 }
 
@@ -120,6 +122,53 @@ const PDF_REMOTE_IMAGE_TIMEOUT_MS = 10000;
 const PDF_REMOTE_IMAGE_SOURCE_MAX_BYTES = 24 * 1024 * 1024;
 const PDF_REMOTE_IMAGE_TOTAL_MAX_BYTES = 40 * 1024 * 1024;
 const PDF_REMOTE_IMAGE_RENDER_WIDTH = 900;
+const CHROMIUM_AL2023_LIB_PATH = '/tmp/al2023/lib';
+const CHROMIUM_AL2023_LIB_SENTINEL = `${CHROMIUM_AL2023_LIB_PATH}/libnss3.so`;
+const DEFAULT_CHROMIUM_PACK_URL = 'https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar';
+
+function prependEnvPath(name: string, value: string) {
+  const current = process.env[name];
+  if (!current) {
+    process.env[name] = value;
+    return process.env[name];
+  }
+
+  const parts = current.split(':').filter(Boolean);
+  if (!parts.includes(value)) {
+    process.env[name] = [value, ...parts].join(':');
+  }
+  return process.env[name];
+}
+
+function prepareServerlessChromiumEnvironment() {
+  const nodeMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '0', 10);
+  const amazonLinux2023Runtime =
+    process.platform === 'linux' &&
+    (
+      (Boolean(process.env.VERCEL) && nodeMajor >= 20) ||
+      /(?:20|22|24)\.x/.test(`${process.env.AWS_EXECUTION_ENV ?? ''} ${process.env.AWS_LAMBDA_JS_RUNTIME ?? ''}`)
+    );
+
+  if (!amazonLinux2023Runtime) {
+    return {
+      applied: false,
+      nodeMajor,
+      reason: 'not-amazon-linux-2023',
+    };
+  }
+
+  process.env.FONTCONFIG_PATH ??= '/tmp/fonts';
+  process.env.HOME ??= '/tmp';
+
+  return {
+    applied: true,
+    nodeMajor,
+    target: 'amazon-linux-2023',
+    ldLibraryPath: prependEnvPath('LD_LIBRARY_PATH', CHROMIUM_AL2023_LIB_PATH),
+    fontconfigPath: process.env.FONTCONFIG_PATH,
+    home: process.env.HOME,
+  };
+}
 
 function decodeHtmlAttribute(value: string) {
   return value
@@ -334,7 +383,7 @@ async function resolvePuppeteerExecutablePath(chromium: any, bundled: boolean) {
 
   const chromiumUrl =
     process.env.CHROMIUM_PACK_URL ??
-    'https://github.com/Sparticuz/chromium/releases/download/v123.0.0/chromium-v123.0.0-pack.tar';
+    DEFAULT_CHROMIUM_PACK_URL;
 
   return {
     executablePath: await (chromium as any).executablePath(chromiumUrl),
@@ -346,9 +395,11 @@ async function resolvePuppeteerExecutablePath(chromium: any, bundled: boolean) {
 
 async function renderPdfBuffer(html: string): Promise<Buffer> {
   let browser: any = null;
+  const chromiumEnvironment = prepareServerlessChromiumEnvironment();
   const diagnostic: Record<string, any> = {
     ...basePdfDiagnostic(),
     htmlLength: html.length,
+    chromiumEnvironment,
   };
 
   try {
@@ -373,8 +424,12 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
     }
 
     diagnostic.stage = 'configure-chromium';
-    chromium.setHeadlessMode = true;
-    chromium.setGraphicsMode = false;
+    if ('setHeadlessMode' in chromium) {
+      chromium.setHeadlessMode = 'shell';
+    }
+    if ('setGraphicsMode' in chromium) {
+      chromium.setGraphicsMode = false;
+    }
 
     diagnostic.stage = 'resolve-executable';
     const runtime = await resolvePuppeteerExecutablePath(chromium, bundledChromium);
@@ -382,18 +437,34 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
     diagnostic.executablePath = runtime.executablePath;
     diagnostic.usesLocalBrowser = runtime.local;
     diagnostic.chromiumUrl = runtime.chromiumUrl ?? null;
+    diagnostic.chromiumTmpExists = process.platform === 'linux' ? existsSync('/tmp/chromium') : null;
+    diagnostic.al2023LibPath = process.platform === 'linux' ? CHROMIUM_AL2023_LIB_PATH : null;
+    diagnostic.al2023LibExists = process.platform === 'linux' ? existsSync(CHROMIUM_AL2023_LIB_SENTINEL) : null;
+    diagnostic.ldLibraryPathAfterResolve = process.env.LD_LIBRARY_PATH ?? null;
 
     diagnostic.stage = 'launch-browser';
+    const headlessMode = runtime.local ? true : 'shell';
+    const chromiumArgs = runtime.local
+      ? ['--disable-dev-shm-usage', '--disable-gpu', '--no-sandbox']
+      : await (puppeteer as any).defaultArgs({
+          args: (chromium as any).args ?? [],
+          headless: headlessMode,
+        });
+    const launchArgs = Array.from(new Set([
+      ...chromiumArgs,
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--no-sandbox',
+    ]));
+    diagnostic.headlessMode = headlessMode;
+    diagnostic.launchArgCount = launchArgs.length;
     browser = await (puppeteer as any).launch({
-      args: [
-        ...(runtime.local ? [] : (chromium as any).args),
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--no-sandbox',
-      ],
-      defaultViewport: (chromium as any).defaultViewport ?? { width: 1280, height: 720 },
+      args: launchArgs,
+      defaultViewport: runtime.local
+        ? { width: 1280, height: 720 }
+        : ((chromium as any).defaultViewport ?? { width: 1920, height: 1080 }),
       executablePath: runtime.executablePath,
-      headless: true,
+      headless: headlessMode,
     });
     diagnostic.browserLaunched = true;
 
