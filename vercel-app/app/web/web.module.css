@@ -8824,6 +8824,58 @@
   white-space: nowrap;
 }
 
+.weasyScenarioGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.weasyScenarioButton {
+  display: grid;
+  gap: 4px;
+  min-height: 86px;
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  background: #fff;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.weasyScenarioButton strong {
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.weasyScenarioButton span {
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.weasyScenarioButton em {
+  align-self: end;
+  color: #003082;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 950;
+}
+
+.weasyScenarioButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.52;
+}
+
+.weasyScenarioActive {
+  border-color: #003082;
+  background: #eaf0ff;
+  box-shadow: inset 0 0 0 1px rgba(0, 48, 130, 0.18);
+}
+
 .weasyLabControls {
   display: grid;
   grid-template-columns: minmax(180px, 260px) minmax(0, 1fr);
@@ -8915,6 +8967,124 @@
   color: #991b1b;
 }
 
+.weasyCompareModal {
+  width: min(1540px, calc(100vw - 32px));
+  max-height: min(92vh, 980px);
+  overflow: hidden;
+  border: 1px solid #d8e0ec;
+  border-radius: 18px;
+  background: #f8fafc;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+}
+
+.weasyCompareHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-bottom: 1px solid #dbe4ef;
+  background: rgba(255, 255, 255, 0.94);
+  padding: 16px 18px;
+  backdrop-filter: blur(12px);
+}
+
+.weasyCompareHeader strong {
+  display: block;
+  color: #0f172a;
+  font-size: 18px;
+  font-weight: 950;
+}
+
+.weasyCompareHeader span {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.weasyCompareHeader button,
+.weasyComparePane a {
+  border: 1px solid #d8e0ec;
+  border-radius: 8px;
+  background: #eaf0ff;
+  color: #003082;
+  padding: 9px 12px;
+  font-size: 12px;
+  font-weight: 950;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.weasyCompareGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  max-height: calc(min(92vh, 980px) - 76px);
+  overflow: auto;
+  padding: 12px;
+}
+
+.weasyComparePane {
+  display: grid;
+  grid-template-rows: auto minmax(520px, 70vh);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #dbe4ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.weasyComparePane header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid #eef2f7;
+  padding: 10px 12px;
+}
+
+.weasyComparePane header strong {
+  display: block;
+  color: #0f172a;
+  font-size: 14px;
+  font-weight: 950;
+}
+
+.weasyComparePane header span {
+  display: block;
+  margin-top: 2px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.weasyCompareFrame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #f1f5f9;
+}
+
+.weasyCompareError,
+.weasyCompareLoading {
+  display: grid;
+  place-items: center;
+  min-height: 320px;
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  font-weight: 900;
+}
+
+.weasyCompareError {
+  color: #991b1b;
+}
+
+.weasyCompareLoading {
+  color: #64748b;
+}
+
 @media (max-width: 980px) {
   .settingsStats,
   .settingsQuickGrid,
@@ -8923,8 +9093,17 @@
   }
 
   .weasyLabSummary,
+  .weasyScenarioGrid,
   .weasyLabControls {
     grid-template-columns: 1fr;
+  }
+
+  .weasyCompareGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .weasyComparePane {
+    grid-template-rows: auto minmax(420px, 64vh);
   }
 
   .attendanceRow {

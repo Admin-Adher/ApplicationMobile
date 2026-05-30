@@ -245,8 +245,12 @@ export async function POST(req: NextRequest) {
     });
   } catch (err: any) {
     console.error('[lab/weasyprint] render error:', err?.message ?? err);
+    const message = String(err?.message ?? '');
+    const friendly = err?.name === 'TimeoutError' || /aborted|timeout/i.test(message)
+      ? 'Rendu WeasyPrint trop long pour ce test. Relancez sans photos distantes ou avec un echantillon plus petit.'
+      : message || 'Erreur WeasyPrint POC';
     return NextResponse.json(
-      { success: false, error: err?.message ?? 'Erreur WeasyPrint POC' },
+      { success: false, error: friendly },
       { status: 500 }
     );
   }

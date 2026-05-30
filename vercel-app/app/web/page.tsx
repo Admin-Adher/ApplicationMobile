@@ -1263,6 +1263,16 @@ function toBase64Download(pdfBase64: string, filename: string) {
   URL.revokeObjectURL(url);
 }
 
+function pdfBase64ToObjectUrl(pdfBase64: string) {
+  if (typeof window === 'undefined') return '';
+  const byteChars = atob(pdfBase64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i += 1) {
+    bytes[i] = byteChars.charCodeAt(i);
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+}
+
 function printHtmlReport(html: string, filename: string) {
   if (typeof window === 'undefined') return;
 
@@ -9271,25 +9281,124 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   );
 }
 
+type WeasyLabScenario = 'global_reserves' | 'individual_reserve' | 'plans' | 'visit_report';
+
+type WeasyLabPdfResult = {
+  label: string;
+  filename: string;
+  url?: string;
+  bytes?: number;
+  error?: string;
+};
+
+type WeasyLabComparison = {
+  title: string;
+  subtitle: string;
+  current: WeasyLabPdfResult;
+  weasyprint: WeasyLabPdfResult;
+};
+
 function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; scoped: any; selectedProjectId: string }) {
   const { lang } = useWebI18n();
   const [status, setStatus] = useState<any>(null);
   const [checking, setChecking] = useState(false);
   const [rendering, setRendering] = useState(false);
+  const [scenario, setScenario] = useState<WeasyLabScenario>('global_reserves');
   const [includePhotos, setIncludePhotos] = useState(false);
   const [reportLanguage, setReportLanguage] = useState<TextLang>(
     (lang === 'en' || lang === 'es' ? lang : 'fr') as TextLang
   );
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+  const [comparison, setComparison] = useState<WeasyLabComparison | null>(null);
+  const comparisonUrlsRef = useRef<string[]>([]);
+  const reserveLimit = includePhotos ? 6 : 12;
   const activeReserves = useMemo(() => {
     const source = selectedProjectId === 'all' ? data.reserves : scoped.reserves;
     return (source ?? []).filter((reserve: any) => !isReserveArchived(reserve));
   }, [data.reserves, scoped.reserves, selectedProjectId]);
+  const activePlans = useMemo(() => {
+    const source = selectedProjectId === 'all' ? data.sitePlans : scoped.plans;
+    return source ?? [];
+  }, [data.sitePlans, scoped.plans, selectedProjectId]);
+  const activeVisits = useMemo(() => {
+    const source = selectedProjectId === 'all' ? data.visites : scoped.visites;
+    return source ?? [];
+  }, [data.visites, scoped.visites, selectedProjectId]);
   const selectedProject = selectedProjectId === 'all'
     ? null
     : data.chantiers.find(project => String(project.id) === String(selectedProjectId)) ?? null;
   const projectName = selectedProject?.name ?? (selectedProjectId === 'all' ? 'Tous les chantiers' : 'Chantier');
-  const sampleCount = Math.min(activeReserves.length, 30);
+  const globalSampleCount = Math.min(activeReserves.length, reserveLimit);
+  const individualReserve = useMemo(() => (
+    activeReserves.find((reserve: any) => hasReservePlanPin(reserve)) ?? activeReserves[0] ?? null
+  ), [activeReserves]);
+  const targetPlan = useMemo(() => {
+    const planIdsWithReserves = new Set(activeReserves.map((reserve: any) => getReservePlanId(reserve)).filter(Boolean));
+    return activePlans.find((plan: any) => planIdsWithReserves.has(String(plan.id))) ?? null;
+  }, [activePlans, activeReserves]);
+  const planScenarioReserves = useMemo(() => {
+    if (!targetPlan) return [];
+    return activeReserves
+      .filter((reserve: any) => getReservePlanId(reserve) === String(targetPlan.id))
+      .slice(0, reserveLimit);
+  }, [activeReserves, reserveLimit, targetPlan]);
+  const targetVisit = useMemo(() => {
+    return [...activeVisits].sort((a: any, b: any) => {
+      const aDate = String(a?.date ?? a?.created_at ?? a?.createdAt ?? '');
+      const bDate = String(b?.date ?? b?.created_at ?? b?.createdAt ?? '');
+      return bDate.localeCompare(aDate);
+    })[0] ?? null;
+  }, [activeVisits]);
+  const scenarioOptions = useMemo(() => {
+    const reserveLabel = `${globalSampleCount} réserve${globalSampleCount > 1 ? 's' : ''}${includePhotos ? ' + photos' : ' sans photos'}`;
+    const planCount = planScenarioReserves.length;
+    return [
+      {
+        id: 'global_reserves' as const,
+        label: 'Rapport réserves',
+        hint: 'Synthèse globale',
+        sample: reserveLabel,
+        available: globalSampleCount > 0,
+      },
+      {
+        id: 'individual_reserve' as const,
+        label: 'Fiche réserve',
+        hint: individualReserve?.title ?? individualReserve?.id ?? 'Réserve individuelle',
+        sample: individualReserve ? '1 réserve' : 'Aucune réserve',
+        available: Boolean(individualReserve),
+      },
+      {
+        id: 'plans' as const,
+        label: 'Fiche plan',
+        hint: targetPlan?.name ?? 'Plan individuel',
+        sample: planCount > 0 ? `${planCount} réserve${planCount > 1 ? 's' : ''} sur plan` : 'Aucune réserve sur plan',
+        available: Boolean(targetPlan && planCount > 0),
+      },
+      {
+        id: 'visit_report' as const,
+        label: 'Compte-rendu visite',
+        hint: targetVisit?.title ?? targetVisit?.date ?? 'Visite',
+        sample: targetVisit ? '1 visite' : 'Aucune visite',
+        available: Boolean(targetVisit),
+      },
+    ];
+  }, [globalSampleCount, includePhotos, individualReserve, planScenarioReserves.length, targetPlan, targetVisit]);
+  const selectedScenarioOption = scenarioOptions.find(option => option.id === scenario) ?? scenarioOptions[0];
+
+  useEffect(() => {
+    if (selectedScenarioOption?.available) return;
+    const firstAvailable = scenarioOptions.find(option => option.available);
+    if (firstAvailable && firstAvailable.id !== scenario) setScenario(firstAvailable.id);
+  }, [scenario, scenarioOptions, selectedScenarioOption?.available]);
+
+  const releaseComparisonUrls = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    for (const url of comparisonUrlsRef.current) URL.revokeObjectURL(url);
+    comparisonUrlsRef.current = [];
+  }, []);
+
+  useEffect(() => () => releaseComparisonUrls(), [releaseComparisonUrls]);
 
   const authHeaders = async () => {
     const { data: authData } = await supabaseBrowser.auth.getSession();
@@ -9320,61 +9429,263 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
     void checkService();
   }, [checkService]);
 
-  const buildPayload = () => {
-    const targetReserves = activeReserves.slice(0, 30);
-    const photoPrepared = includePhotos
-      ? withPdfRemoteReservePhotoList(targetReserves, 2, 24)
-      : targetReserves.map((reserve: any) => ({ ...reserve, photos: [] }));
+  const filenameFor = (engine: string, typePart: string) => {
+    const projectPart = projectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
+    return `BuildTrack_${engine}_${typePart}_${projectPart}_${reportLanguage}.pdf`;
+  };
+
+  const normalizeReserveForReport = (reserve: any, index = 0) => {
+    const companies = reserveCompanies(reserve);
     return {
-      type: 'global_reserves',
-      chantierName: projectName,
-      companyFilter: selectedProjectId === 'all' ? 'Tous les chantiers' : null,
-      generatedAt: new Date().toISOString(),
-      language: reportLanguage,
-      reserves: photoPrepared.map((reserve: any, index: number) => {
-        const companies = reserveCompanies(reserve);
-        return {
-          ...reserve,
-          id: reserve.id ?? `lab-${index + 1}`,
-          num: reserve.num ?? reserve.number ?? index + 1,
-          title: reserve.title ?? reserve.name ?? `Reserve ${index + 1}`,
-          company: companies.join(', '),
-          companies,
-          building: reserve.building ?? reserve.building_name ?? reserve.buildingName ?? '',
-          level: reserve.level ?? reserve.floor ?? '',
-          status: reserve.status ?? 'open',
-          priority: reserve.priority ?? 'medium',
-          deadline: reserve.deadline ?? reserve.due_date ?? '',
-          photos: includePhotos ? reserve.photos ?? [] : [],
-        };
-      }),
+      ...reserve,
+      id: reserve.id ?? `lab-${index + 1}`,
+      num: reserve.num ?? reserve.number ?? index + 1,
+      title: reserve.title ?? reserve.name ?? `Réserve ${index + 1}`,
+      company: companies.join(', '),
+      companies,
+      building: reserve.building ?? reserve.building_name ?? reserve.buildingName ?? '',
+      level: reserve.level ?? reserve.floor ?? '',
+      zone: reserve.zone ?? '',
+      status: reserve.status ?? 'open',
+      priority: reserve.priority ?? 'medium',
+      deadline: reserve.deadline ?? reserve.due_date ?? '',
+      createdAt: reserve.createdAt ?? prettyDate(reserve.created_at ?? reserve.createdAt, true),
+      closedAt: reserve.closedAt ?? (reserve.closed_at ? prettyDate(reserve.closed_at, true) : null),
     };
   };
 
-  const renderWeasyPrint = async () => {
-    if (sampleCount === 0) {
-      setMessage({ ok: false, text: 'Aucune reserve disponible pour ce test.' });
+  const buildScenarioPayload = async () => {
+    const generatedAt = new Date().toISOString();
+
+    if (scenario === 'individual_reserve') {
+      if (!individualReserve) throw new Error('Aucune réserve disponible pour ce test.');
+      const reservePlanId = getReservePlanId(individualReserve);
+      const reservePlan = reservePlanId ? activePlans.find((plan: any) => String(plan.id) === String(reservePlanId)) : null;
+      const reserveCompanyName = reserveCompanies(individualReserve)[0] ?? null;
+      const reserveCompany = reserveCompanyName
+        ? data.companies.find((company: any) => company.name === reserveCompanyName || company.id === individualReserve?.company_id || company.id === individualReserve?.companyId)
+        : null;
+      const planPins = reservePlanId
+        ? activeReserves.filter((reserve: any) =>
+            getReservePlanId(reserve) === String(reservePlanId) &&
+            shouldNumberReserveOnPlan(reserve, individualReserve?.id) &&
+            normalizePlanPercent(reserve.plan_x ?? reserve.planX) != null &&
+            normalizePlanPercent(reserve.plan_y ?? reserve.planY) != null
+          )
+        : [];
+      const pinNum = createPlanPinNumberMap(planPins).get(String(individualReserve.id));
+      const reservePlanImageUri = reservePlan ? await getPlanImageForReserveReport(reservePlan) : null;
+      const photoPrepared = includePhotos
+        ? withPdfRemoteReservePhotos(individualReserve, 1)
+        : { ...individualReserve, photos: [], photoUri: null, photo_uri: null };
+      const reportReserve = normalizeReserveForReport(photoPrepared, 0);
+      return {
+        typePart: 'reserve',
+        title: 'Fiche réserve individuelle',
+        subtitle: String(reportReserve.title ?? reportReserve.id ?? 'Réserve'),
+        payload: {
+          type: 'individual_reserve',
+          chantierName: projectName,
+          reserve: reportReserve,
+          companyColor: reserveCompany?.color ?? null,
+          planUri: reservePlanImageUri,
+          planName: reservePlan?.name ?? null,
+          planX: normalizePlanPercent(individualReserve?.plan_x ?? individualReserve?.planX),
+          planY: normalizePlanPercent(individualReserve?.plan_y ?? individualReserve?.planY),
+          pinNum,
+          language: reportLanguage,
+          generatedAt,
+        },
+      };
+    }
+
+    if (scenario === 'plans') {
+      if (!targetPlan || planScenarioReserves.length === 0) {
+        throw new Error('Aucun plan avec réserve disponible pour ce test.');
+      }
+      const targetReserves = planScenarioReserves.slice(0, reserveLimit);
+      const reportPlans = await toPdfPlanItemsForReport([targetPlan], targetReserves);
+      const reportReserves = includePhotos
+        ? await toPdfReserveItemsForPlanReport(targetReserves)
+        : targetReserves.map((reserve: any, index: number) => ({ ...toPdfReserveItem(reserve, index), photos: [] }));
+      return {
+        typePart: 'plan',
+        title: 'Fiche plan individuelle',
+        subtitle: String(targetPlan.name ?? 'Plan'),
+        payload: {
+          type: 'plans',
+          chantierName: projectName,
+          reserves: reportReserves,
+          plans: reportPlans,
+          companyFilter: targetPlan.name ?? null,
+          statusFilter: null,
+          language: reportLanguage,
+          generatedAt,
+        },
+      };
+    }
+
+    if (scenario === 'visit_report') {
+      if (!targetVisit) throw new Error('Aucune visite disponible pour ce test.');
+      const reportVisit = await withPdfEmbeddedVisitMedia(targetVisit);
+      const visitReserveIds = new Set([
+        ...(Array.isArray(reportVisit?.reserve_ids) ? reportVisit.reserve_ids : []),
+        ...(Array.isArray(reportVisit?.reserveIds) ? reportVisit.reserveIds : []),
+      ].map((id: any) => String(id)));
+      const visitReserves = activeReserves
+        .filter((reserve: any) => {
+          const visitId = reserve.visite_id ?? reserve.visiteId ?? reserve.visit_id ?? reserve.visitId;
+          return String(visitId ?? '') === String(reportVisit.id) || visitReserveIds.has(String(reserve.id));
+        })
+        .slice(0, reserveLimit)
+        .map((reserve: any, index: number) => normalizeReserveForReport({ ...reserve, photos: [] }, index));
+      return {
+        typePart: 'visite',
+        title: 'Compte-rendu de visite',
+        subtitle: String(reportVisit.title ?? reportVisit.date ?? 'Visite'),
+        payload: {
+          type: 'visit_report',
+          chantierName: projectName,
+          visit: reportVisit,
+          reserves: visitReserves,
+          companies: data.companies,
+          language: reportLanguage,
+          generatedAt,
+        },
+      };
+    }
+
+    const targetReserves = activeReserves.slice(0, reserveLimit);
+    if (targetReserves.length === 0) throw new Error('Aucune réserve disponible pour ce test.');
+    const photoPrepared = includePhotos
+      ? withPdfRemoteReservePhotoList(targetReserves, 1, reserveLimit)
+      : targetReserves.map((reserve: any) => ({ ...reserve, photos: [] }));
+    return {
+      typePart: 'reserves',
+      title: 'Rapport réserves globales',
+      subtitle: `${targetReserves.length} réserve${targetReserves.length > 1 ? 's' : ''}`,
+      payload: {
+        type: 'global_reserves',
+        chantierName: projectName,
+        companyFilter: selectedProjectId === 'all' ? 'Tous les chantiers' : null,
+        generatedAt,
+        language: reportLanguage,
+        reserves: photoPrepared.map((reserve: any, index: number) => ({
+          ...normalizeReserveForReport(reserve, index),
+          photos: includePhotos ? reserve.photos ?? [] : [],
+        })),
+      },
+    };
+  };
+
+  const renderPdfFromEndpoint = async (endpoint: string, payload: any, headers: Record<string, string>, fallbackFilename: string) => {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    const raw = await response.text();
+    let result: any = {};
+    try {
+      result = raw ? JSON.parse(raw) : {};
+    } catch {
+      throw new Error(raw.slice(0, 240) || 'Réponse PDF invalide.');
+    }
+    if (!response.ok || !result.success) {
+      throw new Error(result.error ?? 'Génération PDF impossible.');
+    }
+    if (!result.pdfBase64) {
+      if (result.printHtml) {
+        throw new Error('Le moteur actuel a basculé en impression navigateur, sans PDF comparable.');
+      }
+      throw new Error('Aucun PDF reçu.');
+    }
+    const url = pdfBase64ToObjectUrl(result.pdfBase64);
+    if (!url) throw new Error('Prévisualisation PDF indisponible dans ce navigateur.');
+    return {
+      url,
+      filename: result.filename ?? fallbackFilename,
+      bytes: Number(result.bytes ?? Math.round((String(result.pdfBase64).length * 3) / 4)),
+    };
+  };
+
+  const renderComparison = async () => {
+    if (!selectedScenarioOption?.available) {
+      setMessage({ ok: false, text: 'Aucun exemple disponible pour ce scénario.' });
+      return;
+    }
+    if (!configured) {
+      setMessage({ ok: false, text: 'Configurez le service WeasyPrint avant de lancer la comparaison.' });
+      return;
+    }
+    if (unhealthy) {
+      setMessage({ ok: false, text: status?.error ?? 'Le service WeasyPrint est indisponible.' });
       return;
     }
     setRendering(true);
     setMessage(null);
+    releaseComparisonUrls();
     try {
-      const response = await fetch('/api/lab/weasyprint', {
-        method: 'POST',
-        headers: await authHeaders(),
-        body: JSON.stringify(buildPayload()),
+      const build = await buildScenarioPayload();
+      const currentFilename = filenameFor('Puppeteer', build.typePart);
+      const weasyFilename = filenameFor('WeasyPrint', build.typePart);
+      setComparisonOpen(true);
+      setComparison({
+        title: build.title,
+        subtitle: `${build.subtitle} · ${projectName}`,
+        current: { label: 'PDF actuel (Puppeteer)', filename: currentFilename },
+        weasyprint: { label: 'PDF testé (WeasyPrint)', filename: weasyFilename },
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.success) {
-        throw new Error(result.error ?? 'Rendu WeasyPrint impossible.');
+
+      const [currentResult, weasyResult] = await Promise.allSettled([
+        renderPdfFromEndpoint('/api/generate-pdf', build.payload, { 'Content-Type': 'application/json' }, currentFilename),
+        renderPdfFromEndpoint('/api/lab/weasyprint', build.payload, await authHeaders(), weasyFilename),
+      ]);
+      const nextUrls: string[] = [];
+      const currentPdf: WeasyLabPdfResult = { label: 'PDF actuel (Puppeteer)', filename: currentFilename };
+      const weasyPdf: WeasyLabPdfResult = { label: 'PDF testé (WeasyPrint)', filename: weasyFilename };
+
+      if (currentResult.status === 'fulfilled') {
+        currentPdf.url = currentResult.value.url;
+        currentPdf.filename = currentResult.value.filename;
+        currentPdf.bytes = currentResult.value.bytes;
+        nextUrls.push(currentResult.value.url);
+      } else {
+        currentPdf.error = currentResult.reason?.message ?? 'Génération Puppeteer impossible.';
       }
-      toBase64Download(result.pdfBase64, result.filename ?? `BuildTrack_WeasyPrint_${reportLanguage}.pdf`);
+
+      if (weasyResult.status === 'fulfilled') {
+        weasyPdf.url = weasyResult.value.url;
+        weasyPdf.filename = weasyResult.value.filename;
+        weasyPdf.bytes = weasyResult.value.bytes;
+        nextUrls.push(weasyResult.value.url);
+      } else {
+        weasyPdf.error = weasyResult.reason?.message ?? 'Rendu WeasyPrint impossible.';
+      }
+
+      comparisonUrlsRef.current = nextUrls;
+      setComparison({
+        title: build.title,
+        subtitle: `${build.subtitle} · ${projectName}`,
+        current: currentPdf,
+        weasyprint: weasyPdf,
+      });
+
+      const successCount = [currentPdf.url, weasyPdf.url].filter(Boolean).length;
       setMessage({
-        ok: true,
-        text: `PDF WeasyPrint genere (${Math.round(Number(result.bytes ?? 0) / 1024)} Ko).`,
+        ok: successCount === 2,
+        text: successCount === 2
+          ? 'Comparaison prête : les deux PDFs sont affichés côte à côte.'
+          : `Comparaison partielle : ${successCount}/2 PDF généré.`,
       });
     } catch (err: any) {
-      setMessage({ ok: false, text: err?.message ?? 'Rendu WeasyPrint impossible.' });
+      const text = String(err?.message ?? '');
+      setMessage({
+        ok: false,
+        text: /aborted|timeout/i.test(text)
+          ? 'Rendu trop long. Relancez sans photos distantes ou choisissez un exemple plus léger.'
+          : text || 'Comparaison PDF impossible.',
+      });
     } finally {
       setRendering(false);
     }
@@ -9393,56 +9704,125 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
         ? styles.weasyLabStatusWarn
         : styles.weasyLabStatusOff;
 
-  return (
-    <div className={styles.weasyLabCard}>
-      <div className={styles.weasyLabHeader}>
-        <span><IonIcon name="construct-outline" /></span>
+  const closeComparison = () => {
+    releaseComparisonUrls();
+    setComparisonOpen(false);
+    setComparison(null);
+  };
+
+  const renderPane = (pdf: WeasyLabPdfResult) => (
+    <section className={styles.weasyComparePane}>
+      <header>
         <div>
-          <strong>Lab PDF WeasyPrint</strong>
-          <small>POC admin isole. Le PDF de production reste sur Puppeteer.</small>
+          <strong>{pdf.label}</strong>
+          <span>{pdf.bytes ? `${Math.round(pdf.bytes / 1024)} Ko` : pdf.filename}</span>
         </div>
-        <em className={statusClass}>{statusText}</em>
+        {pdf.url ? <a href={pdf.url} download={pdf.filename}>Télécharger</a> : null}
+      </header>
+      {pdf.url ? (
+        <iframe className={styles.weasyCompareFrame} src={pdf.url} title={pdf.label} />
+      ) : pdf.error ? (
+        <p className={styles.weasyCompareError}>{pdf.error}</p>
+      ) : (
+        <p className={styles.weasyCompareLoading}>Génération du PDF...</p>
+      )}
+    </section>
+  );
+
+  return (
+    <>
+      <div className={styles.weasyLabCard}>
+        <div className={styles.weasyLabHeader}>
+          <span><IonIcon name="construct-outline" /></span>
+          <div>
+            <strong>Lab PDF WeasyPrint</strong>
+            <small>POC admin isolé. Le PDF de production reste sur Puppeteer.</small>
+          </div>
+          <em className={statusClass}>{statusText}</em>
+        </div>
+
+        <div className={styles.weasyLabBody}>
+          <div className={styles.weasyLabSummary}>
+            <div><span>Rapport</span><strong>{selectedScenarioOption.label}</strong></div>
+            <div><span>Chantier</span><strong>{projectName}</strong></div>
+            <div><span>Échantillon</span><strong>{selectedScenarioOption.sample}</strong></div>
+          </div>
+
+          <div className={styles.weasyScenarioGrid} aria-label="Exemples PDF WeasyPrint">
+            {scenarioOptions.map(option => (
+              <button
+                key={option.id}
+                type="button"
+                className={`${styles.weasyScenarioButton} ${scenario === option.id ? styles.weasyScenarioActive : ''}`}
+                onClick={() => setScenario(option.id)}
+                disabled={!option.available || rendering}
+              >
+                <strong>{option.label}</strong>
+                <span>{option.hint}</span>
+                <em>{option.available ? option.sample : 'Indisponible'}</em>
+              </button>
+            ))}
+          </div>
+
+          <div className={styles.weasyLabControls}>
+            <label>
+              <span>Langue PDF</span>
+              <select value={reportLanguage} onChange={event => setReportLanguage(event.target.value as TextLang)}>
+                {TEXT_LANG_OPTIONS.map(option => (
+                  <option key={option.value} value={option.value}>{option.label} - {option.name}</option>
+                ))}
+              </select>
+            </label>
+            <label className={styles.weasyLabToggle}>
+              <input type="checkbox" checked={includePhotos} onChange={event => setIncludePhotos(event.target.checked)} />
+              <span>Inclure les photos distantes (test plus lent, 6 réserves max)</span>
+            </label>
+          </div>
+
+          {unavailable ? (
+            <p className={styles.settingsNotice}>Configurez <code>WEASYPRINT_POC_URL</code> avec l'URL <code>/render</code> du service WeasyPrint pour activer le test depuis le web.</p>
+          ) : null}
+          {status?.target ? <p className={styles.settingsMuted}>URL cible testée : <code>{status.target}</code></p> : null}
+          {status?.error ? <p className={styles.settingsNotice}>{status.error}</p> : null}
+          {message ? <p className={message.ok ? styles.weasyLabSuccess : styles.weasyLabError}>{message.text}</p> : null}
+
+          <div className={styles.weasyLabActions}>
+            <button type="button" onClick={checkService} disabled={checking || rendering}>
+              {checking ? 'Vérification...' : 'Vérifier le service'}
+            </button>
+            <button type="button" onClick={renderComparison} disabled={rendering || checking || !configured || unhealthy || !selectedScenarioOption.available}>
+              {rendering ? 'Génération...' : 'Comparer les PDFs'}
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className={styles.weasyLabBody}>
-        <div className={styles.weasyLabSummary}>
-          <div><span>Rapport</span><strong>Reserves globales</strong></div>
-          <div><span>Chantier</span><strong>{projectName}</strong></div>
-          <div><span>Echantillon</span><strong>{sampleCount} reserves</strong></div>
+      {comparisonOpen ? (
+        <div
+          className={styles.modalBackdrop}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Comparaison PDF"
+          onClick={event => {
+            if (event.currentTarget === event.target) closeComparison();
+          }}
+        >
+          <div className={styles.weasyCompareModal}>
+            <div className={styles.weasyCompareHeader}>
+              <div>
+                <strong>{comparison?.title ?? 'Comparaison PDF'}</strong>
+                <span>{comparison?.subtitle ?? 'PDF actuel et PDF WeasyPrint'}</span>
+              </div>
+              <button type="button" onClick={closeComparison}>Fermer</button>
+            </div>
+            <div className={styles.weasyCompareGrid}>
+              {renderPane(comparison?.current ?? { label: 'PDF actuel (Puppeteer)', filename: 'Puppeteer.pdf' })}
+              {renderPane(comparison?.weasyprint ?? { label: 'PDF testé (WeasyPrint)', filename: 'WeasyPrint.pdf' })}
+            </div>
+          </div>
         </div>
-
-        <div className={styles.weasyLabControls}>
-          <label>
-            <span>Langue PDF</span>
-            <select value={reportLanguage} onChange={event => setReportLanguage(event.target.value as TextLang)}>
-              {TEXT_LANG_OPTIONS.map(option => (
-                <option key={option.value} value={option.value}>{option.label} - {option.name}</option>
-              ))}
-            </select>
-          </label>
-          <label className={styles.weasyLabToggle}>
-            <input type="checkbox" checked={includePhotos} onChange={event => setIncludePhotos(event.target.checked)} />
-            <span>Inclure les photos distantes du rapport</span>
-          </label>
-        </div>
-
-        {unavailable ? (
-          <p className={styles.settingsNotice}>Configurez <code>WEASYPRINT_POC_URL</code> avec l'URL <code>/render</code> du service WeasyPrint pour activer le test depuis le web.</p>
-        ) : null}
-        {status?.target ? <p className={styles.settingsMuted}>URL cible testee : <code>{status.target}</code></p> : null}
-        {status?.error ? <p className={styles.settingsNotice}>{status.error}</p> : null}
-        {message ? <p className={message.ok ? styles.weasyLabSuccess : styles.weasyLabError}>{message.text}</p> : null}
-
-        <div className={styles.weasyLabActions}>
-          <button type="button" onClick={checkService} disabled={checking || rendering}>
-            {checking ? 'Verification...' : 'Verifier le service'}
-          </button>
-          <button type="button" onClick={renderWeasyPrint} disabled={rendering || checking || !configured || unhealthy || sampleCount === 0}>
-            {rendering ? 'Generation...' : 'Tester WeasyPrint'}
-          </button>
-        </div>
-      </div>
-    </div>
+      ) : null}
+    </>
   );
 }
 
