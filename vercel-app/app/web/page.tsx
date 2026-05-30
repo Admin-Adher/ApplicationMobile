@@ -9286,8 +9286,10 @@ type WeasyLabScenario = 'global_reserves' | 'individual_reserve' | 'plans' | 'vi
 type WeasyLabPdfResult = {
   label: string;
   filename: string;
+  kind?: 'pdf' | 'html';
   url?: string;
   bytes?: number;
+  notice?: string;
   error?: string;
 };
 
@@ -9596,7 +9598,16 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
     }
     if (!result.pdfBase64) {
       if (result.printHtml) {
-        throw new Error('Le moteur actuel a basculé en impression navigateur, sans PDF comparable.');
+        const html = String(result.printHtml);
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        return {
+          url,
+          filename: fallbackFilename.replace(/\.pdf$/i, '.html'),
+          bytes: blob.size,
+          kind: 'html' as const,
+          notice: result.message ?? 'Fallback impression navigateur',
+        };
       }
       throw new Error('Aucun PDF reçu.');
     }
@@ -9606,6 +9617,7 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
       url,
       filename: result.filename ?? fallbackFilename,
       bytes: Number(result.bytes ?? Math.round((String(result.pdfBase64).length * 3) / 4)),
+      kind: 'pdf' as const,
     };
   };
 
@@ -9649,6 +9661,11 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
         currentPdf.url = currentResult.value.url;
         currentPdf.filename = currentResult.value.filename;
         currentPdf.bytes = currentResult.value.bytes;
+        currentPdf.kind = currentResult.value.kind;
+        currentPdf.notice = currentResult.value.notice;
+        if (currentResult.value.kind === 'html') {
+          currentPdf.label = 'Aperçu actuel (impression navigateur)';
+        }
         nextUrls.push(currentResult.value.url);
       } else {
         currentPdf.error = currentResult.reason?.message ?? 'Génération Puppeteer impossible.';
@@ -9658,6 +9675,8 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
         weasyPdf.url = weasyResult.value.url;
         weasyPdf.filename = weasyResult.value.filename;
         weasyPdf.bytes = weasyResult.value.bytes;
+        weasyPdf.kind = weasyResult.value.kind;
+        weasyPdf.notice = weasyResult.value.notice;
         nextUrls.push(weasyResult.value.url);
       } else {
         weasyPdf.error = weasyResult.reason?.message ?? 'Rendu WeasyPrint impossible.';
@@ -9672,10 +9691,13 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
       });
 
       const successCount = [currentPdf.url, weasyPdf.url].filter(Boolean).length;
+      const hasHtmlFallback = currentPdf.kind === 'html';
       setMessage({
         ok: successCount === 2,
-        text: successCount === 2
-          ? 'Comparaison prête : les deux PDFs sont affichés côte à côte.'
+        text: successCount === 2 && hasHtmlFallback
+          ? 'Comparaison prête : aperçu actuel navigateur à gauche, PDF WeasyPrint à droite.'
+          : successCount === 2
+            ? 'Comparaison prête : les deux PDFs sont affichés côte à côte.'
           : `Comparaison partielle : ${successCount}/2 PDF généré.`,
       });
     } catch (err: any) {
@@ -9715,7 +9737,10 @@ function WeasyPrintLab({ data, scoped, selectedProjectId }: { data: WebState; sc
       <header>
         <div>
           <strong>{pdf.label}</strong>
-          <span>{pdf.bytes ? `${Math.round(pdf.bytes / 1024)} Ko` : pdf.filename}</span>
+          <span>
+            {pdf.bytes ? `${Math.round(pdf.bytes / 1024)} Ko` : pdf.filename}
+            {pdf.notice ? ` · ${pdf.notice}` : ''}
+          </span>
         </div>
         {pdf.url ? <a href={pdf.url} download={pdf.filename}>Télécharger</a> : null}
       </header>
