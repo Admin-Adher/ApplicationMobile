@@ -1220,6 +1220,14 @@
   font-weight: 900;
 }
 
+.dashboardKpi span .ionIcon {
+  display: block;
+  width: 1em;
+  height: 1em;
+  font-size: 20px;
+  line-height: 1;
+}
+
 .dashboardKpi strong {
   display: block;
   margin-top: 16px;
@@ -1298,6 +1306,14 @@
   color: var(--wide-tone, #16a34a);
   font-size: 18px;
   font-weight: 900;
+}
+
+.dashboardWideMetric > span .ionIcon {
+  display: block;
+  width: 1em;
+  height: 1em;
+  font-size: 20px;
+  line-height: 1;
 }
 
 .dashboardWideMetric strong {

@@ -3924,21 +3924,21 @@ function Dashboard({
       )}
 
       <div className={styles.dashboardKpiGrid}>
-        <DashboardKpi title="Total réserves" value={totalCount} hint="Toutes les réserves non archivées" tone="blue" icon="☷" onClick={() => setTab('reserves')} />
-        <DashboardKpi title="À traiter" value={openCount + inProgressCount} hint={`${openCount} ouvertes · ${inProgressCount} en cours`} tone="amber" icon="!" onClick={() => setTab('reserves')} />
-        <DashboardKpi title="Critiques" value={criticalReserves.length} hint="Priorité critique non clôturée" tone="red" icon="△" onClick={() => setTab('reserves')} />
-        <DashboardKpi title="Clôturées" value={closedCount} hint={`${progress}% d’avancement`} tone="green" icon="✓" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="Total réserves" value={totalCount} hint="Toutes les réserves non archivées" tone="blue" icon="albums-outline" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="À traiter" value={openCount + inProgressCount} hint={`${openCount} ouvertes · ${inProgressCount} en cours`} tone="amber" icon="alert-circle-outline" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="Critiques" value={criticalReserves.length} hint="Priorité critique non clôturée" tone="red" icon="warning" onClick={() => setTab('reserves')} />
+        <DashboardKpi title="Clôturées" value={closedCount} hint={`${progress}% d’avancement`} tone="green" icon="checkmark-circle-outline" onClick={() => setTab('reserves')} />
       </div>
 
       <div className={styles.dashboardWideGrid}>
         <button type="button" className={`${styles.dashboardWideMetric} ${lateTasks.length ? styles.dashboardWideAmber : styles.dashboardWideGreen}`} onClick={() => setTab('planning')}>
-          <span>◷</span>
+          <span><IonIcon name="time-outline" /></span>
           <strong>{lateTasks.length}</strong>
           <small>{lateTasks.length ? `${lateTasks.length} tâche${lateTasks.length > 1 ? 's' : ''} en retard` : 'Aucune tâche en retard'}</small>
           <em>Planning</em>
         </button>
         <button type="button" className={`${styles.dashboardWideMetric} ${openIncidents.length ? styles.dashboardWideRed : styles.dashboardWideGreen}`} onClick={() => setTab('terrain')}>
-          <span>◇</span>
+          <span><IonIcon name="shield-outline" /></span>
           <strong>{openIncidents.length}</strong>
           <small>{openIncidents.length ? `${openIncidents.length} incident${openIncidents.length > 1 ? 's' : ''} ouvert${openIncidents.length > 1 ? 's' : ''}` : 'Aucun incident ouvert'}</small>
           <em>Terrain</em>
@@ -4188,10 +4188,10 @@ function Dashboard({
   );
 }
 
-function DashboardKpi({ title, value, hint, tone, icon, onClick }: { title: string; value: number | string; hint: string; tone: string; icon: string; onClick: () => void }) {
+function DashboardKpi({ title, value, hint, tone, icon, onClick }: { title: string; value: number | string; hint: string; tone: string; icon: IonIconName; onClick: () => void }) {
   return (
     <button type="button" className={`${styles.dashboardKpi} ${styles[`dashboardTone_${tone}`] ?? ''}`} onClick={onClick}>
-      <span>{icon}</span>
+      <span><IonIcon name={icon} /></span>
       <strong>{value}</strong>
       <em>{title}</em>
       <small>{hint}</small>
@@ -8555,6 +8555,8 @@ function prefValue(preferences: any[], authUser: SupabaseUser | null, field: str
 
 type SettingsTabId = 'compte' | 'notifications' | 'project' | 'attendance' | 'integrations';
 type IonIconName =
+  | 'albums-outline'
+  | 'alert-circle-outline'
   | 'apps-outline'
   | 'at-outline'
   | 'business-outline'
@@ -8584,10 +8586,14 @@ type IonIconName =
   | 'send-outline'
   | 'shield'
   | 'shield-checkmark-outline'
+  | 'shield-outline'
   | 'time-outline'
+  | 'warning'
   | 'warning-outline';
 
 const IONICON_CODEPOINTS: Record<IonIconName, string> = {
+  'albums-outline': '\uEA11',
+  'alert-circle-outline': '\uEA15',
   'apps-outline': '\uEA23',
   'at-outline': '\uEA50',
   'business-outline': '\uEAC8',
@@ -8617,7 +8623,9 @@ const IONICON_CODEPOINTS: Record<IonIconName, string> = {
   'send-outline': '\uEE67',
   'shield': '\uEE78',
   'shield-checkmark-outline': '\uEE7A',
+  'shield-outline': '\uEE7F',
   'time-outline': '\uEEDF',
+  'warning': '\uEF29',
   'warning-outline': '\uEF2A',
 };
 
