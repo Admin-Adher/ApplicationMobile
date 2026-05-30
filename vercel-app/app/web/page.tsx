@@ -3630,10 +3630,12 @@ export default function BuildTrackWebPage() {
                 selectedChannel={selectedChannel}
                 setSelectedChannelId={setSelectedChannelId}
                 messages={selectedChannelMessages}
+                allMessages={data.messages}
                 draft={messageDraft}
                 setDraft={setMessageDraft}
                 onSend={sendMessage}
                 saving={saving}
+                currentUserName={profile?.name ?? authUser?.email}
               />
             )}
             {activeTab === 'terrain' && (
@@ -4321,6 +4323,7 @@ function ReservesView(props: {
   const [assistantScope, setAssistantScope] = useState<'view' | 'project' | 'selected'>('view');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [assistantVisible, setAssistantVisible] = useState(false);
+  const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
   const explicitlySelectedReserve = props.selectedReserveId
     ? allReserves.find(reserve => reserve.id === props.selectedReserveId) ?? null
@@ -4355,6 +4358,7 @@ function ReservesView(props: {
     props.pinFilter !== 'all';
   const selectedPhotos = reservePhotoItems(detailReserve, props.photos);
   const selectedLocalOnlyPhotos = localOnlyPhotoCount(detailReserve, props.photos);
+  const lightboxPhoto = photoLightboxIndex !== null ? selectedPhotos[photoLightboxIndex] : null;
   const pdfCompanies = props.structuredFilters.companies;
   const pdfTargetReserves = useMemo(() => {
     if (pdfMode === 'selected') return selectedReserve ? [selectedReserve] : [];
@@ -4435,12 +4439,50 @@ function ReservesView(props: {
     }
   }, [explicitlySelectedReserve, mobileDetailOpen, reserves]);
 
+  useEffect(() => {
+    setPhotoLightboxIndex(null);
+  }, [detailReserve?.id]);
+
+  useEffect(() => {
+    if (photoLightboxIndex === null) return;
+    if (photoLightboxIndex >= selectedPhotos.length) {
+      setPhotoLightboxIndex(selectedPhotos.length ? selectedPhotos.length - 1 : null);
+    }
+  }, [photoLightboxIndex, selectedPhotos.length]);
+
+  useEffect(() => {
+    if (photoLightboxIndex === null) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        setPhotoLightboxIndex(null);
+      }
+      if (selectedPhotos.length > 1 && event.key === 'ArrowLeft') {
+        setPhotoLightboxIndex(index => index === null ? index : (index - 1 + selectedPhotos.length) % selectedPhotos.length);
+      }
+      if (selectedPhotos.length > 1 && event.key === 'ArrowRight') {
+        setPhotoLightboxIndex(index => index === null ? index : (index + 1) % selectedPhotos.length);
+      }
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [photoLightboxIndex, selectedPhotos.length]);
+
   function openReserveFromList(reserve: any) {
     props.setSelectedReserveId(reserve.id);
     if (isCompactReserveView) {
       setMobileDetailOpen(true);
       setCommentText('');
     }
+  }
+
+  function moveLightboxPhoto(direction: -1 | 1) {
+    if (selectedPhotos.length <= 1) return;
+    setPhotoLightboxIndex(index => index === null ? index : (index + direction + selectedPhotos.length) % selectedPhotos.length);
+  }
+
+  async function copyLightboxPhotoLink() {
+    if (!lightboxPhoto?.uri || typeof navigator === 'undefined' || !navigator.clipboard) return;
+    await navigator.clipboard.writeText(lightboxPhoto.uri);
   }
 
   async function handleReservePdfExport() {
@@ -4932,14 +4974,19 @@ function ReservesView(props: {
                   <span>{selectedPhotos.length} média{selectedPhotos.length > 1 ? 's' : ''} associé{selectedPhotos.length > 1 ? 's' : ''}</span>
                 </div>
                 <div className={styles.reserveDetailPhotoGrid}>
-                  {selectedPhotos.map(photo => (
-                    <a key={photo.id ?? photo.uri} href={photo.uri} target="_blank" rel="noreferrer">
+                  {selectedPhotos.map((photo, index) => (
+                    <button
+                      key={photo.id ?? photo.uri}
+                      type="button"
+                      onClick={() => setPhotoLightboxIndex(index)}
+                      aria-label={`Ouvrir la photo ${index + 1} sur ${selectedPhotos.length}`}
+                    >
                       <span className={styles.photoAnnotationFrame}>
                         <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} />
                         <PhotoAnnotationLayer annotations={photoAnnotationsFrom(photo)} compact />
                       </span>
                       <span className={styles.reservePhotoKindBadge}>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
-                    </a>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -5007,6 +5054,51 @@ function ReservesView(props: {
           <p className={styles.empty}>Sélectionnez une réserve.</p>
         )}
       </section>
+      )}
+      {lightboxPhoto && (
+        <div
+          className={styles.reservePhotoLightboxBackdrop}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Aperçu photo réserve"
+          onMouseDown={() => setPhotoLightboxIndex(null)}
+        >
+          <section className={styles.reservePhotoLightboxPanel} onMouseDown={event => event.stopPropagation()}>
+            <header className={styles.reservePhotoLightboxHeader}>
+              <div>
+                <p className={styles.eyebrow}>{detailReserve?.id ?? 'Réserve'}</p>
+                <h2>{lightboxPhoto.comment ?? lightboxPhoto.name ?? 'Photo réserve'}</h2>
+                <span>{photoLightboxIndex !== null ? `${photoLightboxIndex + 1} / ${selectedPhotos.length}` : ''} · {lightboxPhoto.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
+              </div>
+              <button type="button" onClick={() => setPhotoLightboxIndex(null)} aria-label="Fermer l’aperçu">×</button>
+            </header>
+
+            <div className={styles.reservePhotoLightboxStage}>
+              {selectedPhotos.length > 1 && (
+                <button type="button" className={styles.reservePhotoLightboxPrev} onClick={() => moveLightboxPhoto(-1)} aria-label="Photo précédente">
+                  ‹
+                </button>
+              )}
+              <span className={styles.reservePhotoLightboxImageFrame}>
+                <img src={lightboxPhoto.uri} alt={lightboxPhoto.comment ?? lightboxPhoto.name ?? 'Photo réserve'} />
+                <PhotoAnnotationLayer annotations={photoAnnotationsFrom(lightboxPhoto)} compact />
+              </span>
+              {selectedPhotos.length > 1 && (
+                <button type="button" className={styles.reservePhotoLightboxNext} onClick={() => moveLightboxPhoto(1)} aria-label="Photo suivante">
+                  ›
+                </button>
+              )}
+            </div>
+
+            <footer className={styles.reservePhotoLightboxFooter}>
+              <span>{lightboxPhoto.name ?? lightboxPhoto.comment ?? 'Photo réserve'}</span>
+              <div>
+                <button type="button" onClick={() => void copyLightboxPhotoLink()} disabled={!lightboxPhoto.uri}>Copier le lien</button>
+                <a href={lightboxPhoto.uri} target="_blank" rel="noreferrer">Ouvrir dans un onglet</a>
+              </div>
+            </footer>
+          </section>
+        </div>
       )}
     </div>
   );
@@ -7839,43 +7931,209 @@ function ReportCard({ title, text, meta, disabled, loading, onClick }: any) {
   );
 }
 
-function MessagesView({ channels, companies, selectedChannel, setSelectedChannelId, messages, draft, setDraft, onSend, saving }: any) {
+function messageChannelTypeLabel(type: string | null | undefined, t: WebTranslator) {
+  const value = String(type ?? 'channel').toLowerCase();
+  if (value === 'dm') return t('messages.type.dm');
+  if (value === 'company') return t('messages.type.company');
+  if (value === 'building') return t('messages.type.building');
+  return t('messages.type.channel');
+}
+
+function messageChannelIcon(type?: string | null): IonIconName {
+  const value = String(type ?? 'channel').toLowerCase();
+  if (value === 'dm') return 'at-outline';
+  if (value === 'company') return 'business-outline';
+  if (value === 'building') return 'construct-outline';
+  return 'chatbubble-outline';
+}
+
+function messageDayKey(value?: string | null, locale = 'fr-FR') {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' });
+}
+
+function messageListTimestamp(value?: string | null, locale = 'fr-FR') {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const today = new Date();
+  const sameDay = date.toDateString() === today.toDateString();
+  const sameYear = date.getFullYear() === today.getFullYear();
+  if (sameDay) {
+    return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+  }
+  return date.toLocaleDateString(locale, {
+    day: '2-digit',
+    month: 'short',
+    ...(sameYear ? {} : { year: '2-digit' }),
+  });
+}
+
+function MessagesView({ channels, companies, selectedChannel, setSelectedChannelId, messages, allMessages, draft, setDraft, onSend, saving, currentUserName }: any) {
+  const { t, locale } = useWebI18n();
+  const [channelSearch, setChannelSearch] = useState('');
+  const channelSummaries = useMemo(() => {
+    const query = channelSearch.trim().toLowerCase();
+    return channels
+      .map((channel: any, index: number) => {
+        const label = channelLabel(channel, companies);
+        const channelMessages = (allMessages ?? []).filter((message: any) => message.channel_id === channel.id);
+        const latest = channelMessages
+          .slice()
+          .sort((a: any, b: any) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0] ?? null;
+        const typeLabel = messageChannelTypeLabel(channel.type, t);
+        return {
+          channel,
+          index,
+          label,
+          typeLabel,
+          count: channelMessages.length,
+          latest,
+          latestPreview: latest?.content ? String(latest.content).replace(/\s+/g, ' ').trim() : '',
+        };
+      })
+      .filter((item: any) => {
+        if (!query) return true;
+        return `${item.label} ${item.typeLabel} ${item.latestPreview}`.toLowerCase().includes(query);
+      })
+      .sort((a: any, b: any) => {
+        const aTime = new Date(a.latest?.created_at ?? 0).getTime();
+        const bTime = new Date(b.latest?.created_at ?? 0).getTime();
+        if (aTime || bTime) return bTime - aTime;
+        return a.index - b.index;
+      });
+  }, [allMessages, channelSearch, channels, companies, t]);
+  const selectedLabel = selectedChannel ? channelLabel(selectedChannel, companies) : t('nav.messages');
+  const selectedTypeLabel = messageChannelTypeLabel(selectedChannel?.type, t);
+  const selectedSummary = selectedChannel
+    ? channelSummaries.find((item: any) => item.channel.id === selectedChannel.id)
+    : null;
+  const selectedMessageCount = selectedSummary?.count ?? messages.length;
+  let previousDay = '';
+
   return (
-    <div className={styles.twoCols}>
-      <section className={styles.panel}>
-        <div className={styles.list}>
-          {channels.map((channel: any) => (
-            <button key={channel.id} className={`${styles.listRow} ${selectedChannel?.id === channel.id ? styles.selectedRow : ''}`} onClick={() => setSelectedChannelId(channel.id)}>
-              <span>○</span>
-              <div>
-                <strong>{channelLabel(channel, companies)}</strong>
-                <small>{channel.type ?? 'canal'}</small>
-              </div>
-            </button>
-          ))}
-          {!channels.length && <p className={styles.empty}>Aucun canal chargé.</p>}
-        </div>
-      </section>
-      <section className={styles.panel}>
-        <div className={styles.sectionHeader}>
+    <div className={styles.messagesWorkspace}>
+      <aside className={styles.messagesSidebar}>
+        <div className={styles.messagesSidebarHeader}>
           <div>
-            <p className={styles.eyebrow}>{selectedChannel?.type ?? 'canal'}</p>
-            <h2>{selectedChannel ? channelLabel(selectedChannel, companies) : 'Messages'}</h2>
+            <p className={styles.eyebrow}>{t('messages.workspace')}</p>
+            <h2>{t('messages.channels')}</h2>
           </div>
+          <strong>{channels.length}</strong>
         </div>
-        <div className={styles.messageList}>
-          {messages.map((message: any) => (
-            <div key={message.id} className={styles.messageBubble}>
-              <strong>{message.sender}</strong>
-              <p>{message.content}</p>
-              <small>{prettyDate(message.created_at, true)}</small>
+        <label className={styles.messagesSearch}>
+          <IonIcon name="search-outline" />
+          <input
+            value={channelSearch}
+            onChange={event => setChannelSearch(event.target.value)}
+            placeholder={t('messages.searchPlaceholder')}
+          />
+        </label>
+        <div className={styles.messagesSidebarStats}>
+          <span><strong>{channels.length}</strong><small>{t('messages.channels')}</small></span>
+          <span><strong>{(allMessages ?? []).length}</strong><small>{t('nav.messages')}</small></span>
+        </div>
+        <div className={styles.messagesChannelList} role="listbox" aria-label={t('messages.channels')}>
+          {channelSummaries.map((item: any) => {
+            const active = selectedChannel?.id === item.channel.id;
+            return (
+              <button
+                key={item.channel.id}
+                type="button"
+                role="option"
+                aria-selected={active}
+                className={active ? styles.messagesChannelActive : styles.messagesChannel}
+                onClick={() => setSelectedChannelId(item.channel.id)}
+              >
+                <span className={styles.messagesChannelIcon}>
+                  <IonIcon name={messageChannelIcon(item.channel.type)} />
+                </span>
+                <span className={styles.messagesChannelBody}>
+                  <span>
+                    <strong>{item.label}</strong>
+                    {item.count ? <em>{item.count}</em> : null}
+                  </span>
+                  <small>{item.latestPreview || item.typeLabel}</small>
+                </span>
+                <time>{messageListTimestamp(item.latest?.created_at, locale)}</time>
+              </button>
+            );
+          })}
+          {!channelSummaries.length ? (
+            <p className={styles.messagesEmptyInline}>{channels.length ? t('messages.noChannelResult') : t('messages.noChannels')}</p>
+          ) : null}
+        </div>
+      </aside>
+
+      <section className={styles.messagesPanel}>
+        <header className={styles.messagesHeader}>
+          <div className={styles.messagesHeaderIdentity}>
+            <span><IonIcon name={messageChannelIcon(selectedChannel?.type)} /></span>
+            <div>
+              <p className={styles.eyebrow}>{selectedTypeLabel}</p>
+              <h2>{selectedLabel}</h2>
             </div>
-          ))}
-          {!messages.length && <p className={styles.empty}>Aucun message dans ce canal.</p>}
+          </div>
+          <div className={styles.messagesHeaderMeta}>
+            <span>{selectedMessageCount} {t('nav.messages').toLowerCase()}</span>
+            <span>{selectedChannel ? t('messages.activeChannel') : t('messages.noChannelSelected')}</span>
+          </div>
+        </header>
+
+        <div className={styles.messagesThread}>
+          {messages.map((message: any) => {
+            const sender = message.sender ?? t('messages.unknownSender');
+            const day = messageDayKey(message.created_at, locale);
+            const showDay = day && day !== previousDay;
+            previousDay = day || previousDay;
+            const own = currentUserName && String(sender).trim().toLowerCase() === String(currentUserName).trim().toLowerCase();
+            return (
+              <div key={message.id} className={styles.messagesMessageBlock}>
+                {showDay ? <div className={styles.messagesDateDivider}><span>{day}</span></div> : null}
+                <article className={`${styles.messagesMessage} ${own ? styles.messagesMessageOwn : ''}`}>
+                  <div className={styles.messagesAvatar}>{initials(sender)}</div>
+                  <div className={styles.messagesMessageContent}>
+                    <div className={styles.messagesMessageMeta}>
+                      <strong>{sender}</strong>
+                      <time>{prettyDate(message.created_at, true)}</time>
+                    </div>
+                    <p>{message.content}</p>
+                  </div>
+                </article>
+              </div>
+            );
+          })}
+          {!messages.length ? (
+            <div className={styles.messagesEmptyState}>
+              <span><IonIcon name="chatbubbles-outline" /></span>
+              <strong>{t('messages.emptyTitle')}</strong>
+              <p>{selectedChannel ? t('messages.emptyText') : t('messages.noChannelSelected')}</p>
+            </div>
+          ) : null}
         </div>
-        <form className={styles.messageForm} onSubmit={onSend}>
-          <input value={draft} onChange={e => setDraft(e.target.value)} placeholder="Écrire un message..." />
-          <button disabled={saving || !draft.trim()}>Envoyer</button>
+
+        <form className={styles.messagesComposer} onSubmit={onSend}>
+          <div className={styles.messagesComposerBox}>
+            <textarea
+              value={draft}
+              onChange={event => setDraft(event.target.value)}
+              placeholder={selectedChannel ? t('messages.composerPlaceholder', { channel: selectedLabel }) : t('messages.noChannelSelected')}
+              disabled={!selectedChannel}
+              rows={1}
+              onKeyDown={event => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && draft.trim() && !saving) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+            <button type="submit" disabled={saving || !draft.trim() || !selectedChannel}>
+              <IonIcon name={saving ? 'refresh' : 'send'} />
+              <span>{saving ? t('common.syncing') : t('messages.send')}</span>
+            </button>
+          </div>
         </form>
       </section>
     </div>
@@ -8245,7 +8503,9 @@ function prefValue(preferences: any[], authUser: SupabaseUser | null, field: str
 type SettingsTabId = 'compte' | 'notifications' | 'project' | 'attendance' | 'integrations';
 type IonIconName =
   | 'apps-outline'
+  | 'at-outline'
   | 'business-outline'
+  | 'chatbubble-outline'
   | 'chatbubbles-outline'
   | 'checkmark-circle'
   | 'checkmark-circle-outline'
@@ -8253,6 +8513,7 @@ type IonIconName =
   | 'chevron-forward'
   | 'chevron-up'
   | 'construct-outline'
+  | 'ellipse'
   | 'language-outline'
   | 'lock-closed-outline'
   | 'log-out-outline'
@@ -8263,7 +8524,11 @@ type IonIconName =
   | 'person-outline'
   | 'phone-portrait-outline'
   | 'pulse-outline'
+  | 'radio-button-on'
   | 'refresh'
+  | 'search-outline'
+  | 'send'
+  | 'send-outline'
   | 'shield'
   | 'shield-checkmark-outline'
   | 'time-outline'
@@ -8271,7 +8536,9 @@ type IonIconName =
 
 const IONICON_CODEPOINTS: Record<IonIconName, string> = {
   'apps-outline': '\uEA23',
+  'at-outline': '\uEA50',
   'business-outline': '\uEAC8',
+  'chatbubble-outline': '\uEB16',
   'chatbubbles-outline': '\uEB19',
   'checkmark-circle': '\uEB1F',
   'checkmark-circle-outline': '\uEB20',
@@ -8279,6 +8546,7 @@ const IONICON_CODEPOINTS: Record<IonIconName, string> = {
   'chevron-forward': '\uEB3C',
   'chevron-up': '\uEB42',
   'construct-outline': '\uEB88',
+  'ellipse': '\uEBCC',
   'language-outline': '\uECAB',
   'lock-closed-outline': '\uECC9',
   'log-out-outline': '\uECD2',
@@ -8289,7 +8557,11 @@ const IONICON_CODEPOINTS: Record<IonIconName, string> = {
   'person-outline': '\uEDAD',
   'phone-portrait-outline': '\uEDB6',
   'pulse-outline': '\uEDF8',
+  'radio-button-on': '\uEE04',
   'refresh': '\uEE15',
+  'search-outline': '\uEE64',
+  'send': '\uEE66',
+  'send-outline': '\uEE67',
   'shield': '\uEE78',
   'shield-checkmark-outline': '\uEE7A',
   'time-outline': '\uEEDF',
