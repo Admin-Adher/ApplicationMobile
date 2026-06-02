@@ -258,7 +258,7 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
-  const { reserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
+  const { reserves, deletedReserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, restoreReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
@@ -411,6 +411,7 @@ export default function ReservesScreen() {
   // archivées sont masquées de la liste principale et apparaissent seulement
   // quand l'utilisateur clique sur la bannière "X réserves archivées".
   const [showArchived, setShowArchived] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
 
   // Toggle compact : masque la barre de progression et le bandeau d'échéance
   // pour libérer de l'espace vertical sur mobile. Persisté localement.
@@ -430,7 +431,8 @@ export default function ReservesScreen() {
   }, []);
 
   const chantierReserves = useMemo(() => {
-    let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
+    const source = showTrash ? deletedReserves : reserves;
+    let list = chantierFilter === 'all' ? source : source.filter(r => r.chantierId === chantierFilter);
     if (isSousTraitant && sousTraitantCompanyName) {
       list = list.filter(r => {
         const names = r.companies ?? (r.company ? [r.company] : []);
@@ -438,11 +440,12 @@ export default function ReservesScreen() {
       });
     }
     // Filtre archives : par défaut on cache, sinon on n'affiche QUE les archives
+    if (showTrash) return list;
     list = showArchived
       ? list.filter(r => !!r.archivedAt)
       : list.filter(r => !r.archivedAt);
     return list;
-  }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName, showArchived]);
+  }, [reserves, deletedReserves, chantierFilter, isSousTraitant, sousTraitantCompanyName, showArchived, showTrash]);
 
   // Compteur d'archives (basé sur la sélection de chantier mais ignorant le toggle).
   const archivedCount = useMemo(() => {
@@ -455,6 +458,17 @@ export default function ReservesScreen() {
     }
     return list.filter(r => !!r.archivedAt).length;
   }, [reserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
+
+  const trashCount = useMemo(() => {
+    let list = chantierFilter === 'all' ? deletedReserves : deletedReserves.filter(r => r.chantierId === chantierFilter);
+    if (isSousTraitant && sousTraitantCompanyName) {
+      list = list.filter(r => {
+        const names = r.companies ?? (r.company ? [r.company] : []);
+        return names.includes(sousTraitantCompanyName!);
+      });
+    }
+    return list.length;
+  }, [deletedReserves, chantierFilter, isSousTraitant, sousTraitantCompanyName]);
 
   const enterpriseWorkflowReserves = useMemo(() => {
     let list = chantierFilter === 'all' ? reserves : reserves.filter(r => r.chantierId === chantierFilter);
@@ -538,6 +552,7 @@ export default function ReservesScreen() {
     + (statusFilter !== 'all' ? 1 : 0)
     + (canTrackEnterpriseWorkflow && enterpriseFilter !== 'all' ? 1 : 0)
     + (showArchived ? 1 : 0)
+    + (showTrash ? 1 : 0)
     + (nearDeadlineOnly ? 1 : 0)
     + (pinFilter !== 'all' ? 1 : 0);
 
@@ -561,16 +576,19 @@ export default function ReservesScreen() {
     !isLoading &&
     !headerCompact &&
     !showArchived &&
+    !showTrash &&
     (hasEnterpriseWorkflowAttention || enterpriseFilter !== 'all');
 
   function applyAdvancedStatusFilter(key: AdvancedStatusFilterKey) {
     if (key === 'archived') {
       setShowArchived(true);
+      setShowTrash(false);
       setStatusFilter('all');
       setEnterpriseFilter('all');
       setNearDeadlineOnly(false);
       return;
     }
+    setShowTrash(false);
     setShowArchived(false);
     setStatusFilter(key);
     if (key !== 'overdue') setNearDeadlineOnly(false);
@@ -1050,10 +1068,12 @@ export default function ReservesScreen() {
     [filtered, selectedReserveId]
   );
   const hasReserveActions =
-    (permissions.canExport && filtered.length > 0) ||
-    (permissions.canEdit && filtered.length > 0) ||
-    (canUseReserveAssistant && chantierReserves.length > 0) ||
-    chantierReserves.length > 0;
+    !showTrash && (
+      (permissions.canExport && filtered.length > 0) ||
+      (permissions.canEdit && filtered.length > 0) ||
+      (canUseReserveAssistant && chantierReserves.length > 0) ||
+      chantierReserves.length > 0
+    );
 
   const toggleId = useCallback((id: string) => {
     setSelectedIds(prev => {
@@ -1140,6 +1160,7 @@ export default function ReservesScreen() {
     setStatusFilter('all');
     setEnterpriseFilter('all');
     setShowArchived(false);
+    setShowTrash(false);
     setNearDeadlineOnly(false);
     setPinFilter('all');
   }
@@ -1269,6 +1290,24 @@ export default function ReservesScreen() {
     }
   }
 
+  function handleRestoreReserve(reserve: Reserve) {
+    Alert.alert(
+      'Restaurer la réserve',
+      `Remettre "${reserve.title}" dans les réserves actives ?`,
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: 'Restaurer',
+          onPress: () => {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            restoreReserve(reserve.id, user?.name ?? t('common.system'));
+            setSelectedReserveId(null);
+          },
+        },
+      ],
+    );
+  }
+
   async function handleTabletComment(reserve: Reserve) {
     if (!tabletComment.trim()) return;
     setTabletCommentSending(true);
@@ -1297,7 +1336,7 @@ export default function ReservesScreen() {
     const hasPlansAvailable = chantiersWithPlans.has(item.chantierId ?? '');
     return (
       <View style={styles.selectableRow}>
-        {isSelectMode && (
+        {isSelectMode && !showTrash && (
           <TouchableOpacity
             onPress={() => toggleId(item.id)}
             style={[styles.checkbox, selectedIds.has(item.id) && styles.checkboxChecked]}
@@ -1311,15 +1350,32 @@ export default function ReservesScreen() {
         <View style={{ flex: 1 }}>
           <ReserveCard
             reserve={item}
-            onPress={r => isSelectMode ? toggleId(r.id) : (isWideScreen ? setSelectedReserveId(r.id === selectedReserveId ? null : r.id) : router.push(`/reserve/${r.id}` as any))}
-            onLongPress={permissions.canEdit ? handleContextMenu : undefined}
-            onSwipeRight={permissions.canEdit ? handleQuickStatusChange : undefined}
-            onSwipeLeft={permissions.canEdit ? handleSwipeLeft : undefined}
+            onPress={r => {
+              if (showTrash) {
+                if (isWideScreen) setSelectedReserveId(r.id === selectedReserveId ? null : r.id);
+                return;
+              }
+              isSelectMode ? toggleId(r.id) : (isWideScreen ? setSelectedReserveId(r.id === selectedReserveId ? null : r.id) : router.push(`/reserve/${r.id}` as any));
+            }}
+            onLongPress={!showTrash && permissions.canEdit ? handleContextMenu : undefined}
+            onSwipeRight={!showTrash && permissions.canEdit ? handleQuickStatusChange : undefined}
+            onSwipeLeft={!showTrash && permissions.canEdit ? handleSwipeLeft : undefined}
             selected={item.id === selectedReserveId}
             isFlashed={item.id === flashId}
             hasPlansAvailable={hasPlansAvailable}
             showEnterpriseTracking={canTrackEnterpriseWorkflow}
           />
+          {showTrash && permissions.canEdit && (
+            <TouchableOpacity
+              style={styles.restoreInlineBtn}
+              onPress={() => handleRestoreReserve(item)}
+              accessibilityRole="button"
+              accessibilityLabel={`Restaurer la réserve ${item.id}`}
+            >
+              <Ionicons name="refresh-outline" size={14} color="#fff" />
+              <Text style={styles.restoreInlineBtnText}>Restaurer</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     );
@@ -1328,19 +1384,23 @@ export default function ReservesScreen() {
   const listEmpty = (
     <View style={styles.empty}>
       <View style={styles.emptyIcon}>
-        {chantierReserves.length === 0
+        {showTrash
+          ? <Ionicons name="trash-outline" size={40} color={C.primary} />
+          : chantierReserves.length === 0
           ? <Ionicons name="document-text-outline" size={40} color={C.primary} />
           : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
       </View>
       <Text style={styles.emptyText}>
-        {chantierReserves.length === 0 ? t('reservesScreen.empty.noReserve') : t('reservesScreen.empty.noResult')}
+        {showTrash ? 'Corbeille vide' : chantierReserves.length === 0 ? t('reservesScreen.empty.noReserve') : t('reservesScreen.empty.noResult')}
       </Text>
       <Text style={styles.emptyHint}>
-        {chantierReserves.length === 0
+        {showTrash
+          ? 'Les réserves supprimées apparaîtront ici et pourront être restaurées.'
+          : chantierReserves.length === 0
           ? t('reservesScreen.empty.createReserve')
           : t('reservesScreen.empty.resetFilters')}
       </Text>
-      {chantierReserves.length === 0 && permissions.canCreate && (
+      {!showTrash && chantierReserves.length === 0 && permissions.canCreate && (
         <TouchableOpacity
           style={styles.emptyBtn}
           onPress={toggleFab}
@@ -1349,7 +1409,7 @@ export default function ReservesScreen() {
           <Text style={styles.emptyBtnText}>{t('reservesScreen.empty.createReserve')}</Text>
         </TouchableOpacity>
       )}
-      {chantierReserves.length > 0 && (
+      {!showTrash && chantierReserves.length > 0 && (
         <TouchableOpacity style={styles.emptyBtnSecondary} onPress={resetAllFilters}>
           <Text style={styles.emptyBtnSecondaryText}>{t('reservesScreen.empty.resetFilters')}</Text>
         </TouchableOpacity>
@@ -1453,7 +1513,7 @@ export default function ReservesScreen() {
           </View>
         </View>
 
-        {isSelectMode && (
+        {!showTrash && isSelectMode && (
           <View style={styles.selectBar}>
             <TouchableOpacity style={styles.selectBarBtn} onPress={selectAll} accessibilityLabel={t('reservesScreen.selectAll')}>
               <Ionicons name="checkmark-done-outline" size={14} color={C.primary} />
@@ -1575,6 +1635,7 @@ export default function ReservesScreen() {
             onPress={() => {
               const next = !showArchived;
               setShowArchived(next);
+              if (next) setShowTrash(false);
               if (next) {
                 setStatusFilter('all');
                 setEnterpriseFilter('all');
@@ -1609,6 +1670,44 @@ export default function ReservesScreen() {
           </TouchableOpacity>
         )}
 
+        {(trashCount > 0 || showTrash) && permissions.canEdit && (
+          <TouchableOpacity
+            style={[styles.archiveBanner, showTrash && styles.trashBannerActive]}
+            onPress={() => {
+              const next = !showTrash;
+              setShowTrash(next);
+              if (next) {
+                setShowArchived(false);
+                setStatusFilter('all');
+                setEnterpriseFilter('all');
+                setNearDeadlineOnly(false);
+                setIsSelectMode(false);
+                setSelectedIds(new Set());
+              }
+            }}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={showTrash ? 'Vue corbeille' : `${trashCount} réserves en corbeille`}
+          >
+            <Ionicons name={showTrash ? 'trash' : 'trash-outline'} size={14} color="#B45309" />
+            <Text style={[styles.archiveBannerText, styles.trashBannerText]}>
+              {showTrash ? (
+                <>
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#B45309' }}>Corbeille</Text>
+                  {' — '}
+                  {trashCount} réserve{trashCount > 1 ? 's' : ''} récupérable{trashCount > 1 ? 's' : ''}
+                </>
+              ) : (
+                <>
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#B45309' }}>{trashCount}</Text>
+                  {' réserve'}{trashCount > 1 ? 's' : ''} en corbeille
+                </>
+              )}
+            </Text>
+            <Ionicons name={showTrash ? 'close-circle' : 'chevron-forward'} size={13} color="#B45309" />
+          </TouchableOpacity>
+        )}
+
         {isSousTraitant && sousTraitantCompanyName && (
           <View style={styles.stBanner}>
             <Ionicons name="shield-checkmark-outline" size={13} color={C.primary} />
@@ -1618,7 +1717,7 @@ export default function ReservesScreen() {
           </View>
         )}
 
-        {nearDeadlineReserves.length > 0 && !headerCompact && (
+        {nearDeadlineReserves.length > 0 && !headerCompact && !showTrash && (
           <TouchableOpacity
             style={[styles.deadlineReminderBanner, nearDeadlineOnly && styles.deadlineReminderBannerActive]}
             onPress={() => setNearDeadlineOnly(v => !v)}
@@ -1687,7 +1786,7 @@ export default function ReservesScreen() {
           <View style={styles.filterScrollContainer}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flex: 1 }}>
               {statusFilters.map(f => {
-                const isActive = !showArchived && statusFilter === f.key;
+                const isActive = !showArchived && !showTrash && statusFilter === f.key;
                 const isOverdueChip = f.key === 'overdue';
                 return (
                   <TouchableOpacity
@@ -1812,7 +1911,25 @@ export default function ReservesScreen() {
                 </View>
 
                 {/* Quick status buttons */}
-                {permissions.canEdit && (
+                {permissions.canEdit && showTrash && (
+                  <View style={styles.detailCard}>
+                    <Text style={styles.detailLabel}>Corbeille</Text>
+                    <Text style={styles.detailText}>
+                      Supprimée le {selectedReserve.deletedAt ? formatDate(selectedReserve.deletedAt) : '—'}{selectedReserve.deletedBy ? ` par ${selectedReserve.deletedBy}` : ''}.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.restoreDetailBtn}
+                      onPress={() => handleRestoreReserve(selectedReserve)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Restaurer la réserve ${selectedReserve.id}`}
+                    >
+                      <Ionicons name="refresh-outline" size={15} color="#fff" />
+                      <Text style={styles.restoreDetailBtnText}>Restaurer</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {permissions.canEdit && !showTrash && (
                   <View style={styles.detailCard}>
                     <Text style={styles.detailLabel}>{t('reservesScreen.detail.changeStatus')}</Text>
                     <View style={styles.quickStatusRow}>
@@ -1880,7 +1997,7 @@ export default function ReservesScreen() {
                 </View>
 
                 {/* Quick comment */}
-                {permissions.canEdit && (
+                {permissions.canEdit && !showTrash && (
                   <View style={styles.detailCard}>
                     <Text style={styles.detailLabel}>{t('reservesScreen.detail.addComment')}</Text>
                     <View style={styles.tabletCommentRow}>
@@ -1912,13 +2029,15 @@ export default function ReservesScreen() {
                   </View>
                 )}
 
-                <TouchableOpacity
-                  style={styles.detailOpenBtn}
-                  onPress={() => router.push(`/reserve/${selectedReserve.id}` as any)}
-                >
-                  <Text style={styles.detailOpenText}>{t('reservesScreen.detail.openFull')}</Text>
-                  <Ionicons name="arrow-forward" size={15} color={C.primary} />
-                </TouchableOpacity>
+                {!showTrash && (
+                  <TouchableOpacity
+                    style={styles.detailOpenBtn}
+                    onPress={() => router.push(`/reserve/${selectedReserve.id}` as any)}
+                  >
+                    <Text style={styles.detailOpenText}>{t('reservesScreen.detail.openFull')}</Text>
+                    <Ionicons name="arrow-forward" size={15} color={C.primary} />
+                  </TouchableOpacity>
+                )}
               </ScrollView>
             ) : (
               <View style={styles.detailEmpty}>
@@ -1957,7 +2076,7 @@ export default function ReservesScreen() {
         )
       )}
 
-      {isSelectMode && selectedIds.size > 0 && (
+      {!showTrash && isSelectMode && selectedIds.size > 0 && (
         <View style={styles.batchBar}>
           <Text style={styles.batchBarCount}>{selectedIds.size}</Text>
           <ScrollView
@@ -2974,7 +3093,7 @@ export default function ReservesScreen() {
                     ] as { key: AdvancedStatusFilterKey; label: string; icon?: string }[]).map(f => {
                       const isArchivedChip = f.key === 'archived';
                       const isOverdueChip = f.key === 'overdue';
-                      const isActive = isArchivedChip ? showArchived : !showArchived && statusFilter === f.key;
+                      const isActive = isArchivedChip ? showArchived : !showArchived && !showTrash && statusFilter === f.key;
                       const chipColor = isArchivedChip ? '#6B7280' : isOverdueChip ? C.open : C.primary;
                       return (
                         <TouchableOpacity
@@ -3023,7 +3142,10 @@ export default function ReservesScreen() {
                             ]}
                             onPress={() => {
                               setEnterpriseFilter(f.key);
-                              if (f.key !== 'all') setShowArchived(false);
+                              if (f.key !== 'all') {
+                                setShowArchived(false);
+                                setShowTrash(false);
+                              }
                             }}
                             accessibilityRole="button"
                             accessibilityState={{ selected: isActive }}
@@ -3386,6 +3508,12 @@ const styles = StyleSheet.create({
   chantierChipTextActive: { color: '#fff' },
   chantierDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.closed },
   selectableRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 12 },
+  restoreInlineBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#B45309', borderRadius: 10, paddingVertical: 10,
+    marginTop: -2, marginBottom: 10, borderWidth: 1, borderColor: '#92400E',
+  },
+  restoreInlineBtnText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
   checkbox: {
     width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: C.border,
     backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', marginRight: 8,
@@ -3771,6 +3899,12 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: C.primary, marginTop: 4,
   },
   detailOpenText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  restoreDetailBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#B45309', borderRadius: 10, paddingVertical: 12,
+    borderWidth: 1, borderColor: '#92400E', marginTop: 4,
+  },
+  restoreDetailBtnText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
   detailEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
   detailEmptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   detailEmptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 19 },
@@ -3813,9 +3947,13 @@ const styles = StyleSheet.create({
   archiveBannerActive: {
     backgroundColor: '#E5E7EB', borderColor: '#9CA3AF',
   },
+  trashBannerActive: {
+    backgroundColor: '#FFFBEB', borderColor: '#D97706',
+  },
   archiveBannerText: {
     flex: 1, fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub,
   },
+  trashBannerText: { color: '#92400E' },
 
   progressBanner: {
     backgroundColor: C.surface, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 7,

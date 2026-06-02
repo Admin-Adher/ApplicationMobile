@@ -39,6 +39,7 @@ type Organization = {
 type WebState = {
   chantiers: any[];
   reserves: any[];
+  deletedReserves: any[];
   sitePlans: any[];
   companies: any[];
   organizations: Organization[];
@@ -180,6 +181,7 @@ type VisitDraft = {
 const EMPTY_DATA: WebState = {
   chantiers: [],
   reserves: [],
+  deletedReserves: [],
   sitePlans: [],
   companies: [],
   organizations: [],
@@ -586,6 +588,7 @@ const RESERVE_FILTER_OPTIONS = [
   { key: 'ack_missing', label: 'AR manquants' },
   { key: 'ack_received', label: 'AR reçus' },
   { key: 'archived', label: 'Archivées' },
+  { key: 'deleted', label: 'Corbeille' },
 ] as const;
 
 const ROLE_LABELS: Record<string, string> = {
@@ -2238,9 +2241,10 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('notification_preferences', loadedProfile, { scoped: false }),
       ]);
 
-      const scopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies)
-        .filter((reserve: any) => !isReserveDeleted(reserve));
-      const scopedReserveIds = new Set(scopedReserves.map((reserve: any) => String(reserve.id)));
+      const visibleScopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies);
+      const scopedReserves = visibleScopedReserves.filter((reserve: any) => !isReserveDeleted(reserve));
+      const scopedDeletedReserves = visibleScopedReserves.filter((reserve: any) => isReserveDeleted(reserve));
+      const scopedReserveIds = new Set(visibleScopedReserves.map((reserve: any) => String(reserve.id)));
       const scopedPhotos = loadedProfile.role === 'sous_traitant'
         ? photos.filter((photo: any) => {
             const reserveId = photo.reserve_id ?? photo.reserveId;
@@ -2252,6 +2256,7 @@ export default function BuildTrackWebPage() {
       const nextData = {
         chantiers,
         reserves: scopedReserves,
+        deletedReserves: scopedDeletedReserves,
         sitePlans,
         companies,
         organizations,
@@ -2400,8 +2405,46 @@ export default function BuildTrackWebPage() {
     } else {
       setData(prev => {
         const reserves = prev.reserves.filter(item => item.id !== reserve.id);
+        const deletedReserve = { ...reserve, ...patch };
         setSelectedReserveId(current => current === reserve.id ? reserves[0]?.id ?? null : current);
-        return { ...prev, reserves };
+        return {
+          ...prev,
+          reserves,
+          deletedReserves: [deletedReserve, ...prev.deletedReserves.filter(item => item.id !== reserve.id)],
+        };
+      });
+    }
+    setSaving(false);
+  }
+
+  async function restoreReserveWeb(reserve: any) {
+    if (!canEdit(profile) || !reserve?.id) return;
+    const confirmed = window.confirm(`Restaurer la réserve ${reserve.id} dans la liste active ?`);
+    if (!confirmed) return;
+    setSaving(true);
+    setError('');
+    const restoredBy = profile?.name ?? profile?.email ?? 'Web';
+    const patch = {
+      deleted_at: null,
+      deleted_by: null,
+      history: [
+        ...(Array.isArray(reserve.history) ? reserve.history : []),
+        makeHistory('Restaurée depuis la corbeille web', restoredBy, 'Corbeille', 'Active'),
+      ],
+    };
+    const { error: restoreError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
+    if (restoreError) {
+      setError(restoreError.message);
+    } else {
+      setData(prev => {
+        const restoredReserve = { ...reserve, ...patch };
+        const deletedReserves = prev.deletedReserves.filter(item => item.id !== reserve.id);
+        setSelectedReserveId(current => current === reserve.id ? deletedReserves[0]?.id ?? null : current);
+        return {
+          ...prev,
+          deletedReserves,
+          reserves: [restoredReserve, ...prev.reserves.filter(item => item.id !== reserve.id)],
+        };
       });
     }
     setSaving(false);
@@ -3290,9 +3333,11 @@ export default function BuildTrackWebPage() {
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
     const visibleReserves = visibleReservesForProfile(data.reserves, profile, data.companies);
-    const visibleReserveIds = new Set(visibleReserves.map((reserve: any) => String(reserve.id)));
+    const visibleDeletedReserves = visibleReservesForProfile(data.deletedReserves, profile, data.companies);
+    const visibleReserveIds = new Set([...visibleReserves, ...visibleDeletedReserves].map((reserve: any) => String(reserve.id)));
     const reserves = visibleReserves.filter(byProject);
-    const reserveIds = new Set(reserves.map((reserve: any) => String(reserve.id)));
+    const deletedReserves = visibleDeletedReserves.filter(byProject);
+    const reserveIds = new Set([...reserves, ...deletedReserves].map((reserve: any) => String(reserve.id)));
     const photos = data.photos.filter(photo => {
       const reserveId = photo.reserve_id ?? photo.reserveId;
       if (profile?.role === 'sous_traitant') return reserveId && visibleReserveIds.has(String(reserveId));
@@ -3300,6 +3345,10 @@ export default function BuildTrackWebPage() {
     });
     return {
       reserves: reserves.map((reserve: any) => {
+        const reservePhotos = reservePhotoItems(reserve, photos);
+        return reservePhotos.length ? { ...reserve, photos: reservePhotos, photo_uri: reserve.photo_uri ?? reservePhotos[0]?.uri ?? null } : reserve;
+      }),
+      deletedReserves: deletedReserves.map((reserve: any) => {
         const reservePhotos = reservePhotoItems(reserve, photos);
         return reservePhotos.length ? { ...reserve, photos: reservePhotos, photo_uri: reserve.photo_uri ?? reservePhotos[0]?.uri ?? null } : reserve;
       }),
@@ -3332,8 +3381,11 @@ export default function BuildTrackWebPage() {
 
   const filteredReserves = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return projectScoped.reserves.filter(r => {
-      if (statusFilter === 'archived') {
+    const sourceReserves = statusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
+    return sourceReserves.filter(r => {
+      if (statusFilter === 'deleted') {
+        if (!isReserveDeleted(r)) return false;
+      } else if (statusFilter === 'archived') {
         if (!isReserveArchived(r)) return false;
       } else {
         if (isReserveArchived(r)) return false;
@@ -3371,9 +3423,10 @@ export default function BuildTrackWebPage() {
       ].join(' ').toLowerCase();
       return haystack.includes(q);
     });
-  }, [projectScoped.reserves, search, statusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
+  }, [projectScoped.reserves, projectScoped.deletedReserves, search, statusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
 
-  const selectedReserve = projectScoped.reserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
+  const reserveSelectionPool = statusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
+  const selectedReserve = reserveSelectionPool.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedPlan = data.sitePlans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
   const selectedChannel = data.channels.find(c => c.id === selectedChannelId) ?? data.channels[0] ?? null;
@@ -3556,7 +3609,7 @@ export default function BuildTrackWebPage() {
             )}
             {activeTab === 'reserves' && (
               <ReservesView
-                allReserves={projectScoped.reserves}
+                allReserves={[...projectScoped.reserves, ...projectScoped.deletedReserves]}
                 reserves={filteredReserves}
                 photos={projectScoped.photos}
                 selectedReserveId={selectedReserveId}
@@ -3578,6 +3631,7 @@ export default function BuildTrackWebPage() {
                 onStatus={updateReserveStatus}
                 onArchive={toggleArchive}
                 onDelete={deleteReserveWeb}
+                onRestore={restoreReserveWeb}
                 onComment={addReserveComment}
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
@@ -4321,6 +4375,7 @@ function ReservesView(props: {
   onStatus: (id: string, status: string) => void;
   onArchive: (reserve: any) => void;
   onDelete: (reserve: any) => Promise<void> | void;
+  onRestore: (reserve: any) => Promise<void> | void;
   onComment: (reserve: any, content: string) => Promise<void> | void;
   onCreate: () => void;
   onEdit: (reserve: any) => void;
@@ -4350,7 +4405,8 @@ function ReservesView(props: {
   const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
   const [photoCopyFeedback, setPhotoCopyFeedback] = useState<'idle' | 'copied' | 'error'>('idle');
   const photoCopyFeedbackTimeoutRef = useRef<number | null>(null);
-  const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve));
+  const isTrashView = props.statusFilter === 'deleted';
+  const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve) && !isReserveDeleted(reserve));
   const explicitlySelectedReserve = props.selectedReserveId
     ? allReserves.find(reserve => reserve.id === props.selectedReserveId) ?? null
     : null;
@@ -4424,6 +4480,8 @@ function ReservesView(props: {
         ? activeReserves.length
         : option.key === 'archived'
           ? allReserves.filter(isReserveArchived).length
+          : option.key === 'deleted'
+            ? allReserves.filter(isReserveDeleted).length
           : option.key === 'overdue'
             ? activeReserves.filter(isReserveOverdue).length
             : option.key === 'due_soon'
@@ -4566,18 +4624,18 @@ function ReservesView(props: {
         <div className={styles.reservePanelHeader}>
           <div>
             <p className={styles.eyebrow}>Suivi chantier</p>
-            <h2>Réserves</h2>
+            <h2>{isTrashView ? 'Corbeille' : 'Réserves'}</h2>
           </div>
           <div className={styles.reservePanelActions}>
             <button
               type="button"
               className={styles.reservePdfOpenButton}
               onClick={() => setPdfModalOpen(true)}
-              disabled={reserves.length === 0 && !selectedReserve}
+              disabled={isTrashView || (reserves.length === 0 && !selectedReserve)}
             >
               PDF
             </button>
-            {props.canUseAssistant && activeReserves.length > 0 && (
+            {!isTrashView && props.canUseAssistant && activeReserves.length > 0 && (
               <button type="button" className={styles.reserveAssistantOpenButton} onClick={() => setAssistantVisible(true)}>
                 <span>Assistant</span>
                 {assistantMissingDescriptionCount > 0 && <em>{assistantMissingDescriptionCount > 9 ? '9+' : assistantMissingDescriptionCount}</em>}
@@ -4674,7 +4732,7 @@ function ReservesView(props: {
         )}
         <div className={styles.reserveListMeta}>
           <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
-          <span>{activeReserves.length} active{activeReserves.length > 1 ? 's' : ''}</span>
+          <span>{isTrashView ? 'éléments récupérables' : `${activeReserves.length} active${activeReserves.length > 1 ? 's' : ''}`}</span>
         </div>
         <div className={styles.reserveList}>
           {reserves.map(reserve => (
@@ -4693,11 +4751,11 @@ function ReservesView(props: {
                 <span>{reserveCompanies(reserve).join(', ') || 'Sans entreprise'}</span>
               </div>
               <em className={isReserveOverdue(reserve) ? styles.reserveStatusOverdue : ''}>
-                {isReserveArchived(reserve) ? 'Archivée' : isReserveOverdue(reserve) ? 'En retard' : STATUS_LABELS[reserve.status] ?? reserve.status}
+                {isReserveDeleted(reserve) ? 'Corbeille' : isReserveArchived(reserve) ? 'Archivée' : isReserveOverdue(reserve) ? 'En retard' : STATUS_LABELS[reserve.status] ?? reserve.status}
               </em>
             </button>
           ))}
-          {!reserves.length && <p className={styles.empty}>Aucune réserve avec ces filtres.</p>}
+          {!reserves.length && <p className={styles.empty}>{isTrashView ? 'Corbeille vide.' : 'Aucune réserve avec ces filtres.'}</p>}
         </div>
       </section>
       )}
@@ -5021,6 +5079,8 @@ function ReservesView(props: {
               <div><dt>Plan</dt><dd>{detailReserve.plan_id ? 'Épinglée' : 'Non épinglée'}</dd></div>
               <div><dt>Accusé réception</dt><dd>{detailReserve.enterprise_acknowledged_at ? prettyDate(detailReserve.enterprise_acknowledged_at, true) : 'Manquant'}</dd></div>
               <div><dt>Archive</dt><dd>{detailReserve.archived_at ? prettyDate(detailReserve.archived_at, true) : 'Active'}</dd></div>
+              {isTrashView && <div><dt>Corbeille</dt><dd>{detailReserve.deleted_at ? prettyDate(detailReserve.deleted_at, true) : 'Oui'}</dd></div>}
+              {isTrashView && <div><dt>Supprimée par</dt><dd>{detailReserve.deleted_by ?? '—'}</dd></div>}
             </dl>
             {selectedPhotos.length ? (
               <div className={styles.reserveDetailPhotos}>
@@ -5054,7 +5114,7 @@ function ReservesView(props: {
                 </span>
               </div>
             ) : null}
-            <form
+            {!isTrashView && <form
               className={styles.commentForm}
               onSubmit={async event => {
                 event.preventDefault();
@@ -5076,8 +5136,8 @@ function ReservesView(props: {
                   context="reserve comment"
                 />
               </div>
-            </form>
-            <div className={styles.reserveDetailExportRow}>
+            </form>}
+            {!isTrashView && <div className={styles.reserveDetailExportRow}>
               <button
                 type="button"
                 onClick={() => {
@@ -5088,8 +5148,13 @@ function ReservesView(props: {
               >
                 Fiche PDF
               </button>
-            </div>
-            {props.editable && (
+            </div>}
+            {props.editable && isTrashView && (
+              <div className={styles.actionBar}>
+                <button type="button" onClick={() => props.onRestore(detailReserve)} disabled={props.saving}>Restaurer</button>
+              </div>
+            )}
+            {props.editable && !isTrashView && (
               <div className={styles.actionBar}>
                 <button type="button" onClick={() => props.onEdit(detailReserve)}>Modifier</button>
                 {STATUS_OPTIONS.map(([value, label]) => (

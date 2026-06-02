@@ -33,7 +33,7 @@ import { useRealtimeSync } from '@/hooks/useRealtimeSync';
 import { notifyReserveStatusChanged } from '@/lib/email/notifyReserveCreated';
 import { triggerReserveStatusPush } from '@/lib/push/client';
 import { isSameUserName } from '@/lib/mappers';
-import { visibleReservesForUser } from '@/lib/reserveVisibility';
+import { deletedReservesForUser, visibleReservesForUser } from '@/lib/reserveVisibility';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -66,6 +66,7 @@ function getMessageTimeMs(msg: Message): number {
 
 interface AppContextValue {
   reserves: Reserve[];
+  deletedReserves: Reserve[];
   companies: Company[];
   tasks: Task[];
   documents: Document[];
@@ -102,6 +103,7 @@ interface AppContextValue {
   updateReserve: (r: Reserve) => void;
   updateReserveFields: (r: Reserve) => void;
   deleteReserve: (id: string) => void;
+  restoreReserve: (id: string, author?: string) => void;
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
   archiveReserve: (id: string, author?: string) => void;
   unarchiveReserve: (id: string, author?: string) => void;
@@ -768,6 +770,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     () => visibleReservesForUser(reservesH.reserves, authH.user, companiesH.companies),
     [reservesH.reserves, authH.user, companiesH.companies],
   );
+  const deletedReserves = useMemo(
+    () => deletedReservesForUser(reservesH.reserves, authH.user, companiesH.companies),
+    [reservesH.reserves, authH.user, companiesH.companies],
+  );
 
   const visiblePhotos = useMemo(() => {
     if (authH.user?.role !== 'sous_traitant') return photosH.photos;
@@ -816,6 +822,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value = useMemo<AppContextValue>(() => ({
     reserves: visibleReserves,
+    deletedReserves,
     companies: companiesH.companies,
     tasks: tasksH.tasks,
     documents: visibleDocuments,
@@ -852,6 +859,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateReserve: reservesH.updateReserve,
     updateReserveFields: reservesH.updateReserveFields,
     deleteReserve: reservesH.deleteReserve,
+    restoreReserve: reservesH.restoreReserve,
     updateReserveStatus: updateReserveStatusWithNotif,
     archiveReserve: reservesH.archiveReserve,
     unarchiveReserve: reservesH.unarchiveReserve,
@@ -921,7 +929,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     realtimeConnected: messagesH.realtimeConnected,
     isOfflineSession: authH.isOfflineSession,
   }), [
-    visibleReserves, companiesH.companies, tasksH.tasks,
+    visibleReserves, deletedReserves, companiesH.companies, tasksH.tasks,
     visibleDocuments, visiblePhotos, messagesH.messages,
     lastReadByChannel, isLoading, profilesH.profiles,
     channelsH.generalChannels, channelsH.customChannels,
@@ -934,7 +942,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addChantierWithChannel, deleteChantierWithChannel, chantiersH.updateChantier,
     setActiveChantier, chantiersH.addSitePlan, chantiersH.updateSitePlan,
     chantiersH.deleteSitePlan, reservesH.addReserve, reservesH.updateReserve,
-    reservesH.updateReserveFields, reservesH.deleteReserve,
+    reservesH.updateReserveFields, reservesH.deleteReserve, reservesH.restoreReserve,
     updateReserveStatusWithNotif, reservesH.archiveReserve, reservesH.unarchiveReserve, reservesH.addComment, reservesH.updateComment, reservesH.deleteComment,
     companiesH.addCompany, companiesH.updateCompanyWorkers,
     companiesH.updateCompanyFull, companiesH.deleteCompany,

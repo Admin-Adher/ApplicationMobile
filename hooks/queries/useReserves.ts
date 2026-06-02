@@ -17,15 +17,15 @@ import { triggerReserveCreatedPush } from '@/lib/push/client';
 import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
 import i18n from '@/lib/i18n';
 
-function pendingReserveDeletionIds(queue: any[] | undefined | null): Set<string> {
-  const ids = new Set<string>();
+function pendingReserveDeletionPayloads(queue: any[] | undefined | null): Map<string, any> {
+  const payloads = new Map<string, any>();
   for (const op of queue ?? []) {
     if (op?.table !== 'reserves' || op?.filter?.column !== 'id' || !op.filter.value) continue;
     if (op.op === 'delete' || (op.op === 'update' && op.data?.deleted_at)) {
-      ids.add(String(op.filter.value));
+      payloads.set(String(op.filter.value), op.data ?? {});
     }
   }
-  return ids;
+  return payloads;
 }
 
 export function useReserves() {
@@ -104,14 +104,20 @@ export function useReserves() {
         const { data, error } = await q;
         if (error) throw error;
         const currentQueue = queueRef.current ?? [];
-        const pendingDeleteIds = pendingReserveDeletionIds(currentQueue);
+        const pendingDeletePayloads = pendingReserveDeletionPayloads(currentQueue);
         const fresh = ((data ?? []).map(toReserve) as Reserve[])
-          .filter(reserve => !reserve.deletedAt && !pendingDeleteIds.has(reserve.id));
-        const cacheForMerge = pendingDeleteIds.size > 0
-          ? (cached ?? []).filter(reserve => !pendingDeleteIds.has(reserve.id))
-          : cached;
+          .map(reserve => {
+            const pendingDelete = pendingDeletePayloads.get(reserve.id);
+            if (!pendingDelete) return reserve;
+            return {
+              ...reserve,
+              deletedAt: reserve.deletedAt ?? pendingDelete.deleted_at ?? new Date().toISOString(),
+              deletedBy: reserve.deletedBy ?? pendingDelete.deleted_by ?? i18n.t('common.system'),
+              history: Array.isArray(pendingDelete.history) ? pendingDelete.history : reserve.history,
+            };
+          });
         const pendingIds = pendingIdsForTable(currentQueue, 'reserves');
-        const merged = mergeWithCache<Reserve>(fresh, cacheForMerge, pendingIds, { queueLoaded });
+        const merged = mergeWithCache<Reserve>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(RESERVES_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
@@ -400,8 +406,19 @@ export function useReserves() {
       deleted_by: deletedBy,
       ...(deletedHistory ? { history: deletedHistory } : {}),
     };
-    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), prev.filter(r => r.id !== id));
-    persist(prev.filter(r => r.id !== id));
+    const softDeleted = previous
+      ? {
+          ...previous,
+          deletedAt,
+          deletedBy,
+          history: deletedHistory ?? previous.history,
+        }
+      : undefined;
+    const next = softDeleted
+      ? prev.map(r => r.id === id ? softDeleted : r)
+      : prev.filter(r => r.id !== id);
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), next);
+    persist(next);
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: id }, data: deletePayload });
       return;
@@ -424,7 +441,9 @@ export function useReserves() {
         if (isPermissionDenied && previous) {
           queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
             const cur = old ?? [];
-            if (cur.some(r => r.id === previous.id)) return cur;
+            if (cur.some(r => r.id === previous.id)) {
+              return cur.map(r => r.id === previous.id ? previous : r);
+            }
             return [previous, ...cur];
           });
           persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
@@ -438,6 +457,57 @@ export function useReserves() {
       } else if (!deleted?.length) {
         // If the row doesn't exist server-side (ex: never synced), keep local deletion.
         console.warn('[sync] deleteReserve: aucune ligne supprimée (probablement déjà supprimée ou jamais synchronisée)');
+      }
+    }
+  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+
+  const restoreReserve = useCallback(async (id: string, author?: string) => {
+    const prev = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const previous = prev.find(r => r.id === id);
+    if (!previous || !previous.deletedAt) return;
+    const actualAuthor = author ?? user?.name ?? i18n.t('common.system');
+    const restored: Reserve = {
+      ...previous,
+      deletedAt: undefined,
+      deletedBy: undefined,
+      history: [
+        ...(previous.history ?? []),
+        {
+          id: genId(),
+          action: 'Restaurée depuis la corbeille',
+          author: actualAuthor,
+          createdAt: nowTimestampFR(),
+          oldValue: 'Corbeille',
+          newValue: 'Active',
+        },
+      ],
+    };
+    const payload = {
+      deleted_at: null,
+      deleted_by: null,
+      history: restored.history,
+    };
+    const next = prev.map(r => r.id === id ? restored : r);
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), next);
+    persist(next);
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: id }, data: payload });
+      return;
+    }
+    if (isSupabaseConfigured) {
+      const { error } = await (supabase as any).from('reserves').update(payload).eq('id', id);
+      if (error) {
+        console.warn('[sync] restoreReserve error:', error.code, error.message);
+        const isPermissionDenied =
+          error.code === '42501' ||
+          /row-level security|permission denied/i.test(error.message ?? '');
+        if (isPermissionDenied) {
+          queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), prev);
+          persist(prev);
+          Alert.alert(i18n.t('syncAlerts.permissionDeniedTitle'), i18n.t('syncAlerts.deleteReserveDenied'));
+        } else {
+          enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: id }, data: payload });
+        }
       }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -741,6 +811,7 @@ export function useReserves() {
     updateReserve,
     updateReserveFields,
     deleteReserve,
+    restoreReserve,
     updateReserveStatus,
     archiveReserve,
     unarchiveReserve,

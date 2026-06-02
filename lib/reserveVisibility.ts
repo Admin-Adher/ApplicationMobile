@@ -40,8 +40,19 @@ type DeletableReserve = Pick<Reserve, 'company' | 'companies'> & {
   deleted_at?: string | null;
 };
 
-function isDeletedReserve(reserve: DeletableReserve): boolean {
+export function isDeletedReserve(reserve: DeletableReserve): boolean {
   return Boolean(reserve.deletedAt ?? reserve.deleted_at);
+}
+
+function reservesForUserCompany<T extends Pick<Reserve, 'company' | 'companies'>>(
+  reserves: T[],
+  user: Pick<User, 'role' | 'companyId'> | null | undefined,
+  companies: Array<Pick<Company, 'id' | 'name'>>,
+): T[] {
+  if (user?.role !== 'sous_traitant') return reserves;
+  const company = companies.find(item => item.id === user.companyId);
+  if (!company) return [];
+  return reserves.filter(reserve => reserveMatchesCompany(reserve, company));
 }
 
 export function visibleReservesForUser<T extends DeletableReserve>(
@@ -49,9 +60,21 @@ export function visibleReservesForUser<T extends DeletableReserve>(
   user: Pick<User, 'role' | 'companyId'> | null | undefined,
   companies: Array<Pick<Company, 'id' | 'name'>>,
 ): T[] {
-  const activeReserves = reserves.filter(reserve => !isDeletedReserve(reserve));
-  if (user?.role !== 'sous_traitant') return activeReserves;
-  const company = companies.find(item => item.id === user.companyId);
-  if (!company) return [];
-  return activeReserves.filter(reserve => reserveMatchesCompany(reserve, company));
+  return reservesForUserCompany(
+    reserves.filter(reserve => !isDeletedReserve(reserve)),
+    user,
+    companies,
+  );
+}
+
+export function deletedReservesForUser<T extends DeletableReserve>(
+  reserves: T[],
+  user: Pick<User, 'role' | 'companyId'> | null | undefined,
+  companies: Array<Pick<Company, 'id' | 'name'>>,
+): T[] {
+  return reservesForUserCompany(
+    reserves.filter(isDeletedReserve),
+    user,
+    companies,
+  );
 }
