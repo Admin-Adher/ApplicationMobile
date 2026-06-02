@@ -94,6 +94,7 @@ export function toReserve(row: any): Reserve {
     photoAnnotations: row.photo_annotations ?? undefined,
     closedAt: row.closed_at ?? undefined, closedBy: row.closed_by ?? undefined,
     archivedAt: row.archived_at ?? undefined, archivedBy: row.archived_by ?? undefined,
+    deletedAt: row.deleted_at ?? undefined, deletedBy: row.deleted_by ?? undefined,
     photos: row.photos ?? undefined,
     lotId: row.lot_id ?? undefined,
     kind: row.kind ?? undefined,

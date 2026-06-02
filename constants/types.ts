@@ -381,6 +381,8 @@ export interface Reserve {
   closedBy?: string;
   archivedAt?: string;
   archivedBy?: string;
+  deletedAt?: string;
+  deletedBy?: string;
   chantierId?: string;
   planId?: string;
   buildingId?: string;

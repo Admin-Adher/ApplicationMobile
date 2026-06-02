@@ -1018,7 +1018,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, `DELETE ${op.table} refusé: filtre manquant.`);
             continue;
           }
-          result = await supabaseRestMutation(op.table, 'delete', undefined, op.filter);
+          if (op.table === 'reserves') {
+            const softDeletePayload = {
+              deleted_at: op.data?.deleted_at ?? new Date().toISOString(),
+              deleted_by: op.data?.deleted_by ?? user?.name ?? user?.email ?? 'Sync offline',
+              ...(Array.isArray(op.data?.history) ? { history: op.data.history } : {}),
+            };
+            result = await supabaseRestMutation(op.table, 'update', softDeletePayload, op.filter);
+          } else {
+            result = await supabaseRestMutation(op.table, 'delete', undefined, op.filter);
+          }
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.filter?.column === 'id') {
               try {

@@ -787,6 +787,10 @@ function isReserveArchived(reserve: any) {
   return Boolean(reserve?.archived_at ?? reserve?.archivedAt);
 }
 
+function isReserveDeleted(reserve: any) {
+  return Boolean(reserve?.deleted_at ?? reserve?.deletedAt);
+}
+
 function isReserveClosed(reserve: any) {
   return String(reserve?.status ?? '').toLowerCase() === 'closed';
 }
@@ -2234,7 +2238,8 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('notification_preferences', loadedProfile, { scoped: false }),
       ]);
 
-      const scopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies);
+      const scopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies)
+        .filter((reserve: any) => !isReserveDeleted(reserve));
       const scopedReserveIds = new Set(scopedReserves.map((reserve: any) => String(reserve.id)));
       const scopedPhotos = loadedProfile.role === 'sous_traitant'
         ? photos.filter((photo: any) => {
@@ -2376,11 +2381,20 @@ export default function BuildTrackWebPage() {
 
   async function deleteReserveWeb(reserve: any) {
     if (!canEdit(profile) || !reserve?.id) return;
-    const confirmed = window.confirm(`Supprimer définitivement la réserve ${reserve.id} ? Cette action ne pourra pas être annulée.`);
+    const confirmed = window.confirm(`Mettre la réserve ${reserve.id} en corbeille ? Elle sera masquée mais récupérable depuis Supabase.`);
     if (!confirmed) return;
     setSaving(true);
     setError('');
-    const { error: deleteError } = await supabaseBrowser.from('reserves').delete().eq('id', reserve.id);
+    const deletedBy = profile?.name ?? profile?.email ?? 'Web';
+    const patch = {
+      deleted_at: new Date().toISOString(),
+      deleted_by: deletedBy,
+      history: [
+        ...(Array.isArray(reserve.history) ? reserve.history : []),
+        makeHistory('Supprimée depuis le web (corbeille)', deletedBy, 'Active', 'Corbeille'),
+      ],
+    };
+    const { error: deleteError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
     if (deleteError) {
       setError(deleteError.message);
     } else {
