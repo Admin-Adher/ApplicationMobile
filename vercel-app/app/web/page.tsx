@@ -3836,6 +3836,8 @@ function Dashboard({
   const closedCount = activeReserves.filter((reserve: any) => reserve.status === 'closed').length;
   const totalCount = activeReserves.length;
   const progress = totalCount ? Math.round((closedCount / totalCount) * 100) : 0;
+  const remainingCount = Math.max(totalCount - closedCount, 0);
+  const progressFillWidth = progress > 0 ? Math.max(progress, 4) : 0;
   const criticalReserves = activeReserves.filter((reserve: any) => reserve.priority === 'critical' && reserve.status !== 'closed');
   const overdueReserves = activeReserves.filter((reserve: any) => reserve.priority !== 'critical' && isReserveOverdue(reserve));
   const lateTasks = scoped.tasks.filter(isTaskLateWeb);
@@ -4024,16 +4026,27 @@ function Dashboard({
       </div>
 
       {totalCount > 0 && (
-        <section className={styles.panel}>
+        <section className={`${styles.panel} ${styles.dashboardProgressPanel}`}>
           <div className={styles.dashboardProgressHeader}>
             <div>
               <h2>Avancement global</h2>
-              <p>{closedCount} levée{closedCount > 1 ? 's' : ''} sur {totalCount} réserve{totalCount > 1 ? 's' : ''}.</p>
+              <p>{closedCount} levée{closedCount !== 1 ? 's' : ''} sur {totalCount} réserve{totalCount !== 1 ? 's' : ''}.</p>
             </div>
             <strong>{progress}%</strong>
           </div>
-          <div className={styles.dashboardProgressTrack}>
-            <i style={{ width: `${progress}%` }} />
+          <div
+            className={styles.dashboardProgressTrack}
+            role="progressbar"
+            aria-label="Avancement global des réserves"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={progress}
+          >
+            <i style={{ width: `${progressFillWidth}%` }} />
+          </div>
+          <div className={styles.dashboardProgressMeta}>
+            <span><b>{closedCount}</b> levée{closedCount !== 1 ? 's' : ''}</span>
+            <span><b>{remainingCount}</b> restante{remainingCount !== 1 ? 's' : ''}</span>
           </div>
         </section>
       )}

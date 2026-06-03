@@ -1349,6 +1349,11 @@
   --wide-soft: #fef2f2;
 }
 
+.dashboardProgressPanel {
+  display: grid;
+  gap: 14px;
+}
+
 .dashboardProgressHeader {
   display: flex;
   align-items: center;
@@ -1364,31 +1369,65 @@
 .dashboardProgressHeader p {
   margin-top: 4px;
   color: #64748b;
+  font-weight: 650;
 }
 
 .dashboardProgressHeader strong {
   display: inline-grid;
   place-items: center;
-  min-width: 58px;
+  min-width: 68px;
   border-radius: 999px;
-  background: #eef4ff;
+  border: 1px solid #cbd8f4;
+  background: linear-gradient(135deg, #eef4ff 0%, #ffffff 100%);
   color: #003082;
-  padding: 8px 12px;
-  font-size: 20px;
+  padding: 9px 14px;
+  font-size: 22px;
+  line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.85);
 }
 
 .dashboardProgressTrack {
-  height: 10px;
+  height: 16px;
   overflow: hidden;
   border-radius: 999px;
-  background: #eef2f7;
+  background: #edf2f8;
+  border: 1px solid #dbe4f0;
+  box-shadow: inset 0 1px 3px rgba(15, 23, 42, 0.08);
 }
 
 .dashboardProgressTrack i {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: #003082;
+  background: linear-gradient(90deg, #003082 0%, #1d4ed8 100%);
+  box-shadow: 0 0 0 1px rgba(0, 48, 130, 0.08), 0 6px 14px rgba(0, 48, 130, 0.22);
+  transition: width 220ms ease;
+}
+
+.dashboardProgressMeta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.dashboardProgressMeta span {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.dashboardProgressMeta b {
+  color: #111827;
+  font-size: 18px;
 }
 
 .dashboardTwoColumns,
@@ -10126,6 +10165,10 @@
   .dashboardProgressHeader {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .dashboardProgressHeader strong {
+    align-self: flex-start;
   }
 
   .dashboardHeroActions {
