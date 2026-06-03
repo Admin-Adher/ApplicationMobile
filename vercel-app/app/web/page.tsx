@@ -5411,6 +5411,7 @@ function WebPdfPlan({
   const suppressNextPageClickRef = useRef(false);
   const panStateRef = useRef({
     active: false,
+    captured: false,
     pointerId: -1,
     startX: 0,
     startY: 0,
@@ -5587,9 +5588,8 @@ function WebPdfPlan({
       scrollLeft: viewport.scrollLeft,
       scrollTop: viewport.scrollTop,
       moved: false,
+      captured: false,
     };
-    event.currentTarget.setPointerCapture?.(event.pointerId);
-    setIsPanning(true);
   }
 
   function handleViewportPointerMove(event: PointerEvent<HTMLDivElement>) {
@@ -5601,10 +5601,14 @@ function WebPdfPlan({
     const deltaY = event.clientY - panState.startY;
     if (!panState.moved && Math.hypot(deltaX, deltaY) > 4) {
       panState.moved = true;
+      panState.captured = true;
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+      setIsPanning(true);
     }
+    if (!panState.moved) return;
     viewport.scrollLeft = panState.scrollLeft - deltaX;
     viewport.scrollTop = panState.scrollTop - deltaY;
-    if (panState.moved) event.preventDefault();
+    event.preventDefault();
   }
 
   function finishViewportPan(event: PointerEvent<HTMLDivElement>) {
@@ -5618,6 +5622,7 @@ function WebPdfPlan({
     }
     panStateRef.current = {
       active: false,
+      captured: false,
       pointerId: -1,
       startX: 0,
       startY: 0,
@@ -5625,7 +5630,7 @@ function WebPdfPlan({
       scrollTop: 0,
       moved: false,
     };
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    if (panState.captured) event.currentTarget.releasePointerCapture?.(event.pointerId);
     setIsPanning(false);
   }
 
