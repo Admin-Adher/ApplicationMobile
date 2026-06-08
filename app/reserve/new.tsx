@@ -127,7 +127,7 @@ export default function NewReserveScreen() {
   const buildingLocked = locationFromPlan;
   const levelLocked = locationFromPlan;
 
-  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(visitCompanyNames.length > 0 ? visitCompanyNames : companies[0] ? [companies[0].name] : []);
+  const [selectedCompanies, setSelectedCompanies] = useState<string[]>(visitCompanyNames);
   const [priority, setPriority] = useState<ReservePriority>('medium');
   const [deadline, setDeadline] = useState(sourceVisite?.reserveDeadlineDate ?? '');
   const [deadlineSuggested, setDeadlineSuggested] = useState(!!sourceVisite?.reserveDeadlineDate);
