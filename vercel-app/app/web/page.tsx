@@ -4422,7 +4422,7 @@ export default function BuildTrackWebPage() {
         </div>
       </aside>
 
-      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''}`}>
+      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''} ${activeTab === 'chantiers' ? styles.workspaceChantiers : ''}`}>
         <header className={styles.topbar}>
           <button
             type="button"
@@ -10073,6 +10073,18 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<any>({});
   const selectedProject = projects.find((project: any) => project.id === selectedProjectId) ?? projects[0] ?? null;
+  const selectedBuildings = selectedProject ? projectBuildings(selectedProject) : [];
+  const selectedLevels = selectedBuildings.reduce((sum: number, building: any) => sum + (building.levels?.length ?? 0), 0);
+  const selectedZones = selectedBuildings.reduce((sum: number, building: any) => (
+    sum + (building.levels ?? []).reduce((levelSum: number, level: any) => levelSum + (level.zones?.length ?? 0), 0)
+  ), 0);
+  const assignedCompanyIds = new Set([
+    ...(Array.isArray(selectedProject?.company_ids) ? selectedProject.company_ids : []),
+    ...(Array.isArray(selectedProject?.companyIds) ? selectedProject.companyIds : []),
+  ].filter(Boolean));
+  const assignedCompanies = assignedCompanyIds.size
+    ? companies.filter((company: any) => assignedCompanyIds.has(company.id))
+    : companies;
 
   function openModal(project?: any) {
     setDraft(project ? {
@@ -10114,23 +10126,23 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
   }
 
   return (
-    <div className={styles.stack}>
-      <div className={styles.kpiGrid}>
-        <Kpi title="Chantiers" value={projects.length} hint="Périmètre web" />
+    <div className={styles.chantiersWorkspace}>
+      <div className={styles.chantiersKpis}>
+        <Kpi title="Chantiers" value={projects.length} hint="Total" />
         <Kpi title="Actifs" value={projects.filter((project: any) => project.status === 'active').length} hint="En cours" tone="green" />
-        <Kpi title="Entreprises" value={companies.length} hint="Affectables" tone="amber" />
-        <Kpi title="Structures" value={projects.reduce((sum: number, project: any) => sum + projectBuildings(project).length, 0)} hint="Bâtiments déclarés" />
+        <Kpi title="Entreprises" value={companies.length} hint="Annuaire" tone="amber" />
+        <Kpi title="Bâtiments" value={projects.reduce((sum: number, project: any) => sum + projectBuildings(project).length, 0)} hint="Structure" />
       </div>
-      <div className={styles.twoCols}>
-        <section className={styles.panel}>
+      <div className={styles.chantiersLayout}>
+        <section className={`${styles.panel} ${styles.chantiersRail}`}>
           <div className={styles.panelHeaderCompact}>
             <div>
               <h2>Chantiers</h2>
-              <p>Créer, modifier, supprimer et ouvrir la structure détaillée.</p>
+              <p>{projects.length} chantier(s)</p>
             </div>
             {editable ? <button type="button" onClick={() => openModal()}>Nouveau chantier</button> : null}
           </div>
-          <div className={styles.compactList}>
+          <div className={`${styles.compactList} ${styles.chantiersList}`}>
             {projects.map((project: any) => (
               <button
                 key={project.id}
@@ -10145,13 +10157,13 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
             {!projects.length ? <p className={styles.empty}>Aucun chantier.</p> : null}
           </div>
         </section>
-        <section className={styles.panel}>
+        <section className={`${styles.panel} ${styles.chantiersDetail}`}>
           {selectedProject ? (
             <>
               <div className={styles.panelHeaderCompact}>
                 <div>
                   <h2>{selectedProject.name}</h2>
-                  <p>{selectedProject.address || selectedProject.description || 'Chantier sans adresse/description.'}</p>
+                  <p>{selectedProject.address || selectedProject.description || 'Sans adresse'}</p>
                 </div>
                 {editable ? (
                   <div className={styles.inlineActions}>
@@ -10160,23 +10172,56 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
                   </div>
                 ) : null}
               </div>
-              <div className={styles.detailGrid}>
+              <div className={styles.chantierMetricGrid}>
                 <span><strong>Statut</strong><em>{selectedProject.status ?? 'active'}</em></span>
                 <span><strong>Début</strong><em>{selectedProject.start_date || '—'}</em></span>
                 <span><strong>Fin</strong><em>{selectedProject.end_date || '—'}</em></span>
-                <span><strong>Entreprises</strong><em>{(selectedProject.company_ids ?? []).length || companies.length}</em></span>
+                <span><strong>Entreprises</strong><em>{assignedCompanies.length}</em></span>
+                <span><strong>Bâtiments</strong><em>{selectedBuildings.length}</em></span>
+                <span><strong>Niveaux</strong><em>{selectedLevels}</em></span>
+                <span><strong>Zones</strong><em>{selectedZones}</em></span>
               </div>
-              <div className={styles.structureSummary}>
-                {projectBuildings(selectedProject).map((building: any) => (
-                  <article key={building.id}>
-                    <strong>{building.name}</strong>
-                    <small>{(building.levels ?? []).length} niveau(x)</small>
-                    <div>
-                      {(building.levels ?? []).slice(0, 5).map((level: any) => <span key={level.id}>{level.name}</span>)}
-                    </div>
-                  </article>
-                ))}
-                {!projectBuildings(selectedProject).length ? <p className={styles.empty}>Aucune structure enregistrée.</p> : null}
+              <div className={styles.chantierDetailGrid}>
+                <section className={styles.chantierStructurePanel}>
+                  <div className={styles.chantierSectionHeader}>
+                    <strong>Structure</strong>
+                    <span>{selectedBuildings.length} bâtiment(s)</span>
+                  </div>
+                  <div className={styles.chantierStructureRows}>
+                    {selectedBuildings.map((building: any) => {
+                      const levels = building.levels ?? [];
+                      return (
+                        <article key={building.id} className={styles.chantierStructureRow}>
+                          <div>
+                            <strong>{building.name}</strong>
+                            <small>{levels.length} niveau(x)</small>
+                          </div>
+                          <div>
+                            {levels.slice(0, 6).map((level: any) => <span key={level.id}>{level.name}</span>)}
+                            {levels.length > 6 ? <em>+{levels.length - 6}</em> : null}
+                          </div>
+                        </article>
+                      );
+                    })}
+                    {!selectedBuildings.length ? <p className={styles.empty}>Aucune structure enregistrée.</p> : null}
+                  </div>
+                </section>
+                <section className={styles.chantierCompaniesPanel}>
+                  <div className={styles.chantierSectionHeader}>
+                    <strong>Entreprises</strong>
+                    <span>{assignedCompanies.length}</span>
+                  </div>
+                  <div className={styles.chantierCompanyList}>
+                    {assignedCompanies.slice(0, 18).map((company: any) => (
+                      <span key={company.id}>
+                        <i style={{ backgroundColor: company.color ?? '#003082' }} />
+                        {company.short_name ?? company.shortName ?? company.name}
+                      </span>
+                    ))}
+                    {assignedCompanies.length > 18 ? <em>+{assignedCompanies.length - 18}</em> : null}
+                    {!assignedCompanies.length ? <p className={styles.empty}>Aucune entreprise affectée.</p> : null}
+                  </div>
+                </section>
               </div>
             </>
           ) : (
@@ -10192,7 +10237,6 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
               <div>
                 <p className={styles.eyebrow}>Chantiers</p>
                 <h2>{draft.id ? 'Modifier le chantier' : 'Nouveau chantier'}</h2>
-                <span>Identité, statut, dates, entreprises et structure.</span>
               </div>
               <button type="button" onClick={() => setModalOpen(false)} disabled={saving}>Fermer</button>
             </div>
