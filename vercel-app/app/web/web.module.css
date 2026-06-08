@@ -4203,6 +4203,198 @@
   font-size: 11px;
 }
 
+.reserveWorkflowCard {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+  padding: 14px;
+  border: 1px solid #d6e1f2;
+  border-radius: 14px;
+  background: #f8fbff;
+}
+
+.reserveWorkflowHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reserveWorkflowHeader h3 {
+  margin: 0;
+  color: #0f172a;
+  font-size: 15px;
+}
+
+.reserveWorkflowHeader span,
+.reserveWorkflowBlock > span,
+.reserveWorkflowActions span,
+.reserveSignatureRow span,
+.reserveSignaturePreview span {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.reserveWorkflowHeader strong {
+  border-radius: 999px;
+  background: #e8f0fe;
+  color: #003082;
+  padding: 5px 9px;
+  font-size: 12px;
+}
+
+.reserveWorkflowBlock {
+  display: grid;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.reserveWorkflowBlock p {
+  margin: 0;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.reserveWorkflowActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.reserveWorkflowCard button,
+.reserveSignatureRow button {
+  min-height: 36px;
+  border: 1px solid #b9c8e8;
+  border-radius: 10px;
+  background: #fff;
+  color: #003082;
+  padding: 0 12px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.reserveWorkflowCard button:hover:not(:disabled),
+.reserveSignatureRow button:hover:not(:disabled) {
+  border-color: #003082;
+  background: #eef4ff;
+}
+
+.reserveWorkflowCard button:disabled,
+.reserveSignatureRow button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.reserveSignatureGrid {
+  display: grid;
+  gap: 8px;
+}
+
+.reserveSignatureRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.reserveSignatureRow strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #0f172a;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reserveSignaturePreview {
+  display: grid;
+  gap: 8px;
+}
+
+.reserveSignaturePreview img {
+  width: 220px;
+  max-width: 100%;
+  height: 78px;
+  object-fit: contain;
+  border: 1px solid #d6e1f2;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.reserveLiftModalWeb {
+  width: min(560px, 100%);
+}
+
+.reserveLiftModalBodyWeb {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px 8px;
+}
+
+.reserveLiftModalBodyWeb label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.reserveLiftModalBodyWeb textarea {
+  min-height: 118px;
+  resize: vertical;
+}
+
+.reserveLiftModalBodyWeb textarea,
+.reserveLiftModalBodyWeb input[type='file'] {
+  width: 100%;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #0f172a;
+  padding: 11px 12px;
+  font: inherit;
+  font-weight: 600;
+}
+
+.reserveLiftFileWeb {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid #d5eadf;
+  border-radius: 12px;
+  background: #f0fdf4;
+  padding: 10px 12px;
+}
+
+.reserveLiftFileWeb span {
+  min-width: 0;
+  overflow: hidden;
+  color: #166534;
+  font-size: 13px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reserveLiftFileWeb button {
+  border: 1px solid #86efac;
+  border-radius: 10px;
+  background: #fff;
+  color: #166534;
+  padding: 7px 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
 .reservePhotoLightboxBackdrop {
   position: fixed;
   inset: 0;
@@ -6796,6 +6988,296 @@
 
 .formWide {
   grid-column: 1 / -1;
+}
+
+.fullSpan {
+  grid-column: 1 / -1;
+}
+
+.wideModal {
+  width: min(1040px, calc(100vw - 28px));
+}
+
+.checkboxRow {
+  grid-column: 1 / -1;
+  display: flex !important;
+  grid-template-columns: none !important;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.checkboxRow input {
+  width: auto;
+}
+
+.successText {
+  grid-column: 1 / -1;
+  margin: 0;
+  border: 1px solid #bbf7d0;
+  border-radius: 12px;
+  background: #ecfdf5;
+  color: #047857;
+  padding: 10px 12px;
+  font-weight: 800;
+}
+
+.emptyState {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 44px 20px;
+  text-align: center;
+}
+
+.emptyState strong {
+  color: #0f172a;
+  font-size: 20px;
+}
+
+.emptyState p {
+  margin: 0;
+  color: #64748b;
+}
+
+.detailGrid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.detailGrid span {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #dbe4f0;
+  border-radius: 12px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.detailGrid strong {
+  color: #64748b;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.detailGrid em {
+  color: #0f172a;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.structureSummary {
+  display: grid;
+  gap: 10px;
+}
+
+.structureSummary article {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+
+.structureSummary small {
+  color: #64748b;
+  font-weight: 750;
+}
+
+.structureSummary div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.structureSummary span {
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #003082;
+  padding: 5px 9px;
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.structureEditor {
+  display: grid;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.structureAddRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.structureAddRow button,
+.structureHeaderRow button,
+.structureZone button {
+  border: 1px solid #cbd8f4;
+  border-radius: 10px;
+  background: #eef4ff;
+  color: #003082;
+  padding: 8px 10px;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.structureAddRow button:disabled,
+.structureHeaderRow button:disabled,
+.structureZone button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.structureTree,
+.structureLevels,
+.structureZones {
+  display: grid;
+  gap: 10px;
+}
+
+.structureBuilding,
+.structureLevel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.structureLevel {
+  margin-left: 18px;
+  background: #fff;
+}
+
+.structureHeaderRow {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) repeat(4, auto);
+  align-items: center;
+  gap: 8px;
+}
+
+.structureZones {
+  margin-left: 18px;
+}
+
+.structureZone {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) repeat(3, auto);
+  gap: 6px;
+  align-items: center;
+}
+
+.chipGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.analyticsBars {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px;
+  min-height: 240px;
+  padding-top: 16px;
+}
+
+.analyticsBars div {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-items: end;
+  gap: 8px;
+  height: 220px;
+  text-align: center;
+}
+
+.analyticsBars span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.analyticsBars i,
+.analyticsBars b {
+  display: inline-block;
+  width: 34%;
+  min-height: 4px;
+  border-radius: 999px 999px 0 0;
+  justify-self: center;
+}
+
+.analyticsBars i {
+  margin-right: 18%;
+  background: #003082;
+}
+
+.analyticsBars b {
+  margin-left: 18%;
+  background: #16a34a;
+  grid-row: 2;
+}
+
+.tableLike {
+  display: grid;
+  gap: 8px;
+}
+
+.checklistGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.checklistCard {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dbe4f0;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+
+.checklistItem,
+.checklistItemDone {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  color: #334155;
+  padding: 9px 10px;
+  text-align: left;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.checklistItemDone {
+  border-color: #bbf7d0;
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.checklistItem span,
+.checklistItemDone span {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  font-size: 12px;
 }
 
 .reserveModalBody {

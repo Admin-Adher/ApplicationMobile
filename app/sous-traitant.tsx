@@ -375,7 +375,7 @@ export default function SousTraitantScreen() {
                   onPress={() => router.push(`/reserve/${r.id}` as any)}
                   canEdit={permissions.canEditOwn}
                   onMarkInProgress={() => updateReserveStatus(r.id, 'in_progress', authorName)}
-                  onMarkDone={() => updateReserveStatus(r.id, 'verification', authorName)}
+                  onMarkDone={() => router.push({ pathname: '/reserve/[id]', params: { id: r.id, requestLift: '1' } } as any)}
                 />
               ))
             )}

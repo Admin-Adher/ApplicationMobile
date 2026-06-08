@@ -53,6 +53,8 @@ type WebState = {
   documents: any[];
   photos: any[];
   oprs: any[];
+  timeEntries: any[];
+  regulatoryDocs: any[];
   notificationPreferences: any[];
 };
 
@@ -195,6 +197,8 @@ const EMPTY_DATA: WebState = {
   documents: [],
   photos: [],
   oprs: [],
+  timeEntries: [],
+  regulatoryDocs: [],
   notificationPreferences: [],
 };
 
@@ -207,10 +211,18 @@ const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+  { id: 'chantiers', label: 'Chantiers', icon: 'hammer' },
   { id: 'plans', label: 'Plans', icon: 'map' },
   { id: 'reserves', label: 'Réserves', icon: 'warning' },
   { id: 'messages', label: 'Messages', icon: 'chatbubbles' },
   { id: 'terrain', label: 'Terrain', icon: 'hammer' },
+  { id: 'journal', label: 'Journal', icon: 'document-text' },
+  { id: 'pointage', label: 'Pointage', icon: 'time' },
+  { id: 'analytics', label: 'Analytics', icon: 'grid' },
+  { id: 'documents', label: 'Documents', icon: 'document-text' },
+  { id: 'checklists', label: 'Checklists', icon: 'checkbox' },
+  { id: 'reglementaire', label: 'Réglementaire', icon: 'warning' },
+  { id: 'search', label: 'Recherche', icon: 'options' },
   { id: 'incidents', label: 'Incidents', icon: 'alert-circle' },
   { id: 'opr', label: 'OPR', icon: 'checkbox' },
   { id: 'visites', label: 'Visites', icon: 'checkbox' },
@@ -257,8 +269,21 @@ function useWebI18n() {
   return useContext(WebI18nContext);
 }
 
+const TAB_LABEL_FALLBACK: Partial<Record<string, string>> = {
+  chantiers: 'Chantiers',
+  journal: 'Journal',
+  pointage: 'Pointage',
+  analytics: 'Analytics',
+  documents: 'Documents',
+  checklists: 'Checklists',
+  reglementaire: 'Réglementaire',
+  search: 'Recherche',
+};
+
 function tabLabel(tabId: TabId, t: WebTranslator) {
-  return t(`nav.${tabId}`);
+  const key = `nav.${tabId}`;
+  const translated = t(key);
+  return translated === key ? TAB_LABEL_FALLBACK[tabId] ?? translated : translated;
 }
 
 function readStoredWebLanguagePreference(): { preference: WebLanguagePreference; hasStored: boolean } {
@@ -394,6 +419,14 @@ function WebStaticI18nBridge() {
 }
 
 const TERRAIN_CHILD_TABS = new Set<TabId>([
+  'chantiers',
+  'journal',
+  'pointage',
+  'analytics',
+  'documents',
+  'checklists',
+  'reglementaire',
+  'search',
   'visites',
   'planning',
   'incidents',
@@ -697,8 +730,50 @@ function canEdit(profile: Profile | null) {
   return ['super_admin', 'admin', 'conducteur', 'chef_equipe'].includes(String(profile?.role ?? ''));
 }
 
+function isSubcontractor(profile: Profile | null) {
+  return profile?.role === 'sous_traitant';
+}
+
+function canUseReserveTunnel(profile: Profile | null) {
+  return canEdit(profile) || isSubcontractor(profile);
+}
+
 function userLabel(profile: Profile | null, authUser?: SupabaseUser | null) {
   return profile?.name || profile?.email || authUser?.email || 'BuildTrack Web';
+}
+
+function statusLabel(status: string) {
+  return STATUS_LABELS[status] ?? status;
+}
+
+function reserveCompanySignatures(reserve: any): Record<string, { signature?: string; signataire?: string; signedAt?: string }> {
+  const value = reserve?.company_signatures ?? reserve?.companySignatures;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return value;
+}
+
+function xmlEscape(value: string) {
+  return value.replace(/[<>&"']/g, char => ({
+    '<': '&lt;',
+    '>': '&gt;',
+    '&': '&amp;',
+    '"': '&quot;',
+    "'": '&apos;',
+  }[char] ?? char));
+}
+
+function signatureImageSrc(value: any) {
+  const text = String(value ?? '').trim();
+  if (!text) return '';
+  if (text.startsWith('data:')) return text;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(text)}`;
+}
+
+function makeTypedSignatureDataUrl(signataire: string, signedAt: string) {
+  const name = xmlEscape(signataire);
+  const date = xmlEscape(signedAt);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="150" viewBox="0 0 420 150"><rect width="420" height="150" fill="white"/><path d="M34 96 C92 48, 120 130, 176 82 S274 62, 328 86 S378 98, 394 68" fill="none" stroke="#1A2742" stroke-width="5" stroke-linecap="round"/><text x="34" y="128" font-family="Arial, sans-serif" font-size="18" fill="#1A2742">${name}</text><text x="300" y="128" font-family="Arial, sans-serif" font-size="13" fill="#64748B">${date}</text></svg>`;
+  return signatureImageSrc(svg);
 }
 
 function useMediaQuery(query: string) {
@@ -946,7 +1021,16 @@ function getPlanLevelName(plan: any) {
 }
 
 function projectBuildings(project?: any | null): any[] {
-  return Array.isArray(project?.buildings) ? project.buildings : [];
+  if (Array.isArray(project?.buildings)) return project.buildings;
+  if (typeof project?.buildings === 'string' && project.buildings.trim()) {
+    try {
+      const parsed = JSON.parse(project.buildings);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
 }
 
 function getPlanBuildingId(plan: any) {
@@ -1725,6 +1809,56 @@ function safeStorageName(value: string) {
     .slice(0, 120);
 }
 
+function formatWebFileSize(size?: number | null) {
+  const value = Number(size ?? 0);
+  if (!Number.isFinite(value) || value <= 0) return '—';
+  if (value < 1024) return `${value} o`;
+  if (value < 1024 * 1024) return `${Math.round(value / 1024)} Ko`;
+  return `${(value / (1024 * 1024)).toFixed(value >= 10 * 1024 * 1024 ? 0 : 1)} Mo`;
+}
+
+function detectWebPlanFileType(file?: File | null): 'pdf' | 'image' | 'dxf' | null {
+  if (!file) return null;
+  const name = file.name.toLowerCase();
+  const mime = file.type.toLowerCase();
+  if (mime.includes('pdf') || name.endsWith('.pdf')) return 'pdf';
+  if (name.endsWith('.dxf')) return 'dxf';
+  if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(name)) return 'image';
+  return null;
+}
+
+function detectWebDocumentType(file?: File | null): 'plan' | 'report' | 'technical' | 'photo' | 'other' {
+  if (!file) return 'other';
+  const name = file.name.toLowerCase();
+  const mime = file.type.toLowerCase();
+  if (name.includes('plan') && (mime.includes('pdf') || name.endsWith('.pdf'))) return 'plan';
+  if (/\.(docx?|pdf)$/i.test(name)) return 'report';
+  if (/\.(xlsx?|csv|ods)$/i.test(name)) return 'technical';
+  if (mime.startsWith('image/') || /\.(png|jpe?g|webp|gif)$/i.test(name)) return 'photo';
+  return 'other';
+}
+
+function makeWebLocalStorageKey(prefix: string, profile: Profile | null, selectedProjectId: string) {
+  const org = profile?.organization_id ?? profile?.id ?? 'local';
+  return `${prefix}:${org}:${selectedProjectId || 'all'}`;
+}
+
+function readWebLocalArray(key: string) {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = window.localStorage.getItem(key);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeWebLocalArray(key: string, value: any[]) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
 async function uploadWebFile(bucket: 'photos' | 'documents', file: File, prefix: string) {
   const extension = file.name.includes('.') ? file.name.split('.').pop() : '';
   const fileName = `${safeStorageName(prefix)}_${Date.now()}_${safeStorageName(file.name || `upload.${extension || 'jpg'}`)}`;
@@ -2221,6 +2355,8 @@ export default function BuildTrackWebPage() {
         documents,
         photos,
         oprs,
+        timeEntries,
+        regulatoryDocs,
         notificationPreferences,
       ] = await Promise.all([
         fetchScopedTable('chantiers', loadedProfile, { order: 'created_at' }),
@@ -2238,6 +2374,8 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('documents', loadedProfile, { order: 'uploaded_at' }),
         fetchScopedTable('photos', loadedProfile, { order: 'taken_at', scoped: false }),
         fetchScopedTable('oprs', loadedProfile, { order: 'created_at' }),
+        fetchScopedTable('time_entries', loadedProfile, { order: 'created_at' }),
+        fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at' }),
         fetchScopedTable('notification_preferences', loadedProfile, { scoped: false }),
       ]);
 
@@ -2270,6 +2408,8 @@ export default function BuildTrackWebPage() {
         documents: scopedDocuments,
         photos: scopedPhotos,
         oprs,
+        timeEntries,
+        regulatoryDocs: loadedProfile.role === 'sous_traitant' ? [] : regulatoryDocs,
         notificationPreferences,
       };
       setData(nextData);
@@ -2293,16 +2433,227 @@ export default function BuildTrackWebPage() {
     setSaving(false);
   }
 
-  async function updateReserveStatus(reserveId: string, status: string) {
-    if (!canEdit(profile)) return;
+  async function patchReserveWeb(reserve: any, patch: Record<string, any>) {
+    if (!reserve?.id) return false;
     setSaving(true);
-    const { error: updateError } = await supabaseBrowser
+    setError('');
+    const { data: updated, error: updateError } = await supabaseBrowser
       .from('reserves')
-      .update({ status })
-      .eq('id', reserveId);
-    if (updateError) setError(updateError.message);
-    else setData(prev => ({ ...prev, reserves: prev.reserves.map(r => r.id === reserveId ? { ...r, status } : r) }));
+      .update(patch)
+      .eq('id', reserve.id)
+      .select()
+      .maybeSingle();
+    if (updateError) {
+      setError(updateError.message);
+    } else {
+      setData(prev => ({
+        ...prev,
+        reserves: prev.reserves.map(r => r.id === reserve.id ? (updated ?? { ...r, ...patch }) : r),
+        deletedReserves: prev.deletedReserves.map(r => r.id === reserve.id ? (updated ?? { ...r, ...patch }) : r),
+      }));
+    }
     setSaving(false);
+    return !updateError;
+  }
+
+  async function updateReserveStatus(reserveId: string, status: string) {
+    const reserve = [...data.reserves, ...data.deletedReserves].find(r => r.id === reserveId);
+    if (!reserve || !canUseReserveTunnel(profile)) return;
+
+    const currentStatus = String(reserve.status ?? 'open');
+    if (!canEdit(profile)) {
+      const allowedForSubcontractor =
+        (status === 'in_progress' && currentStatus === 'open') ||
+        (status === 'verification' && ['open', 'in_progress', 'waiting'].includes(currentStatus));
+      if (!allowedForSubcontractor) {
+        setError("Action non autorisée pour un sous-traitant.");
+        return;
+      }
+    }
+
+    const author = userLabel(profile, authUser);
+    const history = [
+      ...(Array.isArray(reserve.history) ? reserve.history : []),
+      makeHistory('Statut modifié depuis le web', author, statusLabel(currentStatus), statusLabel(status)),
+    ];
+    const patch: Record<string, any> = { status, history };
+    if (status === 'closed' && currentStatus !== 'closed') {
+      patch.closed_at = todayISO();
+      patch.closed_by = author;
+    } else if (status !== 'closed' && currentStatus === 'closed') {
+      patch.closed_at = null;
+      patch.closed_by = null;
+    }
+    await patchReserveWeb(reserve, patch);
+  }
+
+  async function requestReserveLiftWeb(reserve: any, payload: { comment: string; file: File | null }) {
+    if (!reserve?.id || !canUseReserveTunnel(profile)) return;
+    const currentStatus = String(reserve.status ?? 'open');
+    if (!['open', 'in_progress', 'waiting'].includes(currentStatus)) {
+      setError('Cette réserve ne peut pas être envoyée en demande de levée depuis son statut actuel.');
+      throw new Error('Invalid reserve status for lift request');
+    }
+    if (!canEdit(profile)) {
+      const allowedForSubcontractor = isSubcontractor(profile);
+      if (!allowedForSubcontractor) {
+        setError("Action non autorisée pour ce profil.");
+        throw new Error('Unauthorized lift request');
+      }
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      const author = userLabel(profile, authUser);
+      const trimmedComment = payload.comment.trim();
+      const createdAt = nowFR();
+      let uploadedPhoto: any = null;
+      let photoRow: any = null;
+
+      if (payload.file) {
+        const url = await uploadWebFile('photos', payload.file, `reserve_${reserve.id}_lift`);
+        const photoId = crypto.randomUUID();
+        uploadedPhoto = {
+          id: photoId,
+          uri: url,
+          kind: 'resolution',
+          takenAt: createdAt,
+          takenBy: author,
+          name: payload.file.name,
+          annotations: [],
+        };
+        photoRow = {
+          id: photoId,
+          comment: 'Photo de levée',
+          location: [reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · '),
+          taken_at: createdAt,
+          taken_by: author,
+          color_code: '#10b981',
+          uri: url,
+          reserve_id: reserve.id,
+          organization_id: profile?.organization_id ?? null,
+        };
+        const { error: photoInsertError } = await supabaseBrowser.from('photos').insert(photoRow);
+        if (photoInsertError) throw photoInsertError;
+      }
+
+      const comments = trimmedComment
+        ? [
+          ...(Array.isArray(reserve.comments) ? reserve.comments : []),
+          { id: crypto.randomUUID(), author, content: `Demande de levée : ${trimmedComment}`, createdAt },
+        ]
+        : reserve.comments ?? [];
+      const photos = uploadedPhoto
+        ? [...(Array.isArray(reserve.photos) ? reserve.photos : []), uploadedPhoto]
+        : reserve.photos ?? null;
+      const history = [
+        ...(Array.isArray(reserve.history) ? reserve.history : []),
+        makeHistory('Statut modifié depuis le web', author, statusLabel(currentStatus), statusLabel('verification')),
+        makeHistory(
+          'Demande de levée depuis le web',
+          author,
+          undefined,
+          [
+            trimmedComment ? 'Commentaire ajouté' : null,
+            uploadedPhoto ? 'Photo ajoutée' : null,
+          ].filter(Boolean).join(', ') || 'Sans commentaire/photo',
+        ),
+      ];
+      const patch: Record<string, any> = {
+        status: 'verification',
+        comments,
+        history,
+        photos,
+        photo_uri: reserve.photo_uri ?? reserve.photoUri ?? (Array.isArray(reserve.photos) ? reserve.photos[0]?.uri : null) ?? uploadedPhoto?.uri ?? null,
+        closed_at: null,
+        closed_by: null,
+      };
+      const ok = await patchReserveWeb(reserve, patch);
+      if (!ok) throw new Error('Lift request update failed');
+      if (photoRow) {
+        setData(prev => ({ ...prev, photos: [photoRow, ...prev.photos] }));
+      }
+    } catch (err: any) {
+      setError(err?.message ?? 'Demande de levée impossible.');
+      throw err;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function acknowledgeReserveWeb(reserve: any) {
+    if (!canEdit(profile) || !reserve?.id) return;
+    const author = userLabel(profile, authUser);
+    const acknowledgedAt = reserve.enterprise_acknowledged_at ?? todayISO();
+    await patchReserveWeb(reserve, {
+      enterprise_acknowledged_at: acknowledgedAt,
+      history: [
+        ...(Array.isArray(reserve.history) ? reserve.history : []),
+        makeHistory('Réception accusée depuis le web', author),
+      ],
+    });
+  }
+
+  async function signReserveWeb(reserve: any, companyName?: string) {
+    if (!reserve?.id || !canUseReserveTunnel(profile)) return;
+    const acknowledgedAt = reserve.enterprise_acknowledged_at ?? reserve.enterpriseAcknowledgedAt;
+    if (!acknowledgedAt) {
+      setError("L'accusé de réception doit être enregistré avant la signature.");
+      return;
+    }
+    const defaultName = userLabel(profile, authUser);
+    const signataire = window.prompt('Nom du signataire', defaultName)?.trim();
+    if (!signataire) return;
+    const signedAt = todayISO();
+    const signature = makeTypedSignatureDataUrl(signataire, signedAt);
+    const isMultiCompany = reserveCompanies(reserve).length > 1;
+    const historyAction = companyName && isMultiCompany
+      ? `Levée signée depuis le web (${companyName})`
+      : 'Levée signée depuis le web';
+
+    if (companyName && isMultiCompany) {
+      await patchReserveWeb(reserve, {
+        company_signatures: {
+          ...reserveCompanySignatures(reserve),
+          [companyName]: { signature, signataire, signedAt },
+        },
+        history: [
+          ...(Array.isArray(reserve.history) ? reserve.history : []),
+          makeHistory(historyAction, signataire),
+        ],
+      });
+      return;
+    }
+
+    await patchReserveWeb(reserve, {
+      enterprise_signature: signature,
+      enterprise_signataire: signataire,
+      history: [
+        ...(Array.isArray(reserve.history) ? reserve.history : []),
+        makeHistory(historyAction, signataire),
+      ],
+    });
+  }
+
+  async function rejectReserveVerificationWeb(reserve: any) {
+    if (!canEdit(profile) || !reserve?.id || reserve.status !== 'verification') return;
+    const reason = window.prompt('Motif du refus de levée (optionnel)', '')?.trim() ?? '';
+    const author = userLabel(profile, authUser);
+    const comments = reason
+      ? [
+        ...(Array.isArray(reserve.comments) ? reserve.comments : []),
+        { id: crypto.randomUUID(), author, content: `Levée rejetée : ${reason}`, createdAt: nowFR() },
+      ]
+      : reserve.comments ?? [];
+    await patchReserveWeb(reserve, {
+      status: 'in_progress',
+      comments,
+      history: [
+        ...(Array.isArray(reserve.history) ? reserve.history : []),
+        makeHistory('Levée rejetée depuis le web', author, statusLabel('verification'), statusLabel('in_progress')),
+      ],
+    });
   }
 
   async function moveReservePinWeb(reserve: any, plan: any, x: number, y: number) {
@@ -3154,6 +3505,522 @@ export default function BuildTrackWebPage() {
     }
   }
 
+  async function saveChantierWeb(draft: any) {
+    if (!profile || !canEdit(profile)) return null;
+    const name = String(draft.name ?? '').trim();
+    if (!name) {
+      setError('Le nom du chantier est obligatoire.');
+      return null;
+    }
+    const buildings = projectBuildings({ buildings: draft.buildings });
+    const projectId = draft.id || `CH-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const payload = {
+      name,
+      address: String(draft.address ?? '').trim() || null,
+      description: String(draft.description ?? '').trim() || null,
+      start_date: draft.start_date || null,
+      end_date: draft.end_date || null,
+      status: draft.status || 'active',
+      company_ids: Array.isArray(draft.company_ids) ? draft.company_ids : [],
+      buildings: buildings.length ? JSON.stringify(buildings) : null,
+    };
+    setSaving(true);
+    setError('');
+    const isCreate = !draft.id;
+    const query = isCreate
+      ? supabaseBrowser
+          .from('chantiers')
+          .insert({
+            id: projectId,
+            ...payload,
+            created_by: userLabel(profile, authUser),
+            organization_id: profile.organization_id ?? null,
+          })
+          .select()
+          .single()
+      : supabaseBrowser
+          .from('chantiers')
+          .update(payload)
+          .eq('id', projectId)
+          .select()
+          .single();
+    const { data: saved, error: projectError } = await query;
+    if (projectError) {
+      setError(projectError.message);
+      setSaving(false);
+      return null;
+    }
+    const savedProject = saved ?? { id: projectId, ...payload };
+    if (isCreate) {
+      try {
+        await supabaseBrowser.from('channels').upsert({
+          id: `building-${projectId}`,
+          name,
+          description: payload.description ?? '',
+          icon: 'business',
+          color: '#3B82F6',
+          type: 'building',
+          members: profile.name ? [profile.name] : [],
+          created_by: profile.name ?? null,
+          organization_id: profile.organization_id ?? null,
+        });
+      } catch {
+        // Non bloquant : le chantier existe même si le salon bâtiment sera recréé par synchronisation mobile.
+      }
+    }
+    setData(prev => ({
+      ...prev,
+      chantiers: isCreate
+        ? [savedProject, ...prev.chantiers]
+        : prev.chantiers.map(project => project.id === projectId ? savedProject : project),
+    }));
+    setSelectedProjectId(projectId);
+    setSaving(false);
+    return savedProject;
+  }
+
+  async function deleteChantierWeb(project: any) {
+    if (!profile || !canEdit(profile) || !project?.id) return false;
+    const confirmed = window.confirm(`Supprimer le chantier "${project.name}" et toutes ses données rattachées ? Cette action est définitive.`);
+    if (!confirmed) return false;
+    setSaving(true);
+    setError('');
+    const projectId = String(project.id);
+    const reserveIds = [...data.reserves, ...data.deletedReserves]
+      .filter(reserve => getChantierId(reserve) === projectId)
+      .map(reserve => reserve.id);
+    const buildingChannelId = `building-${projectId}`;
+    const relatedDeletes = [
+      reserveIds.length ? supabaseBrowser.from('photos').delete().in('reserve_id', reserveIds) : Promise.resolve({ error: null }),
+      supabaseBrowser.from('reserves').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('tasks').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('visites').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('lots').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('oprs').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('site_plans').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('documents').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('incidents').delete().eq('chantier_id', projectId),
+      supabaseBrowser.from('messages').delete().eq('channel_id', buildingChannelId),
+      supabaseBrowser.from('channels').delete().eq('id', buildingChannelId),
+    ];
+    const results = await Promise.all(relatedDeletes);
+    const relatedError = results.find((result: any) => result?.error)?.error;
+    if (relatedError) {
+      setError(relatedError.message ?? 'Suppression des données rattachées impossible.');
+      setSaving(false);
+      return false;
+    }
+    const { error: projectError } = await supabaseBrowser.from('chantiers').delete().eq('id', projectId);
+    if (projectError) {
+      setError(projectError.message);
+      setSaving(false);
+      return false;
+    }
+    setData(prev => ({
+      ...prev,
+      chantiers: prev.chantiers.filter(item => item.id !== projectId),
+      reserves: prev.reserves.filter(item => getChantierId(item) !== projectId),
+      deletedReserves: prev.deletedReserves.filter(item => getChantierId(item) !== projectId),
+      sitePlans: prev.sitePlans.filter(item => getChantierId(item) !== projectId),
+      visites: prev.visites.filter(item => getChantierId(item) !== projectId),
+      tasks: prev.tasks.filter(item => getChantierId(item) !== projectId),
+      incidents: prev.incidents.filter(item => getChantierId(item) !== projectId),
+      documents: prev.documents.filter(item => getChantierId(item) !== projectId),
+      oprs: prev.oprs.filter(item => getChantierId(item) !== projectId),
+      photos: prev.photos.filter(item => !item.reserve_id || !reserveIds.includes(item.reserve_id)),
+      channels: prev.channels.filter(item => item.id !== buildingChannelId),
+      messages: prev.messages.filter(item => item.channel_id !== buildingChannelId),
+    }));
+    setSelectedProjectId(prev => prev === projectId ? (data.chantiers.find(item => item.id !== projectId)?.id ?? 'all') : prev);
+    setSaving(false);
+    return true;
+  }
+
+  async function createSitePlanWeb(draft: any, file: File | null) {
+    if (!profile || !canEdit(profile)) return null;
+    const name = String(draft.name ?? '').trim();
+    const chantierId = String(draft.chantier_id || (selectedProjectId !== 'all' ? selectedProjectId : '')).trim();
+    if (!name || !chantierId) {
+      setError('Le nom du plan et le chantier sont obligatoires.');
+      return null;
+    }
+    setSaving(true);
+    setError('');
+    let uri: string | null = null;
+    let fileType: string | null = null;
+    let dxfName: string | null = null;
+    if (file) {
+      const detected = detectWebPlanFileType(file);
+      if (!detected) {
+        setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
+        setSaving(false);
+        return null;
+      }
+      uri = await uploadWebFile('documents', file, `plan_${name}`);
+      fileType = detected;
+      dxfName = detected === 'dxf' ? file.name : null;
+    }
+    const payload = {
+      id: `PLAN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      chantier_id: chantierId,
+      name,
+      building: String(draft.building ?? '').trim() || null,
+      level: String(draft.level ?? '').trim() || null,
+      building_id: draft.building_id || null,
+      level_id: draft.level_id || null,
+      uri,
+      file_type: fileType,
+      dxf_name: dxfName,
+      uploaded_at: todayISO(),
+      size: file ? formatWebFileSize(file.size) : null,
+      revision_code: String(draft.revision_code ?? '').trim() || null,
+      revision_number: draft.revision_code ? 1 : null,
+      parent_plan_id: null,
+      is_latest_revision: true,
+      revision_note: String(draft.revision_note ?? '').trim() || null,
+      annotations: [],
+      organization_id: profile.organization_id ?? null,
+    };
+    const { data: inserted, error: insertError } = await supabaseBrowser.from('site_plans').insert(payload).select().single();
+    if (insertError) {
+      setError(insertError.message);
+      setSaving(false);
+      return null;
+    }
+    const plan = inserted ?? payload;
+    setData(prev => ({ ...prev, sitePlans: [plan, ...prev.sitePlans] }));
+    setSelectedPlanId(plan.id);
+    setActiveTab('plans');
+    setSaving(false);
+    return plan;
+  }
+
+  async function updateSitePlanWeb(plan: any, patch: Record<string, any>, file?: File | null) {
+    if (!profile || !canEdit(profile) || !plan?.id) return null;
+    setSaving(true);
+    setError('');
+    const payload = { ...patch };
+    if (file) {
+      const detected = detectWebPlanFileType(file);
+      if (!detected) {
+        setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
+        setSaving(false);
+        return null;
+      }
+      payload.uri = await uploadWebFile('documents', file, `plan_${patch.name ?? plan.name ?? plan.id}`);
+      payload.file_type = detected;
+      payload.dxf_name = detected === 'dxf' ? file.name : null;
+      payload.size = formatWebFileSize(file.size);
+      payload.uploaded_at = todayISO();
+    }
+    const { data: updated, error: updateError } = await supabaseBrowser
+      .from('site_plans')
+      .update(payload)
+      .eq('id', plan.id)
+      .select()
+      .single();
+    if (updateError) {
+      setError(updateError.message);
+      setSaving(false);
+      return null;
+    }
+    const nextPlan = updated ?? { ...plan, ...payload };
+    setData(prev => ({
+      ...prev,
+      sitePlans: prev.sitePlans.map(item => item.id === plan.id ? nextPlan : item),
+    }));
+    setSaving(false);
+    return nextPlan;
+  }
+
+  async function deleteSitePlanFileWeb(plan: any) {
+    if (!plan?.id) return null;
+    return updateSitePlanWeb(plan, {
+      uri: null,
+      file_type: null,
+      dxf_name: null,
+      size: null,
+      uploaded_at: todayISO(),
+    });
+  }
+
+  async function deleteSitePlanWeb(plan: any) {
+    if (!profile || !canEdit(profile) || !plan?.id) return false;
+    const confirmed = window.confirm(`Supprimer le plan "${plan.name}" ? Les réserves rattachées seront détachées du plan mais conservées.`);
+    if (!confirmed) return false;
+    setSaving(true);
+    setError('');
+    const planId = String(plan.id);
+    const linkedReserveIds = data.reserves.filter(reserve => getReservePlanId(reserve) === planId).map(reserve => reserve.id);
+    const [reserveResult, planResult] = await Promise.all([
+      linkedReserveIds.length
+        ? supabaseBrowser.from('reserves').update({ plan_id: null, plan_x: null, plan_y: null }).in('id', linkedReserveIds)
+        : Promise.resolve({ error: null }),
+      supabaseBrowser.from('site_plans').delete().eq('id', planId),
+    ]);
+    const deleteError = reserveResult.error ?? planResult.error;
+    if (deleteError) {
+      setError(deleteError.message ?? 'Suppression du plan impossible.');
+      setSaving(false);
+      return false;
+    }
+    setData(prev => ({
+      ...prev,
+      sitePlans: prev.sitePlans.filter(item => item.id !== planId),
+      reserves: prev.reserves.map(item => linkedReserveIds.includes(item.id) ? { ...item, plan_id: null, plan_x: null, plan_y: null } : item),
+    }));
+    setSelectedPlanId(prev => prev === planId ? (data.sitePlans.find(item => item.id !== planId)?.id ?? null) : prev);
+    setSaving(false);
+    return true;
+  }
+
+  async function createSitePlanRevisionWeb(parentPlan: any, draft: any, file: File | null, migrateReserves: boolean) {
+    if (!profile || !canEdit(profile) || !parentPlan?.id) return null;
+    const parentRevisionNumber = Number(parentPlan.revision_number ?? parentPlan.revisionNumber ?? 1) || 1;
+    const revisionNumber = parentRevisionNumber + 1;
+    const revisionCode = String(draft.revision_code ?? '').trim() || `R${String(revisionNumber).padStart(2, '0')}`;
+    setSaving(true);
+    setError('');
+    let uri: string | null = null;
+    let fileType: string | null = null;
+    let dxfName: string | null = null;
+    if (file) {
+      const detected = detectWebPlanFileType(file);
+      if (!detected) {
+        setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
+        setSaving(false);
+        return null;
+      }
+      uri = await uploadWebFile('documents', file, `revision_${parentPlan.name}_${revisionCode}`);
+      fileType = detected;
+      dxfName = detected === 'dxf' ? file.name : null;
+    }
+    const newPlan = {
+      id: `PLAN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      chantier_id: parentPlan.chantier_id ?? parentPlan.chantierId,
+      name: String(draft.name ?? '').trim() || parentPlan.name,
+      building: String(draft.building ?? parentPlan.building ?? '').trim() || null,
+      level: String(draft.level ?? parentPlan.level ?? '').trim() || null,
+      building_id: draft.building_id ?? parentPlan.building_id ?? null,
+      level_id: draft.level_id ?? parentPlan.level_id ?? null,
+      uri,
+      file_type: fileType,
+      dxf_name: dxfName,
+      uploaded_at: todayISO(),
+      size: file ? formatWebFileSize(file.size) : null,
+      revision_code: revisionCode,
+      revision_number: revisionNumber,
+      parent_plan_id: parentPlan.id,
+      is_latest_revision: true,
+      revision_note: String(draft.revision_note ?? '').trim() || null,
+      annotations: [],
+      organization_id: profile.organization_id ?? null,
+    };
+    const [parentUpdate, insertResult] = await Promise.all([
+      supabaseBrowser.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevisionNumber }).eq('id', parentPlan.id),
+      supabaseBrowser.from('site_plans').insert(newPlan).select().single(),
+    ]);
+    const revisionError = parentUpdate.error ?? insertResult.error;
+    if (revisionError) {
+      setError(revisionError.message ?? 'Création de la révision impossible.');
+      setSaving(false);
+      return null;
+    }
+    const insertedPlan = insertResult.data ?? newPlan;
+    const migratable = data.reserves.filter(reserve => getReservePlanId(reserve) === String(parentPlan.id) && reserve.status !== 'closed');
+    let migratedCount = 0;
+    if (migrateReserves && migratable.length) {
+      const { error: migrateError } = await supabaseBrowser
+        .from('reserves')
+        .update({ plan_id: insertedPlan.id })
+        .in('id', migratable.map(reserve => reserve.id));
+      if (migrateError) {
+        setError(`Révision créée, mais migration des réserves impossible : ${migrateError.message}`);
+      } else {
+        migratedCount = migratable.length;
+      }
+    }
+    setData(prev => ({
+      ...prev,
+      sitePlans: [
+        insertedPlan,
+        ...prev.sitePlans.map(item => item.id === parentPlan.id ? { ...item, is_latest_revision: false, revision_number: parentRevisionNumber } : item),
+      ],
+      reserves: prev.reserves.map(item => migrateReserves && migratable.some(reserve => reserve.id === item.id) ? { ...item, plan_id: insertedPlan.id } : item),
+    }));
+    setSelectedPlanId(insertedPlan.id);
+    setSaving(false);
+    return { plan: insertedPlan, migratedCount };
+  }
+
+  async function createDocumentWeb(payload: Record<string, any>, file: File | null) {
+    if (!profile || !canEdit(profile) || !file) return null;
+    setSaving(true);
+    setError('');
+    const uri = await uploadWebFile('documents', file, `document_${payload.name ?? file.name}`);
+    const docType = payload.type || detectWebDocumentType(file);
+    const documentPayload = {
+      id: `DOC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      name: String(payload.name ?? file.name).trim() || file.name,
+      type: docType,
+      category: String(payload.category ?? '').trim() || (docType === 'technical' ? 'Technique' : docType === 'plan' ? 'Plans' : 'Documents'),
+      uploaded_at: todayISO(),
+      size: formatWebFileSize(file.size),
+      version: Number(payload.version ?? 1) || 1,
+      uri,
+      chantier_id: payload.chantier_id || (selectedProjectId !== 'all' ? selectedProjectId : null),
+      organization_id: profile.organization_id ?? null,
+    };
+    const { data: inserted, error: insertError } = await supabaseBrowser.from('documents').insert(documentPayload).select().single();
+    if (insertError) {
+      setError(insertError.message);
+      setSaving(false);
+      return null;
+    }
+    const saved = inserted ?? documentPayload;
+    setData(prev => ({ ...prev, documents: [saved, ...prev.documents] }));
+    setSaving(false);
+    return saved;
+  }
+
+  async function deleteDocumentWeb(document: any) {
+    if (!profile || !canEdit(profile) || !document?.id) return false;
+    const confirmed = window.confirm(`Supprimer le document "${document.name ?? document.title ?? document.id}" ?`);
+    if (!confirmed) return false;
+    setSaving(true);
+    setError('');
+    const { error: deleteError } = await supabaseBrowser.from('documents').delete().eq('id', document.id);
+    if (deleteError) {
+      setError(deleteError.message);
+      setSaving(false);
+      return false;
+    }
+    setData(prev => ({ ...prev, documents: prev.documents.filter(item => item.id !== document.id) }));
+    setSaving(false);
+    return true;
+  }
+
+  async function createTimeEntryWeb(payload: Record<string, any>) {
+    if (!profile || !canEdit(profile)) return null;
+    const workerName = String(payload.worker_name ?? '').trim();
+    if (!workerName) {
+      setError('Le nom du compagnon est obligatoire.');
+      return null;
+    }
+    const entry = {
+      id: `TIME-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      date: payload.date || todayISO(),
+      company_id: payload.company_id || null,
+      company_name: payload.company_name || null,
+      company_color: payload.company_color || '#10B981',
+      worker_name: workerName,
+      arrival_time: payload.arrival_time || '08:00',
+      departure_time: payload.departure_time || null,
+      notes: String(payload.notes ?? '').trim() || null,
+      recorded_by: userLabel(profile, authUser),
+      organization_id: profile.organization_id ?? null,
+    };
+    const { data: inserted, error: insertError } = await supabaseBrowser.from('time_entries').insert(entry).select().single();
+    if (insertError) {
+      setError(insertError.message);
+      return null;
+    }
+    const saved = inserted ?? entry;
+    setData(prev => ({ ...prev, timeEntries: [saved, ...prev.timeEntries] }));
+    return saved;
+  }
+
+  async function updateTimeEntryWeb(entry: any, patch: Record<string, any>) {
+    if (!profile || !canEdit(profile) || !entry?.id) return null;
+    const payload = { ...patch, updated_by: userLabel(profile, authUser), updated_at: new Date().toISOString() };
+    const { data: updated, error: updateError } = await supabaseBrowser.from('time_entries').update(payload).eq('id', entry.id).select().single();
+    if (updateError) {
+      setError(updateError.message);
+      return null;
+    }
+    const saved = updated ?? { ...entry, ...payload };
+    setData(prev => ({ ...prev, timeEntries: prev.timeEntries.map(item => item.id === entry.id ? saved : item) }));
+    return saved;
+  }
+
+  async function deleteTimeEntryWeb(entry: any) {
+    if (!profile || !canEdit(profile) || !entry?.id) return false;
+    const { error: deleteError } = await supabaseBrowser.from('time_entries').delete().eq('id', entry.id);
+    if (deleteError) {
+      setError(deleteError.message);
+      return false;
+    }
+    setData(prev => ({ ...prev, timeEntries: prev.timeEntries.filter(item => item.id !== entry.id) }));
+    return true;
+  }
+
+  async function saveRegulatoryDocWeb(draft: any, file: File | null) {
+    if (!profile || !canEdit(profile)) return null;
+    const title = String(draft.title ?? '').trim();
+    if (!title) {
+      setError('Le titre du document réglementaire est obligatoire.');
+      return null;
+    }
+    setSaving(true);
+    setError('');
+    let uri = draft.uri ?? null;
+    if (file) {
+      uri = await uploadWebFile('documents', file, `reglementaire_${title}`);
+    }
+    const payload = {
+      type: draft.type || 'autre',
+      title,
+      company: String(draft.company ?? '').trim() || null,
+      reference: String(draft.reference ?? '').trim() || null,
+      issue_date: draft.issue_date || null,
+      expiry_date: draft.expiry_date || null,
+      status: draft.status || 'missing',
+      notes: String(draft.notes ?? '').trim() || null,
+      uri,
+      created_by: draft.created_by ?? userLabel(profile, authUser),
+      organization_id: profile.organization_id ?? null,
+    };
+    const query = draft.id
+      ? supabaseBrowser.from('regulatory_docs').update(payload).eq('id', draft.id).select().single()
+      : supabaseBrowser.from('regulatory_docs').insert({
+          id: `REG-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+          ...payload,
+          created_at: nowFR(),
+        }).select().single();
+    const { data: saved, error: saveError } = await query;
+    if (saveError) {
+      setError(saveError.message);
+      setSaving(false);
+      return null;
+    }
+    const row = saved ?? { id: draft.id, ...payload };
+    setData(prev => ({
+      ...prev,
+      regulatoryDocs: draft.id
+        ? prev.regulatoryDocs.map(item => item.id === draft.id ? row : item)
+        : [row, ...prev.regulatoryDocs],
+    }));
+    setSaving(false);
+    return row;
+  }
+
+  async function deleteRegulatoryDocWeb(doc: any) {
+    if (!profile || !canEdit(profile) || !doc?.id) return false;
+    const confirmed = window.confirm(`Supprimer le document réglementaire "${doc.title}" ?`);
+    if (!confirmed) return false;
+    setSaving(true);
+    setError('');
+    const { error: deleteError } = await supabaseBrowser.from('regulatory_docs').delete().eq('id', doc.id);
+    if (deleteError) {
+      setError(deleteError.message);
+      setSaving(false);
+      return false;
+    }
+    setData(prev => ({ ...prev, regulatoryDocs: prev.regulatoryDocs.filter(item => item.id !== doc.id) }));
+    setSaving(false);
+    return true;
+  }
+
   function projectName() {
     if (selectedProjectId === 'all') return 'Tous les chantiers';
     return data.chantiers.find(project => project.id === selectedProjectId)?.name ?? 'Chantier';
@@ -3359,6 +4226,8 @@ export default function BuildTrackWebPage() {
       documents: profile?.role === 'sous_traitant' ? [] : data.documents.filter(byProject),
       photos,
       oprs: data.oprs.filter(byProject),
+      timeEntries: profile?.role === 'sous_traitant' ? [] : data.timeEntries,
+      regulatoryDocs: profile?.role === 'sous_traitant' ? [] : data.regulatoryDocs,
     };
   }, [data, selectedProjectId, profile]);
 
@@ -3612,6 +4481,8 @@ export default function BuildTrackWebPage() {
                 allReserves={[...projectScoped.reserves, ...projectScoped.deletedReserves]}
                 reserves={filteredReserves}
                 photos={projectScoped.photos}
+                profile={profile}
+                companies={data.companies}
                 selectedReserveId={selectedReserveId}
                 selectedReserve={selectedFilteredReserve}
                 setSelectedReserveId={setSelectedReserveId}
@@ -3629,6 +4500,10 @@ export default function BuildTrackWebPage() {
                 setPinFilter={setPinFilter}
                 structuredFilters={reserveStructuredFilters}
                 onStatus={updateReserveStatus}
+                onRequestLift={requestReserveLiftWeb}
+                onAcknowledge={acknowledgeReserveWeb}
+                onSign={signReserveWeb}
+                onRejectVerification={rejectReserveVerificationWeb}
                 onArchive={toggleArchive}
                 onDelete={deleteReserveWeb}
                 onRestore={restoreReserveWeb}
@@ -3651,6 +4526,9 @@ export default function BuildTrackWebPage() {
                 plans={projectScoped.plans}
                 reserves={projectScoped.reserves}
                 companies={data.companies}
+                projects={data.chantiers}
+                selectedProject={selectedProjectId === 'all' ? (data.chantiers[0] ?? null) : (data.chantiers.find(project => project.id === selectedProjectId) ?? null)}
+                selectedProjectId={selectedProjectId}
                 selectedPlan={selectedPlan}
                 setSelectedPlanId={setSelectedPlanId}
                 setSelectedReserveId={setSelectedReserveId}
@@ -3659,12 +4537,97 @@ export default function BuildTrackWebPage() {
                 onCreateReserveAtPin={(plan: any, pin: ReservePinDraft) => openReserveCreate({ plan, pin })}
                 onMoveReservePin={moveReservePinWeb}
                 onUpdatePlanAnnotations={updatePlanAnnotationsWeb}
+                onCreatePlan={createSitePlanWeb}
+                onUpdatePlan={updateSitePlanWeb}
+                onDeletePlanFile={deleteSitePlanFileWeb}
+                onDeletePlan={deleteSitePlanWeb}
+                onCreateRevision={createSitePlanRevisionWeb}
                 onGeneratePlansPdf={(plans: any[], reserves: any[], language: TextLang, companyFilter?: string | null, statusFilter?: string | null) =>
                   generateWebReport('plans', { plans, reserves, language, companyFilter, statusFilter })
                 }
                 generatingReport={generatingReport}
                 defaultReportLanguage={reportLanguage}
                 editable={canEdit(profile)}
+                saving={saving}
+              />
+            )}
+            {activeTab === 'chantiers' && (
+              <ChantiersView
+                projects={data.chantiers}
+                companies={data.companies}
+                selectedProjectId={selectedProjectId}
+                setSelectedProjectId={setSelectedProjectId}
+                editable={canEdit(profile)}
+                saving={saving}
+                onSave={saveChantierWeb}
+                onDelete={deleteChantierWeb}
+              />
+            )}
+            {activeTab === 'journal' && (
+              <JournalView
+                profile={profile}
+                projectName={projectName()}
+                selectedProjectId={selectedProjectId}
+                timeEntries={projectScoped.timeEntries}
+                editable={canEdit(profile)}
+              />
+            )}
+            {activeTab === 'pointage' && (
+              <PointageView
+                entries={projectScoped.timeEntries}
+                companies={data.companies}
+                profile={profile}
+                editable={canEdit(profile)}
+                onCreate={createTimeEntryWeb}
+                onUpdate={updateTimeEntryWeb}
+                onDelete={deleteTimeEntryWeb}
+              />
+            )}
+            {activeTab === 'analytics' && (
+              <AnalyticsView
+                scoped={projectScoped}
+                companies={data.companies}
+                profile={profile}
+                setTab={setActiveTab}
+              />
+            )}
+            {activeTab === 'documents' && (
+              <DocumentsView
+                documents={projectScoped.documents}
+                projects={data.chantiers}
+                selectedProjectId={selectedProjectId}
+                profile={profile}
+                editable={canEdit(profile)}
+                saving={saving}
+                onCreate={createDocumentWeb}
+                onDelete={deleteDocumentWeb}
+              />
+            )}
+            {activeTab === 'checklists' && (
+              <ChecklistsView
+                profile={profile}
+                selectedProjectId={selectedProjectId}
+                editable={canEdit(profile)}
+              />
+            )}
+            {activeTab === 'reglementaire' && (
+              <ReglementaireView
+                docs={projectScoped.regulatoryDocs}
+                companies={data.companies}
+                profile={profile}
+                editable={canEdit(profile)}
+                saving={saving}
+                onSave={saveRegulatoryDocWeb}
+                onDelete={deleteRegulatoryDocWeb}
+              />
+            )}
+            {activeTab === 'search' && (
+              <SearchView
+                scoped={projectScoped}
+                data={data}
+                setTab={setActiveTab}
+                setSelectedReserveId={setSelectedReserveId}
+                setSelectedPlanId={setSelectedPlanId}
               />
             )}
             {activeTab === 'visites' && (
@@ -4369,6 +5332,8 @@ function ReservesView(props: {
   allReserves: any[];
   reserves: any[];
   photos: any[];
+  profile: Profile | null;
+  companies: any[];
   selectedReserveId: string | null;
   selectedReserve: any;
   setSelectedReserveId: (id: string) => void;
@@ -4386,6 +5351,10 @@ function ReservesView(props: {
   setPinFilter: (value: string) => void;
   structuredFilters: { companies: string[]; buildings: string[] };
   onStatus: (id: string, status: string) => void;
+  onRequestLift: (reserve: any, payload: { comment: string; file: File | null }) => Promise<void> | void;
+  onAcknowledge: (reserve: any) => void;
+  onSign: (reserve: any, companyName?: string) => void;
+  onRejectVerification: (reserve: any) => void;
   onArchive: (reserve: any) => void;
   onDelete: (reserve: any) => Promise<void> | void;
   onRestore: (reserve: any) => Promise<void> | void;
@@ -4418,6 +5387,10 @@ function ReservesView(props: {
   const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
   const [photoCopyFeedback, setPhotoCopyFeedback] = useState<'idle' | 'copied' | 'error'>('idle');
   const photoCopyFeedbackTimeoutRef = useRef<number | null>(null);
+  const [liftRequestReserve, setLiftRequestReserve] = useState<any | null>(null);
+  const [liftRequestComment, setLiftRequestComment] = useState('');
+  const [liftRequestFile, setLiftRequestFile] = useState<File | null>(null);
+  const [liftRequestBusy, setLiftRequestBusy] = useState(false);
   const isTrashView = props.statusFilter === 'deleted';
   const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve) && !isReserveDeleted(reserve));
   const explicitlySelectedReserve = props.selectedReserveId
@@ -4474,6 +5447,25 @@ function ReservesView(props: {
   const pdfCompaniesMultiPreviewCount = pdfCompaniesMulti.size
     ? reserves.filter(reserve => reserveCompanies(reserve).some(company => pdfCompaniesMulti.has(company))).length
     : 0;
+  const detailReserveCompanies = detailReserve ? reserveCompanies(detailReserve) : [];
+  const detailReserveSignatures = detailReserve ? reserveCompanySignatures(detailReserve) : {};
+  const detailReserveAckAt = detailReserve?.enterprise_acknowledged_at ?? detailReserve?.enterpriseAcknowledgedAt ?? null;
+  const detailReserveIsMultiCompany = detailReserveCompanies.length > 1;
+  const detailReserveHasGlobalSignature = Boolean(detailReserve?.enterprise_signature ?? detailReserve?.enterpriseSignature);
+  const detailReserveAllCompaniesSigned = detailReserveIsMultiCompany
+    ? detailReserveCompanies.every(company => Boolean(detailReserveSignatures[company]?.signature))
+    : detailReserveHasGlobalSignature;
+  const canEditReserveWorkflow = props.editable;
+  const canUseSubcontractorWorkflow = isSubcontractor(props.profile);
+  const canUseReserveWorkflow = canEditReserveWorkflow || canUseSubcontractorWorkflow;
+  const subcontractorCompanyName = canUseSubcontractorWorkflow && props.profile?.company_id
+    ? props.companies.find(company => String(company.id) === String(props.profile?.company_id))?.name ?? null
+    : null;
+  const canSubcontractorSignCompany = (companyName?: string) => (
+    !canUseSubcontractorWorkflow ||
+    !subcontractorCompanyName ||
+    sameName(companyName, subcontractorCompanyName)
+  );
   const pdfScopeLabel =
     pdfMode === 'selected'
       ? selectedReserve?.id ?? 'Aucune réserve'
@@ -4608,6 +5600,38 @@ function ReservesView(props: {
       showPhotoCopyFeedback('copied');
     } catch {
       showPhotoCopyFeedback('error');
+    }
+  }
+
+  function openLiftRequest(reserve: any) {
+    setLiftRequestReserve(reserve);
+    setLiftRequestComment('');
+    setLiftRequestFile(null);
+  }
+
+  function closeLiftRequest() {
+    if (liftRequestBusy || props.saving) return;
+    setLiftRequestReserve(null);
+    setLiftRequestComment('');
+    setLiftRequestFile(null);
+  }
+
+  async function submitLiftRequest(event: React.FormEvent) {
+    event.preventDefault();
+    if (!liftRequestReserve || liftRequestBusy) return;
+    setLiftRequestBusy(true);
+    try {
+      await props.onRequestLift(liftRequestReserve, {
+        comment: liftRequestComment,
+        file: liftRequestFile,
+      });
+      setLiftRequestReserve(null);
+      setLiftRequestComment('');
+      setLiftRequestFile(null);
+    } catch {
+      // L'erreur est affichee par le parent.
+    } finally {
+      setLiftRequestBusy(false);
     }
   }
 
@@ -4771,6 +5795,60 @@ function ReservesView(props: {
           {!reserves.length && <p className={styles.empty}>{isTrashView ? 'Corbeille vide.' : 'Aucune réserve avec ces filtres.'}</p>}
         </div>
       </section>
+      )}
+
+      {liftRequestReserve && (
+        <div
+          className={styles.modalBackdrop}
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={closeLiftRequest}
+        >
+          <form className={`${styles.modalPanel} ${styles.reserveLiftModalWeb}`} onMouseDown={event => event.stopPropagation()} onSubmit={submitLiftRequest}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Demande de levée</p>
+                <h2>{liftRequestReserve.id}</h2>
+                <span>Commentaire et photo facultatifs.</span>
+              </div>
+              <button type="button" onClick={closeLiftRequest} disabled={liftRequestBusy || props.saving}>Fermer</button>
+            </div>
+            <div className={styles.reserveLiftModalBodyWeb}>
+              <label>
+                <span>Commentaire facultatif</span>
+                <textarea
+                  value={liftRequestComment}
+                  onChange={event => setLiftRequestComment(event.target.value)}
+                  placeholder="Expliquer ce qui a été repris..."
+                  disabled={liftRequestBusy || props.saving}
+                />
+              </label>
+              <label>
+                <span>Photo facultative</span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  disabled={liftRequestBusy || props.saving}
+                  onChange={event => setLiftRequestFile(event.target.files?.[0] ?? null)}
+                />
+              </label>
+              {liftRequestFile && (
+                <div className={styles.reserveLiftFileWeb}>
+                  <span>{liftRequestFile.name}</span>
+                  <button type="button" onClick={() => setLiftRequestFile(null)} disabled={liftRequestBusy || props.saving}>
+                    Retirer
+                  </button>
+                </div>
+              )}
+            </div>
+            <div className={styles.modalActions}>
+              <button type="button" onClick={closeLiftRequest} disabled={liftRequestBusy || props.saving}>Annuler</button>
+              <button type="submit" disabled={liftRequestBusy || props.saving}>
+                {liftRequestBusy || props.saving ? 'Envoi...' : 'Envoyer la demande'}
+              </button>
+            </div>
+          </form>
+        </div>
       )}
 
       {props.canUseAssistant && assistantVisible && (
@@ -5095,6 +6173,101 @@ function ReservesView(props: {
               {isTrashView && <div><dt>Corbeille</dt><dd>{detailReserve.deleted_at ? prettyDate(detailReserve.deleted_at, true) : 'Oui'}</dd></div>}
               {isTrashView && <div><dt>Supprimée par</dt><dd>{detailReserve.deleted_by ?? '—'}</dd></div>}
             </dl>
+            {!isTrashView && canUseReserveWorkflow && (
+              <section className={styles.reserveWorkflowCard}>
+                <div className={styles.reserveWorkflowHeader}>
+                  <div>
+                    <h3>Tunnel réserve</h3>
+                    <span>{detailReserve.status === 'closed' ? 'Finalisée' : detailReserve.status === 'verification' ? 'En attente de validation' : 'En traitement'}</span>
+                  </div>
+                  <strong>{STATUS_LABELS[detailReserve.status] ?? detailReserve.status}</strong>
+                </div>
+
+                {canUseSubcontractorWorkflow && (
+                  <div className={styles.reserveWorkflowBlock}>
+                    <p>Sous-traitant</p>
+                    <div className={styles.reserveWorkflowActions}>
+                      {detailReserve.status === 'open' && (
+                        <button type="button" disabled={props.saving} onClick={() => props.onStatus(detailReserve.id, 'in_progress')}>
+                          Passer en cours
+                        </button>
+                      )}
+                      {['open', 'in_progress', 'waiting'].includes(detailReserve.status) && (
+                        <button type="button" disabled={props.saving} onClick={() => openLiftRequest(detailReserve)}>
+                          Demander la levée
+                        </button>
+                      )}
+                      {detailReserve.status === 'verification' && <span>Demande envoyée, en attente de validation interne.</span>}
+                      {detailReserve.status === 'closed' && <span>Clôture validée.</span>}
+                    </div>
+                  </div>
+                )}
+
+                {canEditReserveWorkflow && (
+                  <div className={styles.reserveWorkflowBlock}>
+                    <p>Équipe interne</p>
+                    <div className={styles.reserveWorkflowActions}>
+                      {!detailReserveAckAt ? (
+                        <button type="button" disabled={props.saving} onClick={() => props.onAcknowledge(detailReserve)}>
+                          Accuser réception
+                        </button>
+                      ) : (
+                        <span>AR reçu le {prettyDate(detailReserveAckAt, true)}</span>
+                      )}
+                      {detailReserve.status === 'verification' && (
+                        <>
+                          <button type="button" disabled={props.saving} onClick={() => props.onStatus(detailReserve.id, 'closed')}>
+                            Valider et clôturer
+                          </button>
+                          <button type="button" disabled={props.saving} onClick={() => props.onRejectVerification(detailReserve)}>
+                            Refuser la levée
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <div className={styles.reserveWorkflowBlock}>
+                  <p>Signature de levée</p>
+                  {!detailReserveAckAt ? (
+                    <span>Disponible après accusé de réception.</span>
+                  ) : detailReserveIsMultiCompany ? (
+                    <div className={styles.reserveSignatureGrid}>
+                      {detailReserveCompanies.map(company => {
+                        const signature = detailReserveSignatures[company];
+                        return (
+                          <div key={company} className={styles.reserveSignatureRow}>
+                            <strong>{company}</strong>
+                            {signature?.signature ? (
+                              <span>Signée par {signature.signataire || '—'}{signature.signedAt ? ` le ${prettyDate(signature.signedAt, true)}` : ''}</span>
+                            ) : canEditReserveWorkflow || canSubcontractorSignCompany(company) ? (
+                              <button type="button" disabled={props.saving} onClick={() => props.onSign(detailReserve, company)}>
+                                Signer
+                              </button>
+                            ) : (
+                              <span>Signature réservée à l’entreprise concernée.</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : detailReserveHasGlobalSignature ? (
+                    <div className={styles.reserveSignaturePreview}>
+                      <span>Signée par {detailReserve.enterprise_signataire ?? detailReserve.enterpriseSignataire ?? '—'}</span>
+                      <img src={signatureImageSrc(detailReserve.enterprise_signature ?? detailReserve.enterpriseSignature)} alt="Signature de levée" />
+                    </div>
+                  ) : canEditReserveWorkflow || canSubcontractorSignCompany(detailReserveCompanies[0]) ? (
+                    <button type="button" disabled={props.saving} onClick={() => props.onSign(detailReserve)}>
+                      Signer la levée
+                    </button>
+                  ) : (
+                    <span>Signature réservée à l’entreprise concernée.</span>
+                  )}
+                  {detailReserveAllCompaniesSigned && detailReserveIsMultiCompany && <span>Toutes les entreprises ont signé.</span>}
+                </div>
+              </section>
+            )}
             {selectedPhotos.length ? (
               <div className={styles.reserveDetailPhotos}>
                 <div>
@@ -5886,6 +7059,9 @@ function PlansView({
   plans,
   reserves,
   companies,
+  projects,
+  selectedProject,
+  selectedProjectId,
   selectedPlan,
   setSelectedPlanId,
   setSelectedReserveId,
@@ -5894,10 +7070,16 @@ function PlansView({
   onCreateReserveAtPin,
   onMoveReservePin,
   onUpdatePlanAnnotations,
+  onCreatePlan,
+  onUpdatePlan,
+  onDeletePlanFile,
+  onDeletePlan,
+  onCreateRevision,
   onGeneratePlansPdf,
   generatingReport,
   defaultReportLanguage,
   editable,
+  saving,
 }: any) {
   const { t } = useWebI18n();
   const [buildingQuery, setBuildingQuery] = useState('');
@@ -5920,7 +7102,118 @@ function PlansView({
   const [plansPdfGlobalCompany, setPlansPdfGlobalCompany] = useState<string | null>(null);
   const [plansPdfStatusFilter, setPlansPdfStatusFilter] = useState<Set<string>>(new Set());
   const [plansPdfLanguage, setPlansPdfLanguage] = useState<TextLang>(defaultReportLanguage ?? 'fr');
+  const [planModalMode, setPlanModalMode] = useState<'create' | 'edit' | 'revision' | null>(null);
+  const [planDraft, setPlanDraft] = useState<any>({});
+  const [planFile, setPlanFile] = useState<File | null>(null);
+  const [migrateRevisionReserves, setMigrateRevisionReserves] = useState(true);
+  const [planActionMessage, setPlanActionMessage] = useState('');
   const pinPlacementTimerRef = useRef<number | null>(null);
+  const projectForDraft = projects.find((project: any) => project.id === (planDraft.chantier_id || selectedProjectId)) ?? selectedProject ?? projects[0] ?? null;
+  const draftBuildings = projectBuildings(projectForDraft);
+  const draftBuilding = draftBuildings.find((building: any) => building.id === planDraft.building_id) ?? null;
+  const draftLevels = Array.isArray(draftBuilding?.levels) ? draftBuilding.levels : [];
+
+  function makePlanDraft(mode: 'create' | 'edit' | 'revision', plan?: any) {
+    const baseProjectId = plan?.chantier_id ?? plan?.chantierId ?? (selectedProjectId !== 'all' ? selectedProjectId : selectedProject?.id ?? projects[0]?.id ?? '');
+    const baseName = mode === 'create'
+      ? ''
+      : mode === 'revision'
+        ? String(plan?.name ?? '')
+        : String(plan?.name ?? '');
+    return {
+      id: mode === 'edit' ? plan?.id : undefined,
+      chantier_id: baseProjectId,
+      name: baseName,
+      building: String(plan?.building ?? '').trim(),
+      level: String(plan?.level ?? '').trim(),
+      building_id: plan?.building_id ?? plan?.buildingId ?? '',
+      level_id: plan?.level_id ?? plan?.levelId ?? '',
+      revision_code: mode === 'revision' ? '' : String(plan?.revision_code ?? '').trim(),
+      revision_note: mode === 'revision' ? '' : String(plan?.revision_note ?? '').trim(),
+    };
+  }
+
+  function openPlanModal(mode: 'create' | 'edit' | 'revision', plan?: any) {
+    setPlanDraft(makePlanDraft(mode, plan ?? selectedPlan));
+    setPlanFile(null);
+    setMigrateRevisionReserves(true);
+    setPlanActionMessage('');
+    setPlanModalMode(mode);
+  }
+
+  function updatePlanDraftProject(projectId: string) {
+    const project = projects.find((item: any) => item.id === projectId);
+    const buildings = projectBuildings(project);
+    const firstBuilding = buildings[0] ?? null;
+    const firstLevel = firstBuilding?.levels?.[0] ?? null;
+    setPlanDraft((prev: any) => ({
+      ...prev,
+      chantier_id: projectId,
+      building_id: firstBuilding?.id ?? '',
+      building: firstBuilding?.name ?? '',
+      level_id: firstLevel?.id ?? '',
+      level: firstLevel?.name ?? '',
+    }));
+  }
+
+  function updatePlanDraftBuilding(buildingId: string) {
+    const building = draftBuildings.find((item: any) => item.id === buildingId);
+    const firstLevel = building?.levels?.[0] ?? null;
+    setPlanDraft((prev: any) => ({
+      ...prev,
+      building_id: building?.id ?? '',
+      building: building?.name ?? '',
+      level_id: firstLevel?.id ?? '',
+      level: firstLevel?.name ?? '',
+    }));
+  }
+
+  function updatePlanDraftLevel(levelId: string) {
+    const level = draftLevels.find((item: any) => item.id === levelId);
+    setPlanDraft((prev: any) => ({
+      ...prev,
+      level_id: level?.id ?? '',
+      level: level?.name ?? '',
+    }));
+  }
+
+  async function submitPlanModal(event: React.FormEvent) {
+    event.preventDefault();
+    if (!planModalMode) return;
+    const patch = {
+      chantier_id: planDraft.chantier_id,
+      name: String(planDraft.name ?? '').trim(),
+      building: String(planDraft.building ?? '').trim() || null,
+      level: String(planDraft.level ?? '').trim() || null,
+      building_id: planDraft.building_id || null,
+      level_id: planDraft.level_id || null,
+      revision_code: String(planDraft.revision_code ?? '').trim() || null,
+      revision_note: String(planDraft.revision_note ?? '').trim() || null,
+    };
+    let result: any = null;
+    if (planModalMode === 'create') {
+      result = await onCreatePlan?.(patch, planFile);
+    } else if (planModalMode === 'edit' && selectedPlan) {
+      result = await onUpdatePlan?.(selectedPlan, patch, planFile);
+    } else if (planModalMode === 'revision' && selectedPlan) {
+      result = await onCreateRevision?.(selectedPlan, patch, planFile, migrateRevisionReserves);
+      if (result?.migratedCount != null) {
+        setPlanActionMessage(`${result.migratedCount} réserve(s) migrée(s) vers la nouvelle révision.`);
+      }
+    }
+    if (result && planModalMode !== 'revision') {
+      setPlanModalMode(null);
+    } else if (result?.plan) {
+      window.setTimeout(() => setPlanModalMode(null), 700);
+    }
+  }
+
+  async function handleDeleteSelectedPlanFile() {
+    if (!selectedPlan?.uri) return;
+    const confirmed = window.confirm(`Supprimer le fichier du plan "${selectedPlan.name}" ? Le plan restera dans la liste.`);
+    if (!confirmed) return;
+    await onDeletePlanFile?.(selectedPlan);
+  }
   const planReserves = useMemo(
     () => selectedPlan ? reserves.filter((r: any) => getReservePlanId(r) === String(selectedPlan.id)) : [],
     [reserves, selectedPlan?.id],
@@ -6322,6 +7615,11 @@ function PlansView({
             <strong>{buildingGroups.length}</strong>
           </div>
           <small>Recherche, familles et plans regroupés.</small>
+          {editable && (
+            <button type="button" className={styles.tableActionBtn} onClick={() => openPlanModal('create')}>
+              Nouveau plan
+            </button>
+          )}
         </div>
         <label className={styles.buildingRailSearchWeb}>
           <span>⌕</span>
@@ -6499,6 +7797,10 @@ function PlansView({
                   PDF
                 </button>
                 <button type="button" onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
+                {editable ? <button type="button" onClick={() => openPlanModal('edit', selectedPlan)}>Modifier</button> : null}
+                {editable ? <button type="button" onClick={() => openPlanModal('revision', selectedPlan)}>Nouvelle révision</button> : null}
+                {editable && selectedPlan.uri ? <button type="button" onClick={handleDeleteSelectedPlanFile}>Supprimer fichier</button> : null}
+                {editable ? <button type="button" onClick={() => onDeletePlan?.(selectedPlan)}>Supprimer plan</button> : null}
                 {selectedPlan.uri ? <a className={styles.linkButton} href={selectedPlan.uri} target="_blank">Ouvrir le fichier</a> : null}
               </div>
             </div>
@@ -6692,6 +7994,110 @@ function PlansView({
           </>
         ) : <p className={styles.empty}>Sélectionnez un plan.</p>}
       </section>
+
+      {planModalMode && (
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true" onMouseDown={() => !saving && setPlanModalMode(null)}>
+          <section className={styles.modalPanel} onMouseDown={event => event.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Plans</p>
+                <h2>
+                  {planModalMode === 'create'
+                    ? 'Nouveau plan'
+                    : planModalMode === 'revision'
+                      ? 'Nouvelle révision'
+                      : 'Modifier le plan'}
+                </h2>
+                <span>
+                  {planModalMode === 'revision'
+                    ? `Plan source : ${selectedPlan?.name ?? '—'}`
+                    : 'Métadonnées, localisation et fichier du plan.'}
+                </span>
+              </div>
+              <button type="button" onClick={() => setPlanModalMode(null)} disabled={saving}>Fermer</button>
+            </div>
+            <form className={styles.formGrid} onSubmit={submitPlanModal}>
+              <label>
+                <span>Chantier</span>
+                <select
+                  value={planDraft.chantier_id ?? ''}
+                  onChange={event => updatePlanDraftProject(event.target.value)}
+                  required
+                  disabled={planModalMode !== 'create'}
+                >
+                  <option value="">Choisir un chantier</option>
+                  {projects.map((project: any) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Nom du plan</span>
+                <input value={planDraft.name ?? ''} onChange={event => setPlanDraft((prev: any) => ({ ...prev, name: event.target.value }))} required />
+              </label>
+              <label>
+                <span>Bâtiment</span>
+                {draftBuildings.length ? (
+                  <select value={planDraft.building_id ?? ''} onChange={event => updatePlanDraftBuilding(event.target.value)}>
+                    <option value="">Sans bâtiment</option>
+                    {draftBuildings.map((building: any) => <option key={building.id} value={building.id}>{building.name}</option>)}
+                  </select>
+                ) : (
+                  <input value={planDraft.building ?? ''} onChange={event => setPlanDraft((prev: any) => ({ ...prev, building: event.target.value, building_id: '' }))} placeholder="Bâtiment" />
+                )}
+              </label>
+              <label>
+                <span>Niveau</span>
+                {draftLevels.length ? (
+                  <select value={planDraft.level_id ?? ''} onChange={event => updatePlanDraftLevel(event.target.value)}>
+                    <option value="">Sans niveau</option>
+                    {draftLevels.map((level: any) => <option key={level.id} value={level.id}>{level.name}</option>)}
+                  </select>
+                ) : (
+                  <input value={planDraft.level ?? ''} onChange={event => setPlanDraft((prev: any) => ({ ...prev, level: event.target.value, level_id: '' }))} placeholder="RDC, R+1..." />
+                )}
+              </label>
+              <label>
+                <span>{planModalMode === 'revision' ? 'Code révision' : 'Révision'}</span>
+                <input
+                  value={planDraft.revision_code ?? ''}
+                  onChange={event => setPlanDraft((prev: any) => ({ ...prev, revision_code: event.target.value }))}
+                  placeholder={planModalMode === 'revision' ? 'Automatique si vide' : 'R01, A, Indice 0...'}
+                />
+              </label>
+              <label>
+                <span>Note</span>
+                <input
+                  value={planDraft.revision_note ?? ''}
+                  onChange={event => setPlanDraft((prev: any) => ({ ...prev, revision_note: event.target.value }))}
+                  placeholder="Motif, indice, commentaire..."
+                />
+              </label>
+              <label className={styles.fullSpan}>
+                <span>{planModalMode === 'edit' ? 'Remplacer le fichier (optionnel)' : 'Fichier du plan'}</span>
+                <input
+                  type="file"
+                  accept="application/pdf,image/*,.dxf"
+                  onChange={event => setPlanFile(event.target.files?.[0] ?? null)}
+                />
+              </label>
+              {planModalMode === 'revision' && (
+                <label className={styles.checkboxRow}>
+                  <input
+                    type="checkbox"
+                    checked={migrateRevisionReserves}
+                    onChange={event => setMigrateRevisionReserves(event.target.checked)}
+                  />
+                  <span>Migrer les réserves non clôturées vers cette nouvelle révision</span>
+                </label>
+              )}
+              {planActionMessage ? <p className={styles.successText}>{planActionMessage}</p> : null}
+              <div className={styles.modalActions}>
+                <button type="button" onClick={() => setPlanModalMode(null)} disabled={saving}>Annuler</button>
+                <button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
       {plansPdfOpen && (
         <div
@@ -8425,6 +9831,8 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
             { icon: 'warning', title: 'Mes réserves', subtitle: 'Réserves de mon entreprise', count: openReserves, tab: 'reserves', tone: 'amber' },
           ]
         : [
+            { icon: 'document-text', title: 'Journal chantier', subtitle: 'Saisie quotidienne', count: 'Web', tab: 'journal', tone: 'green' },
+            { icon: 'calendar', title: 'Pointage', subtitle: 'Arrivées et départs', count: scoped.timeEntries.length, tab: 'pointage', tone: 'blue' },
             { icon: 'eye', title: 'Visites chantier', subtitle: 'Compte-rendu visite', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
             { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
             { icon: 'shield', title: 'Incidents', subtitle: 'Signalements terrain', count: openIncidents, tab: 'incidents', tone: openIncidents ? 'red' : 'green' },
@@ -8434,8 +9842,11 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
     {
       title: 'Chantier',
       cards: [
+        { icon: 'shield-checkmark', title: 'Chantiers', subtitle: 'Création, structure, statut', count: data.chantiers.length, tab: 'chantiers', tone: 'green' },
         { icon: 'map', title: 'Plans', subtitle: 'PDF, épingles et réserves plan', count: scoped.plans.length, tab: 'plans', tone: 'blue' },
         { icon: 'warning', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
+        { icon: 'clipboard', title: 'Analytics', subtitle: 'Indicateurs détaillés', count: scoped.reserves.length, tab: 'analytics', tone: 'blue' },
+        { icon: 'settings', title: 'Recherche', subtitle: 'Recherche globale', tab: 'search', tone: 'blue' },
         ...(!isSubcontractor
           ? [{ icon: 'people' as TerrainHubIconName, title: 'Équipes', subtitle: `${data.companies.length} entreprise(s)`, count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
           : []),
@@ -8453,7 +9864,12 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
           tone: 'green',
         },
         ...(!isSubcontractor
-          ? [{ icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Journalier, hebdo', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const }]
+          ? [
+              { icon: 'document-text' as TerrainHubIconName, title: 'Documents', subtitle: 'Import et GED', count: scoped.documents.length, tab: 'documents' as TabId, tone: 'blue' as const },
+              { icon: 'clipboard' as TerrainHubIconName, title: 'Checklists', subtitle: 'Contrôle qualité', count: 'Web', tab: 'checklists' as TabId, tone: 'green' as const },
+              { icon: 'shield-checkmark' as TerrainHubIconName, title: 'Réglementaire', subtitle: 'PPSPS, DICT, DOE', count: scoped.regulatoryDocs.length, tab: 'reglementaire' as TabId, tone: 'amber' as const },
+              { icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Journalier, hebdo', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const },
+            ]
           : []),
       ],
     },
@@ -8504,6 +9920,336 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
           </div>
         ))}
       </section>
+    </div>
+  );
+}
+
+function moveArrayItem<T>(items: T[], fromIndex: number, direction: -1 | 1) {
+  const toIndex = fromIndex + direction;
+  if (toIndex < 0 || toIndex >= items.length) return items;
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
+function createStructureId(prefix: string) {
+  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+function ProjectStructureEditor({ buildings, onChange }: { buildings: any[]; onChange: (buildings: any[]) => void }) {
+  const [buildingName, setBuildingName] = useState('');
+
+  function updateBuilding(buildingId: string, patch: Record<string, any>) {
+    onChange(buildings.map(building => building.id === buildingId ? { ...building, ...patch } : building));
+  }
+
+  function updateLevel(buildingId: string, levelId: string, patch: Record<string, any>) {
+    onChange(buildings.map(building => {
+      if (building.id !== buildingId) return building;
+      return {
+        ...building,
+        levels: (building.levels ?? []).map((level: any) => level.id === levelId ? { ...level, ...patch } : level),
+      };
+    }));
+  }
+
+  function addBuilding() {
+    const name = buildingName.trim();
+    if (!name) return;
+    onChange([
+      ...buildings,
+      {
+        id: createStructureId('building'),
+        name,
+        levels: [{ id: createStructureId('level'), name: 'RDC', zones: [] }],
+      },
+    ]);
+    setBuildingName('');
+  }
+
+  function addLevel(buildingId: string) {
+    const building = buildings.find(item => item.id === buildingId);
+    const nextIndex = (building?.levels?.length ?? 0) + 1;
+    updateBuilding(buildingId, {
+      levels: [
+        ...(building?.levels ?? []),
+        { id: createStructureId('level'), name: nextIndex === 1 ? 'RDC' : `R+${nextIndex - 1}`, zones: [] },
+      ],
+    });
+  }
+
+  function addZone(buildingId: string, levelId: string) {
+    const building = buildings.find(item => item.id === buildingId);
+    const level = (building?.levels ?? []).find((item: any) => item.id === levelId);
+    const zoneName = window.prompt('Nom de la zone');
+    if (!zoneName?.trim()) return;
+    updateLevel(buildingId, levelId, {
+      zones: [...(level?.zones ?? []), { id: createStructureId('zone'), name: zoneName.trim() }],
+    });
+  }
+
+  function updateZone(buildingId: string, levelId: string, zoneId: string, name: string) {
+    const building = buildings.find(item => item.id === buildingId);
+    const level = (building?.levels ?? []).find((item: any) => item.id === levelId);
+    updateLevel(buildingId, levelId, {
+      zones: (level?.zones ?? []).map((zone: any) => zone.id === zoneId ? { ...zone, name } : zone),
+    });
+  }
+
+  return (
+    <div className={styles.structureEditor}>
+      <div className={styles.structureAddRow}>
+        <input value={buildingName} onChange={event => setBuildingName(event.target.value)} placeholder="Nouveau bâtiment" />
+        <button type="button" onClick={addBuilding}>Ajouter bâtiment</button>
+      </div>
+      <div className={styles.structureTree}>
+        {buildings.map((building, buildingIndex) => (
+          <article key={building.id} className={styles.structureBuilding}>
+            <div className={styles.structureHeaderRow}>
+              <input value={building.name ?? ''} onChange={event => updateBuilding(building.id, { name: event.target.value })} />
+              <button type="button" onClick={() => onChange(moveArrayItem(buildings, buildingIndex, -1))} disabled={buildingIndex === 0}>↑</button>
+              <button type="button" onClick={() => onChange(moveArrayItem(buildings, buildingIndex, 1))} disabled={buildingIndex === buildings.length - 1}>↓</button>
+              <button type="button" onClick={() => addLevel(building.id)}>Niveau</button>
+              <button type="button" onClick={() => onChange(buildings.filter(item => item.id !== building.id))}>Supprimer</button>
+            </div>
+            <div className={styles.structureLevels}>
+              {(building.levels ?? []).map((level: any, levelIndex: number) => (
+                <div key={level.id} className={styles.structureLevel}>
+                  <div className={styles.structureHeaderRow}>
+                    <input value={level.name ?? ''} onChange={event => updateLevel(building.id, level.id, { name: event.target.value })} />
+                    <button
+                      type="button"
+                      onClick={() => updateBuilding(building.id, { levels: moveArrayItem(building.levels ?? [], levelIndex, -1) })}
+                      disabled={levelIndex === 0}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => updateBuilding(building.id, { levels: moveArrayItem(building.levels ?? [], levelIndex, 1) })}
+                      disabled={levelIndex === (building.levels ?? []).length - 1}
+                    >
+                      ↓
+                    </button>
+                    <button type="button" onClick={() => addZone(building.id, level.id)}>Zone</button>
+                    <button type="button" onClick={() => updateBuilding(building.id, { levels: (building.levels ?? []).filter((item: any) => item.id !== level.id) })}>Supprimer</button>
+                  </div>
+                  <div className={styles.structureZones}>
+                    {(level.zones ?? []).map((zone: any, zoneIndex: number) => (
+                      <span key={zone.id} className={styles.structureZone}>
+                        <input value={zone.name ?? ''} onChange={event => updateZone(building.id, level.id, zone.id, event.target.value)} />
+                        <button
+                          type="button"
+                          onClick={() => updateLevel(building.id, level.id, { zones: moveArrayItem(level.zones ?? [], zoneIndex, -1) })}
+                          disabled={zoneIndex === 0}
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => updateLevel(building.id, level.id, { zones: moveArrayItem(level.zones ?? [], zoneIndex, 1) })}
+                          disabled={zoneIndex === (level.zones ?? []).length - 1}
+                        >
+                          ↓
+                        </button>
+                        <button type="button" onClick={() => updateLevel(building.id, level.id, { zones: (level.zones ?? []).filter((item: any) => item.id !== zone.id) })}>×</button>
+                      </span>
+                    ))}
+                    {!(level.zones ?? []).length ? <small>Aucune zone.</small> : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </article>
+        ))}
+        {!buildings.length ? <p className={styles.empty}>Aucune structure. Ajoutez au moins un bâtiment pour lier les plans et visites précisément.</p> : null}
+      </div>
+    </div>
+  );
+}
+
+function ChantiersView({ projects, companies, selectedProjectId, setSelectedProjectId, editable, saving, onSave, onDelete }: any) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [draft, setDraft] = useState<any>({});
+  const selectedProject = projects.find((project: any) => project.id === selectedProjectId) ?? projects[0] ?? null;
+
+  function openModal(project?: any) {
+    setDraft(project ? {
+      id: project.id,
+      name: project.name ?? '',
+      address: project.address ?? '',
+      description: project.description ?? '',
+      start_date: project.start_date ?? '',
+      end_date: project.end_date ?? '',
+      status: project.status ?? 'active',
+      company_ids: Array.isArray(project.company_ids) ? project.company_ids : Array.isArray(project.companyIds) ? project.companyIds : [],
+      buildings: projectBuildings(project),
+    } : {
+      name: '',
+      address: '',
+      description: '',
+      start_date: todayISO(),
+      end_date: '',
+      status: 'active',
+      company_ids: [],
+      buildings: [],
+    });
+    setModalOpen(true);
+  }
+
+  async function submitProject(event: React.FormEvent) {
+    event.preventDefault();
+    const saved = await onSave(draft);
+    if (saved) setModalOpen(false);
+  }
+
+  function toggleCompany(companyId: string) {
+    setDraft((prev: any) => {
+      const current = new Set(Array.isArray(prev.company_ids) ? prev.company_ids : []);
+      if (current.has(companyId)) current.delete(companyId);
+      else current.add(companyId);
+      return { ...prev, company_ids: Array.from(current) };
+    });
+  }
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Chantiers" value={projects.length} hint="Périmètre web" />
+        <Kpi title="Actifs" value={projects.filter((project: any) => project.status === 'active').length} hint="En cours" tone="green" />
+        <Kpi title="Entreprises" value={companies.length} hint="Affectables" tone="amber" />
+        <Kpi title="Structures" value={projects.reduce((sum: number, project: any) => sum + projectBuildings(project).length, 0)} hint="Bâtiments déclarés" />
+      </div>
+      <div className={styles.twoCols}>
+        <section className={styles.panel}>
+          <div className={styles.panelHeaderCompact}>
+            <div>
+              <h2>Chantiers</h2>
+              <p>Créer, modifier, supprimer et ouvrir la structure détaillée.</p>
+            </div>
+            {editable ? <button type="button" onClick={() => openModal()}>Nouveau chantier</button> : null}
+          </div>
+          <div className={styles.compactList}>
+            {projects.map((project: any) => (
+              <button
+                key={project.id}
+                type="button"
+                className={selectedProject?.id === project.id ? styles.selectedRow : ''}
+                onClick={() => setSelectedProjectId(project.id)}
+              >
+                <span>{project.status ?? 'active'} · {projectBuildings(project).length} bâtiment(s)</span>
+                <strong>{project.name}</strong>
+              </button>
+            ))}
+            {!projects.length ? <p className={styles.empty}>Aucun chantier.</p> : null}
+          </div>
+        </section>
+        <section className={styles.panel}>
+          {selectedProject ? (
+            <>
+              <div className={styles.panelHeaderCompact}>
+                <div>
+                  <h2>{selectedProject.name}</h2>
+                  <p>{selectedProject.address || selectedProject.description || 'Chantier sans adresse/description.'}</p>
+                </div>
+                {editable ? (
+                  <div className={styles.inlineActions}>
+                    <button type="button" onClick={() => openModal(selectedProject)}>Modifier</button>
+                    <button type="button" onClick={() => onDelete(selectedProject)}>Supprimer</button>
+                  </div>
+                ) : null}
+              </div>
+              <div className={styles.detailGrid}>
+                <span><strong>Statut</strong><em>{selectedProject.status ?? 'active'}</em></span>
+                <span><strong>Début</strong><em>{selectedProject.start_date || '—'}</em></span>
+                <span><strong>Fin</strong><em>{selectedProject.end_date || '—'}</em></span>
+                <span><strong>Entreprises</strong><em>{(selectedProject.company_ids ?? []).length || companies.length}</em></span>
+              </div>
+              <div className={styles.structureSummary}>
+                {projectBuildings(selectedProject).map((building: any) => (
+                  <article key={building.id}>
+                    <strong>{building.name}</strong>
+                    <small>{(building.levels ?? []).length} niveau(x)</small>
+                    <div>
+                      {(building.levels ?? []).slice(0, 5).map((level: any) => <span key={level.id}>{level.name}</span>)}
+                    </div>
+                  </article>
+                ))}
+                {!projectBuildings(selectedProject).length ? <p className={styles.empty}>Aucune structure enregistrée.</p> : null}
+              </div>
+            </>
+          ) : (
+            <p className={styles.empty}>Sélectionnez un chantier.</p>
+          )}
+        </section>
+      </div>
+
+      {modalOpen && (
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true" onMouseDown={() => !saving && setModalOpen(false)}>
+          <section className={`${styles.modalPanel} ${styles.wideModal}`} onMouseDown={event => event.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div>
+                <p className={styles.eyebrow}>Chantiers</p>
+                <h2>{draft.id ? 'Modifier le chantier' : 'Nouveau chantier'}</h2>
+                <span>Identité, statut, dates, entreprises et structure.</span>
+              </div>
+              <button type="button" onClick={() => setModalOpen(false)} disabled={saving}>Fermer</button>
+            </div>
+            <form className={styles.formGrid} onSubmit={submitProject}>
+              <label>
+                <span>Nom</span>
+                <input value={draft.name ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, name: event.target.value }))} required />
+              </label>
+              <label>
+                <span>Statut</span>
+                <select value={draft.status ?? 'active'} onChange={event => setDraft((prev: any) => ({ ...prev, status: event.target.value }))}>
+                  <option value="active">Actif</option>
+                  <option value="paused">Suspendu</option>
+                  <option value="completed">Terminé</option>
+                </select>
+              </label>
+              <label>
+                <span>Date début</span>
+                <input type="date" value={draft.start_date ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, start_date: event.target.value }))} />
+              </label>
+              <label>
+                <span>Date fin</span>
+                <input type="date" value={draft.end_date ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, end_date: event.target.value }))} />
+              </label>
+              <label className={styles.fullSpan}>
+                <span>Adresse</span>
+                <input value={draft.address ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, address: event.target.value }))} />
+              </label>
+              <label className={styles.fullSpan}>
+                <span>Description</span>
+                <textarea rows={3} value={draft.description ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, description: event.target.value }))} />
+              </label>
+              <div className={styles.fullSpan}>
+                <strong>Entreprises affectées</strong>
+                <div className={styles.chipGrid}>
+                  {companies.map((company: any) => {
+                    const active = (draft.company_ids ?? []).includes(company.id);
+                    return (
+                      <button key={company.id} type="button" className={active ? styles.chipActive : styles.chip} onClick={() => toggleCompany(company.id)}>
+                        {company.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className={styles.fullSpan}>
+                <strong>Structure bâtiments / niveaux / zones</strong>
+                <ProjectStructureEditor buildings={draft.buildings ?? []} onChange={next => setDraft((prev: any) => ({ ...prev, buildings: next }))} />
+              </div>
+              <div className={styles.modalActions}>
+                <button type="button" onClick={() => setModalOpen(false)} disabled={saving}>Annuler</button>
+                <button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }
@@ -8650,6 +10396,629 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
           })}
         </div>
         {!companies.length && <p className={styles.empty}>Aucune entreprise chargée.</p>}
+      </section>
+    </div>
+  );
+}
+
+function RestrictedTool({ title }: { title: string }) {
+  return (
+    <section className={styles.panel}>
+      <div className={styles.emptyState}>
+        <strong>{title}</strong>
+        <p>Accès non disponible pour le profil sous-traitant.</p>
+      </div>
+    </section>
+  );
+}
+
+function JournalView({ profile, projectName, selectedProjectId, timeEntries, editable }: any) {
+  const storageKey = makeWebLocalStorageKey('buildtrack-web-journal-v1', profile, selectedProjectId);
+  const [entries, setEntries] = useState<any[]>(() => readWebLocalArray(storageKey));
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState<any>(() => ({
+    date: todayISO(),
+    weather: '',
+    workerCount: '',
+    workDone: '',
+    materials: '',
+    incidents: '',
+    observations: '',
+    visitors: '',
+  }));
+
+  useEffect(() => {
+    setEntries(readWebLocalArray(storageKey));
+  }, [storageKey]);
+
+  function persist(next: any[]) {
+    setEntries(next);
+    writeWebLocalArray(storageKey, next);
+  }
+
+  function submitEntry(event: React.FormEvent) {
+    event.preventDefault();
+    if (!editable || !draft.workDone.trim()) return;
+    const attendanceCount = new Set(timeEntries.filter((entry: any) => entry.date === draft.date).map((entry: any) => entry.worker_name)).size;
+    const nextEntry = {
+      id: `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      ...draft,
+      workerCount: Number(draft.workerCount || attendanceCount || 0),
+      author: userLabel(profile, null),
+      createdAt: nowFR(),
+    };
+    persist([nextEntry, ...entries]);
+    setDraft({ date: todayISO(), weather: '', workerCount: '', workDone: '', materials: '', incidents: '', observations: '', visitors: '' });
+    setShowForm(false);
+  }
+
+  function exportJournal() {
+    const rows = entries.map(entry => `
+      <tr>
+        <td>${xmlEscape(entry.date)}</td>
+        <td>${xmlEscape(entry.weather || '—')}</td>
+        <td>${Number(entry.workerCount ?? 0)}</td>
+        <td>${xmlEscape(entry.workDone)}</td>
+        <td>${xmlEscape(entry.materials || '')}</td>
+        <td>${xmlEscape(entry.incidents || '')}</td>
+        <td>${xmlEscape(entry.observations || '')}</td>
+      </tr>
+    `).join('');
+    printHtmlReport(`
+      <html><head><title>Journal ${xmlEscape(projectName)}</title></head>
+      <body style="font-family:Arial,sans-serif;padding:24px">
+        <h1>Journal de chantier - ${xmlEscape(projectName)}</h1>
+        <table style="width:100%;border-collapse:collapse" border="1" cellpadding="8">
+          <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux</th><th>Matériaux</th><th>Incidents</th><th>Observations</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="7">Aucune entrée</td></tr>'}</tbody>
+        </table>
+      </body></html>
+    `, `BuildTrack_journal_${projectName}.pdf`);
+  }
+
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Journal de chantier" />;
+
+  const totalWorkers = entries.reduce((sum, entry) => sum + Number(entry.workerCount ?? 0), 0);
+  const incidentDays = entries.filter(entry => String(entry.incidents ?? '').trim()).length;
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Entrées" value={entries.length} hint="Journal local web" />
+        <Kpi title="Effectif cumulé" value={totalWorkers} hint="Somme des jours" tone="green" />
+        <Kpi title="Jours incident" value={incidentDays} hint="À contrôler" tone={incidentDays ? 'red' : 'green'} />
+        <Kpi title="Pointage du jour" value={new Set(timeEntries.filter((entry: any) => entry.date === todayISO()).map((entry: any) => entry.worker_name)).size} hint="Depuis Supabase" />
+      </div>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Journal de chantier</h2>
+            <p>Saisie quotidienne, météo, effectifs, travaux, incidents, observations et visiteurs.</p>
+          </div>
+          <div className={styles.inlineActions}>
+            <button type="button" onClick={exportJournal}>Exporter</button>
+            {editable ? <button type="button" onClick={() => setShowForm(value => !value)}>{showForm ? 'Fermer' : 'Nouvelle entrée'}</button> : null}
+          </div>
+        </div>
+        {showForm && (
+          <form className={styles.formGrid} onSubmit={submitEntry}>
+            <label><span>Date</span><input type="date" value={draft.date} onChange={event => setDraft((prev: any) => ({ ...prev, date: event.target.value }))} /></label>
+            <label><span>Météo</span><input value={draft.weather} onChange={event => setDraft((prev: any) => ({ ...prev, weather: event.target.value }))} placeholder="Soleil, pluie..." /></label>
+            <label><span>Effectif</span><input type="number" min={0} value={draft.workerCount} onChange={event => setDraft((prev: any) => ({ ...prev, workerCount: event.target.value }))} placeholder="Auto depuis pointage si vide" /></label>
+            <label className={styles.fullSpan}><span>Travaux réalisés</span><textarea rows={3} value={draft.workDone} onChange={event => setDraft((prev: any) => ({ ...prev, workDone: event.target.value }))} required /></label>
+            <label><span>Matériaux</span><input value={draft.materials} onChange={event => setDraft((prev: any) => ({ ...prev, materials: event.target.value }))} /></label>
+            <label><span>Visiteurs</span><input value={draft.visitors} onChange={event => setDraft((prev: any) => ({ ...prev, visitors: event.target.value }))} /></label>
+            <label className={styles.fullSpan}><span>Incidents</span><textarea rows={2} value={draft.incidents} onChange={event => setDraft((prev: any) => ({ ...prev, incidents: event.target.value }))} /></label>
+            <label className={styles.fullSpan}><span>Observations</span><textarea rows={2} value={draft.observations} onChange={event => setDraft((prev: any) => ({ ...prev, observations: event.target.value }))} /></label>
+            <div className={styles.modalActions}><button type="submit">Enregistrer</button></div>
+          </form>
+        )}
+      </section>
+      <section className={styles.panel}>
+        <h2>Entrées journal</h2>
+        <div className={styles.compactList}>
+          {entries.map(entry => (
+            <article key={entry.id} className={styles.timelineCard}>
+              <span className={styles.statusDot} />
+              <div>
+                <strong>{entry.date} · {entry.workerCount || 0} présent(s)</strong>
+                <small>{entry.weather || 'Météo non renseignée'} · {entry.author}</small>
+                <p>{entry.workDone}</p>
+              </div>
+              {editable ? <button type="button" onClick={() => persist(entries.filter(item => item.id !== entry.id))}>Supprimer</button> : null}
+            </article>
+          ))}
+          {!entries.length ? <p className={styles.empty}>Aucune entrée journal.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function PointageView({ entries, companies, profile, editable, onCreate, onUpdate, onDelete }: any) {
+  const [date, setDate] = useState(todayISO());
+  const [draft, setDraft] = useState<any>({ worker_name: '', company_id: '', arrival_time: '08:00', departure_time: '', notes: '' });
+  const dayEntries = entries.filter((entry: any) => entry.date === date);
+  const totalPresent = dayEntries.filter((entry: any) => !entry.departure_time).length;
+
+  function selectedCompany(companyId: string) {
+    return companies.find((company: any) => company.id === companyId) ?? null;
+  }
+
+  async function submitEntry(event: React.FormEvent) {
+    event.preventDefault();
+    const company = selectedCompany(draft.company_id);
+    await onCreate({
+      ...draft,
+      date,
+      company_name: company?.name ?? '',
+      company_color: company?.color ?? '#10B981',
+    });
+    setDraft({ worker_name: '', company_id: draft.company_id, arrival_time: '08:00', departure_time: '', notes: '' });
+  }
+
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Pointage" />;
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Entrées du jour" value={dayEntries.length} hint={date} />
+        <Kpi title="Présents" value={totalPresent} hint="Sans départ" tone="green" />
+        <Kpi title="Entreprises" value={new Set(dayEntries.map((entry: any) => entry.company_id || entry.company_name)).size} hint="Sur la journée" />
+        <Kpi title="Historique" value={entries.length} hint="Pointages Supabase" tone="amber" />
+      </div>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Pointage personnel</h2>
+            <p>Arrivées, départs, entreprise, notes et historique.</p>
+          </div>
+          <input className={styles.compactSearch} type="date" value={date} onChange={event => setDate(event.target.value)} />
+        </div>
+        {editable && (
+          <form className={styles.formGrid} onSubmit={submitEntry}>
+            <label><span>Compagnon</span><input value={draft.worker_name} onChange={event => setDraft((prev: any) => ({ ...prev, worker_name: event.target.value }))} required /></label>
+            <label>
+              <span>Entreprise</span>
+              <select value={draft.company_id} onChange={event => setDraft((prev: any) => ({ ...prev, company_id: event.target.value }))}>
+                <option value="">Sans entreprise</option>
+                {companies.map((company: any) => <option key={company.id} value={company.id}>{company.name}</option>)}
+              </select>
+            </label>
+            <label><span>Arrivée</span><input type="time" value={draft.arrival_time} onChange={event => setDraft((prev: any) => ({ ...prev, arrival_time: event.target.value }))} /></label>
+            <label><span>Départ</span><input type="time" value={draft.departure_time} onChange={event => setDraft((prev: any) => ({ ...prev, departure_time: event.target.value }))} /></label>
+            <label className={styles.fullSpan}><span>Notes</span><input value={draft.notes} onChange={event => setDraft((prev: any) => ({ ...prev, notes: event.target.value }))} /></label>
+            <div className={styles.modalActions}><button type="submit">Ajouter pointage</button></div>
+          </form>
+        )}
+      </section>
+      <section className={styles.panel}>
+        <h2>Journée sélectionnée</h2>
+        <div className={styles.tableLike}>
+          {dayEntries.map((entry: any) => (
+            <article key={entry.id} className={styles.tableRow}>
+              <span>{entry.arrival_time} → {entry.departure_time || 'présent'}</span>
+              <strong>{entry.worker_name}</strong>
+              <em>{entry.company_name || 'Sans entreprise'}</em>
+              {editable ? (
+                <div className={styles.inlineActions}>
+                  {!entry.departure_time ? <button type="button" onClick={() => onUpdate(entry, { departure_time: new Date().toTimeString().slice(0, 5) })}>Départ</button> : null}
+                  <button type="button" onClick={() => onDelete(entry)}>Supprimer</button>
+                </div>
+              ) : null}
+            </article>
+          ))}
+          {!dayEntries.length ? <p className={styles.empty}>Aucun pointage pour cette journée.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function AnalyticsView({ scoped, companies, profile, setTab }: any) {
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Analytics" />;
+  const reserves = scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve));
+  const closed = reserves.filter((reserve: any) => reserve.status === 'closed').length;
+  const overdue = reserves.filter(isReserveOverdue).length;
+  const closureRate = reserves.length ? Math.round((closed / reserves.length) * 100) : 0;
+  const weekStats = (() => {
+    const now = new Date();
+    const weeks = new Map<string, { label: string; created: number; closed: number }>();
+    for (let i = 7; i >= 0; i -= 1) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - i * 7);
+      weeks.set(getWeekKey(date), { label: getWeekLabel(date), created: 0, closed: 0 });
+    }
+    for (const reserve of reserves) {
+      const created = getReserveCreatedDate(reserve);
+      const closedDate = getReserveClosedDate(reserve);
+      if (created) weeks.get(getWeekKey(created)) && (weeks.get(getWeekKey(created))!.created += 1);
+      if (closedDate) weeks.get(getWeekKey(closedDate)) && (weeks.get(getWeekKey(closedDate))!.closed += 1);
+    }
+    return [...weeks.values()];
+  })();
+  const maxWeek = Math.max(1, ...weekStats.flatMap(item => [item.created, item.closed]));
+  const companyStats = companies.map((company: any) => {
+    const companyReserves = reserves.filter((reserve: any) => reserveMatchesCompanyName(reserve, company.name));
+    const total = companyReserves.length;
+    const companyClosed = companyReserves.filter((reserve: any) => reserve.status === 'closed').length;
+    return {
+      company,
+      total,
+      closed: companyClosed,
+      overdue: companyReserves.filter(isReserveOverdue).length,
+      rate: total ? Math.round((companyClosed / total) * 100) : 0,
+    };
+  }).sort((a: any, b: any) => b.total - a.total);
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Réserves" value={reserves.length} hint="Actives non archivées" />
+        <Kpi title="Clôture" value={`${closureRate}%`} hint={`${closed} clôturées`} tone="green" />
+        <Kpi title="Retards" value={overdue} hint="Échéance dépassée" tone={overdue ? 'red' : 'green'} />
+        <Kpi title="Documents" value={(scoped.documents?.length ?? 0) + (scoped.regulatoryDocs?.length ?? 0)} hint="GED + réglementaire" tone="amber" />
+      </div>
+      <div className={styles.twoCols}>
+        <section className={styles.panel}>
+          <div className={styles.panelHeaderCompact}>
+            <div>
+              <h2>Tendance 8 semaines</h2>
+              <p>Créations et clôtures de réserves.</p>
+            </div>
+          </div>
+          <div className={styles.analyticsBars}>
+            {weekStats.map(week => (
+              <div key={week.label}>
+                <span>{week.label}</span>
+                <i style={{ height: `${Math.max(4, (week.created / maxWeek) * 100)}%` }} />
+                <b style={{ height: `${Math.max(4, (week.closed / maxWeek) * 100)}%` }} />
+              </div>
+            ))}
+          </div>
+        </section>
+        <section className={styles.panel}>
+          <div className={styles.panelHeaderCompact}>
+            <div>
+              <h2>Entreprises</h2>
+              <p>Taux de clôture, volumes et retards.</p>
+            </div>
+            <button type="button" onClick={() => setTab('equipes')}>Équipes</button>
+          </div>
+          <div className={styles.compactList}>
+            {companyStats.map((item: any) => (
+              <article key={item.company.id} className={styles.timelineCard}>
+                <span className={styles.statusDot} style={{ background: item.company.color ?? '#003082' }} />
+                <div>
+                  <strong>{item.company.name}</strong>
+                  <small>{item.closed}/{item.total} clôturées · {item.overdue} retard(s)</small>
+                  <div className={styles.progressMini}><span style={{ width: `${item.rate}%`, background: item.company.color ?? '#003082' }} /></div>
+                </div>
+                <em>{item.rate}%</em>
+              </article>
+            ))}
+            {!companyStats.length ? <p className={styles.empty}>Aucune donnée entreprise.</p> : null}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function DocumentsView({ documents, projects, selectedProjectId, profile, editable, saving, onCreate, onDelete }: any) {
+  const [query, setQuery] = useState('');
+  const [file, setFile] = useState<File | null>(null);
+  const [draft, setDraft] = useState<any>({ name: '', category: 'Documents', chantier_id: selectedProjectId !== 'all' ? selectedProjectId : '' });
+  const filtered = documents.filter((document: any) => {
+    const q = normalizeSearchText(query);
+    if (!q) return true;
+    return normalizeSearchText([document.name, document.category, document.type].join(' ')).includes(q);
+  });
+
+  async function submitDocument(event: React.FormEvent) {
+    event.preventDefault();
+    if (!file) return;
+    const saved = await onCreate({ ...draft, name: draft.name || file.name, type: detectWebDocumentType(file) }, file);
+    if (saved) {
+      setFile(null);
+      setDraft({ name: '', category: 'Documents', chantier_id: selectedProjectId !== 'all' ? selectedProjectId : '' });
+    }
+  }
+
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Documents" />;
+
+  return (
+    <div className={styles.stack}>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Documents</h2>
+            <p>Import, classement, ouverture et suppression des fichiers chantier.</p>
+          </div>
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher document..." />
+        </div>
+        {editable && (
+          <form className={styles.formGrid} onSubmit={submitDocument}>
+            <label><span>Nom</span><input value={draft.name} onChange={event => setDraft((prev: any) => ({ ...prev, name: event.target.value }))} placeholder={file?.name ?? 'Nom du document'} /></label>
+            <label><span>Catégorie</span><input value={draft.category} onChange={event => setDraft((prev: any) => ({ ...prev, category: event.target.value }))} /></label>
+            <label>
+              <span>Chantier</span>
+              <select value={draft.chantier_id} onChange={event => setDraft((prev: any) => ({ ...prev, chantier_id: event.target.value }))}>
+                <option value="">Organisation</option>
+                {projects.map((project: any) => <option key={project.id} value={project.id}>{project.name}</option>)}
+              </select>
+            </label>
+            <label><span>Fichier</span><input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} required /></label>
+            <div className={styles.modalActions}><button type="submit" disabled={saving}>{saving ? 'Upload...' : 'Importer'}</button></div>
+          </form>
+        )}
+      </section>
+      <section className={styles.panel}>
+        <h2>Bibliothèque</h2>
+        <div className={styles.documentList}>
+          {filtered.map((document: any) => {
+            const url = assetUrl(document, 'documents');
+            return (
+              <article key={document.id} className={styles.documentRow}>
+                <span>{String(document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
+                <div>
+                  <strong>{document.name ?? 'Document'}</strong>
+                  <small>{document.category ?? 'Documents'} · {document.size ?? '—'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
+                </div>
+                <div className={styles.inlineActions}>
+                  {url ? <a className={styles.linkButton} href={url} target="_blank">Ouvrir</a> : null}
+                  {editable ? <button type="button" onClick={() => onDelete(document)}>Supprimer</button> : null}
+                </div>
+              </article>
+            );
+          })}
+          {!filtered.length ? <p className={styles.empty}>Aucun document.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function ChecklistsView({ profile, selectedProjectId, editable }: any) {
+  const storageKey = makeWebLocalStorageKey('buildtrack-web-checklists-v1', profile, selectedProjectId);
+  const [checklists, setChecklists] = useState<any[]>(() => readWebLocalArray(storageKey));
+  const [title, setTitle] = useState('');
+  const [itemsText, setItemsText] = useState('EPI conformes\nAccès sécurisé\nSignalisation en place\nZone propre\nRéserves levées');
+
+  useEffect(() => {
+    setChecklists(readWebLocalArray(storageKey));
+  }, [storageKey]);
+
+  function persist(next: any[]) {
+    setChecklists(next);
+    writeWebLocalArray(storageKey, next);
+  }
+
+  function createChecklist(event: React.FormEvent) {
+    event.preventDefault();
+    if (!title.trim()) return;
+    const checklist = {
+      id: `CHK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      title: title.trim(),
+      status: 'draft',
+      createdAt: nowFR(),
+      createdBy: userLabel(profile, null),
+      items: itemsText.split('\n').map(label => label.trim()).filter(Boolean).map(label => ({ id: crypto.randomUUID(), label, checked: false })),
+    };
+    persist([checklist, ...checklists]);
+    setTitle('');
+  }
+
+  function toggleItem(checklistId: string, itemId: string) {
+    if (!editable) return;
+    persist(checklists.map(checklist => {
+      if (checklist.id !== checklistId) return checklist;
+      const items = checklist.items.map((item: any) => item.id === itemId ? { ...item, checked: !item.checked } : item);
+      return {
+        ...checklist,
+        items,
+        status: items.every((item: any) => item.checked) ? 'completed' : items.some((item: any) => item.checked) ? 'in_progress' : 'draft',
+      };
+    }));
+  }
+
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Checklists" />;
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Checklists" value={checklists.length} hint="Stockage web local" />
+        <Kpi title="Terminées" value={checklists.filter(item => item.status === 'completed').length} hint="100% validées" tone="green" />
+        <Kpi title="En cours" value={checklists.filter(item => item.status === 'in_progress').length} hint="Contrôles ouverts" tone="amber" />
+        <Kpi title="Points" value={checklists.reduce((sum, item) => sum + item.items.length, 0)} hint="À contrôler" />
+      </div>
+      {editable && (
+        <section className={styles.panel}>
+          <div className={styles.panelHeaderCompact}><div><h2>Nouvelle checklist</h2><p>Créer un contrôle qualité personnalisé.</p></div></div>
+          <form className={styles.formGrid} onSubmit={createChecklist}>
+            <label><span>Titre</span><input value={title} onChange={event => setTitle(event.target.value)} required /></label>
+            <label className={styles.fullSpan}><span>Points à contrôler</span><textarea rows={5} value={itemsText} onChange={event => setItemsText(event.target.value)} /></label>
+            <div className={styles.modalActions}><button type="submit">Créer checklist</button></div>
+          </form>
+        </section>
+      )}
+      <section className={styles.panel}>
+        <h2>Contrôles</h2>
+        <div className={styles.checklistGrid}>
+          {checklists.map(checklist => {
+            const done = checklist.items.filter((item: any) => item.checked).length;
+            const pct = checklist.items.length ? Math.round((done / checklist.items.length) * 100) : 0;
+            return (
+              <article key={checklist.id} className={styles.checklistCard}>
+                <div className={styles.panelHeaderCompact}>
+                  <div><h3>{checklist.title}</h3><p>{done}/{checklist.items.length} · {pct}%</p></div>
+                  {editable ? <button type="button" onClick={() => persist(checklists.filter(item => item.id !== checklist.id))}>Supprimer</button> : null}
+                </div>
+                <div className={styles.progressMini}><span style={{ width: `${pct}%` }} /></div>
+                {checklist.items.map((item: any) => (
+                  <button key={item.id} type="button" className={item.checked ? styles.checklistItemDone : styles.checklistItem} onClick={() => toggleItem(checklist.id, item.id)}>
+                    <span>{item.checked ? '✓' : ''}</span>{item.label}
+                  </button>
+                ))}
+              </article>
+            );
+          })}
+          {!checklists.length ? <p className={styles.empty}>Aucune checklist.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+const REGULATORY_TYPES = [
+  ['ppsps', 'PPSPS'],
+  ['dict', 'DICT'],
+  ['doe', 'DOE'],
+  ['plan_prevention', 'Plan de prévention'],
+  ['declaration_prealable', 'Déclaration préalable'],
+  ['dpae', 'DPAE'],
+  ['autre', 'Autre'],
+] as const;
+
+const REGULATORY_STATUS_LABELS: Record<string, string> = {
+  valid: 'Valide',
+  expiring: 'Expire bientôt',
+  expired: 'Expiré',
+  missing: 'Manquant',
+  in_progress: 'En cours',
+};
+
+function ReglementaireView({ docs, companies, profile, editable, saving, onSave, onDelete }: any) {
+  const [filter, setFilter] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [draft, setDraft] = useState<any>({});
+  const [file, setFile] = useState<File | null>(null);
+  const filtered = docs.filter((doc: any) => !filter || doc.status === filter);
+
+  function openDoc(doc?: any) {
+    setDraft(doc ? {
+      id: doc.id,
+      type: doc.type ?? 'autre',
+      title: doc.title ?? '',
+      company: doc.company ?? '',
+      reference: doc.reference ?? '',
+      issue_date: doc.issue_date ?? '',
+      expiry_date: doc.expiry_date ?? '',
+      status: doc.status ?? 'missing',
+      notes: doc.notes ?? '',
+      uri: doc.uri ?? null,
+      created_by: doc.created_by,
+    } : { type: 'ppsps', title: '', company: '', reference: '', issue_date: '', expiry_date: '', status: 'missing', notes: '' });
+    setFile(null);
+    setModalOpen(true);
+  }
+
+  async function submitDoc(event: React.FormEvent) {
+    event.preventDefault();
+    const saved = await onSave(draft, file);
+    if (saved) setModalOpen(false);
+  }
+
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Réglementaire" />;
+
+  return (
+    <div className={styles.stack}>
+      <div className={styles.kpiGrid}>
+        <Kpi title="Documents" value={docs.length} hint="Réglementaire" />
+        <Kpi title="Alertes" value={docs.filter((doc: any) => ['expired', 'missing'].includes(doc.status)).length} hint="Expirés ou manquants" tone="red" />
+        <Kpi title="Valides" value={docs.filter((doc: any) => doc.status === 'valid').length} hint="À jour" tone="green" />
+        <Kpi title="En cours" value={docs.filter((doc: any) => doc.status === 'in_progress').length} hint="À compléter" tone="amber" />
+      </div>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div><h2>Documents réglementaires</h2><p>PPSPS, DICT, DOE, prévention, DPAE et autres documents obligatoires.</p></div>
+          <div className={styles.inlineActions}>
+            <select value={filter} onChange={event => setFilter(event.target.value)}>
+              <option value="">Tous statuts</option>
+              {Object.entries(REGULATORY_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+            </select>
+            {editable ? <button type="button" onClick={() => openDoc()}>Ajouter</button> : null}
+          </div>
+        </div>
+        <div className={styles.compactList}>
+          {filtered.map((doc: any) => (
+            <article key={doc.id} className={styles.timelineCard}>
+              <span className={`${styles.statusDot} ${doc.status === 'valid' ? styles.dotDone : ['expired', 'missing'].includes(doc.status) ? styles.dotLate : ''}`} />
+              <div>
+                <strong>{doc.title}</strong>
+                <small>{REGULATORY_STATUS_LABELS[doc.status] ?? doc.status} · {doc.company || 'Toutes entreprises'} · échéance {doc.expiry_date || '—'}</small>
+                {doc.notes ? <p>{doc.notes}</p> : null}
+              </div>
+              <div className={styles.inlineActions}>
+                {assetUrl(doc, 'documents') ? <a className={styles.linkButton} href={assetUrl(doc, 'documents')} target="_blank">Ouvrir</a> : null}
+                {editable ? <button type="button" onClick={() => openDoc(doc)}>Modifier</button> : null}
+                {editable ? <button type="button" onClick={() => onDelete(doc)}>Supprimer</button> : null}
+              </div>
+            </article>
+          ))}
+          {!filtered.length ? <p className={styles.empty}>Aucun document réglementaire.</p> : null}
+        </div>
+      </section>
+      {modalOpen && (
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true" onMouseDown={() => !saving && setModalOpen(false)}>
+          <section className={styles.modalPanel} onMouseDown={event => event.stopPropagation()}>
+            <div className={styles.modalHeader}>
+              <div><p className={styles.eyebrow}>Réglementaire</p><h2>{draft.id ? 'Modifier document' : 'Nouveau document'}</h2></div>
+              <button type="button" onClick={() => setModalOpen(false)} disabled={saving}>Fermer</button>
+            </div>
+            <form className={styles.formGrid} onSubmit={submitDoc}>
+              <label><span>Type</span><select value={draft.type} onChange={event => setDraft((prev: any) => ({ ...prev, type: event.target.value }))}>{REGULATORY_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+              <label><span>Statut</span><select value={draft.status} onChange={event => setDraft((prev: any) => ({ ...prev, status: event.target.value }))}>{Object.entries(REGULATORY_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+              <label className={styles.fullSpan}><span>Titre</span><input value={draft.title ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, title: event.target.value }))} required /></label>
+              <label><span>Entreprise</span><input list="reg-companies" value={draft.company ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, company: event.target.value }))} /></label>
+              <datalist id="reg-companies">{companies.map((company: any) => <option key={company.id} value={company.name} />)}</datalist>
+              <label><span>Référence</span><input value={draft.reference ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, reference: event.target.value }))} /></label>
+              <label><span>Date émission</span><input type="date" value={draft.issue_date ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, issue_date: event.target.value }))} /></label>
+              <label><span>Date expiration</span><input type="date" value={draft.expiry_date ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, expiry_date: event.target.value }))} /></label>
+              <label className={styles.fullSpan}><span>Notes</span><textarea rows={3} value={draft.notes ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, notes: event.target.value }))} /></label>
+              <label className={styles.fullSpan}><span>Fichier optionnel</span><input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
+              <div className={styles.modalActions}><button type="button" onClick={() => setModalOpen(false)} disabled={saving}>Annuler</button><button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></div>
+            </form>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SearchView({ scoped, data, setTab, setSelectedReserveId, setSelectedPlanId }: any) {
+  const [query, setQuery] = useState('');
+  const q = normalizeSearchText(query);
+  const results = q.length < 2 ? [] : [
+    ...scoped.reserves.filter((item: any) => normalizeSearchText([item.id, item.title, item.description, item.building, item.level, item.zone, reserveCompanies(item).join(' ')].join(' ')).includes(q)).map((item: any) => ({ type: 'Réserve', title: item.title, meta: item.id, action: () => { setSelectedReserveId(item.id); setTab('reserves'); } })),
+    ...scoped.plans.filter((item: any) => normalizeSearchText([item.name, item.building, item.level, item.revision_code].join(' ')).includes(q)).map((item: any) => ({ type: 'Plan', title: item.name, meta: getPlanDisplayLocation(item, data.chantiers.find((project: any) => project.id === item.chantier_id)).building, action: () => { setSelectedPlanId(item.id); setTab('plans'); } })),
+    ...scoped.documents.filter((item: any) => normalizeSearchText([item.name, item.category, item.type].join(' ')).includes(q)).map((item: any) => ({ type: 'Document', title: item.name, meta: item.category, action: () => setTab('documents') })),
+    ...scoped.incidents.filter((item: any) => normalizeSearchText([item.title, item.description, item.location, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Incident', title: item.title, meta: item.status, action: () => setTab('incidents') })),
+    ...scoped.visites.filter((item: any) => normalizeSearchText([item.title, item.notes, item.building, item.level].join(' ')).includes(q)).map((item: any) => ({ type: 'Visite', title: item.title, meta: prettyDate(item.date), action: () => setTab('visites') })),
+    ...scoped.tasks.filter((item: any) => normalizeSearchText([item.title, item.description, item.company, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Tâche', title: item.title, meta: item.company, action: () => setTab('planning') })),
+    ...scoped.regulatoryDocs.filter((item: any) => normalizeSearchText([item.title, item.company, item.reference, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Réglementaire', title: item.title, meta: REGULATORY_STATUS_LABELS[item.status] ?? item.status, action: () => setTab('reglementaire') })),
+  ].slice(0, 80);
+
+  return (
+    <div className={styles.stack}>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div><h2>Recherche globale</h2><p>Réserves, plans, visites, tâches, incidents, documents et réglementaire.</p></div>
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Tapez au moins 2 caractères..." autoFocus />
+        </div>
+      </section>
+      <section className={styles.panel}>
+        <h2>Résultats</h2>
+        <div className={styles.compactList}>
+          {results.map((item: any, index: number) => (
+            <button key={`${item.type}-${index}`} type="button" onClick={item.action}>
+              <span>{item.type} · {item.meta || '—'}</span>
+              <strong>{item.title || 'Sans titre'}</strong>
+            </button>
+          ))}
+          {q.length < 2 ? <p className={styles.empty}>Tapez au moins 2 caractères pour lancer la recherche.</p> : null}
+          {q.length >= 2 && !results.length ? <p className={styles.empty}>Aucun résultat.</p> : null}
+        </div>
       </section>
     </div>
   );

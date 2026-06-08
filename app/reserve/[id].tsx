@@ -5,7 +5,7 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo, useRef, useCallback } from 'react';
+import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
@@ -61,6 +61,7 @@ import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { PhotoAnnotationOverlay } from '@/components/PhotoAnnotator';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
+const LIFT_REQUEST_STATUSES: ReserveStatus[] = ['open', 'in_progress', 'waiting'];
 
 const PRIORITY_LABEL = Object.fromEntries(
   RESERVE_PRIORITIES.map(p => [p.value, p.label])
@@ -595,7 +596,7 @@ document.head.appendChild(s);
 
 export default function ReserveDetailScreen() {
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, requestLift } = useLocalSearchParams<{ id: string; requestLift?: string }>();
   const router = useRouter();
   const { t, i18n } = useTranslation();
   const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, updateComment, deleteComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers, photos } = useApp();
@@ -619,11 +620,17 @@ export default function ReserveDetailScreen() {
   const [annotatorPhoto, setAnnotatorPhoto] = useState<ReservePhoto | null>(null);
   const [editPhotos, setEditPhotos] = useState<ReservePhoto[]>([]);
   const [editPhotoUploading, setEditPhotoUploading] = useState(false);
+  const [liftModalVisible, setLiftModalVisible] = useState(false);
+  const [liftComment, setLiftComment] = useState('');
+  const [liftPhoto, setLiftPhoto] = useState<ReservePhoto | null>(null);
+  const [liftPhotoUploading, setLiftPhotoUploading] = useState(false);
+  const [liftSubmitting, setLiftSubmitting] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [signingForCompany, setSigningForCompany] = useState<string | null>(null);
 
   const planViewerRef = useRef<PdfPlanViewerHandle>(null);
+  const liftDeepLinkHandledRef = useRef<string | null>(null);
   const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
   const [captureViewerUri, setCaptureViewerUri] = useState<string | null>(null);
   const [captureViewerIsImage, setCaptureViewerIsImage] = useState(false);
@@ -675,6 +682,16 @@ export default function ReserveDetailScreen() {
     [storedReserve, photos],
   );
 
+  useEffect(() => {
+    if (requestLift !== '1' || !reserve || user?.role !== 'sous_traitant') return;
+    if (liftDeepLinkHandledRef.current === reserve.id) return;
+    if (!LIFT_REQUEST_STATUSES.includes(reserve.status)) return;
+    liftDeepLinkHandledRef.current = reserve.id;
+    setLiftComment('');
+    setLiftPhoto(null);
+    setLiftModalVisible(true);
+  }, [requestLift, reserve, user?.role]);
+
   const [editTitle, setEditTitle] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const activeChantier = chantiers.find(c => c.id === (reserve?.chantierId ?? activeChantierId));
@@ -712,6 +729,15 @@ export default function ReserveDetailScreen() {
     .filter(c => reserveCompanyNames.includes(c.name))
     .filter((c, i, arr) => arr.findIndex(x => x.name === c.name) === i);
   const company = reserveCompanyObjects[0] ?? null;
+  const subcontractorCompany = user?.role === 'sous_traitant' && user?.companyId
+    ? companies.find(c => c.id === user.companyId) ?? null
+    : null;
+  const canSubcontractorSignCompany = (companyName?: string) => {
+    if (user?.role !== 'sous_traitant') return true;
+    return !!subcontractorCompany && companyName === subcontractorCompany.name;
+  };
+  const canSignReserveForCurrentUser = (companyName?: string) =>
+    permissions.canEdit || (user?.role === 'sous_traitant' && canSubcontractorSignCompany(companyName));
 
   function openEdit() {
     if (!reserve) return;
@@ -738,6 +764,11 @@ export default function ReserveDetailScreen() {
     const today = formatDateFR(new Date());
     const author = user?.name ?? 'Conducteur de travaux';
     const signataire = signataireName.trim() || author;
+    const targetCompany = signingForCompany ?? reserveCompanyNames[0];
+    if (!canSignReserveForCurrentUser(targetCompany)) {
+      Alert.alert(t('common.restrictedAccess'), t('portal.restrictedOwnCompany'));
+      return;
+    }
 
     let updated: Reserve;
     if (signingForCompany && reserveCompanyNames.length > 1) {
@@ -888,6 +919,152 @@ export default function ReserveDetailScreen() {
 
   function removeEditPhoto(photoId: string) {
     setEditPhotos(prev => prev.filter(p => p.id !== photoId));
+  }
+
+  function removeLiftPhoto() {
+    setLiftPhoto(null);
+  }
+
+  function openLiftRequestModal() {
+    if (!reserve || user?.role !== 'sous_traitant') return;
+    if (!LIFT_REQUEST_STATUSES.includes(reserve.status)) return;
+    setLiftComment('');
+    setLiftPhoto(null);
+    setLiftModalVisible(true);
+  }
+
+  async function handleAddLiftPhoto(fromCamera = false) {
+    if (liftPhotoUploading) return;
+    if (fromCamera) {
+      if (Platform.OS === 'web') { Alert.alert(t('reserveDetail.alerts.mobileCameraTitle'), t('reserveDetail.alerts.mobileCameraText')); return; }
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') { Alert.alert(t('reserveDetail.alerts.permissionDenied'), t('reserveDetail.alerts.cameraPermission')); return; }
+      const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+      if (!result.canceled && result.assets[0]) await saveLiftPhoto(result.assets[0].uri);
+    } else {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') { Alert.alert(t('reserveDetail.alerts.permissionDenied'), t('reserveDetail.alerts.galleryPermission')); return; }
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+      if (!result.canceled && result.assets[0]) await saveLiftPhoto(result.assets[0].uri);
+    }
+  }
+
+  async function saveLiftPhoto(uri: string) {
+    setLiftPhotoUploading(true);
+    try {
+      const filename = `reserve_lift_${Date.now()}.jpg`;
+      let storageUrl: string | null = null;
+      if (isOnline) {
+        try {
+          storageUrl = await uploadPhoto(uri, filename);
+        } catch {
+          // Fallback local si le reseau coupe pendant l'envoi.
+        }
+      }
+
+      const finalUri = storageUrl ?? await persistLocalPhoto(uri);
+      if (!storageUrl) {
+        Alert.alert(
+          isOnline ? t('reserveDetail.alerts.deferredSyncTitle') : t('reserveDetail.alerts.offlineTitle'),
+          isOnline
+            ? t('reserveDetail.alerts.deferredSyncText')
+            : t('reserveDetail.alerts.offlinePhotoText'),
+        );
+      }
+
+      const today = formatDateFR(new Date());
+      setLiftPhoto({ id: genId(), uri: finalUri, kind: 'resolution', takenAt: today, takenBy: user?.name ?? '' });
+    } catch {
+      const today = formatDateFR(new Date());
+      const finalUri = await persistLocalPhoto(uri).catch(() => uri);
+      setLiftPhoto({ id: genId(), uri: finalUri, kind: 'resolution', takenAt: today, takenBy: user?.name ?? '' });
+      if (isSupabaseConfigured) {
+        Alert.alert(
+          t('reserveDetail.alerts.uploadFailedTitle'),
+          t('reserveDetail.alerts.uploadFailedText'),
+        );
+      }
+    } finally {
+      setLiftPhotoUploading(false);
+    }
+  }
+
+  async function handleSubmitLiftRequest() {
+    if (!reserve || liftSubmitting || liftPhotoUploading) return;
+    if (!LIFT_REQUEST_STATUSES.includes(reserve.status)) return;
+
+    setLiftSubmitting(true);
+    try {
+      const author = user?.name ?? 'Entreprise';
+      const createdAt = nowTimestampFR();
+      const trimmedComment = liftComment.trim();
+      const comments = trimmedComment
+        ? [
+            ...(reserve.comments ?? []),
+            {
+              id: genId(),
+              author,
+              authorId: user?.id,
+              content: `Demande de levee : ${trimmedComment}`,
+              createdAt,
+            },
+          ]
+        : reserve.comments ?? [];
+      const nextPhotos = liftPhoto ? [...(reserve.photos ?? []), liftPhoto] : reserve.photos;
+      const statusHistoryEntry = {
+        id: genId(),
+        action: t('syncAlerts.statusChangedAction'),
+        author,
+        createdAt,
+        oldValue: statusLabels[reserve.status],
+        newValue: statusLabels.verification,
+      };
+      const liftHistoryEntry = {
+        id: genId(),
+        action: 'Demande de levee',
+        author,
+        createdAt,
+        newValue: [
+          trimmedComment ? 'Commentaire ajoute' : null,
+          liftPhoto ? 'Photo ajoutee' : null,
+        ].filter(Boolean).join(', ') || 'Sans commentaire/photo',
+      };
+      const updated: Reserve = {
+        ...reserve,
+        status: 'verification',
+        comments,
+        history: [...(reserve.history ?? []), statusHistoryEntry, liftHistoryEntry],
+        photoUri: reserve.photoUri ?? liftPhoto?.uri,
+        photos: nextPhotos,
+        closedAt: undefined,
+        closedBy: undefined,
+      };
+
+      await Promise.resolve(updateReserveStatus(reserve.id, 'verification', author) as any);
+      await Promise.resolve(updateReserveFields(updated) as any);
+      if (liftPhoto) {
+        addPhoto({
+          id: liftPhoto.id,
+          comment: `Photo de levee reserve ${reserve.id}`,
+          location: [`Bat. ${reserve.building}`, reserve.level, reserve.zone].filter(Boolean).join(' - '),
+          takenAt: liftPhoto.takenAt,
+          takenBy: author,
+          colorCode: '#22C55E',
+          uri: liftPhoto.uri,
+          reserveId: reserve.id,
+        });
+      }
+
+      setLiftModalVisible(false);
+      setLiftComment('');
+      setLiftPhoto(null);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2500);
+    } finally {
+      setLiftSubmitting(false);
+    }
   }
 
   function buildChangeSummary(r: Reserve): { label: string; oldVal: string; newVal: string }[] {
@@ -1506,17 +1683,8 @@ export default function ReserveDetailScreen() {
                 </Text>
                 <TouchableOpacity
                   style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#7C3AED', borderRadius: 12, paddingVertical: 13, opacity: reserve.status === 'open' || reserve.status === 'in_progress' || reserve.status === 'waiting' ? 1 : 0.5 }}
-                  onPress={() => {
-                    Alert.alert(
-                      t('reserveDetail.alerts.requestLiftTitle'),
-                      t('reserveDetail.alerts.requestLiftText', { id: reserve.id }),
-                      [
-                        { text: t('common.cancel'), style: 'cancel' },
-                        { text: t('reserveDetail.alerts.confirm'), onPress: () => handleStatusChange('verification') },
-                      ]
-                    );
-                  }}
-                  disabled={!['open', 'in_progress', 'waiting'].includes(reserve.status)}
+                  onPress={openLiftRequestModal}
+                  disabled={!LIFT_REQUEST_STATUSES.includes(reserve.status)}
                   activeOpacity={0.8}
                 >
                   <Ionicons name="checkmark-done-outline" size={16} color="#fff" />
@@ -1660,7 +1828,7 @@ export default function ReserveDetailScreen() {
                             </Text>
                             <Image source={{ uri: sig.signature }} style={styles.signaturePreview} resizeMode="contain" />
                           </View>
-                        ) : (permissions.canEdit || user?.role === 'sous_traitant') ? (
+                        ) : canSignReserveForCurrentUser(coName) ? (
                           <TouchableOpacity
                             style={[styles.workflowBtn, { borderColor: co?.color ?? C.primary }]}
                             onPress={() => {
@@ -1705,7 +1873,7 @@ export default function ReserveDetailScreen() {
                 ) : ackDone ? (
                   <>
                     <Text style={styles.workflowStepDesc}>{t('reserveDetail.signatureHint')}</Text>
-                    {(permissions.canEdit || user?.role === 'sous_traitant') && (
+                    {canSignReserveForCurrentUser(reserveCompanyNames[0]) && (
                       <TouchableOpacity
                         style={styles.workflowBtn}
                         onPress={() => { setSigningForCompany(null); setSignatureModalVisible(true); }}
@@ -2150,7 +2318,89 @@ export default function ReserveDetailScreen() {
         </View>
       </Modal>
 
-      {/* Modal signature de levée */}
+      {/* Modal demande de levee */}
+      <Modal visible={liftModalVisible} transparent animationType="slide" onRequestClose={() => setLiftModalVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <View style={mStyles.overlay}>
+          <View style={mStyles.sheet}>
+            <View style={mStyles.sheetHeader}>
+              <TouchableOpacity onPress={() => setLiftModalVisible(false)} style={mStyles.closeBtn} disabled={liftSubmitting}>
+                <Ionicons name="close" size={20} color={C.textSub} />
+              </TouchableOpacity>
+              <Text style={mStyles.sheetTitle}>{t('reserveDetail.alerts.requestLiftTitle')}</Text>
+              <TouchableOpacity
+                onPress={() => void handleSubmitLiftRequest()}
+                style={[mStyles.saveBtn, (liftSubmitting || liftPhotoUploading) && { opacity: 0.6 }]}
+                disabled={liftSubmitting || liftPhotoUploading}
+              >
+                {liftSubmitting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={mStyles.saveBtnText}>Envoyer</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={[mStyles.content, { paddingBottom: insets.bottom + 24 }]} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              <View style={styles.sigInfoBox}>
+                <Ionicons name="information-circle-outline" size={16} color={C.primary} />
+                <Text style={styles.sigInfoText}>
+                  Ajoutez un commentaire ou une photo si besoin. Les deux sont facultatifs.
+                </Text>
+              </View>
+
+              <Text style={mStyles.label}>COMMENTAIRE FACULTATIF</Text>
+              <DictationTextInput
+                inputStyle={[mStyles.input, mStyles.textArea]}
+                value={liftComment}
+                onChangeText={setLiftComment}
+                placeholder="Expliquer ce qui a ete repris..."
+                placeholderTextColor={C.textMuted}
+                multiline
+                numberOfLines={4}
+                textAssistEnabled
+                textAssistContext="description"
+              />
+
+              <Text style={mStyles.label}>PHOTO FACULTATIVE</Text>
+              {liftPhoto ? (
+                <View style={{ marginBottom: 10, alignSelf: 'flex-start' }}>
+                  <View style={mStyles.photoThumb}>
+                    <Image source={{ uri: liftPhoto.uri }} style={mStyles.photoThumbImg} resizeMode="cover" onError={() => {}} />
+                    <View style={[mStyles.photoKindBadge, { backgroundColor: '#22C55E88' }]}>
+                      <Text style={mStyles.photoKindText}>{t('reserveNew.photoResolved')}</Text>
+                    </View>
+                    <TouchableOpacity style={mStyles.photoRemoveBtn} onPress={removeLiftPhoto} disabled={liftSubmitting}>
+                      <Ionicons name="close" size={10} color="#fff" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <Text style={[mStyles.hint, { marginBottom: 8 }]}>Aucune photo ajoutee.</Text>
+              )}
+              <View style={mStyles.photoRow}>
+                <TouchableOpacity style={mStyles.photoBtn} onPress={() => handleAddLiftPhoto(true)} disabled={liftPhotoUploading || liftSubmitting}>
+                  <Ionicons name="camera" size={16} color={C.primary} />
+                  <Text style={mStyles.photoBtnText}>{t('reserveNew.photo')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[mStyles.photoBtn, { flex: 1 }]} onPress={() => handleAddLiftPhoto(false)} disabled={liftPhotoUploading || liftSubmitting}>
+                  <Ionicons name="images-outline" size={16} color={C.inProgress} />
+                  <Text style={[mStyles.photoBtnText, { color: C.inProgress }]}>{t('reserveNew.gallery')}</Text>
+                </TouchableOpacity>
+              </View>
+              {liftPhotoUploading && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 }}>
+                  <ActivityIndicator size="small" color={C.primary} />
+                  <Text style={{ fontSize: 12, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>{t('reserveNew.uploading')}</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Modal signature de levee */}
       <Modal visible={signatureModalVisible} transparent animationType="slide" onRequestClose={() => setSignatureModalVisible(false)}>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={mStyles.overlay}>

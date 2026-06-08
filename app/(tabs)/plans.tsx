@@ -3841,21 +3841,25 @@ export default function PlansScreen() {
                       <View style={styles.tabletDetailMeta}><Ionicons name="calendar-outline" size={12} color={C.textMuted} /><Text style={styles.tabletDetailMetaText}>{t('plansScreen.deadline', { date: detailReserve.deadline })}</Text></View>
                     )}
                     <Text style={styles.tabletDetailDesc}>{getReserveDescriptionText(detailReserve.description, detailReserve.title)}</Text>
-                    <Text style={styles.tabletDetailSectionLabel}>{t('plansScreen.changeStatus')}</Text>
-                    <View style={styles.tabletStatusGrid}>
-                      {STATUS_ORDER.map(s => {
-                        const cfg = STATUS_CONFIG[s];
-                        const isActive = detailReserve.status === s;
-                        return (
-                          <TouchableOpacity key={s} style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
-                            onPress={() => { if (!isActive) updateReserveStatus(detailReserve.id, s, user?.name ?? 'Chef de chantier'); }}
-                            accessibilityLabel={t('plansScreen.a11y.status', { status: getStatusLabel(s) })}>
-                            {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
-                            <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{getStatusLabel(s)}</Text>
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
+                    {permissions.canEdit && (
+                      <>
+                        <Text style={styles.tabletDetailSectionLabel}>{t('plansScreen.changeStatus')}</Text>
+                        <View style={styles.tabletStatusGrid}>
+                          {STATUS_ORDER.map(s => {
+                            const cfg = STATUS_CONFIG[s];
+                            const isActive = detailReserve.status === s;
+                            return (
+                              <TouchableOpacity key={s} style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
+                                onPress={() => { if (!isActive) updateReserveStatus(detailReserve.id, s, user?.name ?? 'Chef de chantier'); }}
+                                accessibilityLabel={t('plansScreen.a11y.status', { status: getStatusLabel(s) })}>
+                                {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
+                                <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{getStatusLabel(s)}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </>
+                    )}
                     <View style={styles.tabletDetailActions}>
                       <PriorityBadge priority={detailReserve.priority} small />
                       {permissions.canCreate && (
@@ -4428,29 +4432,33 @@ export default function PlansScreen() {
                   </View>
                 )}
               </View>
-              <Text style={styles.tabletDetailSectionLabel}>{t('plansScreen.changeStatus')}</Text>
-              <View style={styles.tabletStatusGrid}>
-                {STATUS_ORDER.map(s => {
-                  const cfg = STATUS_CONFIG[s];
-                  const isActive = selected.status === s;
-                  return (
-                    <TouchableOpacity
-                      key={s}
-                      style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
-                      onPress={() => {
-                        if (!isActive) {
-                          updateReserveStatus(selected.id, s, user?.name ?? 'Chef de chantier');
-                          setSelected(prev => prev ? { ...prev, status: s } : null);
-                        }
-                      }}
-                      accessibilityLabel={t('plansScreen.a11y.changeToStatus', { status: getStatusLabel(s) })}
-                    >
-                      {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
-                      <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{getStatusLabel(s)}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {permissions.canEdit && (
+                <>
+                  <Text style={styles.tabletDetailSectionLabel}>{t('plansScreen.changeStatus')}</Text>
+                  <View style={styles.tabletStatusGrid}>
+                    {STATUS_ORDER.map(s => {
+                      const cfg = STATUS_CONFIG[s];
+                      const isActive = selected.status === s;
+                      return (
+                        <TouchableOpacity
+                          key={s}
+                          style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
+                          onPress={() => {
+                            if (!isActive) {
+                              updateReserveStatus(selected.id, s, user?.name ?? 'Chef de chantier');
+                              setSelected(prev => prev ? { ...prev, status: s } : null);
+                            }
+                          }}
+                          accessibilityLabel={t('plansScreen.a11y.changeToStatus', { status: getStatusLabel(s) })}
+                        >
+                          {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
+                          <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{getStatusLabel(s)}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              )}
               <View style={styles.modalActionStack}>
                 {(() => {
                   const hasPin = !!selected.planId && selected.planX != null && selected.planY != null;

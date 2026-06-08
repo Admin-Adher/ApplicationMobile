@@ -104,7 +104,7 @@ interface AppContextValue {
   updateReserveFields: (r: Reserve) => void;
   deleteReserve: (id: string) => void;
   restoreReserve: (id: string, author?: string) => void;
-  updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void;
+  updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void | Promise<void>;
   archiveReserve: (id: string, author?: string) => void;
   unarchiveReserve: (id: string, author?: string) => void;
   addComment: (reserveId: string, content: string, author?: string) => void;
@@ -610,10 +610,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const actualAuthor = author ?? currentUserNameRef.current ?? 'Système';
     const previousReserve = reservesH.reserves.find(r => r.id === id);
     const previousStatus = previousReserve?.status;
-    reservesH.updateReserveStatus(id, status, actualAuthor);
+    const statusUpdate = reservesH.updateReserveStatus(id, status, actualAuthor);
 
     const reserve = reservesH.reserves.find(r => r.id === id);
-    if (!reserve) return;
+    if (!reserve) return statusUpdate;
 
     if (previousStatus !== status) {
       notifyReserveStatusChanged({
@@ -646,6 +646,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
       addNotificationMessageToStore(notifMsg);
     }
+    return statusUpdate;
   }, [reservesH, reservesH.reserves, companiesH.companies, addNotificationMessageToStore, profilesH.profiles, chantiersH.chantiers]);
 
   const addChantierWithChannel = useCallback((c: Chantier, plans: SitePlan[]) => {
