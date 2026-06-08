@@ -3585,25 +3585,31 @@
 }
 
 .planPreviewHeader {
-  align-items: flex-start;
-  gap: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .planPreviewTitle {
-  flex: 1 1 auto;
+  width: 100%;
   min-width: 0;
 }
 
 .planPreviewTitle h2 {
   font-size: 22px;
   line-height: 1.12;
-  word-break: break-word;
+  overflow-wrap: break-word;
+  word-break: normal;
 }
 
 .planPreviewHeader .inlineActions {
-  flex: 0 0 auto;
-  flex-wrap: nowrap;
-  align-items: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: center;
   gap: 8px;
 }
 
@@ -3619,6 +3625,7 @@
   font-size: 13px;
   line-height: 1;
   box-sizing: border-box;
+  white-space: nowrap;
 }
 
 .planWorkArea {
