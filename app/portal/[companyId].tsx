@@ -10,6 +10,7 @@ import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 
 interface PortalReserve {
   id: string;
@@ -53,7 +54,7 @@ export default function PortalScreen() {
       const company = companies.find(c => c.id === companyId);
       setCompanyName(company?.name ?? companyId);
       const companyReserves = reserves
-        .filter(r => r.company === (company?.name ?? companyId))
+        .filter(r => company ? reserveMatchesCompany(r, company) : r.company === companyId)
         .map(r => ({
           id: r.id,
           title: r.title,
@@ -81,10 +82,12 @@ export default function PortalScreen() {
           }
           const name = companyData.name;
           setCompanyName(name);
+          const escapedName = String(name).replace(/"/g, '\\"');
+          const escapedId = String(companyId).replace(/"/g, '\\"');
           const { data: reservesData, error: reservesError } = await supabase
             .from('reserves')
             .select('id,title,status,priority,building,level,deadline,description,lot_id')
-            .or(`company.eq.${name},companies.cs.["${name}"]`);
+            .or(`company.eq.${name},company.eq.${companyId},companies.cs.["${escapedName}"],companies.cs.["${escapedId}"]`);
           if (reservesError) {
             setError(t('portal.loadReservesError'));
             return;

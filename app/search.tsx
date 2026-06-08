@@ -11,6 +11,7 @@ import Header from '@/components/Header';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import BottomNavBar from '@/components/BottomNavBar';
+import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 
 const STATUS_LABEL_KEYS: Record<string, string> = {
   open: 'reserveLabels.status.open',
@@ -44,23 +45,20 @@ export default function SearchScreen() {
   const q = query.trim().toLowerCase();
 
   const isSousTraitant = user?.role === 'sous_traitant';
-  const userCompanyName = useMemo(() => {
+  const userCompany = useMemo(() => {
     if (!isSousTraitant || !user?.companyId) return null;
-    return companies.find(c => c.id === user.companyId)?.name ?? null;
+    return companies.find(c => c.id === user.companyId) ?? null;
   }, [isSousTraitant, user?.companyId, companies]);
 
   const scopedReserves = useMemo(() => {
-    if (!isSousTraitant || !userCompanyName) return reserves;
-    return reserves.filter(r =>
-      r.company === userCompanyName ||
-      (Array.isArray(r.companies) && r.companies.includes(userCompanyName))
-    );
-  }, [isSousTraitant, userCompanyName, reserves]);
+    if (!isSousTraitant || !userCompany) return reserves;
+    return reserves.filter(r => reserveMatchesCompany(r, userCompany));
+  }, [isSousTraitant, userCompany, reserves]);
 
   const scopedTasks = useMemo(() => {
-    if (!isSousTraitant || !userCompanyName) return tasks;
-    return tasks.filter(t => t.company === userCompanyName);
-  }, [isSousTraitant, userCompanyName, tasks]);
+    if (!isSousTraitant || !userCompany) return tasks;
+    return tasks.filter(t => t.company === userCompany.name || t.company === userCompany.id);
+  }, [isSousTraitant, userCompany, tasks]);
 
   const filteredReserves = useMemo(() => {
     if (!q || q.length < 2) return [];

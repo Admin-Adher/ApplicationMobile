@@ -21,6 +21,7 @@ import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import { Reserve, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import { isOverdue } from '@/lib/reserveUtils';
+import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 
 type TFunc = (key: string, options?: Record<string, any>) => string;
 
@@ -136,7 +137,7 @@ export default function AnalyticsScreen() {
 
   const companyStats = useMemo<CompanyClosureStat[]>(() => {
     return companies.map(co => {
-      const compReserves = reserves.filter(r => r.company === co.name);
+      const compReserves = reserves.filter(r => reserveMatchesCompany(r, co));
       const total = compReserves.length;
       const closed = compReserves.filter(r => r.status === 'closed').length;
       const overdue = compReserves.filter(r => isOverdue(r.deadline, r.status)).length;

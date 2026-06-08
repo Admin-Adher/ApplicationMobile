@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Reserve, Company, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
+import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 
 const STATUS_CFG: Record<string, { labelKey: string; color: string }> = {
   open: { labelKey: 'subcontractorScreen.status.toTreat', color: C.open },
@@ -135,7 +136,7 @@ export default function SousTraitantScreen() {
       !activeChantierId || r.chantierId === activeChantierId
     );
     if (displayCompany) {
-      list = list.filter(r => r.company === displayCompany.name);
+      list = list.filter(r => reserveMatchesCompany(r, displayCompany));
     }
     if (!showClosed) {
       list = list.filter(r => r.status !== 'closed');
@@ -150,7 +151,7 @@ export default function SousTraitantScreen() {
     toTreat: companyReserves.filter(r => r.status === 'open').length,
     inProgress: companyReserves.filter(r => r.status === 'in_progress').length,
     done: reserves.filter(r =>
-      r.status === 'closed' && (!displayCompany || r.company === displayCompany?.name)
+      r.status === 'closed' && (!displayCompany || reserveMatchesCompany(r, displayCompany))
     ).length,
   }), [companyReserves, reserves, displayCompany]);
 
@@ -260,7 +261,7 @@ export default function SousTraitantScreen() {
             </View>
 
             {(() => {
-              const allCo = reserves.filter(r => displayCompany && r.company === displayCompany.name);
+              const allCo = reserves.filter(r => displayCompany && reserveMatchesCompany(r, displayCompany));
               const closedCo = allCo.filter(r => r.status === 'closed').length;
               const totalCo = allCo.length;
               const pct = totalCo > 0 ? Math.round((closedCo / totalCo) * 100) : 0;

@@ -13,6 +13,7 @@ import { useNotifications } from '@/context/NotificationsContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
+import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 import { Task, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import PortfolioDashboard from '@/components/PortfolioDashboard';
 import { localeForLanguage } from '@/constants/language';
@@ -206,10 +207,7 @@ export default function DashboardScreen() {
 
   const visibleReserves = useMemo(() => {
     if (isSousTraitant && userCompany) {
-      return chantieredReserves.filter(r =>
-        r.company === userCompany.name ||
-        (Array.isArray(r.companies) && r.companies.includes(userCompany.name))
-      );
+      return chantieredReserves.filter(r => reserveMatchesCompany(r, userCompany));
     }
     return chantieredReserves;
   }, [isSousTraitant, userCompany, chantieredReserves]);
@@ -309,10 +307,7 @@ export default function DashboardScreen() {
     return companies.map(co => {
       const coReserves = chantieredReserves.filter(r =>
         !r.archivedAt &&
-        (
-          r.company === co.name ||
-          (Array.isArray(r.companies) && r.companies.includes(co.name))
-        )
+        reserveMatchesCompany(r, co)
       );
       const closed = coReserves.filter(r => r.status === 'closed').length;
       const total = coReserves.length;
@@ -337,10 +332,7 @@ export default function DashboardScreen() {
   const companyPinPodium = useMemo(() => {
     return visibleCompanies
       .map(company => {
-        const companyReserves = activeVisibleReserves.filter(r =>
-          r.company === company.name ||
-          (Array.isArray(r.companies) && r.companies.includes(company.name))
-        );
+        const companyReserves = activeVisibleReserves.filter(r => reserveMatchesCompany(r, company));
         const pinned = companyReserves.filter(hasReservePlanPin).length;
         const total = companyReserves.length;
         return {

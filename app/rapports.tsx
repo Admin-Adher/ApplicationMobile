@@ -35,6 +35,7 @@ import {
   RESERVE_STATUS_LABELS,
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText, hasCustomReserveDescription } from '@/lib/reserveDescription';
+import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 
 type TFunc = (key: string, options?: Record<string, any>) => string;
 
@@ -71,7 +72,9 @@ function buildLotSummaryRows(reserves: any[], companies: any[], t: TFunc): strin
   const companyNames = [...new Set(reserves.map((r: any) => r.company))];
   return companyNames.map(name => {
     const co = companies.find((c: any) => c.name === name);
-    const coReserves = reserves.filter((r: any) => r.company === name);
+    const coReserves = co
+      ? reserves.filter((r: any) => reserveMatchesCompany(r, co))
+      : reserves.filter((r: any) => r.company === name);
     const open = coReserves.filter((r: any) => r.status !== 'closed').length;
     const closed = coReserves.filter((r: any) => r.status === 'closed').length;
     const pct = coReserves.length > 0 ? Math.round((closed / coReserves.length) * 100) : 0;
@@ -680,10 +683,7 @@ export default function RapportsScreen() {
               </View>
             </View>
             {companies.map(company => {
-              const companyReserves = pdfReserves.filter(r =>
-              r.company === company.name ||
-              (Array.isArray((r as any).companies) && (r as any).companies.includes(company.name))
-            );
+              const companyReserves = pdfReserves.filter(r => reserveMatchesCompany(r, company));
               const openCount = companyReserves.filter(r => r.status !== 'closed').length;
               const closedCount = companyReserves.filter(r => r.status === 'closed').length;
               const activeChantier = chantiers.find(c => c.id === activeChantierId);
