@@ -3586,9 +3586,9 @@
 
 .planPreviewHeader {
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(240px, 1fr) auto;
   align-items: start;
-  gap: 10px;
+  gap: 16px;
   margin-bottom: 12px;
 }
 
@@ -3604,28 +3604,119 @@
   word-break: normal;
 }
 
-.planPreviewHeader .inlineActions {
-  min-width: 0;
-  max-width: 100%;
-  flex-wrap: wrap;
-  justify-content: flex-start;
+.planHeaderActions {
+  position: relative;
+  display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
+  max-width: 520px;
 }
 
-.planPreviewHeader .inlineActions button,
-.planPreviewHeader .inlineActions a {
+.planActionPrimary,
+.planActionSecondary,
+.planActionMenuButton {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 42px;
-  min-height: 42px;
-  border-radius: 13px;
-  padding: 10px 14px;
+  min-height: 38px;
+  border-radius: 10px;
+  padding: 9px 12px;
   font-size: 13px;
-  line-height: 1;
+  font-weight: 900;
+  line-height: 1.1;
   box-sizing: border-box;
+  text-decoration: none;
   white-space: nowrap;
+  cursor: pointer;
+}
+
+.planActionPrimary {
+  border: 1px solid #003082;
+  background: #003082;
+  color: #fff;
+}
+
+.planActionPrimary:disabled {
+  border-color: #d8e0ec;
+  background: #eef2f7;
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.planActionSecondary,
+.planActionMenuButton {
+  border: 1px solid #d8e0ec;
+  background: #f8fafc;
+  color: #003082;
+}
+
+.planActionMenuWrap {
+  position: relative;
+}
+
+.planActionMenuButton::after {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 8px;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.planActionMenu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 8;
+  display: grid;
+  gap: 4px;
+  width: 260px;
+  border: 1px solid #d8e0ec;
+  border-radius: 14px;
+  background: #fff;
+  padding: 8px;
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.18);
+}
+
+.planActionMenu button {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: #0f172a;
+  padding: 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.planActionMenu button:hover {
+  background: #f4f7fb;
+}
+
+.planActionMenu strong {
+  font-size: 13px;
+  font-weight: 950;
+}
+
+.planActionMenu span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.planActionMenu .planActionMenuDanger {
+  color: #b91c1c;
+}
+
+.planActionMenu .planActionMenuDanger:hover {
+  background: #fef2f2;
 }
 
 .planWorkArea {
@@ -11698,5 +11789,32 @@
   .workspaceChantiers .chantierCompanyList {
     max-height: 360px;
     overflow-y: auto;
+  }
+}
+
+@media (max-width: 1180px) {
+  .planPreviewHeader {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .planHeaderActions {
+    justify-content: flex-start;
+    max-width: 100%;
+  }
+
+  .planActionMenu {
+    right: auto;
+    left: 0;
+    width: min(260px, calc(100vw - 48px));
+  }
+}
+
+@media (max-width: 640px) {
+  .planActionPrimary,
+  .planActionSecondary,
+  .planActionMenuButton {
+    min-height: 36px;
+    padding: 8px 10px;
+    font-size: 12px;
   }
 }

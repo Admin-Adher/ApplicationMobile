@@ -7107,6 +7107,7 @@ function PlansView({
   const [planFile, setPlanFile] = useState<File | null>(null);
   const [migrateRevisionReserves, setMigrateRevisionReserves] = useState(true);
   const [planActionMessage, setPlanActionMessage] = useState('');
+  const [planActionsOpen, setPlanActionsOpen] = useState(false);
   const pinPlacementTimerRef = useRef<number | null>(null);
   const projectForDraft = projects.find((project: any) => project.id === (planDraft.chantier_id || selectedProjectId)) ?? selectedProject ?? projects[0] ?? null;
   const draftBuildings = projectBuildings(projectForDraft);
@@ -7427,6 +7428,7 @@ function PlansView({
     setPlanReservePanelOpen(false);
     setFocusedPlanReserveId(null);
     setPinPlacementPreview(null);
+    setPlanActionsOpen(false);
   }, [selectedPlan?.id]);
   useEffect(() => {
     if (!focusedPlanReserveId) return;
@@ -7788,20 +7790,55 @@ function PlansView({
                 <p className={styles.eyebrow}>{selectedPlan.file_type ?? 'plan'}</p>
                 <h2>{selectedPlan.name}</h2>
               </div>
-              <div className={styles.inlineActions}>
+              <div className={styles.planHeaderActions}>
                 <button
                   type="button"
+                  className={styles.planActionPrimary}
                   onClick={() => setPlansPdfOpen(true)}
                   disabled={!selectedPlan || exportableProjectReserves.length === 0}
                 >
                   PDF
                 </button>
-                <button type="button" onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
-                {editable ? <button type="button" onClick={() => openPlanModal('edit', selectedPlan)}>Modifier</button> : null}
-                {editable ? <button type="button" onClick={() => openPlanModal('revision', selectedPlan)}>Nouvelle révision</button> : null}
-                {editable && selectedPlan.uri ? <button type="button" onClick={handleDeleteSelectedPlanFile}>Supprimer fichier</button> : null}
-                {editable ? <button type="button" onClick={() => onDeletePlan?.(selectedPlan)}>Supprimer plan</button> : null}
-                {selectedPlan.uri ? <a className={styles.linkButton} href={selectedPlan.uri} target="_blank">Ouvrir le fichier</a> : null}
+                <button type="button" className={styles.planActionPrimary} onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
+                {selectedPlan.uri ? <a className={styles.planActionSecondary} href={selectedPlan.uri} target="_blank">Ouvrir</a> : null}
+                {editable ? (
+                  <div className={styles.planActionMenuWrap}>
+                    <button
+                      type="button"
+                      className={styles.planActionMenuButton}
+                      aria-expanded={planActionsOpen}
+                      onClick={() => setPlanActionsOpen(value => !value)}
+                    >
+                      Actions
+                    </button>
+                    {planActionsOpen && (
+                      <div className={styles.planActionMenu}>
+                        <button type="button" onClick={() => { setPlanActionsOpen(false); openPlanModal('edit', selectedPlan); }}>
+                          <strong>Modifier</strong>
+                          <span>Nom, bâtiment, fichier</span>
+                        </button>
+                        <button type="button" onClick={() => { setPlanActionsOpen(false); openPlanModal('revision', selectedPlan); }}>
+                          <strong>Nouvelle révision</strong>
+                          <span>Créer un nouvel indice</span>
+                        </button>
+                        {selectedPlan.uri ? (
+                          <button type="button" onClick={() => { setPlanActionsOpen(false); handleDeleteSelectedPlanFile(); }}>
+                            <strong>Supprimer le fichier</strong>
+                            <span>Conserver le plan sans fichier</span>
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          className={styles.planActionMenuDanger}
+                          onClick={() => { setPlanActionsOpen(false); onDeletePlan?.(selectedPlan); }}
+                        >
+                          <strong>Supprimer le plan</strong>
+                          <span>Action destructive</span>
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
             </div>
             {editable && (
