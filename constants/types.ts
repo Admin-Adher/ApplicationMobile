@@ -185,6 +185,9 @@ export interface Chantier {
   companyIds?: string[];
   organizationId?: string;
   buildings?: ChantierBuilding[];
+  deletedAt?: string;
+  deletedBy?: string;
+  deletedReason?: string;
 }
 
 export interface SitePlan {
@@ -207,6 +210,13 @@ export interface SitePlan {
   revisionNote?: string;
   annotations?: PlanDrawing[];
   pdfPageCount?: number;
+  deletedAt?: string;
+  deletedBy?: string;
+  deletedReason?: string;
+  fileDeletedAt?: string;
+  fileDeletedBy?: string;
+  fileDeletedReason?: string;
+  replacedByPlanId?: string;
 }
 
 export interface Lot {
@@ -455,6 +465,9 @@ export interface Photo {
   gpsLat?: number;
   gpsLon?: number;
   gpsAccuracy?: number;
+  deletedAt?: string;
+  deletedBy?: string;
+  deletedReason?: string;
 }
 
 export interface Message {

@@ -701,21 +701,23 @@ export default function NewReserveScreen() {
         });
       }
       if (visiteId) linkReserveToVisite(id, visiteId);
-      const photosForRows = savedReserve?.photos ?? newReserve.photos ?? [];
-      photosForRows.filter(p => p.uri && !isLocalUri(p.uri)).forEach(p => {
-        addPhoto({
-          id: genId(),
-          comment: kind === 'observation'
-            ? t('reserveNew.photoCommentObservation', { id, title: title.trim() })
-            : t('reserveNew.photoCommentReserve', { id, title: title.trim() }),
-          location: t('reserveNew.photoLocation', { building, level }),
-          takenAt: isoToday,
-          takenBy: author,
-          colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
-          uri: p.uri,
-          reserveId: id,
+      if (!(savedReserve as any)?.photoRowsCreated) {
+        const photosForRows = savedReserve?.photos ?? newReserve.photos ?? [];
+        photosForRows.filter(p => p.uri && !isLocalUri(p.uri)).forEach(p => {
+          addPhoto({
+            id: genId(),
+            comment: kind === 'observation'
+              ? t('reserveNew.photoCommentObservation', { id, title: title.trim() })
+              : t('reserveNew.photoCommentReserve', { id, title: title.trim() }),
+            location: t('reserveNew.photoLocation', { building, level }),
+            takenAt: isoToday,
+            takenBy: author,
+            colorCode: kind === 'observation' ? '#0EA5E9' : '#EF4444',
+            uri: p.uri,
+            reserveId: id,
+          });
         });
-      });
+      }
       const hasPin = !!draftPin;
       Alert.alert(
         kind === 'observation' ? t('reserveNew.createdObservation') : t('reserveNew.createdReserve'),

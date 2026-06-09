@@ -60,7 +60,7 @@ export function usePhotos() {
         const q = ((supabase as any).from('photos') as any).select('*').order('taken_at', { ascending: false });
         const { data, error } = await q;
         if (error) throw error;
-        const fresh = (data ?? []).map(toPhoto);
+        const fresh = (data ?? []).map(toPhoto).filter((photo: Photo) => !photo.deletedAt);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'photos');
         const merged = mergeWithCache<Photo>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(PHOTOS_CACHE_KEY, merged, userId);
@@ -124,14 +124,17 @@ export function usePhotos() {
     queryClient.setQueryData<Photo[]>(queryKeys.photos(), prev.filter(p => p.id !== id));
     persist(prev.filter(p => p.id !== id));
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'photos', op: 'delete', filter: { column: 'id', value: id } });
+      enqueueOperation({ table: 'photos', op: 'delete', filter: { column: 'id', value: id }, data: { deleted_reason: 'mobile_offline_delete_photo' } });
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('photos').delete().eq('id', id);
+      const { error } = await (supabase as any).rpc('soft_delete_photo', {
+        p_photo_id: id,
+        p_reason: 'mobile_delete_photo',
+      });
       if (error) {
         console.warn('[sync] deletePhoto error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'photos', op: 'delete', filter: { column: 'id', value: id } });
+        enqueueOperation({ table: 'photos', op: 'delete', filter: { column: 'id', value: id }, data: { deleted_reason: 'mobile_delete_photo' } });
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist]);

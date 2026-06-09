@@ -436,6 +436,15 @@
   padding: 12px 14px;
 }
 
+.storageAlert {
+  border: 1px solid #fbbf24;
+  background: #fffbeb;
+  color: #92400e;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-weight: 800;
+}
+
 .appShell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);

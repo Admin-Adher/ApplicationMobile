@@ -28,6 +28,56 @@ function pendingReserveDeletionPayloads(queue: any[] | undefined | null): Map<st
   return payloads;
 }
 
+function reservePhotoRowsForRpc(source: Record<string, any>, reserve: Reserve, author?: string | null) {
+  const photos = Array.isArray(source.photos) ? source.photos : [];
+  const rows: any[] = [];
+  const seen = new Set<string>();
+  const location = [`Bat. ${reserve.building || source.building || ''}`, reserve.level || source.level, reserve.zone || source.zone]
+    .filter(Boolean)
+    .join(' - ');
+
+  for (const photo of photos) {
+    const uri = typeof photo?.uri === 'string' ? photo.uri : '';
+    if (!uri || seen.has(uri)) continue;
+    seen.add(uri);
+    rows.push({
+      id: photo.id ? `photo-row-${reserve.id}-${photo.id}` : `photo-row-${reserve.id}-${rows.length + 1}`,
+      comment: reserve.kind === 'observation'
+        ? `Photo observation ${reserve.id} - ${reserve.title}`
+        : `Photo reserve ${reserve.id} - ${reserve.title}`,
+      location,
+      taken_at: photo.takenAt ?? reserve.createdAt ?? source.created_at,
+      taken_by: photo.takenBy ?? author ?? 'BuildTrack',
+      color_code: reserve.kind === 'observation' ? '#0EA5E9' : '#EF4444',
+      uri,
+    });
+  }
+
+  const legacyUri = typeof source.photo_uri === 'string' ? source.photo_uri : '';
+  if (legacyUri && !seen.has(legacyUri)) {
+    rows.push({
+      id: `photo-row-${reserve.id}-legacy`,
+      comment: reserve.kind === 'observation'
+        ? `Photo observation ${reserve.id} - ${reserve.title}`
+        : `Photo reserve ${reserve.id} - ${reserve.title}`,
+      location,
+      taken_at: reserve.createdAt ?? source.created_at,
+      taken_by: author ?? 'BuildTrack',
+      color_code: reserve.kind === 'observation' ? '#0EA5E9' : '#EF4444',
+      uri: legacyUri,
+    });
+  }
+
+  return rows;
+}
+
+function createReserveWithPhotosRpcArgs(source: Record<string, any>, reserve: Reserve, author?: string | null) {
+  return {
+    p_reserve: source,
+    p_photo_rows: reservePhotoRowsForRpc(source, reserve, author),
+  };
+}
+
 export function useReserves() {
   const { user } = useAuth();
   const userId = user?.id;
@@ -196,11 +246,115 @@ export function useReserves() {
       organization_id: orgIdValue,
     });
     const payload = buildPayload(orgId);
+    const queueAtomicCreate = (sourcePayload: Record<string, any>) => enqueueOperation({
+      table: 'reserves',
+      op: 'rpc',
+      rpc: {
+        fn: 'create_reserve_with_photos',
+        args: createReserveWithPhotosRpcArgs(sourcePayload, reserve, user?.name),
+      },
+      data: sourcePayload,
+    });
+
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
+      queueAtomicCreate(payload);
       return;
     }
     if (!isSupabaseConfigured) return;
+
+    const rollback = () => {
+      queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => (old ?? []).filter(x => x.id !== reserve.id));
+      persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+    };
+
+    const prep = await uploadLocalPhotosInPayload('reserves', payload);
+    if (!prep.allOk) {
+      console.warn('[sync] addReserve: photo upload failed before atomic create, queuing full reserve:', prep.uploadErrors.join(' | '));
+      queueAtomicCreate(payload);
+      return reserve;
+    }
+
+    const atomicPayload = prep.data ?? payload;
+    if (prep.hadLocal) {
+      applyUploadedPhotoPayload(reserve.id, {
+        photo_uri: atomicPayload.photo_uri ?? null,
+        photos: Array.isArray(atomicPayload.photos) && atomicPayload.photos.length > 0 ? atomicPayload.photos : null,
+      });
+    }
+
+    const { error: atomicError } = await (supabase as any).rpc(
+      'create_reserve_with_photos',
+      createReserveWithPhotosRpcArgs(atomicPayload, reserve, user?.name),
+    );
+    if (!atomicError) {
+      triggerReserveCreatedPush(reserve.id);
+      return {
+        ...reserve,
+        photoUri: atomicPayload.photo_uri ?? undefined,
+        photos: Array.isArray(atomicPayload.photos) && atomicPayload.photos.length > 0 ? atomicPayload.photos : undefined,
+        photoRowsCreated: true,
+      } as any;
+    }
+
+    console.warn('[sync] addReserve atomic server error:', atomicError.code, atomicError.message, '(org sent:', orgId, ', role:', user?.role, ')');
+    const atomicRlsError = (atomicError.code === '42501') || /row-level security/i.test(atomicError.message ?? '');
+    if (atomicRlsError) {
+      try {
+        const { data: { session } } = await (supabase as any).auth.getSession();
+        const { data: freshProfile, error: profileErr } = session?.user?.id
+          ? await (supabase as any)
+              .from('profiles')
+              .select('organization_id, role')
+              .eq('id', session.user.id)
+              .single()
+          : { data: null, error: { message: 'no-session' } };
+
+        if (!profileErr && freshProfile) {
+          const freshOrgId = freshProfile.organization_id ?? null;
+          const freshRole = freshProfile.role ?? null;
+          const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'super_admin'];
+          if (!allowedRoles.includes(freshRole)) {
+            rollback();
+            Alert.alert(
+              i18n.t('syncAlerts.permissionDeniedTitle'),
+              i18n.t('syncAlerts.reserveCreateRoleDenied', { role: freshRole ?? i18n.t('common.unknown') }),
+            );
+            return;
+          }
+          if (!freshOrgId) {
+            rollback();
+            Alert.alert(
+              i18n.t('syncAlerts.incompleteProfileTitle'),
+              i18n.t('syncAlerts.reserveCreateNoOrg'),
+            );
+            return;
+          }
+          if (freshOrgId !== orgId) {
+            const retryPayload: Record<string, any> = { ...atomicPayload, organization_id: freshOrgId };
+            const { error: retryError } = await (supabase as any).rpc(
+              'create_reserve_with_photos',
+              createReserveWithPhotosRpcArgs(retryPayload, reserve, user?.name),
+            );
+            if (!retryError) {
+              triggerReserveCreatedPush(reserve.id);
+              return {
+                ...reserve,
+                photoUri: retryPayload.photo_uri ?? undefined,
+                photos: Array.isArray(retryPayload.photos) && retryPayload.photos.length > 0 ? retryPayload.photos : undefined,
+                photoRowsCreated: true,
+              } as any;
+            }
+            queueAtomicCreate(retryPayload);
+            return reserve;
+          }
+        }
+      } catch (diagErr: any) {
+        console.warn('[sync] addReserve atomic diagnostic failed, queuing:', diagErr?.message);
+      }
+    }
+
+    queueAtomicCreate(atomicPayload);
+    return reserve;
 
     const splitReservePayload = (source: Record<string, any>) => {
       const rowPayload = { ...source };
@@ -283,11 +437,6 @@ export function useReserves() {
         photoUri: photoUpdate.photo_uri ?? undefined,
         photos: photoUpdate.photos ?? undefined,
       };
-    };
-
-    const rollback = () => {
-      queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => (old ?? []).filter(x => x.id !== reserve.id));
-      persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     };
 
     const { error } = await (supabase as any).from('reserves').insert(finalPayload);

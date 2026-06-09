@@ -151,6 +151,9 @@ export function toPhoto(row: any): Photo {
     id: row.id, comment: row.comment, location: row.location,
     takenAt: row.taken_at, takenBy: row.taken_by, colorCode: row.color_code, uri: row.uri ?? undefined,
     reserveId: row.reserve_id ?? undefined,
+    deletedAt: row.deleted_at ?? undefined,
+    deletedBy: row.deleted_by ?? undefined,
+    deletedReason: row.deleted_reason ?? undefined,
   };
 }
 
@@ -310,6 +313,9 @@ export function toChantier(row: any): Chantier {
     })(),
     organizationId: row.organization_id ?? undefined,
     buildings: Array.isArray(buildings) ? buildings : undefined,
+    deletedAt: row.deleted_at ?? undefined,
+    deletedBy: row.deleted_by ?? undefined,
+    deletedReason: row.deleted_reason ?? undefined,
   };
 }
 
@@ -334,6 +340,13 @@ export function toSitePlan(row: any): SitePlan {
     revisionNote: row.revision_note ?? undefined,
     annotations: row.annotations ?? undefined,
     pdfPageCount: row.pdf_page_count ?? undefined,
+    deletedAt: row.deleted_at ?? undefined,
+    deletedBy: row.deleted_by ?? undefined,
+    deletedReason: row.deleted_reason ?? undefined,
+    fileDeletedAt: row.file_deleted_at ?? undefined,
+    fileDeletedBy: row.file_deleted_by ?? undefined,
+    fileDeletedReason: row.file_deleted_reason ?? undefined,
+    replacedByPlanId: row.replaced_by_plan_id ?? undefined,
   };
 }
 

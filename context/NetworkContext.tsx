@@ -286,7 +286,13 @@ async function refetchActiveQueries(reason: string): Promise<void> {
   }
 }
 
-const QUEUE_ORG_SCOPED_INSERT_TABLES = new Set(['reserves', 'photos']);
+const QUEUE_ORG_SCOPED_INSERT_TABLES = new Set(['reserves', 'photos', 'site_plans', 'chantiers']);
+
+const CRITICAL_SOFT_DELETE_RPCS: Record<string, { fn: string; idArg: string; reason: string }> = {
+  photos: { fn: 'soft_delete_photo', idArg: 'p_photo_id', reason: 'offline_queue_soft_delete_photo' },
+  site_plans: { fn: 'soft_delete_site_plan', idArg: 'p_plan_id', reason: 'offline_queue_soft_delete_site_plan' },
+  chantiers: { fn: 'soft_delete_chantier', idArg: 'p_chantier_id', reason: 'offline_queue_soft_delete_chantier' },
+};
 
 function hydrateQueuedOrganizationId(
   table: string,
@@ -304,7 +310,41 @@ function hydrateQueuedOrganizationId(
   return data;
 }
 
+function reservePhotoRowsForRpcPayload(source: Record<string, any>, author?: string | null): any[] {
+  const rows = new Map<string, any>();
+  const reserveId = String(source.id ?? '');
+  const location = [source.building, source.level, source.zone].filter(Boolean).join(' - ');
+  const takenAt = source.created_at ?? new Date().toISOString().split('T')[0];
+  const takenBy = author || 'BuildTrack';
+
+  const add = (photo: any, index: number) => {
+    const uri = typeof photo?.uri === 'string' ? photo.uri : '';
+    if (!uri) return;
+    const id = String(photo?.id ?? `${reserveId}-photo-${index + 1}`);
+    rows.set(id, {
+      id,
+      uri,
+      comment: photo?.comment ?? `Photo reserve ${reserveId}`,
+      location: photo?.location ?? location,
+      taken_at: photo?.takenAt ?? photo?.taken_at ?? takenAt,
+      taken_by: photo?.takenBy ?? photo?.taken_by ?? takenBy,
+      color_code: photo?.colorCode ?? photo?.color_code ?? (source.kind === 'observation' ? '#0EA5E9' : '#EF4444'),
+    });
+  };
+
+  if (typeof source.photo_uri === 'string' && source.photo_uri) {
+    add({ id: `${reserveId}-cover`, uri: source.photo_uri }, 0);
+  }
+  if (Array.isArray(source.photos)) {
+    source.photos.forEach(add);
+  }
+
+  return Array.from(rows.values());
+}
+
 function queueReplayPriority(op: QueuedOperation): number {
+  if (op.op === 'rpc' && op.rpc?.fn === 'create_reserve_with_photos') return 10;
+  if (op.op === 'rpc' && op.rpc?.fn === 'create_site_plan_revision_with_reserve_migration') return 15;
   if (op.table === 'reserves' && op.op === 'insert') return 10;
   if (op.table === 'photos' && op.op === 'insert') return 20;
   return 30;
@@ -698,8 +738,79 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, 'RPC manquante.');
             continue;
           }
-          const { error } = await supabaseRestRpc(op.rpc.fn, op.rpc.args ?? {});
-          if (error) fail(op, error);
+          let args = { ...(op.rpc.args ?? {}) };
+          let retryRpcOp = op;
+
+          if (op.rpc.fn === 'create_reserve_with_photos') {
+            const rawReserve = hydrateQueuedOrganizationId(
+              'reserves',
+              (args.p_reserve ?? op.data) as Record<string, any> | undefined,
+              user?.organizationId ?? null,
+              user?.role ?? null,
+            );
+            if (!rawReserve?.id) {
+              fail(op, 'RPC create_reserve_with_photos refusee: reserve payload manquant.');
+              continue;
+            }
+            if (rawReserve.deadline === 'â€”' || rawReserve.deadline === '') {
+              rawReserve.deadline = null;
+            }
+            const prep = await uploadLocalPhotosInPayload('reserves', rawReserve);
+            if (!prep.allOk) {
+              fail(op, prep.uploadErrors?.join(' | ') || 'Echec upload photos reserve avant creation atomique.');
+              continue;
+            }
+            const preparedReserve = prep.data ?? rawReserve;
+            args = {
+              ...args,
+              p_reserve: preparedReserve,
+              p_photo_rows: reservePhotoRowsForRpcPayload(
+                preparedReserve,
+                user?.name ?? user?.email ?? null,
+              ),
+            };
+            retryRpcOp = { ...op, data: preparedReserve, rpc: { ...op.rpc, args } };
+          } else if (op.rpc.fn === 'create_site_plan_revision_with_reserve_migration') {
+            const rawPlan = hydrateQueuedOrganizationId(
+              'site_plans',
+              (args.p_new_plan ?? op.data) as Record<string, any> | undefined,
+              user?.organizationId ?? null,
+              user?.role ?? null,
+            );
+            if (!args.p_parent_plan_id || !rawPlan?.id) {
+              fail(op, 'RPC create_site_plan_revision_with_reserve_migration refusee: plan parent ou nouvelle revision manquant.');
+              continue;
+            }
+            const prep = await uploadLocalPhotosInPayload('site_plans', rawPlan);
+            if (!prep.allOk) {
+              fail(op, prep.uploadErrors?.join(' | ') || 'Echec upload fichier plan avant creation revision controlee.');
+              continue;
+            }
+            const preparedPlan = prep.data ?? rawPlan;
+            args = { ...args, p_new_plan: preparedPlan };
+            retryRpcOp = { ...op, data: preparedPlan, rpc: { ...op.rpc, args } };
+          } else if (op.rpc.fn === 'replace_site_plan_file_safely') {
+            const rawPatch = (args.p_patch ?? op.data) as Record<string, any> | undefined;
+            if (!args.p_plan_id || !rawPatch) {
+              fail(op, 'RPC replace_site_plan_file_safely refusee: plan ou patch manquant.');
+              continue;
+            }
+            const prep = await uploadLocalPhotosInPayload('site_plans', rawPatch);
+            if (!prep.allOk) {
+              fail(op, prep.uploadErrors?.join(' | ') || 'Echec upload fichier plan avant remplacement controle.');
+              continue;
+            }
+            const preparedPatch = { ...(prep.data ?? rawPatch) };
+            delete preparedPatch.__replace_file_safely;
+            args = { ...args, p_patch: preparedPatch };
+            retryRpcOp = { ...op, data: preparedPatch, rpc: { ...op.rpc, args } };
+          }
+
+          const { error } = await supabaseRestRpc(op.rpc.fn, args);
+          if (error) fail(retryRpcOp, error);
+          else if (op.rpc.fn === 'create_reserve_with_photos' && args.p_reserve?.id) {
+            triggerReserveCreatedPush(String(args.p_reserve.id));
+          }
           continue;
         }
 
@@ -1012,7 +1123,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, `UPDATE ${op.table} refusé: filtre manquant.`);
             continue;
           }
-          result = await supabaseRestMutation(op.table, 'update', data!, op.filter);
+          if (op.table === 'site_plans' && data?.__replace_file_safely && op.filter.column === 'id') {
+            const patch = { ...data };
+            delete patch.__replace_file_safely;
+            result = await supabaseRestRpc('replace_site_plan_file_safely', {
+              p_plan_id: op.filter.value,
+              p_patch: patch,
+              p_reason: 'offline_queue_replace_site_plan_file',
+            });
+          } else {
+            result = await supabaseRestMutation(op.table, 'update', data!, op.filter);
+          }
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.filter?.column === 'id') {
               try {
@@ -1034,6 +1155,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, `DELETE ${op.table} refusé: filtre manquant.`);
             continue;
           }
+          const criticalDeleteRpc = CRITICAL_SOFT_DELETE_RPCS[op.table];
+          if (criticalDeleteRpc && op.filter.column === 'id') {
+            result = await supabaseRestRpc(criticalDeleteRpc.fn, {
+              [criticalDeleteRpc.idArg]: op.filter.value,
+              p_reason: op.data?.deleted_reason ?? criticalDeleteRpc.reason,
+            });
+          } else {
           if (op.table === 'chantiers' && op.filter.column === 'id') {
             const { data: linkedReserves, error: linkedErr } = await supabaseRestSelect(
               'reserves',
@@ -1058,6 +1186,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             result = await supabaseRestMutation(op.table, 'update', softDeletePayload, op.filter);
           } else {
             result = await supabaseRestMutation(op.table, 'delete', undefined, op.filter);
+          }
           }
           if (!result.error && Array.isArray(result.data) && result.data.length === 0) {
             if (op.filter?.column === 'id') {

@@ -68,7 +68,7 @@ export function useChantiers() {
         }
         const { data, error } = await q;
         if (error) throw error;
-        const fresh = (data ?? []).map(toChantier);
+        const fresh = (data ?? []).map(toChantier).filter((chantier: Chantier) => !chantier.deletedAt);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'chantiers');
         const merged = mergeWithCache<Chantier>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(CHANTIERS_CACHE_KEY, merged, userId);
@@ -98,7 +98,7 @@ export function useChantiers() {
         }
         const { data, error } = await spQ;
         if (error) throw error;
-        const fresh = (data ?? []).map(toSitePlan);
+        const fresh = (data ?? []).map(toSitePlan).filter((plan: SitePlan) => !plan.deletedAt);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'site_plans');
         const merged = mergeWithCache<SitePlan>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(SITE_PLANS_CACHE_KEY, merged, userId);
@@ -297,51 +297,27 @@ export function useChantiers() {
     queryClient.invalidateQueries({ queryKey: queryKeys.photos() });
     queryClient.invalidateQueries({ queryKey: queryKeys.documents() });
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id } });
+      enqueueOperation({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id }, data: { deleted_reason: 'mobile_offline_delete_chantier' } });
       return;
     }
     if (isSupabaseConfigured) {
-      try {
-        const buildingChannelId = `building-${id}`;
-        // Fix 15: try deleting chantier first (if DB has ON DELETE CASCADE it handles everything)
-        const { data: deleted, error: delErr } = await (supabase as any).from('chantiers').delete().eq('id', id).select();
-        if (!delErr && deleted?.length) {
-          // Chantier deleted (possibly via cascade), clean up channel
-          await (supabase as any).from('channels').delete().eq('id', buildingChannelId);
-          return;
+      const { error } = await (supabase as any).rpc('soft_delete_chantier', {
+        p_chantier_id: id,
+        p_reason: 'mobile_delete_chantier',
+      });
+      if (error) {
+        const restored = prev.find(c => c.id === id);
+        console.warn('[sync] deleteChantier erreur serveur:', error.message);
+        if (restored) {
+          queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [restored, ...newChantiers]);
+          writeCache(CHANTIERS_CACHE_KEY, [restored, ...newChantiers], userId);
         }
-        // Fallback: manual cascade delete if no DB-level cascade
-        const { data: reserveRows } = await (supabase as any)
-          .from('reserves').select('id').eq('chantier_id', id);
-        const reserveIds = (reserveRows ?? []).map((r: any) => r.id);
-        await Promise.all([
-          reserveIds.length > 0
-            ? (supabase as any).from('photos').delete().in('reserve_id', reserveIds)
-            : Promise.resolve(),
-          (supabase as any).from('reserves').delete().eq('chantier_id', id),
-          (supabase as any).from('tasks').delete().eq('chantier_id', id),
-          (supabase as any).from('visites').delete().eq('chantier_id', id),
-          (supabase as any).from('lots').delete().eq('chantier_id', id),
-          (supabase as any).from('oprs').delete().eq('chantier_id', id),
-          (supabase as any).from('site_plans').delete().eq('chantier_id', id),
-          (supabase as any).from('messages').delete().eq('channel_id', buildingChannelId),
-          (supabase as any).from('documents').delete().eq('chantier_id', id),
-          (supabase as any).from('incidents').delete().eq('chantier_id', id),
-        ]);
-        await (supabase as any).from('channels').delete().eq('id', buildingChannelId);
-        const { data: deleted2, error } = await (supabase as any).from('chantiers').delete().eq('id', id).select();
-        if (error) {
-          console.warn('[sync] deleteChantier erreur serveur:', error.message);
-          // Restore local cache on failure
-          queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), [prev.find(c => c.id === id)!, ...newChantiers]);
-          writeCache(CHANTIERS_CACHE_KEY, [prev.find(c => c.id === id)!, ...newChantiers], userId);
-          Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteProjectDenied'));
-        } else if (!deleted2?.length) {
+        queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), prevPlans);
+        writeCache(SITE_PLANS_CACHE_KEY, prevPlans, userId);
+        Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), error.message ?? i18n.t('syncAlerts.deleteProjectDenied'));
+        if (false) {
           console.warn('[sync] deleteChantier: aucune ligne supprimée');
         }
-      } catch (e: any) {
-        console.error('[sync] deleteChantier exception:', e?.message ?? e);
-        enqueueOperation({ table: 'chantiers', op: 'delete', filter: { column: 'id', value: id } });
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation]);
@@ -388,48 +364,101 @@ export function useChantiers() {
   }, [queryClient, user, isOnlineRef, enqueueOperation]);
 
   const updateSitePlan = useCallback(async (p: SitePlan) => {
+    const previousPlan = (queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? []).find(plan => plan.id === p.id);
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), old =>
       (old ?? []).map(x => x.id === p.id ? p : x)
     );
     const allPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     writeCache(SITE_PLANS_CACHE_KEY, allPlans, userId);
+    const updatePayload = {
+      chantier_id: p.chantierId, name: p.name,
+      building: p.building ?? null, level: p.level ?? null,
+      building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
+      uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
+      uploaded_at: p.uploadedAt, size: p.size ?? null,
+      revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
+      parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
+      revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
+      pdf_page_count: p.pdfPageCount ?? null,
+    };
+    const fileChanged = !!previousPlan && (
+      previousPlan.uri !== p.uri ||
+      previousPlan.fileType !== p.fileType ||
+      previousPlan.dxfName !== p.dxfName ||
+      previousPlan.size !== p.size ||
+      previousPlan.pdfPageCount !== p.pdfPageCount
+    );
     // Fix 3: offline updateSitePlan includes all fields so nothing is overwritten to null on sync
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: {
-        chantier_id: p.chantierId, name: p.name,
-        building: p.building ?? null, level: p.level ?? null,
-        building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
-        uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
-        uploaded_at: p.uploadedAt, size: p.size ?? null,
-        revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
-        parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
-        revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
-        pdf_page_count: p.pdfPageCount ?? null,
-      }});
+      if (fileChanged) {
+        enqueueOperation({
+          table: 'site_plans',
+          op: 'rpc',
+          rpc: {
+            fn: 'replace_site_plan_file_safely',
+            args: {
+              p_plan_id: p.id,
+              p_patch: updatePayload,
+              p_reason: 'mobile_offline_update_site_plan_file',
+            },
+          },
+          data: updatePayload,
+        });
+      } else {
+        enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: updatePayload });
+      }
       return;
     }
     if (isSupabaseConfigured) {
-      const updatePayload = {
-        chantier_id: p.chantierId, name: p.name,
-        building: p.building ?? null, level: p.level ?? null,
-        building_id: p.buildingId ?? null, level_id: p.levelId ?? null,
-        uri: p.uri ?? null, file_type: p.fileType ?? null, dxf_name: p.dxfName ?? null,
-        uploaded_at: p.uploadedAt, size: p.size ?? null,
-        revision_code: p.revisionCode ?? null, revision_number: p.revisionNumber ?? null,
-        parent_plan_id: p.parentPlanId ?? null, is_latest_revision: p.isLatestRevision ?? null,
-        revision_note: p.revisionNote ?? null, annotations: p.annotations ?? null,
-        pdf_page_count: p.pdfPageCount ?? null,
-      };
       const prep = await uploadLocalPhotosInPayload('site_plans', updatePayload);
       if (!prep.allOk) {
         console.warn('[sync] updateSitePlan: file upload failed, queuing for later sync');
-        enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: updatePayload });
+        if (fileChanged) {
+          enqueueOperation({
+            table: 'site_plans',
+            op: 'rpc',
+            rpc: {
+              fn: 'replace_site_plan_file_safely',
+              args: {
+                p_plan_id: p.id,
+                p_patch: updatePayload,
+                p_reason: 'mobile_update_site_plan_file_retry',
+              },
+            },
+            data: updatePayload,
+          });
+        } else {
+          enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: updatePayload });
+        }
         return;
       }
-      const { error } = await (supabase as any).from('site_plans').update(prep.data!).eq('id', p.id);
+      const result = fileChanged
+        ? await (supabase as any).rpc('replace_site_plan_file_safely', {
+            p_plan_id: p.id,
+            p_patch: prep.data!,
+            p_reason: 'mobile_update_site_plan_file',
+          })
+        : await (supabase as any).from('site_plans').update(prep.data!).eq('id', p.id);
+      const { error } = result;
       if (error) {
         console.warn('[sync] updateSitePlan error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: prep.data! });
+        if (fileChanged) {
+          enqueueOperation({
+            table: 'site_plans',
+            op: 'rpc',
+            rpc: {
+              fn: 'replace_site_plan_file_safely',
+              args: {
+                p_plan_id: p.id,
+                p_patch: prep.data!,
+                p_reason: 'mobile_update_site_plan_file_retry',
+              },
+            },
+            data: prep.data!,
+          });
+        } else {
+          enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: prep.data! });
+        }
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation]);
@@ -440,11 +469,14 @@ export function useChantiers() {
     queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), prev.filter(p => p.id !== id));
     writeCache(SITE_PLANS_CACHE_KEY, prev.filter(p => p.id !== id), userId);
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } });
+      enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id }, data: { deleted_reason: 'mobile_offline_delete_site_plan' } });
       return;
     }
     if (isSupabaseConfigured) {
-      const { data: deleted, error } = await (supabase as any).from('site_plans').delete().eq('id', id).select();
+      const { data: deleted, error } = await (supabase as any).rpc('soft_delete_site_plan', {
+        p_plan_id: id,
+        p_reason: 'mobile_delete_site_plan',
+      });
       if (error) {
         console.warn('[sync] deleteSitePlan erreur serveur:', error.code, error.message);
         const isPermissionDenied = error.code === '42501' || /row-level security|permission denied/i.test(error.message ?? '');
@@ -454,9 +486,9 @@ export function useChantiers() {
           Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deletePlanDenied'));
         } else {
           console.warn('[sync] deleteSitePlan: erreur réseau/session, opération enqueued pour retry');
-          enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id } });
+          enqueueOperation({ table: 'site_plans', op: 'delete', filter: { column: 'id', value: id }, data: { deleted_reason: 'mobile_delete_site_plan' } });
         }
-      } else if (!deleted?.length) {
+      } else if (Array.isArray(deleted) && !deleted.length) {
         console.warn('[sync] deleteSitePlan: aucune ligne supprimée');
       }
     }
@@ -486,40 +518,67 @@ export function useChantiers() {
       building_id: versionedNew.buildingId ?? null, level_id: versionedNew.levelId ?? null,
       revision_code: finalRevCode, revision_number: revNum,
       parent_plan_id: parentPlanId, is_latest_revision: true,
-      revision_note: versionedNew.revisionNote ?? null, organization_id: orgId,
+      revision_note: versionedNew.revisionNote ?? null,
+      uploaded_at: versionedNew.uploadedAt,
+      annotations: versionedNew.annotations ?? [],
+      pdf_page_count: versionedNew.pdfPageCount ?? null,
+      organization_id: orgId,
     };
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({
         table: 'site_plans',
-        op: 'update',
-        filter: { column: 'id', value: parentPlanId },
-        data: { is_latest_revision: false, revision_number: parentRevNum },
+        op: 'rpc',
+        rpc: {
+          fn: 'create_site_plan_revision_with_reserve_migration',
+          args: {
+            p_parent_plan_id: parentPlanId,
+            p_new_plan: versionPayload,
+            p_migrate_reserves: false,
+          },
+        },
+        data: versionPayload,
       });
-      enqueueOperation({ table: 'site_plans', op: 'insert', data: versionPayload });
       return;
     }
     if (isSupabaseConfigured) {
-      const { error: updateErr } = await (supabase as any).from('site_plans')
-        .update({ is_latest_revision: false, revision_number: parentRevNum }).eq('id', parentPlanId);
-      if (updateErr) {
-        console.error('[addSitePlanVersion] update parent error:', updateErr.message);
-        enqueueOperation({
-          table: 'site_plans',
-          op: 'update',
-          filter: { column: 'id', value: parentPlanId },
-          data: { is_latest_revision: false, revision_number: parentRevNum },
-        });
-      }
       const prep = await uploadLocalPhotosInPayload('site_plans', versionPayload);
       if (!prep.allOk) {
         console.warn('[sync] addSitePlanVersion: file upload failed, queuing for later sync');
-        enqueueOperation({ table: 'site_plans', op: 'insert', data: versionPayload });
+        enqueueOperation({
+          table: 'site_plans',
+          op: 'rpc',
+          rpc: {
+            fn: 'create_site_plan_revision_with_reserve_migration',
+            args: {
+              p_parent_plan_id: parentPlanId,
+              p_new_plan: versionPayload,
+              p_migrate_reserves: false,
+            },
+          },
+          data: versionPayload,
+        });
         return;
       }
-      const { error: insertErr } = await (supabase as any).from('site_plans').insert(prep.data!);
-      if (insertErr) {
-        console.warn('[sync] addSitePlanVersion insert error:', insertErr.message);
-        enqueueOperation({ table: 'site_plans', op: 'insert', data: versionPayload });
+      const { error: revisionErr } = await (supabase as any).rpc('create_site_plan_revision_with_reserve_migration', {
+        p_parent_plan_id: parentPlanId,
+        p_new_plan: prep.data!,
+        p_migrate_reserves: false,
+      });
+      if (revisionErr) {
+        console.warn('[sync] addSitePlanVersion insert error:', revisionErr.message);
+        enqueueOperation({
+          table: 'site_plans',
+          op: 'rpc',
+          rpc: {
+            fn: 'create_site_plan_revision_with_reserve_migration',
+            args: {
+              p_parent_plan_id: parentPlanId,
+              p_new_plan: prep.data!,
+              p_migrate_reserves: false,
+            },
+          },
+          data: prep.data!,
+        });
       }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation]);

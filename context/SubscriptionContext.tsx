@@ -783,6 +783,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
 
+    return {
+      success: false,
+      error: 'Suppression definitive organisation desactivee: procedure admin tracee requise pour eviter toute perte de donnees.',
+    };
+
     try {
       const extractPath = (uri: string, bucket: string): string | null => {
         const marker = `/storage/v1/object/public/${bucket}/`;
@@ -827,7 +832,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       await (supabase.from('companies') as any).delete().eq('organization_id', orgId);
       await (supabase.from('subscriptions') as any).delete().eq('organization_id', orgId);
       await (supabase.from('invitations') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('profiles') as any).delete().eq('organization_id', orgId).neq('id', user.id);
+      await (supabase.from('profiles') as any).delete().eq('organization_id', orgId).neq('id', user!.id);
       await (supabase.from('organizations') as any).delete().eq('id', orgId);
 
       // ── Clean up Storage files (best-effort — does not block on failure) ──

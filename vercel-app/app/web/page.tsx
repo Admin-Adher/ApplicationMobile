@@ -84,6 +84,14 @@ type WebState = {
   notificationPreferences: any[];
 };
 
+type StorageUsageGuardrail = {
+  status?: 'ok' | 'warning' | 'critical' | string;
+  total_mb?: number;
+  warning_mb?: number;
+  critical_mb?: number;
+  object_count?: number;
+};
+
 type ReserveDraft = {
   kind: 'reserve' | 'observation';
   title: string;
@@ -2226,6 +2234,9 @@ async function fetchScopedTable<T = any>(
     if (options.scoped !== false && profile.role !== 'super_admin' && profile.organization_id) {
       query = query.eq('organization_id', profile.organization_id);
     }
+    if (table === 'chantiers' || table === 'site_plans' || table === 'photos') {
+      query = query.is('deleted_at', null);
+    }
     if (options.order) query = query.order(options.order, { ascending: options.ascending ?? false });
     if (options.limit) query = query.limit(options.limit);
     const { data, error } = await query;
@@ -2245,6 +2256,7 @@ export default function BuildTrackWebPage() {
   const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
+  const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
@@ -2359,6 +2371,7 @@ export default function BuildTrackWebPage() {
       if (!nextSession) {
         setProfile(null);
         setData(EMPTY_DATA);
+        setStorageUsage(null);
       }
     });
     return () => {
@@ -2410,6 +2423,11 @@ export default function BuildTrackWebPage() {
       }
       setReportLanguage(preferredLang);
       setProfile({ ...loadedProfile, preferred_language: profileLanguage });
+      const { data: storageGuardrail, error: storageGuardrailError } = await (supabaseBrowser as any).rpc('get_storage_usage_guardrail', {
+        p_warning_mb: 850,
+        p_critical_mb: 950,
+      });
+      setStorageUsage(storageGuardrailError ? null : (storageGuardrail as StorageUsageGuardrail));
       const [
         chantiers,
         reserves,
@@ -3098,7 +3116,11 @@ export default function BuildTrackWebPage() {
     setSaving(false);
   }
 
-  async function buildReservePhotoPatch(reserveId: string, draft: ReserveDraft) {
+  async function buildReservePhotoPatch(
+    reserveId: string,
+    draft: ReserveDraft,
+    options: { insertPhotoRows?: boolean } = {},
+  ) {
     const existingPhotos = draft.photos
       .filter(photo => photo.existing && photo.uri)
       .map(photo => ({
@@ -3139,7 +3161,7 @@ export default function BuildTrackWebPage() {
         organization_id: profile?.organization_id ?? null,
       });
     }
-    if (photoRows.length) {
+    if (photoRows.length && options.insertPhotoRows !== false) {
       const { error: photoInsertError } = await supabaseBrowser.from('photos').insert(photoRows);
       if (photoInsertError) throw photoInsertError;
       setData(prev => ({ ...prev, photos: [...photoRows, ...prev.photos] }));
@@ -3148,6 +3170,7 @@ export default function BuildTrackWebPage() {
     return {
       photos: photos.length ? photos : null,
       photo_uri: photos[0]?.uri ?? null,
+      photoRows,
     };
   }
 
@@ -3253,30 +3276,15 @@ export default function BuildTrackWebPage() {
         photos: null,
         photo_annotations: null,
       };
-      const { data: inserted, error: insertError } = await supabaseBrowser
-        .from('reserves')
-        .insert(insertPayload)
-        .select()
-        .single();
-      if (insertError) {
-        setError(insertError.message);
-      } else {
-        let finalReserve = inserted ?? insertPayload;
-        try {
-          const photoPatch = await buildReservePhotoPatch(id, reserveDraft);
-          if (photoPatch.photos?.length || photoPatch.photo_uri) {
-            const { data: updatedWithPhotos, error: photoUpdateError } = await supabaseBrowser
-              .from('reserves')
-              .update(photoPatch)
-              .eq('id', id)
-              .select()
-              .single();
-            if (photoUpdateError) throw photoUpdateError;
-            finalReserve = updatedWithPhotos ?? { ...finalReserve, ...photoPatch };
-          }
-        } catch (photoError: any) {
-          setError(`Réserve créée, mais upload photo impossible : ${photoError?.message ?? 'erreur inconnue'}`);
-        }
+      try {
+        const photoPatch = await buildReservePhotoPatch(id, reserveDraft, { insertPhotoRows: false });
+        const reservePayload = { ...insertPayload, photos: photoPatch.photos, photo_uri: photoPatch.photo_uri };
+        const { data: inserted, error: insertError } = await (supabaseBrowser as any).rpc('create_reserve_with_photos', {
+          p_reserve: reservePayload,
+          p_photo_rows: photoPatch.photoRows ?? [],
+        });
+        if (insertError) throw insertError;
+        const finalReserve = Array.isArray(inserted) ? (inserted[0] ?? reservePayload) : (inserted ?? reservePayload);
         setData(prev => ({ ...prev, reserves: [finalReserve, ...prev.reserves] }));
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
         setSelectedReserveId(id);
@@ -3286,6 +3294,8 @@ export default function BuildTrackWebPage() {
           setActiveTab('plans');
         }
         closeReserveModal();
+      } catch (insertError: any) {
+        setError(insertError?.message ?? 'Création de la réserve impossible.');
       }
     }
     setSaving(false);
@@ -3679,31 +3689,15 @@ export default function BuildTrackWebPage() {
       setSaving(false);
       return false;
     }
-    const confirmed = window.confirm(`Supprimer le chantier vide "${project.name}" ? Cette action est définitive.`);
+    const confirmed = window.confirm(`Mettre le chantier vide "${project.name}" dans la corbeille ?`);
     if (!confirmed) {
       setSaving(false);
       return false;
     }
-    const buildingChannelId = `building-${projectId}`;
-    const relatedDeletes = [
-      supabaseBrowser.from('tasks').delete().eq('chantier_id', projectId),
-      supabaseBrowser.from('visites').delete().eq('chantier_id', projectId),
-      supabaseBrowser.from('lots').delete().eq('chantier_id', projectId),
-      supabaseBrowser.from('oprs').delete().eq('chantier_id', projectId),
-      supabaseBrowser.from('site_plans').delete().eq('chantier_id', projectId),
-      supabaseBrowser.from('documents').delete().eq('chantier_id', projectId),
-      supabaseBrowser.from('incidents').delete().eq('chantier_id', projectId),
-      supabaseBrowser.from('messages').delete().eq('channel_id', buildingChannelId),
-      supabaseBrowser.from('channels').delete().eq('id', buildingChannelId),
-    ];
-    const results = await Promise.all(relatedDeletes);
-    const relatedError = results.find((result: any) => result?.error)?.error;
-    if (relatedError) {
-      setError(relatedError.message ?? 'Suppression des données rattachées impossible.');
-      setSaving(false);
-      return false;
-    }
-    const { error: projectError } = await supabaseBrowser.from('chantiers').delete().eq('id', projectId);
+    const { error: projectError } = await (supabaseBrowser as any).rpc('soft_delete_chantier', {
+      p_chantier_id: projectId,
+      p_reason: 'web_delete_chantier',
+    });
     if (projectError) {
       setError(projectError.message);
       setSaving(false);
@@ -3712,17 +3706,7 @@ export default function BuildTrackWebPage() {
     setData(prev => ({
       ...prev,
       chantiers: prev.chantiers.filter(item => item.id !== projectId),
-      reserves: prev.reserves.filter(item => getChantierId(item) !== projectId),
-      deletedReserves: prev.deletedReserves.filter(item => getChantierId(item) !== projectId),
       sitePlans: prev.sitePlans.filter(item => getChantierId(item) !== projectId),
-      visites: prev.visites.filter(item => getChantierId(item) !== projectId),
-      tasks: prev.tasks.filter(item => getChantierId(item) !== projectId),
-      incidents: prev.incidents.filter(item => getChantierId(item) !== projectId),
-      documents: prev.documents.filter(item => getChantierId(item) !== projectId),
-      oprs: prev.oprs.filter(item => getChantierId(item) !== projectId),
-      photos: prev.photos.filter(item => !item.reserve_id || !reserveIds.includes(item.reserve_id)),
-      channels: prev.channels.filter(item => item.id !== buildingChannelId),
-      messages: prev.messages.filter(item => item.channel_id !== buildingChannelId),
     }));
     setSelectedProjectId(prev => prev === projectId ? (data.chantiers.find(item => item.id !== projectId)?.id ?? 'all') : prev);
     setSaving(false);
@@ -3806,12 +3790,20 @@ export default function BuildTrackWebPage() {
       payload.size = formatWebFileSize(file.size);
       payload.uploaded_at = todayISO();
     }
-    const { data: updated, error: updateError } = await supabaseBrowser
-      .from('site_plans')
-      .update(payload)
-      .eq('id', plan.id)
-      .select()
-      .single();
+    const result = file
+      ? await (supabaseBrowser as any).rpc('replace_site_plan_file_safely', {
+          p_plan_id: String(plan.id),
+          p_patch: payload,
+          p_reason: 'web_update_site_plan_file',
+        })
+      : await supabaseBrowser
+          .from('site_plans')
+          .update(payload)
+          .eq('id', plan.id)
+          .select()
+          .single();
+    const updated = (result as any).data;
+    const updateError = (result as any).error;
     if (updateError) {
       setError(updateError.message);
       setSaving(false);
@@ -3836,12 +3828,11 @@ export default function BuildTrackWebPage() {
       dxf_name: null,
       size: null,
     };
-    const { data: updated, error: updateError } = await supabaseBrowser
-      .from('site_plans')
-      .update(payload)
-      .eq('id', plan.id)
-      .select()
-      .single();
+    const { data: updated, error: updateError } = await (supabaseBrowser as any).rpc('replace_site_plan_file_safely', {
+      p_plan_id: String(plan.id),
+      p_patch: payload,
+      p_reason: 'web_delete_site_plan_file',
+    });
     if (updateError) {
       setError(updateError.message);
       setSaving(false);
@@ -3858,19 +3849,21 @@ export default function BuildTrackWebPage() {
 
   async function deleteSitePlanWeb(plan: any) {
     if (!profile || !canDelete(profile) || !plan?.id) return false;
-    const confirmed = window.confirm(`Supprimer le plan "${plan.name}" ? Les réserves rattachées seront détachées du plan mais conservées.`);
+    const confirmed = window.confirm(`Mettre le plan "${plan.name}" dans la corbeille ? Les réserves attachées bloqueront l'action tant qu'elles n'ont pas été migrées.`);
     if (!confirmed) return false;
     setSaving(true);
     setError('');
     const planId = String(plan.id);
     const linkedReserveIds = data.reserves.filter(reserve => getReservePlanId(reserve) === planId).map(reserve => reserve.id);
-    const [reserveResult, planResult] = await Promise.all([
-      linkedReserveIds.length
-        ? supabaseBrowser.from('reserves').update({ plan_id: null, plan_x: null, plan_y: null }).in('id', linkedReserveIds)
-        : Promise.resolve({ error: null }),
-      supabaseBrowser.from('site_plans').delete().eq('id', planId),
-    ]);
-    const deleteError = reserveResult.error ?? planResult.error;
+    if (linkedReserveIds.length) {
+      setError(`Suppression du plan bloquée : ${linkedReserveIds.length} réserve(s) sont encore épinglées. Créez une révision ou migrez-les avant suppression.`);
+      setSaving(false);
+      return false;
+    }
+    const { error: deleteError } = await (supabaseBrowser as any).rpc('soft_delete_site_plan', {
+      p_plan_id: planId,
+      p_reason: 'web_delete_site_plan',
+    });
     if (deleteError) {
       setError(deleteError.message ?? 'Suppression du plan impossible.');
       setSaving(false);
@@ -3879,7 +3872,6 @@ export default function BuildTrackWebPage() {
     setData(prev => ({
       ...prev,
       sitePlans: prev.sitePlans.filter(item => item.id !== planId),
-      reserves: prev.reserves.map(item => linkedReserveIds.includes(item.id) ? { ...item, plan_id: null, plan_x: null, plan_y: null } : item),
     }));
     setSelectedPlanId(prev => prev === planId ? (data.sitePlans.find(item => item.id !== planId)?.id ?? null) : prev);
     setSaving(false);
@@ -3928,30 +3920,20 @@ export default function BuildTrackWebPage() {
       annotations: [],
       organization_id: profile.organization_id ?? null,
     };
-    const [parentUpdate, insertResult] = await Promise.all([
-      supabaseBrowser.from('site_plans').update({ is_latest_revision: false, revision_number: parentRevisionNumber }).eq('id', parentPlan.id),
-      supabaseBrowser.from('site_plans').insert(newPlan).select().single(),
-    ]);
-    const revisionError = parentUpdate.error ?? insertResult.error;
+    const { data: revisionResult, error: revisionError } = await (supabaseBrowser as any).rpc('create_site_plan_revision_with_reserve_migration', {
+      p_parent_plan_id: String(parentPlan.id),
+      p_new_plan: newPlan,
+      p_migrate_reserves: migrateReserves,
+    });
     if (revisionError) {
       setError(revisionError.message ?? 'Création de la révision impossible.');
       setSaving(false);
       return null;
     }
-    const insertedPlan = insertResult.data ?? newPlan;
+    const rpcPayload = Array.isArray(revisionResult) ? revisionResult[0] : revisionResult;
+    const insertedPlan = rpcPayload?.plan ?? newPlan;
     const migratable = data.reserves.filter(reserve => getReservePlanId(reserve) === String(parentPlan.id) && reserve.status !== 'closed');
-    let migratedCount = 0;
-    if (migrateReserves && migratable.length) {
-      const { error: migrateError } = await supabaseBrowser
-        .from('reserves')
-        .update({ plan_id: insertedPlan.id })
-        .in('id', migratable.map(reserve => reserve.id));
-      if (migrateError) {
-        setError(`Révision créée, mais migration des réserves impossible : ${migrateError.message}`);
-      } else {
-        migratedCount = migratable.length;
-      }
-    }
+    const migratedCount = Number(rpcPayload?.migrated_count ?? 0);
     setData(prev => ({
       ...prev,
       sitePlans: [
@@ -4433,6 +4415,13 @@ export default function BuildTrackWebPage() {
     };
   }, [projectScoped.reserves]);
 
+  const storageAlert = useMemo(() => {
+    if (!storageUsage || storageUsage.status === 'ok') return null;
+    const used = Number(storageUsage.total_mb ?? 0).toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+    const limit = Number(storageUsage.critical_mb ?? 950).toLocaleString('fr-FR', { maximumFractionDigits: 0 });
+    return `Stockage Supabase ${storageUsage.status === 'critical' ? 'critique' : 'proche de la limite'} : ${used} Mo utilisés / seuil ${limit} Mo. Réduisez les fichiers ou augmentez le plan avant les prochains uploads.`;
+  }, [storageUsage]);
+
   if (!session || !authUser) {
     return (
       <WebI18nContext.Provider value={i18n}>
@@ -4567,6 +4556,7 @@ export default function BuildTrackWebPage() {
         </header>
 
         {error ? <div className={styles.alert}>{error}</div> : null}
+        {storageAlert ? <div className={styles.storageAlert}>{storageAlert}</div> : null}
 
         {loading ? (
           <div className={styles.loadingBlock}>{t('common.loadingData')}</div>
