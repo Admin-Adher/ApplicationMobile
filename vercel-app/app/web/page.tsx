@@ -27,6 +27,32 @@ type Profile = {
   organization_id?: string | null;
   company_id?: string | null;
   preferred_language?: SupportedLang | null;
+  permissions_override?: PermissionsOverride | null;
+  permissionsOverride?: PermissionsOverride | null;
+};
+
+type WebPermissions = {
+  canCreate: boolean;
+  canEdit: boolean;
+  canEditOwn: boolean;
+  canDelete: boolean;
+  canExport: boolean;
+  canManageTeams: boolean;
+  canViewTeams: boolean;
+  canUpdateAttendance: boolean;
+  canMovePins: boolean;
+  canEditChantier: boolean;
+};
+
+type PermissionsOverride = Partial<WebPermissions>;
+
+const WEB_ROLE_PERMISSIONS: Record<string, WebPermissions> = {
+  super_admin:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true  },
+  admin:         { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true  },
+  conducteur:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true  },
+  chef_equipe:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: false },
+  observateur:   { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false, canMovePins: false, canEditChantier: false },
+  sous_traitant: { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false },
 };
 
 type Organization = {
@@ -726,8 +752,53 @@ function isAdmin(profile: Profile | null) {
   return profile?.role === 'super_admin' || profile?.role === 'admin';
 }
 
+function profilePermissionsOverride(profile: Profile | null): PermissionsOverride | undefined {
+  const override = profile?.permissions_override ?? profile?.permissionsOverride;
+  if (!override || typeof override !== 'object' || Array.isArray(override)) return undefined;
+  return override;
+}
+
+function resolveWebPermissions(profile: Profile | null): WebPermissions {
+  if (!profile) return WEB_ROLE_PERMISSIONS.observateur;
+  const role = String(profile.role ?? 'observateur');
+  const base = WEB_ROLE_PERMISSIONS[role] ?? WEB_ROLE_PERMISSIONS.observateur;
+  const merged: WebPermissions = {
+    canCreate: base.canCreate ?? false,
+    canEdit: base.canEdit ?? false,
+    canEditOwn: base.canEditOwn ?? false,
+    canDelete: base.canDelete ?? false,
+    canExport: base.canExport ?? false,
+    canManageTeams: base.canManageTeams ?? false,
+    canViewTeams: base.canViewTeams ?? false,
+    canUpdateAttendance: base.canUpdateAttendance ?? false,
+    canMovePins: base.canMovePins ?? false,
+    canEditChantier: base.canEditChantier ?? false,
+  };
+  if (role === 'super_admin') return merged;
+  const override = profilePermissionsOverride(profile);
+  if (!override) return merged;
+  for (const key of Object.keys(override) as (keyof PermissionsOverride)[]) {
+    if (override[key] !== undefined) {
+      (merged as any)[key] = override[key];
+    }
+  }
+  return merged;
+}
+
+function canCreate(profile: Profile | null) {
+  return resolveWebPermissions(profile).canCreate;
+}
+
 function canEdit(profile: Profile | null) {
-  return ['super_admin', 'admin', 'conducteur', 'chef_equipe'].includes(String(profile?.role ?? ''));
+  return resolveWebPermissions(profile).canEdit;
+}
+
+function canDelete(profile: Profile | null) {
+  return resolveWebPermissions(profile).canDelete;
+}
+
+function canMovePins(profile: Profile | null) {
+  return resolveWebPermissions(profile).canMovePins;
 }
 
 function isSubcontractor(profile: Profile | null) {
@@ -2657,7 +2728,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function moveReservePinWeb(reserve: any, plan: any, x: number, y: number) {
-    if (!canEdit(profile) || !reserve?.id || !plan?.id) return false;
+    if (!canMovePins(profile) || !reserve?.id || !plan?.id) return false;
     const nextX = normalizePlanPercent(x);
     const nextY = normalizePlanPercent(y);
     const storedX = normalizeStoredPlanPercent(nextX);
@@ -2708,7 +2779,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function updatePlanAnnotationsWeb(plan: any, annotations: WebPlanDrawing[]) {
-    if (!canEdit(profile) || !plan?.id) return;
+    if (!canCreate(profile) || !plan?.id) return;
     setData(prev => ({
       ...prev,
       sitePlans: prev.sitePlans.map(item => item.id === plan.id ? { ...item, annotations } : item),
@@ -2911,6 +2982,7 @@ export default function BuildTrackWebPage() {
   }
 
   function openReserveCreate(prefill?: { plan?: any; visit?: any; pin?: ReservePinDraft }) {
+    if (!canCreate(profile)) return;
     setError('');
     setEditingReserveId(null);
     const prefillPlan = prefill?.plan ?? (prefill?.pin?.planId ? data.sitePlans.find(plan => plan.id === prefill.pin?.planId) : null);
@@ -3637,7 +3709,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function createSitePlanWeb(draft: any, file: File | null) {
-    if (!profile || !canEdit(profile)) return null;
+    if (!profile || !canCreate(profile)) return null;
     const name = String(draft.name ?? '').trim();
     const chantierId = String(draft.chantier_id || (selectedProjectId !== 'all' ? selectedProjectId : '')).trim();
     if (!name || !chantierId) {
@@ -3696,7 +3768,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function updateSitePlanWeb(plan: any, patch: Record<string, any>, file?: File | null) {
-    if (!profile || !canEdit(profile) || !plan?.id) return null;
+    if (!profile || !canCreate(profile) || !plan?.id) return null;
     setSaving(true);
     setError('');
     const payload = { ...patch };
@@ -3734,18 +3806,37 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteSitePlanFileWeb(plan: any) {
-    if (!plan?.id) return null;
-    return updateSitePlanWeb(plan, {
+    if (!profile || !canDelete(profile) || !plan?.id) return null;
+    setSaving(true);
+    setError('');
+    const payload = {
       uri: null,
       file_type: null,
       dxf_name: null,
       size: null,
-      uploaded_at: todayISO(),
-    });
+    };
+    const { data: updated, error: updateError } = await supabaseBrowser
+      .from('site_plans')
+      .update(payload)
+      .eq('id', plan.id)
+      .select()
+      .single();
+    if (updateError) {
+      setError(updateError.message);
+      setSaving(false);
+      return null;
+    }
+    const nextPlan = updated ?? { ...plan, ...payload };
+    setData(prev => ({
+      ...prev,
+      sitePlans: prev.sitePlans.map(item => item.id === plan.id ? nextPlan : item),
+    }));
+    setSaving(false);
+    return nextPlan;
   }
 
   async function deleteSitePlanWeb(plan: any) {
-    if (!profile || !canEdit(profile) || !plan?.id) return false;
+    if (!profile || !canDelete(profile) || !plan?.id) return false;
     const confirmed = window.confirm(`Supprimer le plan "${plan.name}" ? Les réserves rattachées seront détachées du plan mais conservées.`);
     if (!confirmed) return false;
     setSaving(true);
@@ -3775,7 +3866,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function createSitePlanRevisionWeb(parentPlan: any, draft: any, file: File | null, migrateReserves: boolean) {
-    if (!profile || !canEdit(profile) || !parentPlan?.id) return null;
+    if (!profile || !canCreate(profile) || !parentPlan?.id) return null;
     const parentRevisionNumber = Number(parentPlan.revision_number ?? parentPlan.revisionNumber ?? 1) || 1;
     const revisionNumber = parentRevisionNumber + 1;
     const revisionCode = String(draft.revision_code ?? '').trim() || `R${String(revisionNumber).padStart(2, '0')}`;
@@ -4442,7 +4533,7 @@ export default function BuildTrackWebPage() {
               selectedProjectId={selectedProjectId}
               onSelect={setSelectedProjectId}
             />
-            {canEdit(profile) && (
+            {canCreate(profile) && (
               <>
                 <button type="button" onClick={() => openReserveCreate()}>{t('common.newReserve')}</button>
                 <button type="button" onClick={openVisitCreate}>{t('common.newVisit')}</button>
@@ -4468,7 +4559,7 @@ export default function BuildTrackWebPage() {
                 profile={profile}
                 authUser={authUser}
                 selectedProjectId={selectedProjectId}
-                canCreate={canEdit(profile)}
+                canCreate={canCreate(profile)}
                 setTab={setActiveTab}
                 setSelectedProjectId={setSelectedProjectId}
                 setBuildingFilter={setBuildingFilter}
@@ -4548,6 +4639,9 @@ export default function BuildTrackWebPage() {
                 generatingReport={generatingReport}
                 defaultReportLanguage={reportLanguage}
                 editable={canEdit(profile)}
+                canCreatePlan={canCreate(profile)}
+                canDeletePlan={canDelete(profile)}
+                canMovePlanPins={canMovePins(profile)}
                 saving={saving}
               />
             )}
@@ -7079,6 +7173,9 @@ function PlansView({
   generatingReport,
   defaultReportLanguage,
   editable,
+  canCreatePlan,
+  canDeletePlan,
+  canMovePlanPins,
   saving,
 }: any) {
   const { t } = useWebI18n();
@@ -7109,6 +7206,10 @@ function PlansView({
   const [planActionMessage, setPlanActionMessage] = useState('');
   const [planActionsOpen, setPlanActionsOpen] = useState(false);
   const pinPlacementTimerRef = useRef<number | null>(null);
+  const planCanCreate = Boolean(canCreatePlan ?? editable);
+  const planCanDelete = Boolean(canDeletePlan);
+  const planCanMovePins = Boolean(canMovePlanPins ?? editable);
+  const hasPlanActions = planCanCreate || planCanDelete;
   const projectForDraft = projects.find((project: any) => project.id === (planDraft.chantier_id || selectedProjectId)) ?? selectedProject ?? projects[0] ?? null;
   const draftBuildings = projectBuildings(projectForDraft);
   const draftBuilding = draftBuildings.find((building: any) => building.id === planDraft.building_id) ?? null;
@@ -7181,6 +7282,7 @@ function PlansView({
   async function submitPlanModal(event: React.FormEvent) {
     event.preventDefault();
     if (!planModalMode) return;
+    if (!planCanCreate) return;
     const patch = {
       chantier_id: planDraft.chantier_id,
       name: String(planDraft.name ?? '').trim(),
@@ -7210,7 +7312,7 @@ function PlansView({
   }
 
   async function handleDeleteSelectedPlanFile() {
-    if (!selectedPlan?.uri) return;
+    if (!planCanDelete || !selectedPlan?.uri) return;
     const confirmed = window.confirm(`Supprimer le fichier du plan "${selectedPlan.name}" ? Le plan restera dans la liste.`);
     if (!confirmed) return;
     await onDeletePlanFile?.(selectedPlan);
@@ -7478,7 +7580,7 @@ function PlansView({
     };
     setPinPlacementPreview(preview);
     if (pinPlacementTimerRef.current) window.clearTimeout(pinPlacementTimerRef.current);
-    if (!editable) return;
+    if (!planCanCreate) return;
     pinPlacementTimerRef.current = window.setTimeout(() => {
       setPinPlacementPreview(null);
       onCreateReserveAtPin(selectedPlan, { planId: selectedPlan.id, x: nextX, y: nextY });
@@ -7617,7 +7719,7 @@ function PlansView({
             <strong>{buildingGroups.length}</strong>
           </div>
           <small>Recherche, familles et plans regroupés.</small>
-          {editable && (
+          {planCanCreate && (
             <button type="button" className={styles.tableActionBtn} onClick={() => openPlanModal('create')}>
               Nouveau plan
             </button>
@@ -7799,9 +7901,11 @@ function PlansView({
                 >
                   PDF
                 </button>
-                <button type="button" className={styles.planActionPrimary} onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
+                {planCanCreate ? (
+                  <button type="button" className={styles.planActionPrimary} onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
+                ) : null}
                 {selectedPlan.uri ? <a className={styles.planActionSecondary} href={selectedPlan.uri} target="_blank">Ouvrir</a> : null}
-                {editable ? (
+                {hasPlanActions ? (
                   <div className={styles.planActionMenuWrap}>
                     <button
                       type="button"
@@ -7813,35 +7917,41 @@ function PlansView({
                     </button>
                     {planActionsOpen && (
                       <div className={styles.planActionMenu}>
-                        <button type="button" onClick={() => { setPlanActionsOpen(false); openPlanModal('edit', selectedPlan); }}>
-                          <strong>Modifier</strong>
-                          <span>Nom, bâtiment, fichier</span>
-                        </button>
-                        <button type="button" onClick={() => { setPlanActionsOpen(false); openPlanModal('revision', selectedPlan); }}>
-                          <strong>Nouvelle révision</strong>
-                          <span>Créer un nouvel indice</span>
-                        </button>
-                        {selectedPlan.uri ? (
+                        {planCanCreate ? (
+                          <>
+                            <button type="button" onClick={() => { setPlanActionsOpen(false); openPlanModal('edit', selectedPlan); }}>
+                              <strong>Modifier</strong>
+                              <span>Nom, bâtiment, fichier</span>
+                            </button>
+                            <button type="button" onClick={() => { setPlanActionsOpen(false); openPlanModal('revision', selectedPlan); }}>
+                              <strong>Nouvelle révision</strong>
+                              <span>Créer un nouvel indice</span>
+                            </button>
+                          </>
+                        ) : null}
+                        {planCanDelete && selectedPlan.uri ? (
                           <button type="button" onClick={() => { setPlanActionsOpen(false); handleDeleteSelectedPlanFile(); }}>
                             <strong>Supprimer le fichier</strong>
                             <span>Conserver le plan sans fichier</span>
                           </button>
                         ) : null}
-                        <button
-                          type="button"
-                          className={styles.planActionMenuDanger}
-                          onClick={() => { setPlanActionsOpen(false); onDeletePlan?.(selectedPlan); }}
-                        >
-                          <strong>Supprimer le plan</strong>
-                          <span>Action destructive</span>
-                        </button>
+                        {planCanDelete ? (
+                          <button
+                            type="button"
+                            className={styles.planActionMenuDanger}
+                            onClick={() => { setPlanActionsOpen(false); onDeletePlan?.(selectedPlan); }}
+                          >
+                            <strong>Supprimer le plan</strong>
+                            <span>Action destructive</span>
+                          </button>
+                        ) : null}
                       </div>
                     )}
                   </div>
                 ) : null}
               </div>
             </div>
-            {editable && (
+            {planCanCreate && (
               <div className={styles.pinToolbar}>
                 <div className={styles.pinToolbarIntro}>
                   <strong>Créer une réserve épinglée</strong>
@@ -7866,9 +7976,9 @@ function PlansView({
                     name={selectedPlan.name}
                     pins={planPins}
                     focusedReserveId={focusedPlanReserveId}
-                    canCreate={editable}
-                    canMovePins={editable}
-                    canAnnotate={editable}
+                    canCreate={planCanCreate}
+                    canMovePins={planCanMovePins}
+                    canAnnotate={planCanCreate}
                     annotations={Array.isArray(selectedPlan.annotations) ? selectedPlan.annotations : []}
                     placementPreview={activePlacementPreview}
                     onCreateReserveAtPin={assignOrCreatePinAt}
@@ -7888,7 +7998,7 @@ function PlansView({
                 ) : (
                   <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
                 )}
-                {selectedPlan.file_type !== 'pdf' && editable && (
+                {selectedPlan.file_type !== 'pdf' && planCanCreate && (
                   <button
                     type="button"
                     className={`${styles.pinClickLayer} ${styles.pinCreateLayer}`}
