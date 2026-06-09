@@ -15,6 +15,7 @@ import { triggerMessagePush, triggerReserveCreatedPush } from '@/lib/push/client
 import type { Comment } from '@/constants/types';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
+const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -317,6 +318,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id;
   const offlineQueueKey = OFFLINE_QUEUE_PREFIX + (userId ?? 'anon');
+  const offlineQueueBackupKey = OFFLINE_QUEUE_BACKUP_PREFIX + (userId ?? 'anon');
   const [isOnline, setIsOnline] = useState(true);
   const [queue, setQueue] = useState<QueuedOperation[]>([]);
   const [queueLoaded, setQueueLoaded] = useState(false);
@@ -352,10 +354,24 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   // ── Queue persistence ──────────────────────────────────────────────────────
 
+  const backupQueue = useCallback(async (q: QueuedOperation[], reason: string) => {
+    if (q.length === 0) return;
+    try {
+      await AsyncStorage.setItem(
+        offlineQueueBackupKey,
+        JSON.stringify({ backedUpAt: new Date().toISOString(), reason, queue: q }),
+      );
+    } catch (err) {
+      console.warn('[queue] failed to write recovery backup:', (err as any)?.message ?? err);
+    }
+  }, [offlineQueueBackupKey]);
+
   const saveQueue = useCallback(async (q: QueuedOperation[]) => {
     try {
       await AsyncStorage.setItem(offlineQueueKey, JSON.stringify(q));
-    } catch {}
+    } catch (err) {
+      console.warn('[queue] failed to persist offline queue:', (err as any)?.message ?? err);
+    }
   }, [offlineQueueKey]);
 
   // Load the queue for the *current* user. We defer hydration until we know
@@ -1018,6 +1034,21 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             fail(op, `DELETE ${op.table} refusé: filtre manquant.`);
             continue;
           }
+          if (op.table === 'chantiers' && op.filter.column === 'id') {
+            const { data: linkedReserves, error: linkedErr } = await supabaseRestSelect(
+              'reserves',
+              'id',
+              { column: 'chantier_id', value: op.filter.value },
+            );
+            if (linkedErr) {
+              fail(op, linkedErr);
+              continue;
+            }
+            if (linkedReserves?.[0]) {
+              fail(op, 'DELETE chantier bloque: des reserves sont encore rattachees. Suppression physique refusee.');
+              continue;
+            }
+          }
           if (op.table === 'reserves') {
             const softDeletePayload = {
               deleted_at: op.data?.deleted_at ?? new Date().toISOString(),
@@ -1074,6 +1105,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       ...failedOps,
     ].filter(Boolean);
 
+    await backupQueue(currentQueue, 'before-sync-prune');
     setQueue(remaining);
     await saveQueue(remaining);
 
@@ -1192,10 +1224,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   }, [saveQueue]);
 
   const clearQueue = useCallback(async () => {
+    await backupQueue(queueRef.current, 'manual-clear');
     setQueue([]);
     try { await AsyncStorage.removeItem(offlineQueueKey); } catch {}
     try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
-  }, [offlineQueueKey]);
+  }, [backupQueue, offlineQueueKey]);
 
   const registerReloadHandler = useCallback((fn: () => void) => {
     reloadHandlerRef.current = fn;

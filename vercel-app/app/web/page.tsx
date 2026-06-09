@@ -3653,18 +3653,39 @@ export default function BuildTrackWebPage() {
 
   async function deleteChantierWeb(project: any) {
     if (!profile || !canEdit(profile) || !project?.id) return false;
-    const confirmed = window.confirm(`Supprimer le chantier "${project.name}" et toutes ses données rattachées ? Cette action est définitive.`);
-    if (!confirmed) return false;
     setSaving(true);
     setError('');
     const projectId = String(project.id);
     const reserveIds = [...data.reserves, ...data.deletedReserves]
       .filter(reserve => getChantierId(reserve) === projectId)
       .map(reserve => reserve.id);
+    if (reserveIds.length > 0) {
+      setError(`Suppression chantier bloquée : ${reserveIds.length} réserve(s) sont encore rattachées à ce chantier.`);
+      setSaving(false);
+      return false;
+    }
+    const { data: serverReserves, error: reserveCheckError } = await supabaseBrowser
+      .from('reserves')
+      .select('id')
+      .eq('chantier_id', projectId)
+      .limit(1);
+    if (reserveCheckError) {
+      setError(`Suppression chantier bloquée : vérification des réserves impossible (${reserveCheckError.message}).`);
+      setSaving(false);
+      return false;
+    }
+    if (serverReserves?.length) {
+      setError('Suppression chantier bloquée : des réserves sont encore rattachées à ce chantier côté serveur.');
+      setSaving(false);
+      return false;
+    }
+    const confirmed = window.confirm(`Supprimer le chantier vide "${project.name}" ? Cette action est définitive.`);
+    if (!confirmed) {
+      setSaving(false);
+      return false;
+    }
     const buildingChannelId = `building-${projectId}`;
     const relatedDeletes = [
-      reserveIds.length ? supabaseBrowser.from('photos').delete().in('reserve_id', reserveIds) : Promise.resolve({ error: null }),
-      supabaseBrowser.from('reserves').delete().eq('chantier_id', projectId),
       supabaseBrowser.from('tasks').delete().eq('chantier_id', projectId),
       supabaseBrowser.from('visites').delete().eq('chantier_id', projectId),
       supabaseBrowser.from('lots').delete().eq('chantier_id', projectId),

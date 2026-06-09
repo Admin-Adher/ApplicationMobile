@@ -12,7 +12,7 @@ import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { genReserveId } from '@/lib/reserveUtils';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
-import { uploadLocalPhotosInPayload } from '@/lib/storage';
+import { isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
 import { triggerReserveCreatedPush } from '@/lib/push/client';
 import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
 import i18n from '@/lib/i18n';
@@ -202,17 +202,88 @@ export function useReserves() {
     }
     if (!isSupabaseConfigured) return;
 
-    // Upload any local photo URIs BEFORE inserting the row, so we never
-    // ship a `file://` path to Supabase. If even one upload fails we fall
-    // back to the offline queue, which retries the whole thing later.
-    const prep = await uploadLocalPhotosInPayload('reserves', payload);
-    if (!prep.allOk) {
-      console.warn('[sync] addReserve: photo upload failed, queuing for later sync');
-      enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
-      return;
-    }
-    const finalPayload = prep.data!;
-    if (prep.hadLocal) applyUploadedPhotoPayload(reserve.id, finalPayload);
+    const splitReservePayload = (source: Record<string, any>) => {
+      const rowPayload = { ...source };
+      let hasLocalPhoto = false;
+
+      if (typeof rowPayload.photo_uri === 'string' && isLocalUri(rowPayload.photo_uri)) {
+        hasLocalPhoto = true;
+        rowPayload.photo_uri = null;
+      }
+
+      if (Array.isArray(rowPayload.photos)) {
+        const remotePhotos = rowPayload.photos.filter((photo: any) => !photo?.uri || !isLocalUri(photo.uri));
+        hasLocalPhoto = hasLocalPhoto || remotePhotos.length !== rowPayload.photos.length;
+        rowPayload.photos = remotePhotos.length > 0 ? remotePhotos : null;
+        if (!rowPayload.photo_uri && remotePhotos[0]?.uri) rowPayload.photo_uri = remotePhotos[0].uri;
+      }
+
+      return {
+        rowPayload,
+        photoPayload: hasLocalPhoto
+          ? {
+              photo_uri: source.photo_uri ?? null,
+              photos: source.photos ?? null,
+            }
+          : null,
+      };
+    };
+
+    const { rowPayload, photoPayload } = splitReservePayload(payload);
+    const finalPayload = rowPayload;
+
+    const syncPhotosAfterReserveRow = async (reserveId: string, rawPhotoPayload: Record<string, any> | null) => {
+      if (!rawPhotoPayload) return reserve;
+
+      const prep = await uploadLocalPhotosInPayload('reserves', rawPhotoPayload);
+      if (!prep.allOk) {
+        const errDetail = prep.uploadErrors?.join(' | ') ?? 'Echec upload photo. Nouvelle tentative au prochain passage.';
+        console.warn('[sync] addReserve: reserve row saved, photo upload deferred:', errDetail);
+        enqueueOperation({
+          table: 'reserves',
+          op: 'update',
+          filter: { column: 'id', value: reserveId },
+          data: rawPhotoPayload,
+          photoPatch: {
+            action: 'upsert',
+            photos: Array.isArray(rawPhotoPayload.photos) ? rawPhotoPayload.photos : undefined,
+            photoUri: typeof rawPhotoPayload.photo_uri === 'string' ? rawPhotoPayload.photo_uri : null,
+          },
+        });
+        return reserve;
+      }
+
+      const photoUpdate = {
+        photo_uri: prep.data?.photo_uri ?? null,
+        photos: Array.isArray(prep.data?.photos) && prep.data.photos.length > 0 ? prep.data.photos : null,
+      };
+      if (prep.hadLocal) applyUploadedPhotoPayload(reserveId, photoUpdate);
+
+      const { error: photoError } = await (supabase as any)
+        .from('reserves')
+        .update(photoUpdate)
+        .eq('id', reserveId);
+      if (photoError) {
+        console.warn('[sync] addReserve: reserve row saved, photo patch queued:', photoError.message);
+        enqueueOperation({
+          table: 'reserves',
+          op: 'update',
+          filter: { column: 'id', value: reserveId },
+          data: photoUpdate,
+          photoPatch: {
+            action: 'upsert',
+            photos: Array.isArray(photoUpdate.photos) ? photoUpdate.photos : undefined,
+            photoUri: typeof photoUpdate.photo_uri === 'string' ? photoUpdate.photo_uri : null,
+          },
+        });
+      }
+
+      return {
+        ...reserve,
+        photoUri: photoUpdate.photo_uri ?? undefined,
+        photos: photoUpdate.photos ?? undefined,
+      };
+    };
 
     const rollback = () => {
       queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => (old ?? []).filter(x => x.id !== reserve.id));
@@ -222,7 +293,7 @@ export function useReserves() {
     const { error } = await (supabase as any).from('reserves').insert(finalPayload);
     if (!error) {
       triggerReserveCreatedPush(reserve.id);
-      return;
+      return syncPhotosAfterReserveRow(reserve.id, photoPayload);
     }
 
     console.warn('[sync] addReserve server error:', error.code, error.message, '(org sent:', orgId, ', role:', user?.role, ')');
@@ -244,7 +315,7 @@ export function useReserves() {
           // and couldn't reach the auth server. Queue to be safe; the sync engine
           // will surface the error clearly if the session is genuinely expired.
           console.warn('[sync] addReserve: no session during RLS diagnosis, queuing for later sync');
-          enqueueOperation({ table: 'reserves', op: 'insert', data: finalPayload });
+          enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
           return;
         }
         const { data: freshProfile, error: profileErr } = await (supabase as any)
@@ -257,7 +328,7 @@ export function useReserves() {
           // Profile fetch failed — almost certainly a network error while offline.
           // Queue the insert; do not discard the local copy.
           console.warn('[sync] addReserve: profile fetch failed during RLS diagnosis, queuing:', profileErr?.message);
-          enqueueOperation({ table: 'reserves', op: 'insert', data: finalPayload });
+          enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
           return;
         }
 
@@ -285,28 +356,30 @@ export function useReserves() {
         }
         if (freshOrgId !== orgId) {
           // Stale local org id — retry with the fresh value (reuse the
-          // already-uploaded photo URLs from finalPayload, no need to re-upload).
+          // photo fields are replayed separately after the durable row exists.
           console.warn('[sync] addReserve retry with fresh organization_id:', freshOrgId, '(was:', orgId, ')');
-          const { error: retryErr } = await (supabase as any).from('reserves').insert({ ...finalPayload, organization_id: freshOrgId });
+          const retryPayload = { ...payload, organization_id: freshOrgId };
+          const retrySplit = splitReservePayload(retryPayload);
+          const { error: retryErr } = await (supabase as any).from('reserves').insert(retrySplit.rowPayload);
           if (!retryErr) {
             triggerReserveCreatedPush(reserve.id);
-            return;
+            return syncPhotosAfterReserveRow(reserve.id, retrySplit.photoPayload);
           }
           // Retry also failed: queue with the corrected org_id so it syncs later.
           console.warn('[sync] addReserve retry also failed, queuing:', retryErr.code, retryErr.message);
-          enqueueOperation({ table: 'reserves', op: 'insert', data: { ...finalPayload, organization_id: freshOrgId } });
+          enqueueOperation({ table: 'reserves', op: 'insert', data: retryPayload });
           return;
         }
         // Fresh org_id matches what we sent — RLS still rejected. The JWT in the
         // request didn't carry the right claims (common when the token expired
         // mid-session and couldn't be refreshed offline). Queue for later sync.
         console.warn('[sync] addReserve: RLS rejected with correct org_id, queuing for session recovery');
-        enqueueOperation({ table: 'reserves', op: 'insert', data: finalPayload });
+        enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
       } catch (diagErr: any) {
         // Any exception here is a network error (device offline, timeout, etc.).
         // Queue the insert so it retries when connectivity is restored.
         console.warn('[sync] addReserve diagnostic failed (likely offline), queuing:', diagErr?.message);
-        enqueueOperation({ table: 'reserves', op: 'insert', data: finalPayload });
+        enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
       }
       return;
     }
@@ -315,7 +388,7 @@ export function useReserves() {
     // copy AND queue the insert so it retries automatically when connectivity
     // is restored. Do not rollback — user data must never be silently lost.
     console.warn('[sync] addReserve non-RLS error, queuing for retry:', error.message);
-    enqueueOperation({ table: 'reserves', op: 'insert', data: finalPayload });
+    enqueueOperation({ table: 'reserves', op: 'insert', data: payload });
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist, applyUploadedPhotoPayload]);
 
   const updateReserve = useCallback(async (r: Reserve) => {

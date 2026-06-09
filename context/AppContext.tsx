@@ -99,7 +99,7 @@ interface AppContextValue {
   addSitePlan: (p: SitePlan) => void;
   updateSitePlan: (p: SitePlan) => void;
   deleteSitePlan: (id: string) => void;
-  addReserve: (r: Reserve) => void;
+  addReserve: (r: Reserve) => void | Promise<Reserve | void>;
   updateReserve: (r: Reserve) => void;
   updateReserveFields: (r: Reserve) => void;
   deleteReserve: (id: string) => void;

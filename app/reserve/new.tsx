@@ -19,7 +19,7 @@ import BottomSheetPicker from '@/components/BottomSheetPicker';
 import CompanySelector from '@/components/CompanySelector';
 import DictationTextInput from '@/components/DictationTextInput';
 import { notifyReserveCreated } from '@/lib/email/notifyReserveCreated';
-import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
+import { isLocalUri, persistLocalPhoto } from '@/lib/storage';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import {
   RESERVE_PRIORITIES, getReserveTemplates,
@@ -584,33 +584,14 @@ export default function NewReserveScreen() {
   async function savePhoto(uri: string) {
     setPhotoUploading(true);
     try {
-      const filename = `reserve_photo_${Date.now()}.jpg`;
       const author = user?.name ?? 'Conducteur de travaux';
       const today = new Date().toISOString().split('T')[0];
 
-      // Si on sait déjà être hors-ligne, on ne tente pas l'upload (le SDK
-      // Supabase peut rester suspendu plusieurs dizaines de secondes avant de
-      // signaler l'erreur réseau, ce qui donne l'impression que l'app est
-      // cassée). On bascule directement sur la persistance locale ; la photo
-      // sera ré-uploadée automatiquement par la file de sync à la reconnexion.
-      let storageUrl: string | null = null;
-      if (isOnline) {
-        try {
-          storageUrl = await uploadPhoto(uri, filename);
-        } catch (uploadErr: any) {
-          // Échec réseau imprévu — on persiste la photo en local.
-        }
-      }
-
-      // If upload failed, copy the temp photo to persistent storage so it won't be cleared by the OS
-      let finalUri = storageUrl ?? await persistLocalPhoto(uri);
-
-      if (!storageUrl) {
+      const finalUri = await persistLocalPhoto(uri);
+      if (!isOnline) {
         Alert.alert(
-          isOnline ? t('reserveNew.syncDeferredTitle') : t('reserveNew.offlinePhotoTitle'),
-          isOnline
-            ? t('reserveNew.syncDeferredMessage')
-            : t('reserveNew.offlinePhotoMessage'),
+          t('reserveNew.offlinePhotoTitle'),
+          t('reserveNew.offlinePhotoMessage'),
         );
       }
 
@@ -667,7 +648,7 @@ export default function NewReserveScreen() {
     createReserve();
   }
 
-  function createReserve() {
+  async function createReserve() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
@@ -708,7 +689,7 @@ export default function NewReserveScreen() {
         lotId: lotId || undefined,
         visiteId: visiteId || undefined,
       };
-      addReserve(newReserve);
+      const savedReserve = await addReserve(newReserve);
       if (kind !== 'observation') {
         notifyReserveCreated({
           reserve: newReserve,
@@ -720,7 +701,8 @@ export default function NewReserveScreen() {
         });
       }
       if (visiteId) linkReserveToVisite(id, visiteId);
-      photos.forEach(p => {
+      const photosForRows = savedReserve?.photos ?? newReserve.photos ?? [];
+      photosForRows.filter(p => p.uri && !isLocalUri(p.uri)).forEach(p => {
         addPhoto({
           id: genId(),
           comment: kind === 'observation'

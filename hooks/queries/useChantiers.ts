@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toChantier, toSitePlan } from '@/lib/mappers';
-import { Chantier, SitePlan, Channel } from '@/constants/types';
+import { Chantier, SitePlan, Channel, Reserve } from '@/constants/types';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import i18n from '@/lib/i18n';
@@ -242,6 +242,44 @@ export function useChantiers() {
   }, [queryClient, isOnlineRef, enqueueOperation]);
 
   const deleteChantier = useCallback(async (id: string) => {
+    const linkedLocalReserves = (queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [])
+      .filter(reserve => reserve.chantierId === id);
+    if (linkedLocalReserves.length > 0) {
+      Alert.alert(
+        i18n.t('syncAlerts.deleteDeniedTitle'),
+        'Suppression chantier bloquee: des reserves sont rattachees a ce chantier. Archivez ou deplacez les reserves avant toute suppression.',
+      );
+      return;
+    }
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      Alert.alert(
+        i18n.t('syncAlerts.deleteDeniedTitle'),
+        'Suppression chantier indisponible hors ligne: verification anti-perte impossible.',
+      );
+      return;
+    }
+    if (isSupabaseConfigured) {
+      const { data: serverReserves, error: reserveCheckError } = await (supabase as any)
+        .from('reserves')
+        .select('id')
+        .eq('chantier_id', id)
+        .limit(1);
+      if (reserveCheckError) {
+        Alert.alert(
+          i18n.t('syncAlerts.deleteDeniedTitle'),
+          'Suppression chantier bloquee: impossible de verifier les reserves rattachees.',
+        );
+        return;
+      }
+      if (serverReserves?.length) {
+        Alert.alert(
+          i18n.t('syncAlerts.deleteDeniedTitle'),
+          'Suppression chantier bloquee: des reserves sont rattachees a ce chantier.',
+        );
+        return;
+      }
+    }
+
     const prev = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers()) ?? [];
     const prevPlans = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
     // Optimistically remove from local cache
