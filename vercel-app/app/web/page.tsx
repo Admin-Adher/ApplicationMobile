@@ -801,8 +801,28 @@ function canDelete(profile: Profile | null) {
   return resolveWebPermissions(profile).canDelete;
 }
 
+function canExport(profile: Profile | null) {
+  return resolveWebPermissions(profile).canExport;
+}
+
+function canManageTeams(profile: Profile | null) {
+  return resolveWebPermissions(profile).canManageTeams;
+}
+
+function canViewTeams(profile: Profile | null) {
+  return resolveWebPermissions(profile).canViewTeams;
+}
+
+function canUpdateAttendance(profile: Profile | null) {
+  return resolveWebPermissions(profile).canUpdateAttendance;
+}
+
 function canMovePins(profile: Profile | null) {
   return resolveWebPermissions(profile).canMovePins;
+}
+
+function canEditChantier(profile: Profile | null) {
+  return resolveWebPermissions(profile).canEditChantier;
 }
 
 function isSubcontractor(profile: Profile | null) {
@@ -3224,7 +3244,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteReserveWeb(reserve: any) {
-    if (!canEdit(profile) || !reserve?.id) return;
+    if (!canDelete(profile) || !reserve?.id) return;
     const confirmed = window.confirm(`Mettre la réserve ${reserve.id} en corbeille ? Elle sera masquée mais récupérable depuis Supabase.`);
     if (!confirmed) return;
     setSaving(true);
@@ -3420,6 +3440,7 @@ export default function BuildTrackWebPage() {
   }
 
   function openReserveEdit(reserve: any) {
+    if (!canEdit(profile)) return;
     setError('');
     setEditingReserveId(reserve.id);
     setReserveDraft(reserveToDraft(reserve));
@@ -3445,6 +3466,7 @@ export default function BuildTrackWebPage() {
   }
 
   function openVisitCreate() {
+    if (!canCreate(profile)) return;
     setError('');
     setVisitDraft(createVisitDraft(currentProjectId(), userLabel(profile, authUser), webLang));
     setVisitModalOpen(true);
@@ -3595,7 +3617,8 @@ export default function BuildTrackWebPage() {
 
   async function submitReserve(event: React.FormEvent) {
     event.preventDefault();
-    if (!profile || !canEdit(profile)) return;
+    const isEditingReserve = reserveModalMode === 'edit' && Boolean(editingReserveId);
+    if (!profile || (isEditingReserve ? !canEdit(profile) : !canCreate(profile))) return;
     const title = reserveDraft.title.trim();
     if (!title) {
       setError('Le titre de la réserve est obligatoire.');
@@ -3729,7 +3752,7 @@ export default function BuildTrackWebPage() {
 
   async function submitVisit(event: React.FormEvent) {
     event.preventDefault();
-    if (!profile || !canEdit(profile)) return;
+    if (!profile || !canCreate(profile)) return;
     const title = visitDraft.title.trim();
     const project = data.chantiers.find(item => item.id === visitDraft.chantierId);
     const hasBuildingHierarchy = projectBuildings(project).length > 0;
@@ -3839,7 +3862,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function attachReservesToVisitWeb(visit: any, reserveIds: string[]) {
-    if (!profile || !canEdit(profile) || !visit?.id || reserveIds.length === 0) return;
+    if (!profile || !canCreate(profile) || !visit?.id || reserveIds.length === 0) return;
     setSaving(true);
     setError('');
     let attachError: any = null;
@@ -3873,7 +3896,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteVisitWeb(visit: any) {
-    if (!profile || !canEdit(profile) || !visit?.id) return;
+    if (!profile || !canDelete(profile) || !visit?.id) return;
     const confirmed = window.confirm(`Supprimer la visite "${visit.title}" ? Les réserves rattachées resteront disponibles dans l'onglet Réserves.`);
     if (!confirmed) return;
     setSaving(true);
@@ -3899,7 +3922,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function updateCompanyField(companyId: string, field: 'planned_workers' | 'actual_workers' | 'hours_worked', value: number) {
-    if (!canEdit(profile)) return;
+    if (!canUpdateAttendance(profile)) return;
     const safeValue = Math.max(0, Number.isFinite(value) ? value : 0);
     setData(prev => ({
       ...prev,
@@ -3999,7 +4022,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function updateProjectSettings(projectId: string, patch: Record<string, any>) {
-    if (!canEdit(profile)) return;
+    if (!canEditChantier(profile)) return;
     setData(prev => ({
       ...prev,
       chantiers: prev.chantiers.map(project => project.id === projectId ? { ...project, ...patch } : project),
@@ -4015,7 +4038,8 @@ export default function BuildTrackWebPage() {
   }
 
   async function saveChantierWeb(draft: any) {
-    if (!profile || !canEdit(profile)) return null;
+    const isCreate = !draft.id;
+    if (!profile || (isCreate ? !canCreate(profile) : !canEditChantier(profile))) return null;
     const name = String(draft.name ?? '').trim();
     if (!name) {
       setError('Le nom du chantier est obligatoire.');
@@ -4035,7 +4059,6 @@ export default function BuildTrackWebPage() {
     };
     setSaving(true);
     setError('');
-    const isCreate = !draft.id;
     const query = isCreate
       ? supabaseBrowser
           .from('chantiers')
@@ -4089,7 +4112,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteChantierWeb(project: any) {
-    if (!profile || !canEdit(profile) || !project?.id) return false;
+    if (!profile || !canDelete(profile) || !project?.id) return false;
     setSaving(true);
     setError('');
     const projectId = String(project.id);
@@ -4388,7 +4411,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function createDocumentWeb(payload: Record<string, any>, file: File | null) {
-    if (!profile || !canEdit(profile) || !file) return null;
+    if (!profile || !canCreate(profile) || !file) return null;
     setSaving(true);
     setError('');
     const uri = await uploadWebFile('documents', file, `document_${payload.name ?? file.name}`);
@@ -4418,7 +4441,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteDocumentWeb(document: any) {
-    if (!profile || !canEdit(profile) || !document?.id) return false;
+    if (!profile || !canDelete(profile) || !document?.id) return false;
     const confirmed = window.confirm(`Supprimer le document "${document.name ?? document.title ?? document.id}" ?`);
     if (!confirmed) return false;
     setSaving(true);
@@ -4435,7 +4458,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function createTimeEntryWeb(payload: Record<string, any>) {
-    if (!profile || !canEdit(profile)) return null;
+    if (!profile || !(canUpdateAttendance(profile) || canCreate(profile))) return null;
     const workerName = String(payload.worker_name ?? '').trim();
     if (!workerName) {
       setError('Le nom du compagnon est obligatoire.');
@@ -4465,7 +4488,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function updateTimeEntryWeb(entry: any, patch: Record<string, any>) {
-    if (!profile || !canEdit(profile) || !entry?.id) return null;
+    if (!profile || !(canUpdateAttendance(profile) || canCreate(profile)) || !entry?.id) return null;
     const payload = { ...patch, updated_by: userLabel(profile, authUser), updated_at: new Date().toISOString() };
     const { data: updated, error: updateError } = await supabaseBrowser.from('time_entries').update(payload).eq('id', entry.id).select().single();
     if (updateError) {
@@ -4478,7 +4501,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteTimeEntryWeb(entry: any) {
-    if (!profile || !canEdit(profile) || !entry?.id) return false;
+    if (!profile || !canDelete(profile) || !entry?.id) return false;
     const confirmed = window.confirm(`Supprimer définitivement le pointage de ${entry.worker_name ?? 'ce compagnon'} ?`);
     if (!confirmed) return false;
     const { error: deleteError } = await supabaseBrowser.from('time_entries').delete().eq('id', entry.id);
@@ -4492,7 +4515,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function createJournalEntryWeb(payload: Record<string, any>) {
-    if (!profile || !canEdit(profile)) return null;
+    if (!profile || !canCreate(profile)) return null;
     const row = {
       id: `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
       organization_id: profile.organization_id ?? null,
@@ -4520,7 +4543,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteJournalEntryWeb(entry: any) {
-    if (!profile || !canEdit(profile) || !entry?.id) return false;
+    if (!profile || !canDelete(profile) || !entry?.id) return false;
     if (!window.confirm('Supprimer cette entrée de journal ?')) return false;
     const { error: deleteError } = await supabaseBrowser.from('journal_entries').delete().eq('id', entry.id);
     if (deleteError) {
@@ -4564,7 +4587,8 @@ export default function BuildTrackWebPage() {
   }
 
   async function saveChecklistWeb(payload: Record<string, any>) {
-    if (!profile || !canEdit(profile)) return null;
+    const isCreate = !payload.id;
+    if (!profile || (isCreate ? !canCreate(profile) : !canEdit(profile))) return null;
     const row = {
       id: String(payload.id ?? `CHK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
       organization_id: profile.organization_id ?? null,
@@ -4615,7 +4639,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteChecklistWeb(checklist: any) {
-    if (!profile || !canEdit(profile) || !checklist?.id) return false;
+    if (!profile || !canDelete(profile) || !checklist?.id) return false;
     if (!window.confirm(`Supprimer la checklist « ${checklist.title ?? ''} » ?`)) return false;
     const { error: deleteError } = await supabaseBrowser.from('checklists').delete().eq('id', checklist.id);
     if (deleteError) {
@@ -4653,7 +4677,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function saveRegulatoryDocWeb(draft: any, file: File | null) {
-    if (!profile || !canEdit(profile)) return null;
+    if (!profile || (draft.id ? !canEdit(profile) : !canCreate(profile))) return null;
     const title = String(draft.title ?? '').trim();
     if (!title) {
       setError('Le titre du document réglementaire est obligatoire.');
@@ -4709,7 +4733,7 @@ export default function BuildTrackWebPage() {
   }
 
   async function deleteRegulatoryDocWeb(doc: any) {
-    if (!profile || !canEdit(profile) || !doc?.id) return false;
+    if (!profile || !canDelete(profile) || !doc?.id) return false;
     const confirmed = window.confirm(`Supprimer le document réglementaire "${doc.title}" ?`);
     if (!confirmed) return false;
     setSaving(true);
@@ -4739,6 +4763,10 @@ export default function BuildTrackWebPage() {
     statusFilter?: string | null;
     language?: 'fr' | 'en' | 'es';
   }) {
+    if (!canExport(profile)) {
+      setError('Export PDF non autorisé pour ce profil.');
+      return;
+    }
     const selectedProjectName = projectName();
     const language = options?.language ?? reportLanguage;
     const reportKey = `${type}-${language}`;
@@ -4907,10 +4935,13 @@ export default function BuildTrackWebPage() {
     setSaving(false);
   }
 
+  const canViewReserveTrash = canEdit(profile);
+  const effectiveStatusFilter = statusFilter === 'deleted' && !canViewReserveTrash ? 'all' : statusFilter;
+
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
     const visibleReserves = visibleReservesForProfile(data.reserves, profile, data.companies);
-    const visibleDeletedReserves = visibleReservesForProfile(data.deletedReserves, profile, data.companies);
+    const visibleDeletedReserves = canViewReserveTrash ? visibleReservesForProfile(data.deletedReserves, profile, data.companies) : [];
     const visibleReserveIds = new Set([...visibleReserves, ...visibleDeletedReserves].map((reserve: any) => String(reserve.id)));
     const reserves = visibleReserves.filter(byProject);
     const deletedReserves = visibleDeletedReserves.filter(byProject);
@@ -4939,7 +4970,7 @@ export default function BuildTrackWebPage() {
       timeEntries: profile?.role === 'sous_traitant' ? [] : data.timeEntries,
       regulatoryDocs: profile?.role === 'sous_traitant' ? [] : data.regulatoryDocs,
     };
-  }, [data, selectedProjectId, profile]);
+  }, [data, selectedProjectId, profile, canViewReserveTrash]);
 
   const activeProjectForReserveFilters = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
   const reserveFilterPlansById = useMemo(
@@ -4960,23 +4991,23 @@ export default function BuildTrackWebPage() {
 
   const filteredReserves = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const sourceReserves = statusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
+    const sourceReserves = effectiveStatusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
     return sourceReserves.filter(r => {
-      if (statusFilter === 'deleted') {
+      if (effectiveStatusFilter === 'deleted') {
         if (!isReserveDeleted(r)) return false;
-      } else if (statusFilter === 'archived') {
+      } else if (effectiveStatusFilter === 'archived') {
         if (!isReserveArchived(r)) return false;
       } else {
         if (isReserveArchived(r)) return false;
-        if (statusFilter === 'overdue') {
+        if (effectiveStatusFilter === 'overdue') {
           if (!isReserveOverdue(r)) return false;
-        } else if (statusFilter === 'due_soon') {
+        } else if (effectiveStatusFilter === 'due_soon') {
           if (!isReserveDueSoon(r)) return false;
-        } else if (statusFilter === 'ack_missing') {
+        } else if (effectiveStatusFilter === 'ack_missing') {
           if (!needsEnterpriseAck(r)) return false;
-        } else if (statusFilter === 'ack_received') {
+        } else if (effectiveStatusFilter === 'ack_received') {
           if (!hasEnterpriseAck(r)) return false;
-        } else if (statusFilter !== 'all' && r.status !== statusFilter) {
+        } else if (effectiveStatusFilter !== 'all' && r.status !== effectiveStatusFilter) {
           return false;
         }
       }
@@ -5002,9 +5033,9 @@ export default function BuildTrackWebPage() {
       ].join(' ').toLowerCase();
       return haystack.includes(q);
     });
-  }, [projectScoped.reserves, projectScoped.deletedReserves, search, statusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
+  }, [projectScoped.reserves, projectScoped.deletedReserves, search, effectiveStatusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
 
-  const reserveSelectionPool = statusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
+  const reserveSelectionPool = effectiveStatusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
   const selectedReserve = reserveSelectionPool.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedPlan = data.sitePlans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
@@ -5269,8 +5300,8 @@ export default function BuildTrackWebPage() {
                 setSelectedReserveId={setSelectedReserveId}
                 search={search}
                 setSearch={setSearch}
-                statusFilter={statusFilter}
-                setStatusFilter={setStatusFilter}
+                statusFilter={effectiveStatusFilter}
+                setStatusFilter={value => setStatusFilter(value === 'deleted' && !canViewReserveTrash ? 'all' : value)}
                 priorityFilter={priorityFilter}
                 setPriorityFilter={setPriorityFilter}
                 companyFilter={companyFilter}
@@ -5299,6 +5330,10 @@ export default function BuildTrackWebPage() {
                 defaultReportLanguage={reportLanguage}
                 canUseAssistant={isAdmin(profile)}
                 editable={canEdit(profile)}
+                canCreateReserve={canCreate(profile)}
+                canDeleteReserve={canDelete(profile)}
+                canExport={canExport(profile)}
+                canViewTrash={canViewReserveTrash}
                 saving={saving}
               />
             )}
@@ -5332,6 +5367,7 @@ export default function BuildTrackWebPage() {
                 canCreatePlan={canCreate(profile)}
                 canDeletePlan={canDelete(profile)}
                 canMovePlanPins={canMovePins(profile)}
+                canExportReports={canExport(profile)}
                 saving={saving}
               />
             )}
@@ -5341,7 +5377,9 @@ export default function BuildTrackWebPage() {
                 companies={data.companies}
                 selectedProjectId={selectedProjectId}
                 setSelectedProjectId={setSelectedProjectId}
-                editable={canEdit(profile)}
+                canCreateProject={canCreate(profile)}
+                canEditProject={canEditChantier(profile)}
+                canDeleteProject={canDelete(profile)}
                 saving={saving}
                 onSave={saveChantierWeb}
                 onDelete={deleteChantierWeb}
@@ -5353,7 +5391,9 @@ export default function BuildTrackWebPage() {
                 projectName={projectName()}
                 selectedProjectId={selectedProjectId}
                 timeEntries={projectScoped.timeEntries}
-                editable={canEdit(profile)}
+                canCreate={canCreate(profile)}
+                canDelete={canDelete(profile)}
+                canExport={canExport(profile)}
                 rows={data.journalEntries}
                 onCreate={createJournalEntryWeb}
                 onDelete={deleteJournalEntryWeb}
@@ -5365,7 +5405,8 @@ export default function BuildTrackWebPage() {
                 entries={projectScoped.timeEntries}
                 companies={data.companies}
                 profile={profile}
-                editable={canEdit(profile)}
+                editable={canUpdateAttendance(profile) || canCreate(profile)}
+                canDelete={canDelete(profile)}
                 onCreate={createTimeEntryWeb}
                 onUpdate={updateTimeEntryWeb}
                 onDelete={deleteTimeEntryWeb}
@@ -5385,7 +5426,8 @@ export default function BuildTrackWebPage() {
                 projects={data.chantiers}
                 selectedProjectId={selectedProjectId}
                 profile={profile}
-                editable={canEdit(profile)}
+                canCreate={canCreate(profile)}
+                canDelete={canDelete(profile)}
                 saving={saving}
                 onCreate={createDocumentWeb}
                 onDelete={deleteDocumentWeb}
@@ -5395,7 +5437,9 @@ export default function BuildTrackWebPage() {
               <ChecklistsView
                 profile={profile}
                 selectedProjectId={selectedProjectId}
-                editable={canEdit(profile)}
+                canCreate={canCreate(profile)}
+                canEdit={canEdit(profile)}
+                canDelete={canDelete(profile)}
                 rows={data.checklists}
                 onSave={saveChecklistWeb}
                 onToggle={updateChecklistItemsWeb}
@@ -5408,7 +5452,9 @@ export default function BuildTrackWebPage() {
                 docs={projectScoped.regulatoryDocs}
                 companies={data.companies}
                 profile={profile}
-                editable={canEdit(profile)}
+                canCreate={canCreate(profile)}
+                canEdit={canEdit(profile)}
+                canDelete={canDelete(profile)}
                 saving={saving}
                 onSave={saveRegulatoryDocWeb}
                 onDelete={deleteRegulatoryDocWeb}
@@ -5445,6 +5491,9 @@ export default function BuildTrackWebPage() {
                 generatingReport={generatingReport}
                 restricted={profile?.role === 'sous_traitant'}
                 editable={canEdit(profile)}
+                canCreate={canCreate(profile)}
+                canDelete={canDelete(profile)}
+                canExport={canExport(profile)}
               />
             )}
             {activeTab === 'planning' && (
@@ -5477,6 +5526,7 @@ export default function BuildTrackWebPage() {
                 scoped={projectScoped}
                 data={data}
                 profile={profile}
+                canViewTeams={canViewTeams(profile)}
                 setTab={setActiveTab}
               />
             )}
@@ -5501,17 +5551,22 @@ export default function BuildTrackWebPage() {
                 language={reportLanguage}
                 setLanguage={setReportLanguage}
                 generatingReport={generatingReport}
+                canExport={canExport(profile)}
                 onGenerate={generateWebReport}
               />
             )}
             {activeTab === 'equipes' && (
-              <EquipesView
-                companies={data.companies}
-                reserves={projectScoped.reserves}
-                tasks={projectScoped.tasks}
-                editable={canEdit(profile)}
-                onUpdateCompanyField={updateCompanyField}
-              />
+              canViewTeams(profile) ? (
+                <EquipesView
+                  companies={data.companies}
+                  reserves={projectScoped.reserves}
+                  tasks={projectScoped.tasks}
+                  editable={canUpdateAttendance(profile)}
+                  onUpdateCompanyField={updateCompanyField}
+                />
+              ) : (
+                <RestrictedTool title="Équipes chantier" />
+              )
             )}
             {activeTab === 'settings' && (
               <SettingsView
@@ -6171,6 +6226,10 @@ function ReservesView(props: {
   defaultReportLanguage: TextLang;
   canUseAssistant: boolean;
   editable: boolean;
+  canCreateReserve: boolean;
+  canDeleteReserve: boolean;
+  canExport: boolean;
+  canViewTrash: boolean;
   saving: boolean;
 }) {
   const { allReserves, reserves, selectedReserve } = props;
@@ -6282,7 +6341,11 @@ function ReservesView(props: {
   const pdfBusy =
     props.generatingReport === `global_reserves-${pdfLanguage}` ||
     props.generatingReport === `individual_reserve-${pdfLanguage}`;
-  const filterCounts = useMemo(() => RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
+  const reserveFilterOptions = useMemo(
+    () => RESERVE_FILTER_OPTIONS.filter(option => option.key !== 'deleted' || props.canViewTrash),
+    [props.canViewTrash],
+  );
+  const filterCounts = useMemo(() => reserveFilterOptions.reduce<Record<string, number>>((acc, option) => {
     acc[option.key] =
       option.key === 'all'
         ? activeReserves.length
@@ -6300,10 +6363,10 @@ function ReservesView(props: {
                   ? activeReserves.filter(hasEnterpriseAck).length
                 : activeReserves.filter(reserve => reserve.status === option.key).length;
     return acc;
-  }, {}), [activeReserves, allReserves]);
+  }, {}), [activeReserves, allReserves, reserveFilterOptions]);
   const quickStatusKeys = new Set(['all', 'open', 'in_progress', 'waiting']);
-  const quickStatusOptions = RESERVE_FILTER_OPTIONS.filter(option => quickStatusKeys.has(option.key) || option.key === props.statusFilter);
-  const advancedStatusOptions = RESERVE_FILTER_OPTIONS.filter(option => !quickStatusKeys.has(option.key));
+  const quickStatusOptions = reserveFilterOptions.filter(option => quickStatusKeys.has(option.key) || option.key === props.statusFilter);
+  const advancedStatusOptions = reserveFilterOptions.filter(option => !quickStatusKeys.has(option.key));
   const advancedFilterCount = [
     props.priorityFilter,
     props.companyFilter,
@@ -6439,6 +6502,7 @@ function ReservesView(props: {
   }
 
   async function handleReservePdfExport() {
+    if (!props.canExport) return;
     if (pdfBusy || pdfTargetReserves.length === 0) return;
     if (pdfMode === 'selected' && selectedReserve) {
       await props.onGenerateReservePdf(selectedReserve, pdfLanguage);
@@ -6467,21 +6531,23 @@ function ReservesView(props: {
             <h2>{isTrashView ? 'Corbeille' : 'Réserves'}</h2>
           </div>
           <div className={styles.reservePanelActions}>
-            <button
-              type="button"
-              className={styles.reservePdfOpenButton}
-              onClick={() => setPdfModalOpen(true)}
-              disabled={isTrashView || (reserves.length === 0 && !selectedReserve)}
-            >
-              PDF
-            </button>
+            {props.canExport && (
+              <button
+                type="button"
+                className={styles.reservePdfOpenButton}
+                onClick={() => setPdfModalOpen(true)}
+                disabled={isTrashView || (reserves.length === 0 && !selectedReserve)}
+              >
+                PDF
+              </button>
+            )}
             {!isTrashView && props.canUseAssistant && activeReserves.length > 0 && (
               <button type="button" className={styles.reserveAssistantOpenButton} onClick={() => setAssistantVisible(true)}>
                 <span>Assistant</span>
                 {assistantMissingDescriptionCount > 0 && <em>{assistantMissingDescriptionCount > 9 ? '9+' : assistantMissingDescriptionCount}</em>}
               </button>
             )}
-            {props.editable && <button type="button" className={styles.reserveCreateButton} onClick={props.onCreate}>Créer</button>}
+            {props.canCreateReserve && <button type="button" className={styles.reserveCreateButton} onClick={props.onCreate}>Créer</button>}
           </div>
         </div>
         <div className={styles.reserveSearchRow}>
@@ -6813,7 +6879,7 @@ function ReservesView(props: {
         </div>
       )}
 
-      {pdfModalOpen && (
+      {pdfModalOpen && props.canExport && (
         <div
           className={styles.modalBackdrop}
           role="dialog"
@@ -7154,7 +7220,7 @@ function ReservesView(props: {
                 />
               </div>
             </form>}
-            {!isTrashView && <div className={styles.reserveDetailExportRow}>
+            {!isTrashView && props.canExport && <div className={styles.reserveDetailExportRow}>
               <button
                 type="button"
                 onClick={() => {
@@ -7180,7 +7246,7 @@ function ReservesView(props: {
                   </button>
                 ))}
                 <button type="button" onClick={() => props.onArchive(detailReserve)}>{detailReserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
-                <button type="button" className={styles.dangerButton} onClick={() => props.onDelete(detailReserve)}>Supprimer</button>
+                {props.canDeleteReserve && <button type="button" className={styles.dangerButton} onClick={() => props.onDelete(detailReserve)}>Supprimer</button>}
               </div>
             )}
             <HistoryBlock title="Commentaires" rows={detailReserve.comments ?? []} />
@@ -7913,6 +7979,7 @@ function PlansView({
   canCreatePlan,
   canDeletePlan,
   canMovePlanPins,
+  canExportReports,
   saving,
 }: any) {
   const { t } = useWebI18n();
@@ -7946,6 +8013,7 @@ function PlansView({
   const planCanCreate = Boolean(canCreatePlan ?? editable);
   const planCanDelete = Boolean(canDeletePlan);
   const planCanMovePins = Boolean(canMovePlanPins ?? editable);
+  const planCanExport = Boolean(canExportReports);
   const hasPlanActions = planCanCreate || planCanDelete;
   const projectForDraft = projects.find((project: any) => project.id === (planDraft.chantier_id || selectedProjectId)) ?? selectedProject ?? projects[0] ?? null;
   const draftBuildings = projectBuildings(projectForDraft);
@@ -8437,6 +8505,7 @@ function PlansView({
   }, [exportablePlanReserves, planPdfCompanies, plansPdfCompanySingle]);
 
   async function handlePlansPdfExport() {
+    if (!planCanExport) return;
     if (plansPdfBusy || plansPdfTargetReserves.length === 0) return;
     await onGeneratePlansPdf(
       plansPdfTargetPlans,
@@ -8630,14 +8699,16 @@ function PlansView({
                 <h2>{selectedPlan.name}</h2>
               </div>
               <div className={styles.planHeaderActions}>
-                <button
-                  type="button"
-                  className={styles.planActionPrimary}
-                  onClick={() => setPlansPdfOpen(true)}
-                  disabled={!selectedPlan || exportableProjectReserves.length === 0}
-                >
-                  PDF
-                </button>
+                {planCanExport ? (
+                  <button
+                    type="button"
+                    className={styles.planActionPrimary}
+                    onClick={() => setPlansPdfOpen(true)}
+                    disabled={!selectedPlan || exportableProjectReserves.length === 0}
+                  >
+                    PDF
+                  </button>
+                ) : null}
                 {planCanCreate ? (
                   <button type="button" className={styles.planActionPrimary} onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
                 ) : null}
@@ -8983,7 +9054,7 @@ function PlansView({
         </div>
       )}
 
-      {plansPdfOpen && (
+      {plansPdfOpen && planCanExport && (
         <div
           className={styles.modalBackdrop}
           role="dialog"
@@ -9276,6 +9347,9 @@ function VisitesView({
   generatingReport,
   restricted,
   editable,
+  canCreate,
+  canDelete,
+  canExport,
 }: any) {
   const [statusFilter, setStatusFilter] = useState<'all' | VisitDraft['status']>('all');
   const [selectedVisitId, setSelectedVisitId] = useState<string>('');
@@ -9646,7 +9720,7 @@ function VisitesView({
             <p className={styles.eyebrow}>Visites chantier</p>
             <h2>Visites</h2>
           </div>
-          {editable ? <button type="button" onClick={onCreateVisit}>Créer</button> : null}
+          {canCreate ? <button type="button" onClick={onCreateVisit}>Créer</button> : null}
         </div>
         <div className={styles.visitStatsGrid}>
           {[
@@ -9728,7 +9802,7 @@ function VisitesView({
                 >
                   {Object.entries(VISIT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
-                {editable ? <button type="button" onClick={() => onDeleteVisit(selectedVisit)}>Supprimer</button> : null}
+                {canDelete ? <button type="button" onClick={() => onDeleteVisit(selectedVisit)}>Supprimer</button> : null}
               </div>
             </div>
 
@@ -9814,7 +9888,7 @@ function VisitesView({
                   <h3>Réserves de la visite</h3>
                   <span>{selectedVisitReserves.length} rattachée{selectedVisitReserves.length > 1 ? 's' : ''}</span>
                 </div>
-                {editable ? (
+                {canCreate ? (
                   <div className={styles.visitInlineActions}>
                     <button type="button" onClick={() => openAttachModal(selectedVisit)}>Rattacher existante</button>
                     <button type="button" onClick={() => onCreateReserveFromVisit(selectedVisit)}>Nouvelle réserve</button>
@@ -9829,11 +9903,11 @@ function VisitesView({
                       <span>{reserve.title}</span>
                       <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company, reserve.building].filter(Boolean).join(' · ')}</small>
                     </button>
-                    {editable ? (
+                    {(editable || canDelete) ? (
                       <div>
-                        <button type="button" onClick={() => onUnlinkReserve(selectedVisit, reserve)}>Délier</button>
-                        <button type="button" onClick={() => onArchiveReserve(reserve)}>{reserve.archived_at ? 'Désarchiver' : 'Archiver'}</button>
-                        <button type="button" onClick={() => onDeleteReserve(reserve)}>Supprimer</button>
+                        {editable ? <button type="button" onClick={() => onUnlinkReserve(selectedVisit, reserve)}>Délier</button> : null}
+                        {editable ? <button type="button" onClick={() => onArchiveReserve(reserve)}>{reserve.archived_at ? 'Désarchiver' : 'Archiver'}</button> : null}
+                        {canDelete ? <button type="button" onClick={() => onDeleteReserve(reserve)}>Supprimer</button> : null}
                       </div>
                     ) : null}
                   </article>
@@ -9842,7 +9916,7 @@ function VisitesView({
               </div>
             </section>
 
-            <section className={styles.visitReportCardWeb}>
+            {canExport ? <section className={styles.visitReportCardWeb}>
               <div>
                 <strong>Compte-rendu PDF</strong>
                 <span>Structure, checklist, réserves rattachées et photos, comme sur mobile.</span>
@@ -9866,7 +9940,7 @@ function VisitesView({
                   {generatingReport === `visit_report-${reportLanguage}` ? 'Génération...' : 'Exporter PDF'}
                 </button>
               </div>
-            </section>
+            </section> : null}
           </>
         ) : (
           <p className={styles.empty}>Sélectionnez une visite.</p>
@@ -10297,9 +10371,10 @@ function RapportsView({
   language,
   setLanguage,
   generatingReport,
+  canExport,
   onGenerate,
 }: any) {
-  const disabled = Boolean(generatingReport);
+  const disabled = Boolean(generatingReport) || !canExport;
   const [selectedVisitId, setSelectedVisitId] = useState('');
   const selectedVisit = visites.find((visit: any) => visit.id === selectedVisitId) ?? visites[0] ?? null;
   return (
@@ -10691,7 +10766,7 @@ function TerrainHubIcon({ name }: { name: TerrainHubIconName }) {
   );
 }
 
-function TerrainView({ scoped, data, profile, setTab }: any) {
+function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
   const isSubcontractor = profile?.role === 'sous_traitant';
   const admin = isAdmin(profile);
   const openIncidents = scoped.incidents.filter((incident: any) => incident.status !== 'resolved' && incident.status !== 'closed').length;
@@ -10733,7 +10808,7 @@ function TerrainView({ scoped, data, profile, setTab }: any) {
         { icon: 'warning', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
         { icon: 'clipboard', title: 'Analytics', subtitle: 'Indicateurs détaillés', count: scoped.reserves.length, tab: 'analytics', tone: 'blue' },
         { icon: 'settings', title: 'Recherche', subtitle: 'Recherche globale', tab: 'search', tone: 'blue' },
-        ...(!isSubcontractor
+        ...(canViewTeams
           ? [{ icon: 'people' as TerrainHubIconName, title: 'Équipes', subtitle: `${data.companies.length} entreprise(s)`, count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
           : []),
       ],
@@ -10955,7 +11030,7 @@ function ProjectStructureEditor({ buildings, onChange }: { buildings: any[]; onC
   );
 }
 
-function ChantiersView({ projects, companies, selectedProjectId, setSelectedProjectId, editable, saving, onSave, onDelete }: any) {
+function ChantiersView({ projects, companies, selectedProjectId, setSelectedProjectId, canCreateProject, canEditProject, canDeleteProject, saving, onSave, onDelete }: any) {
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<any>({});
   const selectedProject = projects.find((project: any) => project.id === selectedProjectId) ?? projects[0] ?? null;
@@ -10973,6 +11048,7 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
     : companies;
 
   function openModal(project?: any) {
+    if (project ? !canEditProject : !canCreateProject) return;
     setDraft(project ? {
       id: project.id,
       name: project.name ?? '',
@@ -11026,7 +11102,7 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
               <h2>Chantiers</h2>
               <p>{projects.length} chantier(s)</p>
             </div>
-            {editable ? <button type="button" onClick={() => openModal()}>Nouveau chantier</button> : null}
+            {canCreateProject ? <button type="button" onClick={() => openModal()}>Nouveau chantier</button> : null}
           </div>
           <div className={`${styles.compactList} ${styles.chantiersList}`}>
             {projects.map((project: any) => (
@@ -11051,10 +11127,10 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
                   <h2>{selectedProject.name}</h2>
                   <p>{selectedProject.address || selectedProject.description || 'Sans adresse'}</p>
                 </div>
-                {editable ? (
+                {(canEditProject || canDeleteProject) ? (
                   <div className={styles.inlineActions}>
-                    <button type="button" onClick={() => openModal(selectedProject)}>Modifier</button>
-                    <button type="button" onClick={() => onDelete(selectedProject)}>Supprimer</button>
+                    {canEditProject ? <button type="button" onClick={() => openModal(selectedProject)}>Modifier</button> : null}
+                    {canDeleteProject ? <button type="button" onClick={() => onDelete(selectedProject)}>Supprimer</button> : null}
                   </div>
                 ) : null}
               </div>
@@ -11342,7 +11418,7 @@ function RestrictedTool({ title }: { title: string }) {
   );
 }
 
-function JournalView({ profile, projectName, selectedProjectId, timeEntries, editable, rows, onCreate, onDelete, onMigrate }: any) {
+function JournalView({ profile, projectName, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onDelete, onMigrate }: any) {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<any>(() => ({
@@ -11378,7 +11454,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
 
   async function submitEntry(event: React.FormEvent) {
     event.preventDefault();
-    if (!editable || !draft.workDone.trim() || busy) return;
+    if (!canCreate || !draft.workDone.trim() || busy) return;
     setBusy(true);
     try {
       const attendanceCount = new Set(timeEntries.filter((entry: any) => entry.date === draft.date).map((entry: any) => entry.worker_name)).size;
@@ -11440,11 +11516,11 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
             <p>Saisie quotidienne, météo, effectifs, travaux, incidents, observations et visiteurs.</p>
           </div>
           <div className={styles.inlineActions}>
-            <button type="button" onClick={exportJournal}>Exporter</button>
-            {editable ? <button type="button" onClick={() => setShowForm(value => !value)}>{showForm ? 'Fermer' : 'Nouvelle entrée'}</button> : null}
+            {canExport ? <button type="button" onClick={exportJournal}>Exporter</button> : null}
+            {canCreate ? <button type="button" onClick={() => setShowForm(value => !value)}>{showForm ? 'Fermer' : 'Nouvelle entrée'}</button> : null}
           </div>
         </div>
-        {showForm && (
+        {canCreate && showForm && (
           <form className={styles.formGrid} onSubmit={submitEntry}>
             <label><span>Date</span><input type="date" value={draft.date} onChange={event => setDraft((prev: any) => ({ ...prev, date: event.target.value }))} /></label>
             <label><span>Météo</span><input value={draft.weather} onChange={event => setDraft((prev: any) => ({ ...prev, weather: event.target.value }))} placeholder="Soleil, pluie..." /></label>
@@ -11469,7 +11545,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
                 <small>{entry.weather || 'Météo non renseignée'} · {entry.author}</small>
                 <p>{entry.workDone}</p>
               </div>
-              {editable ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
+              {canDelete ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
             </article>
           ))}
           {!entries.length ? <p className={styles.empty}>Aucune entrée journal.</p> : null}
@@ -11479,7 +11555,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
   );
 }
 
-function PointageView({ entries, companies, profile, editable, onCreate, onUpdate, onDelete }: any) {
+function PointageView({ entries, companies, profile, editable, canDelete, onCreate, onUpdate, onDelete }: any) {
   const [date, setDate] = useState(todayISO());
   const [draft, setDraft] = useState<any>({ worker_name: '', company_id: '', arrival_time: '08:00', departure_time: '', notes: '' });
   const [busy, setBusy] = useState(false);
@@ -11553,10 +11629,10 @@ function PointageView({ entries, companies, profile, editable, onCreate, onUpdat
               <span>{entry.arrival_time} → {entry.departure_time || 'présent'}</span>
               <strong>{entry.worker_name}</strong>
               <em>{entry.company_name || 'Sans entreprise'}</em>
-              {editable ? (
+              {(editable || canDelete) ? (
                 <div className={styles.inlineActions}>
-                  {!entry.departure_time ? <button type="button" onClick={() => onUpdate(entry, { departure_time: new Date().toTimeString().slice(0, 5) })}>Départ</button> : null}
-                  <button type="button" onClick={() => onDelete(entry)}>Supprimer</button>
+                  {editable && !entry.departure_time ? <button type="button" onClick={() => onUpdate(entry, { departure_time: new Date().toTimeString().slice(0, 5) })}>Départ</button> : null}
+                  {canDelete ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
                 </div>
               ) : null}
             </article>
@@ -11658,7 +11734,7 @@ function AnalyticsView({ scoped, companies, profile, setTab }: any) {
   );
 }
 
-function DocumentsView({ documents, projects, selectedProjectId, profile, editable, saving, onCreate, onDelete }: any) {
+function DocumentsView({ documents, projects, selectedProjectId, profile, canCreate, canDelete, saving, onCreate, onDelete }: any) {
   const [query, setQuery] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [draft, setDraft] = useState<any>({ name: '', category: 'Documents', chantier_id: selectedProjectId !== 'all' ? selectedProjectId : '' });
@@ -11690,7 +11766,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, editab
           </div>
           <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher document..." />
         </div>
-        {editable && (
+        {canCreate && (
           <form className={styles.formGrid} onSubmit={submitDocument}>
             <label><span>Nom</span><input value={draft.name} onChange={event => setDraft((prev: any) => ({ ...prev, name: event.target.value }))} placeholder={file?.name ?? 'Nom du document'} /></label>
             <label><span>Catégorie</span><input value={draft.category} onChange={event => setDraft((prev: any) => ({ ...prev, category: event.target.value }))} /></label>
@@ -11720,7 +11796,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, editab
                 </div>
                 <div className={styles.inlineActions}>
                   {url ? <a className={styles.linkButton} href={url} target="_blank">Ouvrir</a> : null}
-                  {editable ? <button type="button" onClick={() => onDelete(document)}>Supprimer</button> : null}
+                  {canDelete ? <button type="button" onClick={() => onDelete(document)}>Supprimer</button> : null}
                 </div>
               </article>
             );
@@ -11732,7 +11808,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, editab
   );
 }
 
-function ChecklistsView({ profile, selectedProjectId, editable, rows, onSave, onToggle, onDelete, onMigrate }: any) {
+function ChecklistsView({ profile, selectedProjectId, canCreate, canEdit, canDelete, rows, onSave, onToggle, onDelete, onMigrate }: any) {
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [itemsText, setItemsText] = useState('EPI conformes\nAccès sécurisé\nSignalisation en place\nZone propre\nRéserves levées');
@@ -11774,7 +11850,7 @@ function ChecklistsView({ profile, selectedProjectId, editable, rows, onSave, on
   }
 
   function toggleItem(checklistId: string, itemId: string) {
-    if (!editable) return;
+    if (!canEdit) return;
     const checklist = checklists.find((item: any) => item.id === checklistId);
     if (!checklist) return;
     const items = checklist.items.map((item: any) => item.id === itemId ? { ...item, checked: !item.checked } : item);
@@ -11791,7 +11867,7 @@ function ChecklistsView({ profile, selectedProjectId, editable, rows, onSave, on
         <Kpi title="En cours" value={checklists.filter(item => item.status === 'in_progress').length} hint="Contrôles ouverts" tone="amber" />
         <Kpi title="Points" value={checklists.reduce((sum, item) => sum + item.items.length, 0)} hint="À contrôler" />
       </div>
-      {editable && (
+      {canCreate && (
         <section className={styles.panel}>
           <div className={styles.panelHeaderCompact}><div><h2>Nouvelle checklist</h2><p>Créer un contrôle qualité personnalisé.</p></div></div>
           <form className={styles.formGrid} onSubmit={createChecklist}>
@@ -11811,11 +11887,11 @@ function ChecklistsView({ profile, selectedProjectId, editable, rows, onSave, on
               <article key={checklist.id} className={styles.checklistCard}>
                 <div className={styles.panelHeaderCompact}>
                   <div><h3>{checklist.title}</h3><p>{done}/{checklist.items.length} · {pct}%</p></div>
-                  {editable ? <button type="button" onClick={() => onDelete(checklist)}>Supprimer</button> : null}
+                  {canDelete ? <button type="button" onClick={() => onDelete(checklist)}>Supprimer</button> : null}
                 </div>
                 <div className={styles.progressMini}><span style={{ width: `${pct}%` }} /></div>
                 {checklist.items.map((item: any) => (
-                  <button key={item.id} type="button" className={item.checked ? styles.checklistItemDone : styles.checklistItem} onClick={() => toggleItem(checklist.id, item.id)}>
+                  <button key={item.id} type="button" className={item.checked ? styles.checklistItemDone : styles.checklistItem} disabled={!canEdit} onClick={() => toggleItem(checklist.id, item.id)}>
                     <span>{item.checked ? '✓' : ''}</span>{item.label}
                   </button>
                 ))}
@@ -11847,7 +11923,7 @@ const REGULATORY_STATUS_LABELS: Record<string, string> = {
   in_progress: 'En cours',
 };
 
-function ReglementaireView({ docs, companies, profile, editable, saving, onSave, onDelete }: any) {
+function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDelete, saving, onSave, onDelete }: any) {
   const [filter, setFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<any>({});
@@ -11855,6 +11931,7 @@ function ReglementaireView({ docs, companies, profile, editable, saving, onSave,
   const filtered = docs.filter((doc: any) => !filter || doc.status === filter);
 
   function openDoc(doc?: any) {
+    if (doc ? !canEdit : !canCreate) return;
     setDraft(doc ? {
       id: doc.id,
       type: doc.type ?? 'autre',
@@ -11896,7 +11973,7 @@ function ReglementaireView({ docs, companies, profile, editable, saving, onSave,
               <option value="">Tous statuts</option>
               {Object.entries(REGULATORY_STATUS_LABELS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </select>
-            {editable ? <button type="button" onClick={() => openDoc()}>Ajouter</button> : null}
+            {canCreate ? <button type="button" onClick={() => openDoc()}>Ajouter</button> : null}
           </div>
         </div>
         <div className={styles.compactList}>
@@ -11910,8 +11987,8 @@ function ReglementaireView({ docs, companies, profile, editable, saving, onSave,
               </div>
               <div className={styles.inlineActions}>
                 {assetUrl(doc, 'documents') ? <a className={styles.linkButton} href={assetUrl(doc, 'documents')} target="_blank">Ouvrir</a> : null}
-                {editable ? <button type="button" onClick={() => openDoc(doc)}>Modifier</button> : null}
-                {editable ? <button type="button" onClick={() => onDelete(doc)}>Supprimer</button> : null}
+                {canEdit ? <button type="button" onClick={() => openDoc(doc)}>Modifier</button> : null}
+                {canDelete ? <button type="button" onClick={() => onDelete(doc)}>Supprimer</button> : null}
               </div>
             </article>
           ))}
@@ -12118,7 +12195,7 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
     ? `/${organization.slug}`
     : profile?.organization_id ?? '';
   const canManageProject = isAdmin(profile);
-  const canEditAttendance = canEdit(profile);
+  const canEditAttendance = canUpdateAttendance(profile);
   const isSubcontractor = profile?.role === 'sous_traitant';
   const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: IonIconName }> = [
     { id: 'compte', label: t('settings.account'), icon: 'person-circle-outline' },
