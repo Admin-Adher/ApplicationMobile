@@ -17,6 +17,7 @@ import { AttendanceRecord, NotificationPreferences } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getSessionFromStorage } from '@/lib/offlineCache';
+import { supabaseRestSelect } from '@/lib/supabaseRest';
 import { useNetwork } from '@/context/NetworkContext';
 import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 import { usePushNotifications } from '@/context/PushNotificationsContext';
@@ -138,6 +139,37 @@ export default function SettingsScreen() {
     });
   }
 
+  // Récupération automatique quand le SDK supabase-js est coincé (socket mort
+  // du pool HTTP après une mise en veille) : relit le profil via une requête
+  // REST brute — connexion neuve, token lu/rafraîchi hors du SDK
+  // (getSupabaseRestAccessToken → cache AsyncStorage → forceRefreshSession).
+  // Si elle aboutit, le diagnostic affiche un état serveur complet au lieu de
+  // demander à l'utilisateur de redémarrer l'application.
+  async function recoverDiagnosticViaRest(userId: string): Promise<boolean> {
+    try {
+      const { data: rows, error: restErr } = await supabaseRestSelect<{ organization_id: string | null; role: string | null }>(
+        'profiles',
+        'organization_id,role',
+        { column: 'id', value: userId },
+        1,
+      );
+      const profile = rows?.[0];
+      if (restErr || !profile) return false;
+      const stored = await getSessionFromStorage().catch(() => null);
+      setDiag({
+        loading: false,
+        sessionUserId: userId,
+        sessionExpiresAt: stored?.expires_at ?? null,
+        serverRole: profile.role ?? null,
+        serverOrgId: profile.organization_id ?? null,
+        error: null,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function runDiagnostic() {
     setDiag({ loading: true, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: null });
     if (!isSupabaseConfigured) {
@@ -164,6 +196,9 @@ export default function SettingsScreen() {
         'profil',
       ) as any;
       if (profErr) {
+        // Le SDK a échoué (souvent : timeout sur socket mort) — nouvelle
+        // tentative en REST brut avant d'afficher une erreur.
+        if (await recoverDiagnosticViaRest(session.user.id)) return;
         setDiag({ loading: false, sessionUserId: session.user.id, sessionExpiresAt: session.expires_at ?? null, serverRole: null, serverOrgId: null, error: t('settings.diagnostic.profileMissing', { message: profErr.message }) });
         return;
       }
@@ -200,6 +235,12 @@ export default function SettingsScreen() {
             }
           }
         } catch {}
+      }
+      // Avant d'afficher "serveur auth lent" : tentative de récupération en
+      // REST brut (connexion neuve). Si le serveur répond, le diagnostic
+      // affiche l'état complet — plus besoin de redémarrer l'application.
+      if (isTimeout && cachedUserId) {
+        if (await recoverDiagnosticViaRest(cachedUserId)) return;
       }
       setDiag({
         loading: false,

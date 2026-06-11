@@ -76,6 +76,72 @@ export const isSupabaseConfigured = isValidUrl(SUPABASE_URL) && Boolean(SUPABASE
 
 const LOCK_MAX_MS = 5_000;
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Fetch avec timeout — cause racine des "sync serveur aléatoires"
+//
+// Sur Android, après une mise en veille / un changement de réseau, le pool de
+// connexions HTTP (OkHttp) peut conserver un socket TCP mort vers l'hôte
+// Supabase. Toute requête réutilisant ce socket pend indéfiniment : React
+// Native n'applique aucun read-timeout, et supabase-js n'en définit aucun.
+// Le reste du réseau répond normalement (autres hôtes = autres sockets), d'où
+// le symptôme "réseau local OK mais serveur Supabase muet > 15 s" que seul un
+// redémarrage complet de l'app (nouveau pool) corrigeait.
+//
+// Pire : au démarrage, GoTrueClient lance _recoverAndRefresh() et TOUS les
+// appels auth.* attendent initializePromise AVANT d'acquérir le verrou — le
+// plafonnement du verrou (safeLock ci-dessous) ne protège donc pas ce chemin.
+// Si ce refresh initial pend, getSession()/refreshSession() pendent pour
+// toujours, quel que soit l'état du verrou.
+//
+// Fix : on injecte ce fetch dans createClient (global.fetch). Chaque requête
+// est bornée par un AbortController. L'abandon ferme le socket mort (OkHttp
+// l'évince du pool) et :
+//   • auth-js convertit le reject en AuthRetryableFetchError → son retry
+//     interne (backoff 200 ms × 2^n, fenêtre 30 s) repart sur un socket neuf ;
+//   • pour les GET idempotents (PostgREST, /auth/v1/user), on retente nous-
+//     mêmes une fois immédiatement — le second essai aboutit en ~1 s ;
+//   • les mutations (POST/PATCH/DELETE) ne sont jamais rejouées ici : la file
+//     offline (NetworkContext) gère déjà leur reprise sans doublon.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const FETCH_TIMEOUT_AUTH_MS = 12_000;     // /auth/v1/* — petits payloads, retry interne auth-js
+const FETCH_TIMEOUT_REST_MS = 15_000;     // /rest/v1/* — requêtes JSON, + 1 retry si GET
+const FETCH_TIMEOUT_STORAGE_MS = 120_000; // /storage/v1/* — uploads de photos sur réseau lent
+
+function timeoutForUrl(url: string): number {
+  if (url.includes('/auth/v1/')) return FETCH_TIMEOUT_AUTH_MS;
+  if (url.includes('/storage/v1/')) return FETCH_TIMEOUT_STORAGE_MS;
+  return FETCH_TIMEOUT_REST_MS;
+}
+
+function fetchWithTimeout(input: any, init?: any): Promise<Response> {
+  const url = typeof input === 'string' ? input : (input?.url ?? String(input));
+  const method = String(init?.method ?? input?.method ?? 'GET').toUpperCase();
+  const timeoutMs = timeoutForUrl(url);
+  const upstream: AbortSignal | undefined = init?.signal;
+
+  const attempt = (): Promise<Response> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    if (upstream) {
+      if (upstream.aborted) controller.abort();
+      else upstream.addEventListener('abort', () => controller.abort(), { once: true } as any);
+    }
+    return fetch(input, { ...(init ?? {}), signal: controller.signal })
+      .finally(() => clearTimeout(timer));
+  };
+
+  return attempt().catch((err: any) => {
+    const timedOut = err?.name === 'AbortError' && !upstream?.aborted;
+    const idempotent = method === 'GET' || method === 'HEAD';
+    if (timedOut && idempotent) {
+      console.warn(`[supabase-fetch] timeout ${timeoutMs}ms (socket mort probable) — retry sur connexion neuve: ${method} ${url.split('?')[0]}`);
+      return attempt();
+    }
+    throw err;
+  });
+}
+
 let lockChain: Promise<unknown> = Promise.resolve();
 
 export function resetAuthLock() {
@@ -127,6 +193,11 @@ export const supabase: SupabaseClientType = isSupabaseConfigured
         detectSessionInUrl: false,
         lock: Platform.OS === 'web' ? undefined : safeLock,
       } as any,
+      global: {
+        // Borne TOUTES les requêtes du client (auth, PostgREST, storage) —
+        // sans cela une connexion morte du pool OkHttp pend indéfiniment.
+        fetch: fetchWithTimeout,
+      },
     })
   : (null as unknown as SupabaseClientType);
 
