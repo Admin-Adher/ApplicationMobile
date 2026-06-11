@@ -4,6 +4,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Organization, Plan, Subscription, Invitation, UserRole, User } from '@/constants/types';
 import { sendInvitationEmail } from '@/lib/email/client';
+import { removeRemoteFilesViaApi } from '@/lib/storage';
 import i18n from '@/lib/i18n';
 
 export interface OrgSummary {
@@ -858,6 +859,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       if (docPaths.length > 0) {
         await supabase.storage.from('documents').remove(docPaths).catch(() => {});
       }
+
+      // Fichiers hébergés sur Cloudflare R2 (URLs non-Supabase) : suppression
+      // via l'API serveur — elle ignore d'elle-même les URLs d'autres hôtes.
+      const allFileUrls = [
+        ...(photoData ?? []).map((p: any) => String(p.uri ?? '')),
+        ...(docData ?? []).map((d: any) => String(d.uri ?? '')),
+      ].filter(Boolean);
+      await removeRemoteFilesViaApi(allFileUrls).catch(() => {});
 
       // ── Update local state ──
       setAllOrganizations(prev => prev.filter(o => o.id !== orgId));

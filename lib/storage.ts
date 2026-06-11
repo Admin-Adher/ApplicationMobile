@@ -63,6 +63,156 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
  */
 export const MISSING_LOCAL_FILE = '__BUILDTRACK_MISSING_LOCAL_FILE__';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Cloudflare R2 — chemin d'upload prioritaire (bascule hybride)
+//
+// Le plan gratuit Supabase est limité à 1 Go de storage et ~10 Go d'egress/mois
+// (partagé avec la base). R2 offre 10 Go + egress illimité gratuit. Stratégie :
+//   1. On demande une URL présignée PUT à /api/storage/presign (auth Bearer).
+//   2. On uploade DIRECTEMENT vers R2 (PUT simple, sans header d'auth — encore
+//      plus fiable que le chemin Supabase sur Android/Hermes).
+//   3. On stocke l'URL publique R2 (Worker *.workers.dev) en base.
+// Si le presign échoue (R2 non configuré → 503, vieille app, hors-ligne,
+// session invalide), on retombe sur le chemin Supabase historique : les deux
+// hôtes cohabitent, les lecteurs consomment des URLs absolues et ne voient
+// aucune différence.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const PRESIGN_TIMEOUT_MS = 10_000;
+
+type PresignedUpload = { uploadUrl: string; publicUrl: string; key: string };
+
+function storageApiBaseUrl(): string {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return window.location.origin;
+  }
+  return process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '';
+}
+
+async function requestPresignedUpload(
+  kind: 'photo' | 'document',
+  filename: string,
+  tag: string,
+): Promise<PresignedUpload | null> {
+  try {
+    const base = storageApiBaseUrl();
+    const url = base ? `${base}/api/storage/presign` : '/api/storage/presign';
+    const accessToken = await resolveStorageAccessToken(tag);
+    if (!accessToken || accessToken === SUPABASE_KEY) {
+      // Pas de session utilisateur exploitable → le presign répondrait 401.
+      return null;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PRESIGN_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ kind, filename }),
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (response.status === 503) {
+      // R2 non configuré côté serveur — silencieux, fallback Supabase.
+      return null;
+    }
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      console.warn(`${tag} presign R2 refusé (HTTP ${response.status}): ${body.slice(0, 160)}`);
+      return null;
+    }
+    const data = await response.json().catch(() => null);
+    if (!data?.uploadUrl || !data?.publicUrl) return null;
+    return { uploadUrl: data.uploadUrl, publicUrl: data.publicUrl, key: data.key ?? '' };
+  } catch (err: any) {
+    console.warn(`${tag} presign R2 indisponible:`, err?.message ?? err);
+    return null;
+  }
+}
+
+// PUT du fichier vers R2. Natif : FileSystem.uploadAsync (HTTP natif, pas de
+// Blob fetch — même contrainte Android/Hermes que pour Supabase). Web : fetch.
+async function putFileToR2(
+  presigned: PresignedUpload,
+  uri: string,
+  contentType: string,
+  timeoutMs: number,
+  tag: string,
+): Promise<boolean> {
+  try {
+    if (Platform.OS !== 'web') {
+      const result = await withTimeout(
+        FileSystem.uploadAsync(presigned.uploadUrl, uri, {
+          httpMethod: 'PUT',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: { 'Content-Type': contentType },
+        }),
+        timeoutMs,
+        'upload R2 natif',
+      );
+      if (result.status < 200 || result.status >= 300) {
+        console.warn(`${tag} PUT R2 natif HTTP ${result.status}: ${(result.body ?? '').slice(0, 160)}`);
+        return false;
+      }
+      return true;
+    }
+    const { data: blob } = await readFileAsBlob(uri);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response: Response;
+    try {
+      response = await fetch(presigned.uploadUrl, {
+        method: 'PUT',
+        body: blob,
+        headers: { 'Content-Type': contentType },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response.ok) {
+      console.warn(`${tag} PUT R2 web HTTP ${response.status}`);
+      return false;
+    }
+    return true;
+  } catch (err: any) {
+    console.warn(`${tag} PUT R2 échoué:`, err?.message ?? err);
+    return false;
+  }
+}
+
+/**
+ * Supprime côté serveur les fichiers R2 correspondant aux URLs fournies
+ * (les URLs non-R2 sont ignorées par l'API — les fichiers Supabase restent
+ * gérés par storage.remove côté client, comme avant). Best-effort.
+ */
+export async function removeRemoteFilesViaApi(urls: string[]): Promise<void> {
+  const list = (urls ?? []).filter(u => typeof u === 'string' && /^https?:\/\//.test(u));
+  if (!list.length) return;
+  try {
+    const base = storageApiBaseUrl();
+    const url = base ? `${base}/api/storage/delete` : '/api/storage/delete';
+    const accessToken = await resolveStorageAccessToken('[removeRemoteFiles]');
+    if (!accessToken || accessToken === SUPABASE_KEY) return;
+    await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ urls: list.slice(0, 100) }),
+    });
+  } catch (err: any) {
+    console.warn('[removeRemoteFiles] suppression R2 échouée:', err?.message ?? err);
+  }
+}
+
 async function localFileMissing(uri: string): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   if (!uri.startsWith('file://')) return false;
@@ -138,7 +288,25 @@ async function _uploadPhotoWithError(
       ext === 'png' ? 'image/png' :
       ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
       'image/jpeg';
-    const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const path = `${Date.now()}_${nextUploadSeq()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
+    // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ─────────────
+    const presigned = await requestPresignedUpload('photo', filename, '[uploadPhoto]');
+    if (presigned) {
+      const ok = await putFileToR2(presigned, uri, contentType, PHOTO_UPLOAD_TIMEOUT_MS, '[uploadPhoto]');
+      if (ok) {
+        if (Platform.OS !== 'web') {
+          try {
+            const docDir = FileSystem.documentDirectory ?? '';
+            if (docDir && uri.startsWith(docDir)) {
+              await FileSystem.deleteAsync(uri, { idempotent: true });
+            }
+          } catch {}
+        }
+        return { url: presigned.publicUrl, error: null };
+      }
+      console.warn('[uploadPhoto] R2 échoué — repli sur Supabase Storage');
+    }
 
     let publicUrl: string;
 
@@ -262,9 +430,22 @@ export async function uploadDocumentDetailed(
 
   try {
     const contentType = mimeType ?? 'application/octet-stream';
-    const path = `${Date.now()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const path = `${Date.now()}_${nextUploadSeq()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
     console.log(`${tag} contentType : ${contentType}`);
     console.log(`${tag} storage path: documents/${path}`);
+
+    // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ─────────────
+    // Bonus : pas de limite de 50 Mo par fichier (plans PDF lourds OK).
+    const presigned = await requestPresignedUpload('document', filename, tag);
+    if (presigned) {
+      console.log(`${tag} chemin : R2 (PUT présigné)`);
+      const ok = await putFileToR2(presigned, uri, contentType, DOCUMENT_UPLOAD_TIMEOUT_MS, tag);
+      if (ok) {
+        console.log(`${tag} SUCCÈS R2 — url publique: ${presigned.publicUrl}`);
+        return { url: presigned.publicUrl, error: null };
+      }
+      console.warn(`${tag} R2 échoué — repli sur Supabase Storage`);
+    }
 
     if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
       // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ────────

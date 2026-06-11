@@ -7,6 +7,7 @@ import { createClient } from '@supabase/supabase-js';
 import { normalizeEmailLanguage, APP_URL, type EmailLanguage } from '@/lib/templates';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isOptedOut, withUnsubscribeFooter, listUnsubscribeHeaders } from '@/lib/emailOptout';
+import { r2PublicHost } from '@/lib/r2';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -357,26 +358,28 @@ async function fetchRemoteImageAsDataUrl(url: string, remainingBudget: number) {
 }
 
 // Anti-SSRF : seules les images hébergées sur l'instance Supabase du projet
-// peuvent être téléchargées côté serveur pour être inlinées dans le PDF.
-function allowedRemoteImageHost(): string | null {
-  const raw =
+// OU sur notre hôte public Cloudflare R2 (Worker *.workers.dev) peuvent être
+// téléchargées côté serveur pour être inlinées dans le PDF.
+function allowedRemoteImageHosts(): Set<string> {
+  const hosts = new Set<string>();
+  const supabaseRaw =
     process.env.SUPABASE_URL ??
     process.env.NEXT_PUBLIC_SUPABASE_URL ??
     process.env.EXPO_PUBLIC_SUPABASE_URL;
-  if (!raw) return null;
-  try {
-    return new URL(raw).host.toLowerCase();
-  } catch {
-    return null;
+  if (supabaseRaw) {
+    try { hosts.add(new URL(supabaseRaw).host.toLowerCase()); } catch {}
   }
+  const r2Host = r2PublicHost();
+  if (r2Host) hosts.add(r2Host.toLowerCase());
+  return hosts;
 }
 
-function isAllowedRemoteImageUrl(rawUrl: string, allowedHost: string | null): boolean {
-  if (!allowedHost) return false;
+function isAllowedRemoteImageUrl(rawUrl: string, allowedHosts: Set<string>): boolean {
+  if (allowedHosts.size === 0) return false;
   try {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
-    return parsed.host.toLowerCase() === allowedHost;
+    return allowedHosts.has(parsed.host.toLowerCase());
   } catch {
     return false;
   }
@@ -389,13 +392,13 @@ async function inlineRemoteImagesForPdf(html: string) {
 
   if (uniqueAttrs.length === 0) return html;
 
-  const allowedHost = allowedRemoteImageHost();
+  const allowedHosts = allowedRemoteImageHosts();
   const disallowed = new Set<string>();
   const fetchable: string[] = [];
 
   for (const attrValue of uniqueAttrs) {
     const url = decodeHtmlAttribute(attrValue);
-    if (isAllowedRemoteImageUrl(url, allowedHost)) {
+    if (isAllowedRemoteImageUrl(url, allowedHosts)) {
       fetchable.push(attrValue);
     } else {
       disallowed.add(attrValue);

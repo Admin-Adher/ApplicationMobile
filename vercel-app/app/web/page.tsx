@@ -2027,6 +2027,45 @@ function checklistItemsToRows(items: any[]) {
 async function uploadWebFile(bucket: 'photos' | 'documents', file: File, prefix: string) {
   const extension = file.name.includes('.') ? file.name.split('.').pop() : '';
   const fileName = `${safeStorageName(prefix)}_${Date.now()}_${safeStorageName(file.name || `upload.${extension || 'jpg'}`)}`;
+
+  // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ──────────────
+  // 10 Go gratuits + egress illimité vs 1 Go / ~10 Go d'egress sur Supabase.
+  // Si le presign échoue (R2 non configuré → 503, session absente…), on
+  // retombe sur Supabase Storage : bascule hybride sans rupture.
+  try {
+    const { data: authData } = await supabaseBrowser.auth.getSession();
+    const token = authData.session?.access_token;
+    if (token) {
+      const presignResponse = await fetch('/api/storage/presign', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          kind: bucket === 'photos' ? 'photo' : 'document',
+          filename: fileName,
+        }),
+      });
+      if (presignResponse.ok) {
+        const presigned = await presignResponse.json().catch(() => null);
+        if (presigned?.uploadUrl && presigned?.publicUrl) {
+          const putResponse = await fetch(presigned.uploadUrl, {
+            method: 'PUT',
+            body: file,
+            headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          });
+          if (putResponse.ok) return presigned.publicUrl as string;
+          console.warn(`[uploadWebFile] PUT R2 HTTP ${putResponse.status} — repli Supabase`);
+        }
+      } else if (presignResponse.status !== 503) {
+        console.warn(`[uploadWebFile] presign R2 HTTP ${presignResponse.status} — repli Supabase`);
+      }
+    }
+  } catch (r2Error: any) {
+    console.warn('[uploadWebFile] R2 indisponible — repli Supabase:', r2Error?.message ?? r2Error);
+  }
+
   const path = fileName;
   const { data, error } = await supabaseBrowser.storage
     .from(bucket)
