@@ -642,6 +642,7 @@
 }
 
 .navList button {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -658,6 +659,27 @@
     background 0.16s ease,
     color 0.16s ease,
     transform 0.16s ease;
+}
+
+/* Badge messages non lus — positionné en absolu pour rester visible quand la
+   sidebar est repliée (le label est alors masqué). */
+.navBadge {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  min-width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  pointer-events: none;
 }
 
 .navList button:hover {

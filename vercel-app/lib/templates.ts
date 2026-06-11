@@ -102,7 +102,7 @@ const COPY = {
     footer: {
       product: 'BuildTrack — Gestion de chantier numérique',
       automated: 'Cet email a été envoyé automatiquement, merci de ne pas y répondre.',
-      rights: 'Bouygues Construction. Tous droits réservés.',
+      rights: 'BuildTrack. Tous droits réservés.',
     },
     common: {
       hello: (name: string) => `Bonjour ${name},`,
@@ -206,7 +206,7 @@ const COPY = {
     footer: {
       product: 'BuildTrack — Digital construction site management',
       automated: 'This email was sent automatically. Please do not reply.',
-      rights: 'Bouygues Construction. All rights reserved.',
+      rights: 'BuildTrack. All rights reserved.',
     },
     common: {
       hello: (name: string) => `Hello ${name},`,
@@ -310,7 +310,7 @@ const COPY = {
     footer: {
       product: 'BuildTrack — Gestión digital de obra',
       automated: 'Este correo se envió automáticamente. Por favor, no respondas.',
-      rights: 'Bouygues Construction. Todos los derechos reservados.',
+      rights: 'BuildTrack. Todos los derechos reservados.',
     },
     common: {
       hello: (name: string) => `Hola ${name},`,
@@ -507,8 +507,8 @@ function baseLayout(content: string, preheader = '', language?: string | null): 
     <div class="header">
       <div class="logo-box">B</div>
       <div class="brand">
-        <div class="brand-name">Bouygues</div>
-        <div class="brand-sub">Construction</div>
+        <div class="brand-name">BuildTrack</div>
+        <div class="brand-sub">Gestion de chantier</div>
         <div class="divider-bar"></div>
       </div>
     </div>

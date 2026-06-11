@@ -35,6 +35,8 @@ export interface SendEmailParams {
   subject: string;
   html: string;
   attachments?: EmailAttachment[];
+  // En-têtes SMTP additionnels (List-Unsubscribe, etc.).
+  headers?: Record<string, string>;
 }
 
 export async function sendEmail(
@@ -57,6 +59,7 @@ export async function sendEmail(
       to: toList.join(', '),
       subject: params.subject,
       html: params.html,
+      ...(params.headers ? { headers: params.headers } : {}),
       attachments: params.attachments?.map(a => ({
         filename: a.filename,
         content: a.content,

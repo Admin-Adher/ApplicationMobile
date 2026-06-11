@@ -4,8 +4,9 @@ import { buildGlobalReportHtml, buildGlobalReservesHtml, buildIndividualReserveH
 import { sendEmail } from '@/lib/sender';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { createClient } from '@supabase/supabase-js';
-import { normalizeEmailLanguage, type EmailLanguage } from '@/lib/templates';
+import { normalizeEmailLanguage, APP_URL, type EmailLanguage } from '@/lib/templates';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { isOptedOut, withUnsubscribeFooter, listUnsubscribeHeaders } from '@/lib/emailOptout';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -904,6 +905,10 @@ export async function POST(req: NextRequest) {
       );
       await Promise.allSettled(
         allowedRecipients.map(async (to: string) => {
+          if (await isOptedOut(supabase, to)) {
+            console.warn('[generate-pdf] destinataire désinscrit, envoi ignoré:', to);
+            return { success: true, suppressed: true };
+          }
           const language = await resolveRecipientLanguage(to, payload.language);
           const copy = PDF_EMAIL_COPY[language];
           const dateStr = new Date(payload.generatedAt || Date.now()).toLocaleDateString(PDF_LOCALES[language], {
@@ -968,7 +973,8 @@ export async function POST(req: NextRequest) {
           return sendEmail({
             to,
             subject,
-            html: emailHtml,
+            html: withUnsubscribeFooter(emailHtml, APP_URL, to, language),
+            headers: listUnsubscribeHeaders(APP_URL, to),
             attachments: [
               {
                 filename,

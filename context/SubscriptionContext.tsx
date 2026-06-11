@@ -72,7 +72,7 @@ interface SubscriptionContextValue {
   allOrganizations: Organization[];
   allPlans: Plan[];
   orgSummaries: OrgSummary[];
-  inviteUser: (email: string, role: UserRole, companyId?: string) => Promise<{ success: boolean; error?: string; token?: string }>;
+  inviteUser: (email: string, role: UserRole, companyId?: string) => Promise<{ success: boolean; error?: string; token?: string; emailError?: string }>;
   cancelInvitation: (id: string) => Promise<void>;
   resendInvitation: (id: string) => Promise<{ success: boolean; error?: string }>;
   refreshSubscription: () => void;
@@ -340,7 +340,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     email: string,
     role: UserRole,
     companyId?: string
-  ): Promise<{ success: boolean; error?: string; token?: string }> {
+  ): Promise<{ success: boolean; error?: string; token?: string; emailError?: string }> {
     if (!user) return { success: false, error: 'Non connecté.' };
     const isFreeRole = FREE_ROLES.includes(role);
     if (!isFreeRole) {
@@ -467,18 +467,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         }
       }
 
-      sendInvitationEmail({
-        email: emailLower,
-        invitedByName: user.name,
-        organizationName: organization?.name ?? 'votre organisation',
-        role,
-        token: data.token,
-        expiresAt: data.expires_at,
-        companyName,
-        language: user.preferredLanguage,
-      }).catch(() => {});
+      // On attend le résultat de l'envoi : l'invitation est créée quoi qu'il
+      // arrive (le token reste partageable manuellement), mais l'admin doit
+      // savoir si l'email n'est pas parti au lieu de croire à un envoi réussi.
+      let emailError: string | undefined;
+      try {
+        const emailResult = await sendInvitationEmail({
+          email: emailLower,
+          invitedByName: user.name,
+          organizationName: organization?.name ?? 'votre organisation',
+          role,
+          token: data.token,
+          expiresAt: data.expires_at,
+          companyName,
+          language: user.preferredLanguage,
+        });
+        if (!emailResult.success) emailError = emailResult.error ?? 'Envoi impossible';
+      } catch (err: any) {
+        emailError = err?.message ?? 'Envoi impossible';
+      }
 
-      return { success: true, token: data.token };
+      return { success: true, token: data.token, emailError };
     } catch {
       return { success: false, error: 'Erreur réseau.' };
     }

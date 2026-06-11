@@ -41,6 +41,10 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
             style={styles.tab}
             onPress={() => router.navigate(tab.route as any)}
             activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel={hasBadge
+              ? `${t(`tabs.${tab.key}`)} — ${t('notifications.unread', { count: unreadCount })}`
+              : t(`tabs.${tab.key}`)}
           >
             <View style={styles.iconWrap}>
               <Ionicons

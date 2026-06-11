@@ -2055,6 +2055,36 @@ async function requestWebTranslation(params: { text: string; source?: TextLang |
   return String(payload.text).trim();
 }
 
+// Notifications push vers les utilisateurs mobiles. L'API /api/send-push
+// résout elle-même les destinataires (membres du canal, entreprises de la
+// réserve), applique les préférences et les heures calmes. Fire-and-forget :
+// un échec de push ne doit jamais bloquer ni faire échouer l'action métier.
+// Sans ces appels, les actions effectuées depuis le web (réserve créée,
+// statut changé, message envoyé) ne notifiaient personne sur mobile.
+function triggerWebPush(payload:
+  | { type: 'message-created'; messageId: string }
+  | { type: 'reserve-created'; reserveId: string }
+  | { type: 'reserve-status-changed'; reserveId: string; newStatus?: string; previousStatus?: string }
+) {
+  void (async () => {
+    try {
+      const { data: authData } = await supabaseBrowser.auth.getSession();
+      const token = authData.session?.access_token;
+      if (!token) return;
+      await fetch('/api/send-push', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (err: any) {
+      console.warn('[web push]', payload.type, err?.message ?? err);
+    }
+  })();
+}
+
 function defaultTextLang(): TextLang {
   if (typeof window === 'undefined') return 'fr';
   const stored = window.localStorage.getItem('buildtrack-web-dictation-lang');
@@ -2422,6 +2452,15 @@ export default function BuildTrackWebPage() {
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  // Suivi des messages lus par canal (ISO de la dernière lecture), persisté en
+  // localStorage par utilisateur — alimente le badge non-lus de la sidebar et
+  // le compteur du titre d'onglet.
+  const [lastReadByChannel, setLastReadByChannel] = useState<Record<string, string>>({});
+  // Notifie les événements realtime entrants (bannière) sans figer de vieux
+  // états dans la closure de l'abonnement Supabase.
+  const realtimeEventRef = useRef<((kind: 'message' | 'reserve', row: any) => void) | null>(null);
+  const realtimeNoticedIdsRef = useRef<Set<string>>(new Set());
+  const baseDocumentTitleRef = useRef<string>('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [companyFilter, setCompanyFilter] = useState('all');
@@ -2575,16 +2614,54 @@ export default function BuildTrackWebPage() {
 
   // Realtime : les messages et réserves modifiés ailleurs (mobile, autres postes)
   // apparaissent sans devoir cliquer sur Synchroniser.
+  // Bannière sur événement realtime entrant. Réassigné à chaque rendu pour
+  // capturer l'état courant (onglet actif, canal ouvert, profil) sans figer la
+  // closure de l'abonnement. Dédupliqué par id (l'echo realtime de nos propres
+  // insertions est écarté en amont : la ligne existe déjà dans le state).
+  realtimeEventRef.current = (kind, row) => {
+    if (!row?.id) return;
+    const noticedKey = `${kind}:${row.id}`;
+    if (realtimeNoticedIdsRef.current.has(noticedKey)) return;
+    realtimeNoticedIdsRef.current.add(noticedKey);
+    if (realtimeNoticedIdsRef.current.size > 500) {
+      realtimeNoticedIdsRef.current = new Set(Array.from(realtimeNoticedIdsRef.current).slice(-200));
+    }
+    const myName = profile?.name || authUser?.email || '';
+    if (kind === 'message') {
+      if (sameName(row.sender, myName)) return;
+      const viewingChannel = activeTab === 'messages'
+        && selectedChannelId === row.channel_id
+        && typeof document !== 'undefined'
+        && !document.hidden;
+      if (viewingChannel) return;
+      const preview = String(row.content ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      setNotice(`💬 ${row.sender ?? 'Message'} — ${preview || 'Nouveau message'}`);
+    } else {
+      const title = String(row.title ?? '').trim().slice(0, 80);
+      setNotice(`🔔 Nouvelle réserve — ${title || row.id}`);
+    }
+  };
+
   useEffect(() => {
     if (!session?.user?.id || !profile?.organization_id) return;
     const orgFilter = `organization_id=eq.${profile.organization_id}`;
     const channel = supabaseBrowser
       .channel('web-live')
       .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'messages', filter: orgFilter }, (payload: any) => {
-        setData(prev => ({ ...prev, messages: mergeRealtimeRow(prev.messages, payload) }));
+        setData(prev => {
+          const incoming = payload?.eventType === 'INSERT' ? payload?.new : null;
+          if (incoming?.id && !prev.messages.some((m: any) => m.id === incoming.id)) {
+            queueMicrotask(() => realtimeEventRef.current?.('message', incoming));
+          }
+          return { ...prev, messages: mergeRealtimeRow(prev.messages, payload) };
+        });
       })
       .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'reserves', filter: orgFilter }, (payload: any) => {
         setData(prev => {
+          const incoming = payload?.eventType === 'INSERT' ? payload?.new : null;
+          if (incoming?.id && ![...prev.reserves, ...prev.deletedReserves].some((r: any) => r.id === incoming.id)) {
+            queueMicrotask(() => realtimeEventRef.current?.('reserve', incoming));
+          }
           const merged = mergeRealtimeRow([...prev.reserves, ...prev.deletedReserves], payload);
           const visible = visibleReservesForProfile(merged, profile, prev.companies);
           return {
@@ -2599,6 +2676,42 @@ export default function BuildTrackWebPage() {
       supabaseBrowser.removeChannel(channel);
     };
   }, [session?.user?.id, profile?.organization_id]);
+
+  // Persistance du suivi de lecture des messages (par utilisateur).
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId || typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(`buildtrack-web-last-read-v1-${userId}`);
+      if (raw) setLastReadByChannel(JSON.parse(raw));
+    } catch {}
+  }, [session?.user?.id]);
+  useEffect(() => {
+    const userId = session?.user?.id;
+    if (!userId || typeof window === 'undefined') return;
+    if (!Object.keys(lastReadByChannel).length) return;
+    try {
+      window.localStorage.setItem(`buildtrack-web-last-read-v1-${userId}`, JSON.stringify(lastReadByChannel));
+    } catch {}
+  }, [lastReadByChannel, session?.user?.id]);
+
+  // Première session : tous les canaux partent « lus maintenant » pour ne pas
+  // afficher des centaines de non-lus historiques au premier chargement.
+  useEffect(() => {
+    if (!data.channels.length) return;
+    setLastReadByChannel(prev => {
+      const nowIsoStamp = new Date().toISOString();
+      let changed = false;
+      const next = { ...prev };
+      for (const channel of data.channels) {
+        if (channel?.id && !next[channel.id]) {
+          next[channel.id] = nowIsoStamp;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [data.channels]);
 
   // F5 / fermeture d'onglet pendant une saisie de modale : avertir avant de perdre le brouillon.
   useEffect(() => {
@@ -2780,6 +2893,13 @@ export default function BuildTrackWebPage() {
         reserves: prev.reserves.map(r => r.id === reserve.id ? (updated ?? { ...r, ...patch }) : r),
         deletedReserves: prev.deletedReserves.map(r => r.id === reserve.id ? (updated ?? { ...r, ...patch }) : r),
       }));
+      // Point de passage de tous les changements de statut côté web (tunnel,
+      // levée, clôture…) → notifie les entreprises concernées sur mobile.
+      const previousStatus = String(reserve.status ?? '');
+      const nextStatus = typeof patch.status === 'string' ? patch.status : null;
+      if (nextStatus && nextStatus !== previousStatus) {
+        triggerWebPush({ type: 'reserve-status-changed', reserveId: String(reserve.id), newStatus: nextStatus, previousStatus });
+      }
     }
     setSaving(false);
     return !updateError;
@@ -3524,6 +3644,10 @@ export default function BuildTrackWebPage() {
           reserves: prev.reserves.map(r => r.id === editingReserveId ? (updated ?? { ...r, ...basePayload, ...(photoPatch ?? {}) }) : r),
         }));
         await syncVisitReserveLink(editingReserveId, reserveDraft.visiteId || null, existing?.visite_id ?? null);
+        const previousStatus = String(existing?.status ?? '');
+        if (basePayload.status && basePayload.status !== previousStatus) {
+          triggerWebPush({ type: 'reserve-status-changed', reserveId: String(editingReserveId), newStatus: basePayload.status, previousStatus });
+        }
         closeReserveModal();
         setNotice('Réserve mise à jour.');
       }
@@ -3548,6 +3672,7 @@ export default function BuildTrackWebPage() {
         const finalReserve = Array.isArray(inserted) ? (inserted[0] ?? reservePayload) : (inserted ?? reservePayload);
         setData(prev => ({ ...prev, reserves: [finalReserve, ...prev.reserves] }));
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
+        triggerWebPush({ type: 'reserve-created', reserveId: String(id) });
         setSelectedReserveId(id);
         const createdWithPin = basePayload.plan_x != null && basePayload.plan_y != null;
         if (reserveDraft.planId && createdWithPin) {
@@ -4738,6 +4863,7 @@ export default function BuildTrackWebPage() {
     else {
       setMessageDraft('');
       setData(prev => ({ ...prev, messages: [inserted, ...prev.messages] }));
+      triggerWebPush({ type: 'message-created', messageId: String(inserted?.id ?? payload.id) });
     }
     setSaving(false);
   }
@@ -4850,6 +4976,46 @@ export default function BuildTrackWebPage() {
         .sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())
     : [], [selectedChannel, data.messages]);
 
+  // Canal affiché et onglet visible → tout ce qui y est arrivé est lu.
+  useEffect(() => {
+    if (activeTab !== 'messages' || !selectedChannel?.id) return;
+    const latest = selectedChannelMessages.length
+      ? selectedChannelMessages[selectedChannelMessages.length - 1]?.created_at
+      : null;
+    const stamp = typeof latest === 'string' && latest ? latest : new Date().toISOString();
+    setLastReadByChannel(prev => {
+      const current = prev[selectedChannel.id];
+      if (current && current >= stamp) return prev;
+      return { ...prev, [selectedChannel.id]: stamp };
+    });
+  }, [activeTab, selectedChannel?.id, selectedChannelMessages]);
+
+  // Compteur de messages non lus (tous canaux sauf celui affiché), pour le
+  // badge de la sidebar et le titre de l'onglet navigateur.
+  const unreadMessagesCount = useMemo(() => {
+    if (!data.messages.length) return 0;
+    const myName = profile?.name || authUser?.email || '';
+    let count = 0;
+    for (const message of data.messages) {
+      if (!message?.channel_id || typeof message?.created_at !== 'string') continue;
+      if (activeTab === 'messages' && selectedChannel?.id === message.channel_id) continue;
+      if (sameName(message.sender, myName)) continue;
+      const lastRead = lastReadByChannel[message.channel_id];
+      if (lastRead && message.created_at > lastRead) count += 1;
+    }
+    return count;
+  }, [data.messages, lastReadByChannel, activeTab, selectedChannel?.id, profile?.name, authUser?.email]);
+
+  // Titre de l'onglet : « (3) BuildTrack » quand des messages attendent — le
+  // seul signal visible quand l'utilisateur est sur un autre onglet navigateur.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (!baseDocumentTitleRef.current) baseDocumentTitleRef.current = document.title || 'BuildTrack';
+    const base = baseDocumentTitleRef.current;
+    document.title = unreadMessagesCount > 0 ? `(${unreadMessagesCount > 99 ? '99+' : unreadMessagesCount}) ${base}` : base;
+    return () => { document.title = base; };
+  }, [unreadMessagesCount]);
+
   const stats = useMemo(() => {
     const reserves = projectScoped.reserves;
     const active = reserves.filter(r => !r.archived_at);
@@ -4957,6 +5123,11 @@ export default function BuildTrackWebPage() {
                         <SidebarNavIcon name={tab.icon} active={navIsActive} />
                       </span>
                       <span className={styles.navLabel}>{label}</span>
+                      {tab.id === 'messages' && unreadMessagesCount > 0 && (
+                        <span className={styles.navBadge} aria-label={`${unreadMessagesCount} messages non lus`}>
+                          {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
+                        </span>
+                      )}
                     </button>
                   );
                 })}

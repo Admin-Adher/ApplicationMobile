@@ -1,5 +1,5 @@
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform,
+  View, Text, StyleSheet, SectionList, TouchableOpacity, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -45,7 +45,7 @@ const TYPE_CONFIG: Record<NotifType, { icon: string; color: string; bg: string; 
 };
 
 function localeForLanguage(language: string): string {
-  if (language === 'en') return 'en-US';
+  if (language === 'en') return 'en-GB';
   if (language === 'es') return 'es-ES';
   return 'fr-FR';
 }
@@ -104,8 +104,19 @@ export default function NotificationsScreen() {
         }
       />
 
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        {notifications.length === 0 && (
+      <SectionList
+        sections={[
+          ...(unread.length > 0 ? [{ key: 'unread', label: t('notifications.unreadSection'), data: unread }] : []),
+          ...(read.length > 0 ? [{ key: 'read', label: unread.length > 0 ? t('notifications.readSection') : t('notifications.allSection'), data: read }] : []),
+        ]}
+        keyExtractor={n => n.id}
+        contentContainerStyle={styles.content}
+        showsVerticalScrollIndicator={false}
+        initialNumToRender={20}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        stickySectionHeadersEnabled={false}
+        ListEmptyComponent={
           <View style={styles.empty}>
             <View style={styles.emptyIcon}>
               <Ionicons name="notifications-off-outline" size={36} color={C.textMuted} />
@@ -115,65 +126,34 @@ export default function NotificationsScreen() {
               {t('notifications.emptyText')}
             </Text>
           </View>
+        }
+        renderSectionHeader={({ section }) => (
+          <Text style={styles.sectionLabel}>{(section as any).label}</Text>
         )}
-
-        {unread.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>{t('notifications.unreadSection')}</Text>
-            {unread.map(n => {
-              const cfg = TYPE_CONFIG[n.type];
-              return (
-                <TouchableOpacity
-                  key={n.id}
-                  style={[styles.card, styles.cardUnread]}
-                  activeOpacity={0.75}
-                  onPress={() => handlePress(n.id, n.route, n.routeParams)}
-                >
-                  <View style={[styles.iconWrap, { backgroundColor: cfg.bg }]}>
-                    <Ionicons name={cfg.icon as any} size={18} color={cfg.color} />
-                  </View>
-                  <View style={styles.cardContent}>
-                    <View style={styles.cardTop}>
-                      <Text style={[styles.cardType, { color: cfg.color }]}>{t(cfg.labelKey)}</Text>
-                      <Text style={styles.cardTime}>{timeAgo(n.createdAt, t, localeForLanguage(effectiveLanguage))}</Text>
-                    </View>
-                    <Text style={styles.cardBody} numberOfLines={2}>{n.body}</Text>
-                  </View>
-                  <View style={styles.unreadDot} />
-                </TouchableOpacity>
-              );
-            })}
-          </>
-        )}
-
-        {read.length > 0 && (
-          <>
-            <Text style={styles.sectionLabel}>{unread.length > 0 ? t('notifications.readSection') : t('notifications.allSection')}</Text>
-            {read.map(n => {
-              const cfg = TYPE_CONFIG[n.type];
-              return (
-                <TouchableOpacity
-                  key={n.id}
-                  style={styles.card}
-                  activeOpacity={0.75}
-                  onPress={() => handlePress(n.id, n.route, n.routeParams)}
-                >
-                  <View style={[styles.iconWrap, { backgroundColor: C.surface2 }]}>
-                    <Ionicons name={cfg.icon as any} size={18} color={C.textMuted} />
-                  </View>
-                  <View style={styles.cardContent}>
-                    <View style={styles.cardTop}>
-                      <Text style={[styles.cardType, { color: C.textMuted }]}>{t(cfg.labelKey)}</Text>
-                      <Text style={styles.cardTime}>{timeAgo(n.createdAt, t, localeForLanguage(effectiveLanguage))}</Text>
-                    </View>
-                    <Text style={[styles.cardBody, { color: C.textSub }]} numberOfLines={2}>{n.body}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </>
-        )}
-      </ScrollView>
+        renderItem={({ item: n, section }) => {
+          const cfg = TYPE_CONFIG[n.type];
+          const isUnread = (section as any).key === 'unread';
+          return (
+            <TouchableOpacity
+              style={isUnread ? [styles.card, styles.cardUnread] : styles.card}
+              activeOpacity={0.75}
+              onPress={() => handlePress(n.id, n.route, n.routeParams)}
+            >
+              <View style={[styles.iconWrap, { backgroundColor: isUnread ? cfg.bg : C.surface2 }]}>
+                <Ionicons name={cfg.icon as any} size={18} color={isUnread ? cfg.color : C.textMuted} />
+              </View>
+              <View style={styles.cardContent}>
+                <View style={styles.cardTop}>
+                  <Text style={[styles.cardType, { color: isUnread ? cfg.color : C.textMuted }]}>{t(cfg.labelKey)}</Text>
+                  <Text style={styles.cardTime}>{timeAgo(n.createdAt, t, localeForLanguage(effectiveLanguage))}</Text>
+                </View>
+                <Text style={isUnread ? styles.cardBody : [styles.cardBody, { color: C.textSub }]} numberOfLines={2}>{n.body}</Text>
+              </View>
+              {isUnread && <View style={styles.unreadDot} />}
+            </TouchableOpacity>
+          );
+        }}
+      />
       <BottomNavBar />
     </View>
   );

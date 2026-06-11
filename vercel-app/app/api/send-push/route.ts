@@ -1,6 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
+import { checkRateLimit } from '@/lib/rateLimit';
+
+// Les ids (messages, réserves) sont des chaînes générées par l'app — jamais de
+// contenu libre. On refuse tout ce qui sort de ce format avant de l'injecter
+// dans une requête.
+function isSafeId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_:.\-]{1,80}$/.test(value);
+}
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -193,9 +201,12 @@ async function sendExpoPushMessages(supabase: any, messages: any[]) {
 
   if (invalid.size > 0) {
     stats.invalidTokens = invalid.size;
+    // DeviceNotRegistered = token définitivement mort (app désinstallée,
+    // token régénéré). On supprime la ligne au lieu de la désactiver pour
+    // éviter l'accumulation indéfinie de cadavres dans push_tokens.
     await supabase
       .from('push_tokens')
-      .update({ enabled: false, updated_at: new Date().toISOString() })
+      .delete()
       .in('token', Array.from(invalid));
   }
   return stats;
@@ -463,6 +474,21 @@ export async function POST(req: NextRequest) {
 
     const profile = await authenticatedProfile(req, supabase);
     if (!profile) return NextResponse.json({ error: 'Session invalide' }, { status: 401, headers });
+
+    const rate = checkRateLimit(`send-push:${profile.id}`, 30, 60_000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Trop de notifications envoyées. Réessayez dans quelques instants.' },
+        { status: 429, headers: { ...headers, 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
+    }
+
+    if (type === 'message-created' && !isSafeId(body.messageId)) {
+      return NextResponse.json({ error: 'messageId invalide' }, { status: 400, headers });
+    }
+    if ((type === 'reserve-created' || type === 'reserve-status-changed') && !isSafeId(body.reserveId)) {
+      return NextResponse.json({ error: 'reserveId invalide' }, { status: 400, headers });
+    }
 
     let stats;
     if (type === 'message-created') stats = await pushForMessage(supabase, profile, body);

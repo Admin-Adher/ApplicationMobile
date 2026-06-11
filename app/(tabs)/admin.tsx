@@ -326,6 +326,14 @@ export default function AdminScreen() {
     setInviteSending(false);
     if (result.success) {
       setInviteToken(result.token ?? null);
+      if (result.emailError) {
+        // Invitation créée mais email non parti : l'admin doit le savoir pour
+        // partager le lien manuellement au lieu de croire l'email envoyé.
+        Alert.alert(
+          t('adminScreen.alerts.inviteEmailFailedTitle'),
+          t('adminScreen.alerts.inviteEmailFailedMessage', { error: result.emailError })
+        );
+      }
     } else {
       Alert.alert(t('adminScreen.alerts.inviteFailedTitle'), result.error ?? t('common.unknown'));
     }

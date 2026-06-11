@@ -3,6 +3,63 @@ import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/lib/sender';
 import { reserveOverdueEmail, reserveOverdueEscalationEmail, APP_URL } from '@/lib/templates';
 import { buildReserveUrl } from '@/lib/reserve-token';
+import { withUnsubscribeFooter, listUnsubscribeHeaders } from '@/lib/emailOptout';
+
+// Journal durable des envois (table email_notification_log) : dédupe les
+// relances entre exécutions du cron (relance Vercel, échec d'update du flag
+// sur la réserve, double déclenchement) — la dédup en mémoire ne couvre
+// qu'une seule exécution.
+async function sentLogForToday(supabase: any, today: string): Promise<Set<string>> {
+  const sent = new Set<string>();
+  try {
+    const { data, error } = await supabase
+      .from('email_notification_log')
+      .select('notification_type, recipient_email, reserve_id')
+      .eq('event_key', today);
+    if (error) {
+      console.warn('[cron overdue] lecture email_notification_log impossible:', error.message);
+      return sent;
+    }
+    for (const row of data ?? []) {
+      sent.add(`${row.notification_type}|${String(row.recipient_email ?? '').toLowerCase()}|${row.reserve_id ?? ''}`);
+    }
+  } catch {}
+  return sent;
+}
+
+async function recordSentLog(
+  supabase: any,
+  today: string,
+  notificationType: string,
+  recipientEmail: string,
+  reserveId: string,
+) {
+  try {
+    const { error } = await supabase.from('email_notification_log').insert({
+      notification_type: notificationType,
+      recipient_email: recipientEmail.toLowerCase(),
+      reserve_id: reserveId,
+      event_key: today,
+    });
+    // Conflit d'index unique = déjà journalisé par une exécution concurrente : bénin.
+    if (error && !String(error.message ?? '').toLowerCase().includes('duplicate')) {
+      console.warn('[cron overdue] journalisation envoi impossible:', error.message);
+    }
+  } catch {}
+}
+
+async function optedOutEmails(supabase: any): Promise<Set<string>> {
+  const set = new Set<string>();
+  try {
+    const { data, error } = await supabase.from('email_optouts').select('email');
+    if (error) {
+      console.warn('[cron overdue] lecture email_optouts impossible:', error.message);
+      return set;
+    }
+    for (const row of data ?? []) set.add(String(row.email ?? '').toLowerCase());
+  } catch {}
+  return set;
+}
 
 const SUBCONTRACTOR_REMINDER_LIMIT = 7; // après N rappels quotidiens, on escalade aux admins
 
@@ -149,6 +206,11 @@ export async function GET(req: NextRequest) {
     const chantierName = new Map<string, string>();
     for (const c of chantiers ?? []) chantierName.set(c.id, c.name);
 
+    const [alreadySent, optouts] = await Promise.all([
+      sentLogForToday(supabase, today),
+      optedOutEmails(supabase),
+    ]);
+
     // Date d'hier (pour détecter les ruptures de série → reset compteur)
     const yesterdayD = new Date();
     yesterdayD.setHours(0, 0, 0, 0);
@@ -190,7 +252,10 @@ export async function GET(req: NextRequest) {
             const recipients = profilesByCompany.get(company.id) ?? [];
             for (const p of recipients) {
               if (!overdueEmailAllowed(prefsByUser.get(p.id), r.priority === 'critical')) continue;
-              const key = `${p.email.toLowerCase()}|${company.id}`;
+              const emailLower = p.email.toLowerCase();
+              if (optouts.has(emailLower)) continue;
+              if (alreadySent.has(`reserve-overdue|${emailLower}|${r.id}`)) continue;
+              const key = `${emailLower}|${company.id}`;
               if (sentEmails.has(key)) continue;
               sentEmails.add(key);
 
@@ -211,7 +276,8 @@ export async function GET(req: NextRequest) {
               const sendRes = await sendEmail({
                 to: p.email,
                 subject: tpl.subject,
-                html: tpl.html,
+                html: withUnsubscribeFooter(tpl.html, APP_URL, p.email, p.preferred_language),
+                headers: listUnsubscribeHeaders(APP_URL, p.email),
               });
               if (!sendRes.success) {
                 stats.errors++;
@@ -219,6 +285,8 @@ export async function GET(req: NextRequest) {
               } else {
                 stats.emailsSent++;
                 sentForReserve++;
+                alreadySent.add(`reserve-overdue|${emailLower}|${r.id}`);
+                await recordSentLog(supabase, today, 'reserve-overdue', p.email, r.id);
               }
             }
           }
@@ -232,6 +300,8 @@ export async function GET(req: NextRequest) {
           for (const a of admins) {
             if (!overdueEmailAllowed(prefsByUser.get(a.id), r.priority === 'critical')) continue;
             const key = a.email.toLowerCase();
+            if (optouts.has(key)) continue;
+            if (alreadySent.has(`reserve-overdue-escalation|${key}|${r.id}`)) continue;
             if (sentEmails.has(key)) continue;
             sentEmails.add(key);
 
@@ -253,7 +323,8 @@ export async function GET(req: NextRequest) {
             const sendRes = await sendEmail({
               to: a.email,
               subject: tpl.subject,
-              html: tpl.html,
+              html: withUnsubscribeFooter(tpl.html, APP_URL, a.email, a.preferred_language),
+              headers: listUnsubscribeHeaders(APP_URL, a.email),
             });
             if (!sendRes.success) {
               stats.errors++;
@@ -261,6 +332,8 @@ export async function GET(req: NextRequest) {
             } else {
               stats.emailsSent++;
               sentForReserve++;
+              alreadySent.add(`reserve-overdue-escalation|${key}|${r.id}`);
+              await recordSentLog(supabase, today, 'reserve-overdue-escalation', a.email, r.id);
             }
           }
         }

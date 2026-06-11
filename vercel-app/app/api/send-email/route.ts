@@ -15,6 +15,12 @@ import {
 } from '@/lib/templates';
 import { buildReserveUrl } from '@/lib/reserve-token';
 import { checkRateLimit } from '@/lib/rateLimit';
+import {
+  OPTOUT_EXEMPT_EMAIL_TYPES,
+  isOptedOut,
+  withUnsubscribeFooter,
+  listUnsubscribeHeaders,
+} from '@/lib/emailOptout';
 
 function safeReserveUrl(reserveId: string, recipientEmail: string, language?: string | null): string {
   try {
@@ -35,9 +41,11 @@ function serviceClient() {
 }
 
 // Auth obligatoire : header `Authorization: Bearer <access_token Supabase>` vérifié
-// via le client service-role (même pattern que /api/send-push). Retourne l'id
-// utilisateur authentifié, ou null.
-async function authenticatedUserId(req: NextRequest): Promise<string | null> {
+// via le client service-role (même pattern que /api/send-push). Retourne l'id,
+// l'email auth et l'organisation de l'appelant, ou null.
+type CallerContext = { userId: string; email: string; organizationId: string | null };
+
+async function authenticatedCaller(req: NextRequest): Promise<CallerContext | null> {
   const supabase = serviceClient();
   if (!supabase) return null;
   const auth = req.headers.get('authorization') ?? '';
@@ -46,7 +54,79 @@ async function authenticatedUserId(req: NextRequest): Promise<string | null> {
   const { data, error } = await supabase.auth.getUser(token);
   const userId = data?.user?.id;
   if (error || !userId) return null;
-  return userId;
+  const email = String(data?.user?.email ?? '').trim().toLowerCase();
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('organization_id')
+    .eq('id', userId)
+    .maybeSingle();
+  return { userId, email, organizationId: profile?.organization_id ?? null };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Anti-relais : le destinataire doit être légitime pour le type d'email demandé.
+// Sans cette vérification, n'importe quel compte authentifié pouvait envoyer
+// les templates officiels (invitation, bienvenue, réserve…) à une adresse
+// arbitraire — un vecteur de phishing avec l'image de marque de l'app.
+//   - welcome / password-* : uniquement l'adresse de l'appelant lui-même ;
+//   - invitation : une invitation doit exister en base pour cet email dans
+//     l'organisation de l'appelant (créée juste avant l'envoi) ;
+//   - invitation-accepted : un profil de l'organisation de l'appelant ;
+//   - access-revoked : un profil de l'organisation de l'appelant, ou dont
+//     l'organisation vient d'être détachée (org NULL) ;
+//   - reserve-* : membres (profiles) ou entreprises (companies) de l'org.
+// Les comparaisons se font en JS sur des emails normalisés (trim+lowercase)
+// pour éviter les pièges de casse et les wildcards d'un ilike.
+// ─────────────────────────────────────────────────────────────────────────────
+async function recipientAllowed(caller: CallerContext, type: string, to: string): Promise<boolean> {
+  const supabase = serviceClient();
+  if (!supabase) return false;
+  const email = String(to ?? '').trim().toLowerCase();
+  if (!email.includes('@')) return false;
+
+  const matchesEmail = (rows: any[] | null | undefined) =>
+    (rows ?? []).some(row => String(row?.email ?? '').trim().toLowerCase() === email);
+
+  if (type === 'welcome' || type === 'password-changed' || type === 'password-reset') {
+    return email === caller.email;
+  }
+
+  if (type === 'invitation') {
+    if (!caller.organizationId) return false;
+    const { data } = await supabase
+      .from('invitations')
+      .select('email')
+      .eq('organization_id', caller.organizationId);
+    return matchesEmail(data);
+  }
+
+  if (type === 'invitation-accepted') {
+    if (!caller.organizationId) return false;
+    const { data } = await supabase
+      .from('profiles')
+      .select('email')
+      .eq('organization_id', caller.organizationId);
+    return matchesEmail(data);
+  }
+
+  if (type === 'access-revoked') {
+    // Le profil révoqué peut avoir son organization_id déjà passé à NULL au
+    // moment de l'envoi — on accepte les deux états.
+    if (!caller.organizationId) return false;
+    const { data } = await supabase
+      .from('profiles')
+      .select('email, organization_id')
+      .or(`organization_id.eq.${caller.organizationId},organization_id.is.null`);
+    return matchesEmail(data);
+  }
+
+  // reserve-created / reserve-status-changed / reserve-overdue
+  if (!caller.organizationId) return false;
+  const [profilesResult, companiesResult] = await Promise.all([
+    supabase.from('profiles').select('email').eq('organization_id', caller.organizationId),
+    supabase.from('companies').select('email').eq('organization_id', caller.organizationId),
+  ]);
+  return matchesEmail(profilesResult.data) || matchesEmail(companiesResult.data);
 }
 
 async function resolveRecipientLanguage(email: string, fallback?: string | null) {
@@ -120,12 +200,12 @@ export async function POST(req: NextRequest) {
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
 
-  const userId = await authenticatedUserId(req);
-  if (!userId) {
+  const caller = await authenticatedCaller(req);
+  if (!caller) {
     return NextResponse.json({ error: 'Session invalide' }, { status: 401, headers });
   }
 
-  const rate = checkRateLimit(`send-email:${userId}`, 20, 60_000);
+  const rate = checkRateLimit(`send-email:${caller.userId}`, 20, 60_000);
   if (!rate.allowed) {
     return NextResponse.json(
       { error: "Trop d'envois d'emails. Réessayez dans quelques instants." },
@@ -241,12 +321,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: `Type inconnu: ${type}` }, { status: 400, headers });
     }
 
+    const allowed = await recipientAllowed(caller, type, to);
+    if (!allowed) {
+      console.warn(`[send-email] destinataire refusé (type=${type}, caller=${caller.userId}):`, String(to).slice(0, 80));
+      return NextResponse.json(
+        { error: "Destinataire non autorisé pour ce type d'email" },
+        { status: 403, headers }
+      );
+    }
+
     const allowedByPreferences = await shouldSendConfigurableEmail(type, to, body);
     if (!allowedByPreferences) {
       return NextResponse.json({ success: true, suppressed: true }, { headers });
     }
 
-    const result = await sendEmail({ to, subject: template.subject, html: template.html });
+    // Désinscription (RGPD) : les emails de notification ne partent plus vers
+    // une adresse opt-out ; les emails transactionnels/sécurité restent exempts.
+    const exempt = OPTOUT_EXEMPT_EMAIL_TYPES.has(type);
+    if (!exempt && await isOptedOut(serviceClient(), to)) {
+      return NextResponse.json({ success: true, suppressed: true, optedOut: true }, { headers });
+    }
+
+    const html = exempt ? template.html : withUnsubscribeFooter(template.html, APP_URL, to, body.language);
+    const extraHeaders = exempt ? undefined : listUnsubscribeHeaders(APP_URL, to);
+    const result = await sendEmail({ to, subject: template.subject, html, headers: extraHeaders });
     if (!result.success) {
       return NextResponse.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500, headers });
     }

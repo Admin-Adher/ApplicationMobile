@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -51,7 +52,7 @@ export function useNotifications() {
 }
 
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
-  const { reserves, tasks, activeChantierId, companies } = useApp();
+  const { reserves, tasks, activeChantierId, companies, unreadCount: unreadMessagesCount } = useApp();
   const { user } = useAuth();
   const { preferences } = useNotificationPreferences();
   const [seenIds, setSeenIds] = useState<Set<string>>(new Set());
@@ -193,6 +194,20 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }, [notifications.length]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
+
+  // Badge sur l'icône de l'app (écran d'accueil) : total des messages non lus
+  // + notifications du centre non lues. Sans cela, le compteur n'existait que
+  // dans l'app — l'icône ne signalait jamais rien.
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    try {
+      const Notifications = require('expo-notifications');
+      const total = Math.max(0, (unreadMessagesCount ?? 0) + unreadCount);
+      Notifications.setBadgeCountAsync?.(total)?.catch?.(() => {});
+    } catch {
+      // expo-notifications indisponible (Expo Go / web) — badge ignoré
+    }
+  }, [unreadCount, unreadMessagesCount]);
 
   const markRead = useCallback((id: string) => {
     setSeenIds(prev => {
