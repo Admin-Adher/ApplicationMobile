@@ -37,10 +37,10 @@ import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { genId, formatDateFR, formatTimestampFR } from '@/lib/utils';
 import {
   RESERVE_PRIORITIES,
-  isOverdue, formatDate, validateDeadline,
+  isOverdue, formatDate, validateDeadline, toIsoDeadline,
 } from '@/lib/reserveUtils';
 import {
   enrichReserveForPdf,
@@ -443,7 +443,7 @@ document.head.appendChild(s);
   const commentsHtml = reserve.comments.length > 0
     ? reserve.comments.slice(-3).map(c =>
         `<div style="padding:6px 10px;background:#F9FAFB;border-radius:6px;margin-bottom:5px;border-left:3px solid #1A6FD8">
-          <div style="font-size:9px;color:#5E738A;margin-bottom:2px"><strong>${c.author}</strong> · ${c.createdAt}</div>
+          <div style="font-size:9px;color:#5E738A;margin-bottom:2px"><strong>${c.author}</strong> · ${formatTimestampFR(c.createdAt)}</div>
           <div style="font-size:11px;color:#1A2742">${c.content}</div>
         </div>`
       ).join('')
@@ -451,7 +451,7 @@ document.head.appendChild(s);
 
   const historyRows = [...reserve.history].reverse().slice(0, 5).map(h =>
     `<tr>
-      <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;white-space:nowrap">${h.createdAt}</td>
+      <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;white-space:nowrap">${formatTimestampFR(h.createdAt)}</td>
       <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;font-weight:600">${h.action}</td>
       <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;color:#6B7280">${h.author}</td>
       ${h.oldValue && h.newValue
@@ -466,7 +466,7 @@ document.head.appendChild(s);
           <div style="font-size:9px;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">${copy.liftSignature}</div>
           <div style="font-size:10px;color:#5E738A;margin-bottom:6px">${copy.signer} : <strong>${reserve.enterpriseSignataire ?? copy.noValue}</strong></div>
           <img src="${svgStringToDataUrl(reserve.enterpriseSignature!)}" style="width:180px;height:55px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:4px" />
-          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ ${copy.liftAcknowledgedOn} ${reserve.enterpriseAcknowledgedAt}</div>` : ''}
+          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ ${copy.liftAcknowledgedOn} ${formatDate(reserve.enterpriseAcknowledgedAt)}</div>` : ''}
         </div>
       </div>`
     : `<div style="display:flex;gap:20px">
@@ -524,9 +524,9 @@ document.head.appendChild(s);
         </div>
       </div>
       <div style="text-align:right;font-size:10px;color:#6B7280;flex-shrink:0;margin-left:16px">
-        <div>${copy.createdOn} <strong style="color:#1A2742">${reserve.createdAt}</strong></div>
-        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ ${copy.closedOn} ${reserve.closedAt}</div>` : ''}
-        <div style="margin-top:4px">${copy.deadline} : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${reserve.deadline}</strong></div>
+        <div>${copy.createdOn} <strong style="color:#1A2742">${formatDate(reserve.createdAt)}</strong></div>
+        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ ${copy.closedOn} ${formatDate(reserve.closedAt)}</div>` : ''}
+        <div style="margin-top:4px">${copy.deadline} : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${formatDate(reserve.deadline)}</strong></div>
         <div style="font-size:9px;color:#9CA3AF;margin-top:4px">${copy.generatedOn} ${new Date().toLocaleDateString(locale)}</div>
       </div>
     </div>
@@ -748,20 +748,27 @@ export default function ReserveDetailScreen() {
     setEditLevel(reserve.level);
     setEditCompanies(reserve.companies ?? (reserve.company ? [reserve.company] : []));
     setEditPriority(reserve.priority);
-    setEditDeadline(reserve.deadline === '—' ? '' : reserve.deadline);
+    setEditDeadline(reserve.deadline === '—' ? '' : formatDate(reserve.deadline));
     setEditPhotos(reserve.photos ?? (reserve.photoUri ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }] : []));
     setEditModalVisible(true);
   }
 
   function handleSignatureSave() {
     if (!reserve) return;
+    // Même règle que le web : l'accusé de réception doit être enregistré avant la signature.
+    if (!reserve.enterpriseAcknowledgedAt) {
+      Alert.alert(t('reserveDetail.acknowledgement'), t('reserveDetail.availableAfterAck'));
+      setSignatureModalVisible(false);
+      setSigningForCompany(null);
+      return;
+    }
     if (sigPadRef.current?.isEmpty()) {
       Alert.alert(t('reserveDetail.alerts.signatureRequiredTitle'), t('reserveDetail.alerts.signatureRequiredText'));
       return;
     }
     const dataUrl = sigPadRef.current?.getSVGData() ?? null;
     if (!dataUrl) return;
-    const today = formatDateFR(new Date());
+    const today = new Date().toISOString().slice(0, 10);
     const author = user?.name ?? 'Conducteur de travaux';
     const signataire = signataireName.trim() || author;
     const targetCompany = signingForCompany ?? reserveCompanyNames[0];
@@ -779,12 +786,11 @@ export default function ReserveDetailScreen() {
           ...existing,
           [signingForCompany]: { signature: dataUrl, signataire, signedAt: today },
         },
-        enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
         history: [...reserve.history, {
           id: genId(),
           action: `Levée signée (${signingForCompany})`,
           author: signataire,
-          createdAt: nowTimestampFR(),
+          createdAt: new Date().toISOString(),
         }],
       };
     } else {
@@ -792,12 +798,11 @@ export default function ReserveDetailScreen() {
         ...reserve,
         enterpriseSignature: dataUrl,
         enterpriseSignataire: signataire,
-        enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
         history: [...reserve.history, {
           id: genId(),
           action: 'Levée signée',
           author: signataire,
-          createdAt: nowTimestampFR(),
+          createdAt: new Date().toISOString(),
         }],
       };
     }
@@ -818,7 +823,7 @@ export default function ReserveDetailScreen() {
         {
           text: t('reserveDetail.alerts.confirm'),
           onPress: () => {
-            const today = formatDateFR(new Date());
+            const today = new Date().toISOString().slice(0, 10);
             const author = user?.name ?? 'Entreprise';
             const updated: Reserve = {
               ...reserve,
@@ -827,7 +832,7 @@ export default function ReserveDetailScreen() {
                 id: genId(),
                 action: 'Réception accusée',
                 author,
-                createdAt: nowTimestampFR(),
+                createdAt: new Date().toISOString(),
               }],
             };
             updateReserveFields(updated);
@@ -998,7 +1003,7 @@ export default function ReserveDetailScreen() {
     setLiftSubmitting(true);
     try {
       const author = user?.name ?? 'Entreprise';
-      const createdAt = nowTimestampFR();
+      const createdAt = new Date().toISOString();
       const trimmedComment = liftComment.trim();
       const comments = trimmedComment
         ? [
@@ -1077,8 +1082,9 @@ export default function ReserveDetailScreen() {
     const newNames = editCompanies.join(', ');
     if (oldNames !== newNames) changes.push({ label: t('reserveDetail.companies'), oldVal: oldNames, newVal: newNames });
     if (editPriority !== r.priority) changes.push({ label: t('reserveDetail.priority'), oldVal: priorityLabels[r.priority], newVal: priorityLabels[editPriority] });
-    const newDl = editDeadline || '—';
-    if (newDl !== r.deadline) changes.push({ label: t('reserveDetail.deadline'), oldVal: r.deadline, newVal: newDl });
+    const newDl = editDeadline ? toIsoDeadline(editDeadline) : '—';
+    const oldDl = r.deadline && r.deadline !== '—' ? toIsoDeadline(r.deadline) : '—';
+    if (newDl !== oldDl) changes.push({ label: t('reserveDetail.deadline'), oldVal: formatDate(r.deadline), newVal: formatDate(newDl) });
     return changes;
   }
 
@@ -1111,7 +1117,7 @@ export default function ReserveDetailScreen() {
       id: genId(),
       action: 'Réserve modifiée',
       author,
-      createdAt: nowTimestampFR(),
+      createdAt: new Date().toISOString(),
       oldValue: changes.length > 0 ? changes.map(c => c.oldVal).join(', ') : undefined,
       newValue: changes.length > 0 ? changes.map(c => c.newVal).join(', ') : undefined,
     };
@@ -1125,7 +1131,7 @@ export default function ReserveDetailScreen() {
       companies: editCompanies,
       company: editCompanies[0] ?? reserve.company,
       priority: editPriority,
-      deadline: editDeadline || '—',
+      deadline: editDeadline ? toIsoDeadline(editDeadline) : '—',
       photoUri: editPhotos[0]?.uri ?? undefined,
       photos: editPhotos.length > 0 ? editPhotos : undefined,
       history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
@@ -1489,6 +1495,9 @@ export default function ReserveDetailScreen() {
   }
 
   const ackDone = !!reserve.enterpriseAcknowledgedAt;
+  // L'AR doit rester enregistrable par quiconque a le droit de signer la levée,
+  // sinon la règle « AR obligatoire avant signature » bloquerait les sous-traitants.
+  const canAcknowledge = permissions.canEdit || reserveCompanyNames.some(name => canSignReserveForCurrentUser(name));
   const signDone = !!reserve.enterpriseSignature;
   const isMultiCompany = reserveCompanyNames.length > 1;
   const allCompaniesSignedInMulti = isMultiCompany &&
@@ -1771,7 +1780,7 @@ export default function ReserveDetailScreen() {
               ) : (
                 <>
                   <Text style={styles.workflowStepDesc}>{t('reserveDetail.acknowledgementHint')}</Text>
-                  {permissions.canEdit && (
+                  {canAcknowledge && (
                     <TouchableOpacity style={styles.workflowBtn} onPress={handleEnterpriseAck} activeOpacity={0.8}>
                       <Ionicons name="mail-open-outline" size={14} color={C.primary} />
                       <Text style={styles.workflowBtnText}>{t('reserveDetail.acknowledge')}</Text>
@@ -1824,7 +1833,7 @@ export default function ReserveDetailScreen() {
                         {sig ? (
                           <View>
                             <Text style={{ fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 4 }}>
-                              {t('reserveDetail.signedByAt', { name: sig.signataire, date: sig.signedAt })}
+                              {t('reserveDetail.signedByAt', { name: sig.signataire, date: formatDate(sig.signedAt) })}
                             </Text>
                             <Image source={{ uri: sig.signature }} style={styles.signaturePreview} resizeMode="contain" />
                           </View>
@@ -1997,8 +2006,8 @@ export default function ReserveDetailScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={styles.commentAuthor}>{c.author}</Text>
                     <Text style={styles.commentDate}>
-                      {formatDate(c.createdAt)}
-                      {c.editedAt ? t('reserveDetail.editedAt', { date: formatDate(c.editedAt) }) : ''}
+                      {formatTimestampFR(c.createdAt)}
+                      {c.editedAt ? t('reserveDetail.editedAt', { date: formatTimestampFR(c.editedAt) }) : ''}
                     </Text>
                   </View>
                   {isOwner && !isEditing && (
@@ -2076,7 +2085,7 @@ export default function ReserveDetailScreen() {
                   {h.oldValue && h.newValue && (
                     <Text style={styles.historyValues}>{h.oldValue} → {h.newValue}</Text>
                   )}
-                  <Text style={styles.historyMeta}>{h.author} — {formatDate(h.createdAt)}</Text>
+                  <Text style={styles.historyMeta}>{h.author} — {formatTimestampFR(h.createdAt)}</Text>
                 </View>
               </View>
             ))}

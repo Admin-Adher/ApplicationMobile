@@ -46,6 +46,19 @@ export function nowTimestampFR(): string {
 }
 
 /**
+ * Formats a persisted timestamp for display: accepts both the canonical ISO
+ * format (written by mobile and web) and legacy dd/mm/yyyy[ HH:mm] strings,
+ * and renders them as dd/mm/yyyy[ HH:mm].
+ */
+export function formatTimestampFR(raw: string | undefined | null): string {
+  if (!raw || raw === '—') return '—';
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(raw)) return raw;
+  const d = new Date(raw);
+  if (isNaN(d.getTime())) return raw;
+  return /^\d{4}-\d{2}-\d{2}$/.test(raw) ? formatDateFR(d) : formatDateTimeFR(d);
+}
+
+/**
  * Returns the ISO 8601 week number for a given date.
  * Week 1 is the week containing the first Thursday of the year.
  * Locale-independent and consistent across environments.

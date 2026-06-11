@@ -8,7 +8,8 @@ import { getReserveDescriptionText } from '@/lib/reserveDescription';
 
 export const dynamic = 'force-dynamic';
 
-const BRAND = '#1A2742';
+// Couleur de marque alignée sur l'app web et les emails (#003082).
+const BRAND = '#003082';
 const ACCENT = '#FFCB00';
 
 type PublicLang = 'fr' | 'en' | 'es';
@@ -211,13 +212,34 @@ function publicReservePhotoItems(reserve: any, photoRows: any[] = [], supabase: 
   return Array.from(byKey.values());
 }
 
-function fmtDate(iso?: string | null, lang: PublicLang = 'fr'): string {
-  if (!iso) return '—';
-  try {
-    return new Date(iso).toLocaleDateString(publicLocale(lang), { day: 'numeric', month: 'long', year: 'numeric' });
-  } catch {
-    return iso;
+// Les dates en base sont du texte hérité de 2 formats : ISO (web) et dd/mm/yyyy (mobile).
+function parsePublicDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const raw = String(value).trim();
+  if (!raw || raw === '—' || raw === 'â€”') return null;
+  const fr = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2}))?/);
+  if (fr) {
+    const date = new Date(Number(fr[3]), Number(fr[2]) - 1, Number(fr[1]), Number(fr[4] ?? 0), Number(fr[5] ?? 0));
+    return Number.isNaN(date.getTime()) ? null : date;
   }
+  const date = new Date(raw);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isPublicReserveOverdue(reserve: any): boolean {
+  if (!reserve?.deadline || ['closed', 'verification'].includes(String(reserve.status ?? ''))) return false;
+  const deadline = parsePublicDate(reserve.deadline);
+  if (!deadline) return false;
+  deadline.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return deadline < today;
+}
+
+function fmtDate(value?: string | null, lang: PublicLang = 'fr'): string {
+  const date = parsePublicDate(value);
+  if (!date) return '—';
+  return date.toLocaleDateString(publicLocale(lang), { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
 function ErrorPage({ title, message, lang = 'fr' }: { title: string; message: string; lang?: PublicLang }) {
@@ -368,7 +390,7 @@ export default async function ReservePublicPage({
           )}
 
           <Section label={c.deadline}>
-            <span style={{ color: reserve.deadline && reserve.status !== 'closed' && new Date(reserve.deadline) < new Date() ? '#DC2626' : '#1A2742', fontWeight: 600 }}>
+            <span style={{ color: isPublicReserveOverdue(reserve) ? '#DC2626' : BRAND, fontWeight: 600 }}>
               {fmtDate(reserve.deadline, lang)}
             </span>
           </Section>

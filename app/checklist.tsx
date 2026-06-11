@@ -1,18 +1,17 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { useState, useCallback, useEffect, useMemo } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useState, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
+import { useApp } from '@/context/AppContext';
+import { useChecklists } from '@/hooks/queries/useChecklists';
 import Header from '@/components/Header';
 import { Checklist, ChecklistItem } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { genId, formatDateFR } from '@/lib/utils';
-
-const CHECKLIST_KEY = 'buildtrack_checklists_v1';
 
 const TEMPLATE_ITEM_KEYS = [
   'ppe',
@@ -28,18 +27,15 @@ const TEMPLATE_ITEM_KEYS = [
 export default function ChecklistScreen() {
   const { t } = useTranslation();
   const { user, permissions } = useAuth();
-  const [checklists, setChecklists] = useState<Checklist[]>([]);
+  const { activeChantierId } = useApp();
+  // Persistance Supabase offline-first (la migration one-shot de l'ancienne
+  // clé AsyncStorage buildtrack_checklists_v1 s'exécute au premier fetch).
+  const { checklists, addChecklist, updateChecklist } = useChecklists();
   const [showNew, setShowNew] = useState(false);
   const templateItems = useMemo(
     () => TEMPLATE_ITEM_KEYS.map(key => t(`checklistScreen.templates.${key}`)),
     [t]
   );
-
-  useEffect(() => {
-    AsyncStorage.getItem(CHECKLIST_KEY).then(raw => {
-      if (raw) { try { setChecklists(JSON.parse(raw)); } catch {} }
-    });
-  }, []);
   const [newTitle, setNewTitle] = useState('');
   const [newItems, setNewItems] = useState<string[]>(templateItems);
   const [newItemText, setNewItemText] = useState('');
@@ -67,39 +63,30 @@ export default function ChecklistScreen() {
       createdAt: formatDateFR(new Date()),
       createdBy: user?.name ?? t('checklistScreen.teamFallback'),
     };
-    setChecklists(prev => {
-      const updated = [checklist, ...prev];
-      AsyncStorage.setItem(CHECKLIST_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
+    void addChecklist({ ...checklist, chantierId: activeChantierId ?? null });
     setNewTitle('');
     setNewItems([...templateItems]);
     setShowNew(false);
-  }, [newTitle, newItems, user, t, templateItems]);
+  }, [newTitle, newItems, user, t, templateItems, addChecklist, activeChantierId]);
 
   const toggleItem = useCallback((checklistId: string, itemId: string) => {
     if (!permissions.canEdit) return;
-    setChecklists(prev => {
-      const updated = prev.map(cl => {
-        if (cl.id !== checklistId) return cl;
-        const newItems = cl.items.map(it => it.id === itemId ? { ...it, checked: !it.checked } : it);
-        const allChecked = newItems.length > 0 && newItems.every(it => it.checked);
-        if (allChecked) {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        } else {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-        }
-        return {
-          ...cl,
-          items: newItems,
-          status: allChecked ? 'completed' : newItems.some(it => it.checked) ? 'in_progress' : 'draft',
-          completedAt: allChecked ? formatDateFR(new Date()) : undefined,
-        } as Checklist;
-      });
-      AsyncStorage.setItem(CHECKLIST_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
+    const cl = checklists.find(c => c.id === checklistId);
+    if (!cl) return;
+    const newItems = cl.items.map(it => it.id === itemId ? { ...it, checked: !it.checked } : it);
+    const allChecked = newItems.length > 0 && newItems.every(it => it.checked);
+    if (allChecked) {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } else {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    void updateChecklist({
+      ...cl,
+      items: newItems,
+      status: allChecked ? 'completed' : newItems.some(it => it.checked) ? 'in_progress' : 'draft',
+      completedAt: allChecked ? formatDateFR(new Date()) : undefined,
     });
-  }, [permissions.canEdit]);
+  }, [permissions.canEdit, checklists, updateChecklist]);
 
   const getProgress = (cl: Checklist) => {
     if (cl.items.length === 0) return 0;

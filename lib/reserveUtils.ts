@@ -253,6 +253,18 @@ export function isDueSoon(deadline: string, status: ReserveStatus, days = 3): bo
   return parsed >= today && parsed <= limit;
 }
 
+/**
+ * Converts a deadline to the canonical ISO format (yyyy-mm-dd) before writing
+ * to Supabase. Accepts legacy dd/mm/yyyy input, passes ISO and the '—'
+ * sentinel through unchanged. Display stays localized via formatDate().
+ */
+export function toIsoDeadline(deadline: string): string {
+  if (!deadline || deadline === '—') return deadline;
+  const m = deadline.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return deadline;
+}
+
 export function parseDeadline(deadline: string): Date | null {
   if (!deadline || deadline === '—') return null;
   const parts = deadline.split('/');
@@ -285,6 +297,8 @@ export function deadlineDaysLeft(deadline: string): number | null {
 
 export function validateDeadline(s: string): boolean {
   if (!s) return true;
+  // ISO dates (yyyy-mm-dd) can come from the web app or visit prefills.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return !isNaN(new Date(s).getTime());
   if (!/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return false;
   const [d, m, y] = s.split('/').map(Number);
   if (m < 1 || m > 12 || d < 1 || d > 31) return false;

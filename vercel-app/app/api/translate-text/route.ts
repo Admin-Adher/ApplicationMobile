@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -195,6 +196,7 @@ export async function OPTIONS(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const headers = corsHeaders(request);
   try {
+    let rateKey = (request.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown';
     if (process.env.TRANSLATION_REQUIRE_AUTH !== 'false') {
       const supabase = serviceClient();
       if (!supabase) {
@@ -204,6 +206,15 @@ export async function POST(request: NextRequest) {
       if (!profile) {
         return NextResponse.json({ success: false, error: 'Session invalide' }, { status: 401, headers });
       }
+      rateKey = profile.id;
+    }
+
+    const rate = checkRateLimit(`translate-text:${rateKey}`, 60, 60 * 1000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Trop de requêtes. Réessayez plus tard.' },
+        { status: 429, headers: { ...headers, 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
     }
 
     const body = await request.json().catch(() => ({}));
@@ -225,8 +236,7 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ success: true, ...result }, { headers });
   } catch (err: any) {
-    const detail = err?.message || 'Erreur Azure inconnue';
-    console.error('[translate-text] Exception:', detail);
-    return NextResponse.json({ success: false, error: 'Traduction Azure indisponible', detail }, { status: 502, headers });
+    console.error('[translate-text] Exception:', err?.message || 'Erreur Azure inconnue');
+    return NextResponse.json({ success: false, error: 'Traduction indisponible' }, { status: 502, headers });
   }
 }

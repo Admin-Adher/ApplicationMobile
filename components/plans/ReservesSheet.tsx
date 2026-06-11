@@ -10,6 +10,7 @@ import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
+import { getReserveCompanyNames, getReservePinColor } from '@/lib/planPinColor';
 
 interface Props {
   reserves: Reserve[];
@@ -27,35 +28,9 @@ interface Props {
   companies: Array<{ name: string; color: string }>;
 }
 
-function getCompanyColor(companyName: string, companies: Array<{ name: string; color: string }>): string {
-  if (!companyName || companyName === '__mixed__') return '#6B7280';
-  return companies.find(c => c.name === companyName)?.color ?? '#003082';
-}
-
-function getReserveCompanies(r: Reserve | null | undefined): string[] {
-  if (!r) return [];
-  const names: string[] = [];
-  if (r.company && r.company.trim()) names.push(r.company.trim());
-  const arr = (r as any).companies;
-  if (Array.isArray(arr)) {
-    for (const c of arr) {
-      if (typeof c !== 'string') continue;
-      const name = c.trim();
-      if (name && !names.includes(name)) names.push(name);
-    }
-  }
-  return names;
-}
-
 function getReserveCompanyLabel(r: Reserve | null | undefined): string {
-  const names = getReserveCompanies(r);
+  const names = getReserveCompanyNames(r);
   return names.length > 0 ? names.join(', ') : '—';
-}
-
-function getReservePinColor(r: Reserve | null | undefined, companies: Array<{ name: string; color: string }>): string {
-  const names = getReserveCompanies(r);
-  if (names.length > 1) return '#6B7280';
-  return getCompanyColor(names[0] ?? '', companies);
 }
 
 const PEEK_HEIGHT = 60;
@@ -140,7 +115,7 @@ export default function ReservesSheet({
     ? reserves.filter(r => {
         const q = searchQuery.toLowerCase();
         const num = pinNumberMap.get(r.id);
-        const companiesText = getReserveCompanies(r).join(' ').toLowerCase();
+        const companiesText = getReserveCompanyNames(r).join(' ').toLowerCase();
         return (
           r.title.toLowerCase().includes(q) ||
           companiesText.includes(q) ||

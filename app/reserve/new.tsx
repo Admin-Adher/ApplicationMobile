@@ -20,10 +20,10 @@ import CompanySelector from '@/components/CompanySelector';
 import DictationTextInput from '@/components/DictationTextInput';
 import { notifyReserveCreated } from '@/lib/email/notifyReserveCreated';
 import { isLocalUri, persistLocalPhoto } from '@/lib/storage';
-import { genId, nowTimestampFR } from '@/lib/utils';
+import { genId } from '@/lib/utils';
 import {
   RESERVE_PRIORITIES, getReserveTemplates,
-  genReserveId, validateDeadline,
+  genReserveId, validateDeadline, toIsoDeadline,
 } from '@/lib/reserveUtils';
 import LocationPicker from '@/components/LocationPicker';
 import PdfPlanViewer from '@/components/PdfPlanViewer';
@@ -670,13 +670,13 @@ export default function NewReserveScreen() {
         priority,
         status: 'open' as ReserveStatus,
         createdAt: isoToday,
-        deadline: deadline || '—',
+        deadline: deadline ? toIsoDeadline(deadline) : '—',
         comments: [],
         history: [{
           id: 'h0',
           action: kind === 'observation' ? t('reserveNew.historyObservationCreated') : t('reserveNew.historyReserveCreated'),
           author,
-          createdAt: nowTimestampFR(),
+          createdAt: new Date().toISOString(),
         }],
         planX: draftPin?.x ?? undefined,
         planY: draftPin?.y ?? undefined,

@@ -53,6 +53,12 @@ import {
   RESERVE_STATUS_LABELS,
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
+import {
+  getCompanyPinColor,
+  getReserveCompanyNames,
+  getReservePinColor,
+  normalizeCompanyName,
+} from '@/lib/planPinColor';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
@@ -158,55 +164,24 @@ function getPlanPinDensityScale(pinCount: number): number {
   return 1;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
-  verification: '#8B5CF6', closed: '#10B981',
-};
-
-function getCompanyColor(companyName: string, companies: Array<{ name: string; color: string }>): string {
-  if (!companyName || companyName === '__mixed__') return '#6B7280';
-  return companies.find(c => c.name === companyName)?.color ?? '#003082';
-}
-
-function getReserveCompanies(r: Reserve | null | undefined): string[] {
-  if (!r) return [];
-  const names: string[] = [];
-  if (r.company && r.company.trim()) names.push(r.company.trim());
-  const arr = (r as any).companies;
-  if (Array.isArray(arr)) {
-    for (const c of arr) {
-      if (typeof c !== 'string') continue;
-      const name = c.trim();
-      if (name && !names.includes(name)) names.push(name);
-    }
-  }
-  return names;
-}
-
 function getReserveCompanyLabel(r: Reserve | null | undefined): string {
-  const names = getReserveCompanies(r);
+  const names = getReserveCompanyNames(r);
   return names.length > 0 ? names.join(', ') : '—';
 }
 
 function reserveMatchesCompany(r: Reserve, filter: string | null | undefined): boolean {
   if (!filter || filter === 'all') return true;
-  const names = getReserveCompanies(r);
+  const names = getReserveCompanyNames(r);
   if (filter === '—') return names.length === 0;
-  return names.includes(filter);
+  return names.some(name => normalizeCompanyName(name) === normalizeCompanyName(filter));
 }
 
 function getClusterCompanyKey(group: Reserve[]): string {
   const names = new Set<string>();
-  for (const r of group) getReserveCompanies(r).forEach(name => names.add(name));
+  for (const r of group) getReserveCompanyNames(r).forEach(name => names.add(normalizeCompanyName(name)));
   if (names.size === 0) return '';
   if (names.size === 1) return Array.from(names)[0];
   return '__mixed__';
-}
-
-function getReservePinColor(r: Reserve | null | undefined, companies: Array<{ name: string; color: string }>): string {
-  const names = getReserveCompanies(r);
-  if (names.length > 1) return '#6B7280';
-  return getCompanyColor(names[0] ?? '', companies);
 }
 
 function isPdf(uri?: string | null): boolean {
@@ -1578,8 +1553,8 @@ export default function PlansScreen() {
     }
     if (isSousTraitant && sousTraitantCompanyName) {
       list = list.filter(r => {
-        const names = getReserveCompanies(r);
-        return names.includes(sousTraitantCompanyName!);
+        const names = getReserveCompanyNames(r);
+        return names.some(name => normalizeCompanyName(name) === normalizeCompanyName(sousTraitantCompanyName));
       });
     }
     return list;
@@ -1603,7 +1578,7 @@ export default function PlansScreen() {
   const pdfGroupedByCompany = useMemo(() => {
     const groups = new Map<string, { key: string; title: string; data: Reserve[] }>();
     planReserves.forEach(r => {
-      const names = getReserveCompanies(r);
+      const names = getReserveCompanyNames(r);
       const keys = names.length > 0 ? names : ['—'];
       for (const key of keys) {
         const title = key === '—' ? 'Sans entreprise' : key;
@@ -1616,7 +1591,7 @@ export default function PlansScreen() {
 
   const pdfFilteredList = useMemo<Reserve[]>(() => {
     if (pdfMode === 'all') return planReserves;
-    if (pdfMode === 'company_none') return planReserves.filter(r => getReserveCompanies(r).length === 0);
+    if (pdfMode === 'company_none') return planReserves.filter(r => getReserveCompanyNames(r).length === 0);
     if (pdfMode === 'company_single') {
       if (!pdfCompanySingle) return [];
       return planReserves.filter(r => reserveMatchesCompany(r, pdfCompanySingle));
@@ -1624,7 +1599,7 @@ export default function PlansScreen() {
     if (pdfMode === 'company_multi') {
       if (pdfCompaniesMulti.size === 0) return [];
       return planReserves.filter(r => {
-        const keys = getReserveCompanies(r);
+        const keys = getReserveCompanyNames(r);
         if (keys.length === 0) return pdfCompaniesMulti.has('—');
         return keys.some(key => pdfCompaniesMulti.has(key));
       });
@@ -3611,7 +3586,7 @@ export default function PlansScreen() {
                     const isCluster = cluster.items.length > 1;
                     const baseId = cluster.items[0]?.id ?? '';
                     const sz = isCluster ? getClusterDisplaySize(clusterSize) : getPinDisplaySize(baseId, pinSize);
-                    const color = getCompanyColor(cluster.dominantCompany, companies);
+                    const color = getCompanyPinColor(cluster.dominantCompany, companies);
                     return (
                       <View key={`ghost-${ci}`} style={{
                         position: 'absolute', left: `${cluster.cx}%` as any, top: `${cluster.cy}%` as any,
@@ -3628,7 +3603,7 @@ export default function PlansScreen() {
                   {pinClusters.map((cluster, ci) => {
                     const isCluster = cluster.items.length > 1;
                     const pinId = cluster.items[0]?.id ?? '';
-                    const color = getCompanyColor(cluster.dominantCompany, companies);
+                    const color = getCompanyPinColor(cluster.dominantCompany, companies);
                     const isHighlighted = !isCluster && highlightedReserveId === pinId;
                     const isFocused = !isCluster && focusedPinId === pinId;
                     const baseSz = isCluster ? getClusterDisplaySize(clusterSize) : getPinDisplaySize(pinId, pinSize);

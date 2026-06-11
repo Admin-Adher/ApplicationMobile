@@ -436,6 +436,47 @@
   padding: 12px 14px;
 }
 
+/* Bannières flottantes : visibles au-dessus de toutes les modales (z-index max = 180). */
+.floatingAlert,
+.floatingNotice {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(620px, calc(100vw - 32px));
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  font-weight: 600;
+}
+
+.floatingAlert {
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b42318;
+}
+
+.floatingNotice {
+  border: 1px solid #bbf7d0;
+  background: #f0fdf4;
+  color: #047857;
+}
+
+.floatingAlert button,
+.floatingNotice button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
 .storageAlert {
   border: 1px solid #fbbf24;
   background: #fffbeb;
@@ -1280,7 +1321,8 @@
 }
 
 .dashboardTone_green {
-  --dashboard-tone: #16a34a;
+  /* Aligné sur la couleur canonique « clôturé » (lib/reserveLabels.ts). */
+  --dashboard-tone: #059669;
   --dashboard-tone-soft: #ecfdf5;
 }
 
@@ -4106,10 +4148,11 @@
   background: #94a3b8;
 }
 
+/* Couleurs canoniques de priorité (lib/reserveLabels.ts), identiques aux PDF/emails/page publique. */
 .priority_critical { background: #dc2626; }
-.priority_high { background: #f97316; }
-.priority_medium { background: #f59e0b; }
-.priority_low { background: #22c55e; }
+.priority_high { background: #ea580c; }
+.priority_medium { background: #d97706; }
+.priority_low { background: #6b7280; }
 
 .sectionHeader {
   display: flex;

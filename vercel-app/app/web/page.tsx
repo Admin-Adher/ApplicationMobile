@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
 import {
@@ -14,6 +14,7 @@ import {
   type WebTranslator,
 } from '@/lib/i18n';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import styles from './web.module.css';
 
 type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'sous_traitant' | 'observateur' | string;
@@ -82,6 +83,8 @@ type WebState = {
   timeEntries: any[];
   regulatoryDocs: any[];
   notificationPreferences: any[];
+  journalEntries: any[];
+  checklists: any[];
 };
 
 type StorageUsageGuardrail = {
@@ -234,6 +237,8 @@ const EMPTY_DATA: WebState = {
   timeEntries: [],
   regulatoryDocs: [],
   notificationPreferences: [],
+  journalEntries: [],
+  checklists: [],
 };
 
 const PDFJS_VERSION = '5.7.284';
@@ -631,20 +636,11 @@ function SidebarNavIcon({ name, active = false }: { name: NavIconName; active?: 
   );
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  open: 'Ouvert',
-  in_progress: 'En cours',
-  waiting: 'En attente',
-  verification: 'Vérification',
-  closed: 'Clôturé',
-};
+// Source unique des libellés/couleurs de statut : lib/reserveLabels.ts
+// (partagée avec les PDF, emails et la page publique réserve).
+const STATUS_LABELS: Record<string, string> = RESERVE_STATUS_LABELS;
 
-const PRIORITY_LABELS: Record<string, string> = {
-  critical: 'Critique',
-  high: 'Haute',
-  medium: 'Moyenne',
-  low: 'Basse',
-};
+const PRIORITY_LABELS: Record<string, string> = RESERVE_PRIORITY_LABELS;
 
 const STATUS_OPTIONS = Object.entries(STATUS_LABELS);
 const RESERVE_FILTER_OPTIONS = [
@@ -870,6 +866,30 @@ function useMediaQuery(query: string) {
   return matches;
 }
 
+// Traite une liste par lots parallèles : évite le N+1 séquentiel sans saturer le réseau.
+async function runInBatches<T, R>(items: T[], batchSize: number, task: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += batchSize) {
+    const batch = await Promise.all(items.slice(i, i + batchSize).map(task));
+    results.push(...batch);
+  }
+  return results;
+}
+
+// Fermeture des modales à la touche Échap (aria-modal sans Escape = inaccessible).
+function useEscapeClose(active: boolean, onClose: () => void) {
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    if (!active || typeof window === 'undefined') return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') closeRef.current();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [active]);
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -918,20 +938,14 @@ function makeVisitChecklist(type: VisitDraft['visitType'], lang: SupportedLang =
   }));
 }
 
-function nowFR() {
-  return new Date().toLocaleString('fr-FR', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+function nowISO() {
+  return new Date().toISOString();
 }
 
 function prettyDate(value?: string | null, withTime = false) {
   if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
+  const date = parseDateSafe(value);
+  if (!date) return value;
   return date.toLocaleDateString('fr-FR', {
     day: '2-digit',
     month: 'short',
@@ -953,7 +967,9 @@ function isReserveClosed(reserve: any) {
 }
 
 function getReserveCreatedSortKey(reserve: any) {
-  return String(reserve?.createdAt ?? reserve?.created_at ?? reserve?.created ?? reserve?.date ?? '');
+  const raw = String(reserve?.createdAt ?? reserve?.created_at ?? reserve?.created ?? reserve?.date ?? '');
+  const parsed = parseDateSafe(raw);
+  return parsed ? parsed.toISOString() : raw;
 }
 
 function comparePlanPinReserveOrder(a: any, b: any) {
@@ -983,18 +999,25 @@ function getPlanPinNumber(numberMap: Map<string, number>, reserve: any) {
 
 function isReserveOverdue(reserve: any) {
   if (!reserve?.deadline || ['closed', 'verification'].includes(String(reserve?.status ?? ''))) return false;
-  const deadline = new Date(reserve.deadline);
-  return !Number.isNaN(deadline.getTime()) && deadline < new Date();
+  const deadline = parseDateSafe(String(reserve.deadline));
+  if (!deadline) return false;
+  deadline.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return deadline < today;
 }
 
 function isReserveDueSoon(reserve: any, days = 3) {
   if (!reserve?.deadline || ['closed', 'verification'].includes(String(reserve?.status ?? ''))) return false;
-  const deadline = new Date(`${String(reserve.deadline).slice(0, 10)}T23:59:59`);
-  if (Number.isNaN(deadline.getTime())) return false;
-  const now = new Date();
-  const limit = new Date(now);
+  const deadline = parseDateSafe(String(reserve.deadline));
+  if (!deadline) return false;
+  deadline.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  if (deadline < today) return false;
+  const limit = new Date(today);
   limit.setDate(limit.getDate() + days);
-  return deadline >= now && deadline <= limit;
+  return deadline <= limit;
 }
 
 function needsEnterpriseAck(reserve: any) {
@@ -1007,9 +1030,15 @@ function hasEnterpriseAck(reserve: any) {
 
 function parseDateSafe(value?: string | null) {
   if (!value) return null;
-  const frenchMatch = String(value).match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  const frenchMatch = String(value).match(/^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2}))?/);
   if (frenchMatch) {
-    const parsed = new Date(Number(frenchMatch[3]), Number(frenchMatch[2]) - 1, Number(frenchMatch[1]));
+    const parsed = new Date(
+      Number(frenchMatch[3]),
+      Number(frenchMatch[2]) - 1,
+      Number(frenchMatch[1]),
+      Number(frenchMatch[4] ?? 0),
+      Number(frenchMatch[5] ?? 0),
+    );
     return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
   const parsed = new Date(value);
@@ -1852,7 +1881,7 @@ function makeHistory(action: string, author: string, oldValue?: string, newValue
     id: crypto.randomUUID(),
     action,
     author,
-    createdAt: nowFR(),
+    createdAt: nowISO(),
     ...(oldValue !== undefined ? { oldValue } : {}),
     ...(newValue !== undefined ? { newValue } : {}),
   };
@@ -1936,6 +1965,63 @@ function readWebLocalArray(key: string) {
 function writeWebLocalArray(key: string, value: any[]) {
   if (typeof window === 'undefined') return;
   window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+// Journal/checklists : mapping lignes Supabase <-> forme d'affichage historique des vues web.
+function mergeRealtimeRow(rows: any[], payload: any) {
+  const next = payload?.new && Object.keys(payload.new).length ? payload.new : null;
+  const oldId = payload?.old?.id ?? next?.id;
+  if (payload?.eventType === 'DELETE') {
+    return oldId ? rows.filter(row => String(row.id) !== String(oldId)) : rows;
+  }
+  if (!next?.id) return rows;
+  const exists = rows.some(row => String(row.id) === String(next.id));
+  return exists
+    ? rows.map(row => (String(row.id) === String(next.id) ? { ...row, ...next } : row))
+    : [next, ...rows];
+}
+
+function journalRowToEntry(row: any) {
+  return {
+    id: row.id,
+    date: row.entry_date ?? row.date ?? '',
+    weather: row.weather ?? '',
+    workerCount: row.worker_count ?? row.workerCount ?? 0,
+    workDone: row.work_done ?? row.workDone ?? '',
+    materials: row.materials ?? '',
+    incidents: row.incidents ?? '',
+    observations: row.observations ?? '',
+    visitors: row.visitors ?? '',
+    author: row.author ?? '',
+    createdAt: row.created_at ?? row.createdAt ?? '',
+    chantierId: row.chantier_id ?? null,
+  };
+}
+
+function checklistRowToView(row: any) {
+  const items = (Array.isArray(row.items) ? row.items : []).map((item: any) => ({
+    id: item.id ?? crypto.randomUUID(),
+    label: item.label ?? '',
+    checked: Boolean(item.done ?? item.checked),
+  }));
+  const done = items.filter((item: any) => item.checked).length;
+  return {
+    id: row.id,
+    title: row.title ?? '',
+    items,
+    status: items.length && done === items.length ? 'completed' : done > 0 ? 'in_progress' : 'draft',
+    createdAt: row.created_at ?? row.createdAt ?? '',
+    createdBy: row.author ?? row.createdBy ?? '',
+    chantierId: row.chantier_id ?? null,
+  };
+}
+
+function checklistItemsToRows(items: any[]) {
+  return (items ?? []).map((item: any) => ({
+    id: item.id ?? crypto.randomUUID(),
+    label: item.label ?? '',
+    done: Boolean(item.done ?? item.checked),
+  }));
 }
 
 async function uploadWebFile(bucket: 'photos' | 'documents', file: File, prefix: string) {
@@ -2224,31 +2310,105 @@ function ProjectDropdown({ projects, selectedProjectId, onSelect }: {
   );
 }
 
+const SUPABASE_PAGE_SIZE = 1000;
+
 async function fetchScopedTable<T = any>(
   table: string,
   profile: Profile,
-  options: { order?: string; ascending?: boolean; limit?: number; scoped?: boolean } = {},
+  options: {
+    order?: string;
+    ascending?: boolean;
+    limit?: number;
+    scoped?: boolean;
+    onError?: (table: string, message: string) => void;
+  } = {},
 ): Promise<T[]> {
   try {
-    let query = supabaseBrowser.from(table).select('*');
-    if (options.scoped !== false && profile.role !== 'super_admin' && profile.organization_id) {
-      query = query.eq('organization_id', profile.organization_id);
+    // Pagination explicite : sans elle, PostgREST tronque silencieusement à 1000 lignes.
+    const rows: T[] = [];
+    const pageSize = options.limit ? Math.min(options.limit, SUPABASE_PAGE_SIZE) : SUPABASE_PAGE_SIZE;
+    for (let from = 0; ; from += pageSize) {
+      let query = supabaseBrowser.from(table).select('*');
+      if (options.scoped !== false && profile.role !== 'super_admin' && profile.organization_id) {
+        query = query.eq('organization_id', profile.organization_id);
+      }
+      if (table === 'chantiers' || table === 'site_plans' || table === 'photos') {
+        query = query.is('deleted_at', null);
+      }
+      if (options.order) query = query.order(options.order, { ascending: options.ascending ?? false });
+      query = query.order('id', { ascending: true });
+      query = query.range(from, from + pageSize - 1);
+      const { data, error } = await query;
+      if (error) {
+        console.warn(`[web] ${table}`, error.message);
+        options.onError?.(table, error.message);
+        return rows;
+      }
+      rows.push(...((data ?? []) as T[]));
+      if (!data || data.length < pageSize) break;
+      if (options.limit && rows.length >= options.limit) break;
     }
-    if (table === 'chantiers' || table === 'site_plans' || table === 'photos') {
-      query = query.is('deleted_at', null);
-    }
-    if (options.order) query = query.order(options.order, { ascending: options.ascending ?? false });
-    if (options.limit) query = query.limit(options.limit);
-    const { data, error } = await query;
-    if (error) {
-      console.warn(`[web] ${table}`, error.message);
-      return [];
-    }
-    return (data ?? []) as T[];
-  } catch (error) {
+    return options.limit ? rows.slice(0, options.limit) : rows;
+  } catch (error: any) {
     console.warn(`[web] ${table}`, error);
+    options.onError?.(table, error?.message ?? String(error));
     return [];
   }
+}
+
+type WebTextPromptRequest = {
+  title: string;
+  label?: string;
+  defaultValue?: string;
+  resolve: (value: string | null) => void;
+};
+
+// Boîte de saisie maison remplaçant window.prompt (stylée, traduite par le bridge,
+// fermable à Échap). Enregistrée par le composant racine ; fallback prompt natif sinon.
+let webAskTextImpl: ((title: string, options?: { label?: string; defaultValue?: string }) => Promise<string | null>) | null = null;
+
+function askTextDialog(title: string, options: { label?: string; defaultValue?: string } = {}) {
+  if (webAskTextImpl) return webAskTextImpl(title, options);
+  if (typeof window === 'undefined') return Promise.resolve<string | null>(null);
+  return Promise.resolve(window.prompt(title, options.defaultValue ?? ''));
+}
+
+function TextPromptDialog({ request, onSubmit, onCancel }: {
+  request: WebTextPromptRequest;
+  onSubmit: (value: string) => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState(request.defaultValue ?? '');
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') onCancel();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onCancel]);
+  return (
+    <div className={styles.modalBackdrop} role="dialog" aria-modal="true" style={{ zIndex: 250 }}>
+      <form
+        className={styles.modalPanel}
+        style={{ maxWidth: 420 }}
+        onMouseDown={event => event.stopPropagation()}
+        onSubmit={event => {
+          event.preventDefault();
+          onSubmit(value.trim());
+        }}
+      >
+        <h3>{request.title}</h3>
+        <label className={styles.fullSpan}>
+          {request.label ? <span>{request.label}</span> : null}
+          <input autoFocus value={value} onChange={event => setValue(event.target.value)} />
+        </label>
+        <div className={styles.modalActions}>
+          <button type="button" onClick={onCancel}>Annuler</button>
+          <button type="submit">Valider</button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
 export default function BuildTrackWebPage() {
@@ -2279,8 +2439,11 @@ export default function BuildTrackWebPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [textPrompt, setTextPrompt] = useState<WebTextPromptRequest | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     if (typeof window === 'undefined') return false;
     return window.localStorage.getItem('buildtrack-web-sidebar-collapsed') === '1';
@@ -2389,9 +2552,75 @@ export default function BuildTrackWebPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session?.user?.id]);
 
-  async function loadEverything(user: SupabaseUser) {
-    setLoading(true);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(''), 4000);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    webAskTextImpl = (title, options = {}) => new Promise<string | null>(resolve => {
+      setTextPrompt({ title, label: options.label, defaultValue: options.defaultValue, resolve });
+    });
+    return () => {
+      webAskTextImpl = null;
+    };
+  }, []);
+
+  function resolveTextPrompt(value: string | null) {
+    if (!textPrompt) return;
+    textPrompt.resolve(value);
+    setTextPrompt(null);
+  }
+
+  // Realtime : les messages et réserves modifiés ailleurs (mobile, autres postes)
+  // apparaissent sans devoir cliquer sur Synchroniser.
+  useEffect(() => {
+    if (!session?.user?.id || !profile?.organization_id) return;
+    const orgFilter = `organization_id=eq.${profile.organization_id}`;
+    const channel = supabaseBrowser
+      .channel('web-live')
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'messages', filter: orgFilter }, (payload: any) => {
+        setData(prev => ({ ...prev, messages: mergeRealtimeRow(prev.messages, payload) }));
+      })
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'reserves', filter: orgFilter }, (payload: any) => {
+        setData(prev => {
+          const merged = mergeRealtimeRow([...prev.reserves, ...prev.deletedReserves], payload);
+          const visible = visibleReservesForProfile(merged, profile, prev.companies);
+          return {
+            ...prev,
+            reserves: visible.filter((reserve: any) => !isReserveDeleted(reserve)),
+            deletedReserves: visible.filter((reserve: any) => isReserveDeleted(reserve)),
+          };
+        });
+      })
+      .subscribe();
+    return () => {
+      supabaseBrowser.removeChannel(channel);
+    };
+  }, [session?.user?.id, profile?.organization_id]);
+
+  // F5 / fermeture d'onglet pendant une saisie de modale : avertir avant de perdre le brouillon.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (reserveModalMode || visitModalOpen) {
+        event.preventDefault();
+        event.returnValue = '';
+      }
+    }
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [reserveModalMode, visitModalOpen]);
+
+  async function loadEverything(user: SupabaseUser, opts: { background?: boolean } = {}) {
+    if (opts.background) setSyncing(true);
+    else setLoading(true);
     setError('');
+    const failedTables: string[] = [];
+    const onError = (table: string) => {
+      if (!failedTables.includes(table)) failedTables.push(table);
+    };
     try {
       const { data: profileRows, error: profileError } = await supabaseBrowser
         .from('profiles')
@@ -2403,6 +2632,7 @@ export default function BuildTrackWebPage() {
       if (!loadedProfile) {
         setError(t('login.missingProfile'));
         setLoading(false);
+        setSyncing(false);
         return;
       }
 
@@ -2448,24 +2678,28 @@ export default function BuildTrackWebPage() {
         regulatoryDocs,
         notificationPreferences,
       ] = await Promise.all([
-        fetchScopedTable('chantiers', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('reserves', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('site_plans', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true }),
-        fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false }),
-        fetchScopedTable('visites', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800 }),
-        fetchScopedTable('channels', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable<Profile>('profiles', loadedProfile, { order: 'name', ascending: true }),
-        fetchScopedTable('lots', loadedProfile, { order: 'name', ascending: true }),
-        fetchScopedTable('tasks', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('incidents', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('documents', loadedProfile, { order: 'uploaded_at' }),
-        fetchScopedTable('photos', loadedProfile, { order: 'taken_at', scoped: false }),
-        fetchScopedTable('oprs', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('time_entries', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at' }),
-        fetchScopedTable('notification_preferences', loadedProfile, { scoped: false }),
+        fetchScopedTable('chantiers', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('reserves', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError }),
+        fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError }),
+        fetchScopedTable('visites', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800, onError }),
+        fetchScopedTable('channels', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable<Profile>('profiles', loadedProfile, { order: 'name', ascending: true, onError }),
+        fetchScopedTable('lots', loadedProfile, { order: 'name', ascending: true, onError }),
+        fetchScopedTable('tasks', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('incidents', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('documents', loadedProfile, { order: 'uploaded_at', onError }),
+        fetchScopedTable('photos', loadedProfile, { order: 'taken_at', scoped: false, onError }),
+        fetchScopedTable('oprs', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('time_entries', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at', onError }),
+        fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError }),
+      ]);
+      const [journalEntries, checklists] = await Promise.all([
+        fetchScopedTable('journal_entries', loadedProfile, { order: 'entry_date', onError }),
+        fetchScopedTable('checklists', loadedProfile, { order: 'created_at', onError }),
       ]);
 
       const visibleScopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies);
@@ -2500,16 +2734,22 @@ export default function BuildTrackWebPage() {
         timeEntries,
         regulatoryDocs: loadedProfile.role === 'sous_traitant' ? [] : regulatoryDocs,
         notificationPreferences,
+        journalEntries,
+        checklists,
       };
       setData(nextData);
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
       setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : scopedReserves[0]?.id ?? null);
       setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
+      if (failedTables.length) {
+        setError(`Certaines données n'ont pas pu être chargées (${failedTables.join(', ')}). Cliquez sur Synchroniser pour réessayer.`);
+      }
     } catch (err: any) {
       setError(err?.message ?? t('login.loadError'));
     } finally {
       setLoading(false);
+      setSyncing(false);
     }
   }
 
@@ -2596,7 +2836,7 @@ export default function BuildTrackWebPage() {
     try {
       const author = userLabel(profile, authUser);
       const trimmedComment = payload.comment.trim();
-      const createdAt = nowFR();
+      const createdAt = nowISO();
       let uploadedPhoto: any = null;
       let photoRow: any = null;
 
@@ -2692,7 +2932,7 @@ export default function BuildTrackWebPage() {
       return;
     }
     const defaultName = userLabel(profile, authUser);
-    const signataire = window.prompt('Nom du signataire', defaultName)?.trim();
+    const signataire = (await askTextDialog('Nom du signataire', { defaultValue: defaultName }))?.trim();
     if (!signataire) return;
     const signedAt = todayISO();
     const signature = makeTypedSignatureDataUrl(signataire, signedAt);
@@ -2727,12 +2967,12 @@ export default function BuildTrackWebPage() {
 
   async function rejectReserveVerificationWeb(reserve: any) {
     if (!canEdit(profile) || !reserve?.id || reserve.status !== 'verification') return;
-    const reason = window.prompt('Motif du refus de levée (optionnel)', '')?.trim() ?? '';
+    const reason = (await askTextDialog('Motif du refus de levée (optionnel)'))?.trim() ?? '';
     const author = userLabel(profile, authUser);
     const comments = reason
       ? [
         ...(Array.isArray(reserve.comments) ? reserve.comments : []),
-        { id: crypto.randomUUID(), author, content: `Levée rejetée : ${reason}`, createdAt: nowFR() },
+        { id: crypto.randomUUID(), author, content: `Levée rejetée : ${reason}`, createdAt: nowISO() },
       ]
       : reserve.comments ?? [];
     await patchReserveWeb(reserve, {
@@ -2896,7 +3136,7 @@ export default function BuildTrackWebPage() {
       id: crypto.randomUUID(),
       author: userLabel(profile, authUser),
       content: content.trim(),
-      createdAt: nowFR(),
+      createdAt: nowISO(),
     };
     const comments = [...(reserve.comments ?? []), nextComment];
     const history = [
@@ -2925,8 +3165,7 @@ export default function BuildTrackWebPage() {
     setSaving(true);
     setError('');
     try {
-      const updates: any[] = [];
-      for (const reserve of missing) {
+      const updates = await runInBatches(missing, 8, async reserve => {
         const history = [
           ...(reserve.history ?? []),
           makeHistory('Description complétée depuis le web', userLabel(profile, authUser), reserve.description ?? '', reserve.title),
@@ -2934,8 +3173,8 @@ export default function BuildTrackWebPage() {
         const patch = { description: reserve.title, history };
         const { error: updateError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
         if (updateError) throw updateError;
-        updates.push({ id: reserve.id, ...patch });
-      }
+        return { id: reserve.id, ...patch };
+      });
       const updateById = new Map(updates.map(update => [update.id, update]));
       setData(prev => ({
         ...prev,
@@ -2960,8 +3199,7 @@ export default function BuildTrackWebPage() {
     setSaving(true);
     setError('');
     try {
-      const updates: any[] = [];
-      for (const reserve of candidates) {
+      const updates = await runInBatches(candidates, 4, async reserve => {
         const sourceDescription = isReserveDescriptionMissing(reserve.description) ? reserve.title : reserve.description;
         const source = defaultTextLang();
         const [title, description, comments] = await Promise.all([
@@ -2981,8 +3219,8 @@ export default function BuildTrackWebPage() {
         const patch = { title, description: description || title, comments, history };
         const { error: updateError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
         if (updateError) throw updateError;
-        updates.push({ id: reserve.id, ...patch });
-      }
+        return { id: reserve.id, ...patch };
+      });
       const updateById = new Map(updates.map(update => [update.id, update]));
       setData(prev => ({
         ...prev,
@@ -3034,6 +3272,19 @@ export default function BuildTrackWebPage() {
     setEditingReserveId(null);
   }
 
+  // Fermeture demandée par l'utilisateur (Annuler, Fermer, Échap) :
+  // confirmation si le brouillon contient une saisie qui serait perdue.
+  function requestCloseReserveModal() {
+    const hasDraftContent = reserveModalMode === 'create' && (
+      reserveDraft.title.trim() ||
+      reserveDraft.description.trim() ||
+      reserveDraft.photos.length > 0 ||
+      reserveDraft.companies.length > 0
+    );
+    if (hasDraftContent && !window.confirm('Fermer sans enregistrer ? La saisie en cours sera perdue.')) return;
+    closeReserveModal();
+  }
+
   function openVisitCreate() {
     setError('');
     setVisitDraft(createVisitDraft(currentProjectId(), userLabel(profile, authUser), webLang));
@@ -3074,7 +3325,12 @@ export default function BuildTrackWebPage() {
       return visit;
     });
     if (updates.length) {
-      await Promise.all(updates);
+      const results = await Promise.all(updates);
+      const updateError = results.map((result: any) => result?.error).find(Boolean);
+      if (updateError) {
+        setError(updateError.message ?? 'Impossible de mettre à jour le lien visite/réserve.');
+        return;
+      }
       setData(prev => ({ ...prev, visites: nextVisites }));
     }
   }
@@ -3133,20 +3389,24 @@ export default function BuildTrackWebPage() {
         annotations: normalizePhotoAnnotations(photo.annotations),
       }));
     const newPhotos = draft.photos.filter(photo => photo.file);
+    // Uploads en parallèle : 6 photos = 1 aller-retour au lieu de 6 en série.
+    const uploaded = await Promise.all(newPhotos.map(async photo => {
+      if (!photo.file) return null;
+      const url = await uploadWebFile('photos', photo.file, `reserve_${reserveId}_${photo.kind ?? 'defect'}`);
+      return { photo, url, takenAt: new Date().toISOString(), photoId: crypto.randomUUID() };
+    }));
     const uploadedPhotos: any[] = [];
     const photoRows: any[] = [];
-    for (const photo of newPhotos) {
-      if (!photo.file) continue;
-      const url = await uploadWebFile('photos', photo.file, `reserve_${reserveId}_${photo.kind ?? 'defect'}`);
-      const takenAt = new Date().toISOString();
-      const photoId = crypto.randomUUID();
+    for (const item of uploaded) {
+      if (!item) continue;
+      const { photo, url, takenAt, photoId } = item;
       uploadedPhotos.push({
         id: photoId,
         uri: url,
         kind: photo.kind ?? 'defect',
         takenAt,
         takenBy: userLabel(profile, authUser),
-        name: photo.name ?? photo.file.name,
+        name: photo.name ?? photo.file?.name,
         annotations: normalizePhotoAnnotations(photo.annotations),
       });
       photoRows.push({
@@ -3265,6 +3525,7 @@ export default function BuildTrackWebPage() {
         }));
         await syncVisitReserveLink(editingReserveId, reserveDraft.visiteId || null, existing?.visite_id ?? null);
         closeReserveModal();
+        setNotice('Réserve mise à jour.');
       }
     } else {
       const id = generateReserveId(data.reserves, data.lots, reserveDraft.lotId);
@@ -3294,6 +3555,7 @@ export default function BuildTrackWebPage() {
           setActiveTab('plans');
         }
         closeReserveModal();
+        setNotice('Réserve créée.');
       } catch (insertError: any) {
         setError(insertError?.message ?? 'Création de la réserve impossible.');
       }
@@ -3386,6 +3648,7 @@ export default function BuildTrackWebPage() {
       setData(prev => ({ ...prev, visites: [...(inserted ?? payloads), ...prev.visites] }));
       setVisitModalOpen(false);
       setActiveTab('visites');
+      setNotice(payloads.length > 1 ? `${payloads.length} visites créées.` : 'Visite créée.');
     }
     setSaving(false);
   }
@@ -3733,7 +3996,13 @@ export default function BuildTrackWebPage() {
         setSaving(false);
         return null;
       }
-      uri = await uploadWebFile('documents', file, `plan_${name}`);
+      try {
+        uri = await uploadWebFile('documents', file, `plan_${name}`);
+      } catch (uploadError: any) {
+        setError(uploadError?.message ?? "Échec de l'upload du fichier plan.");
+        setSaving(false);
+        return null;
+      }
       fileType = detected;
       dxfName = detected === 'dxf' ? file.name : null;
     }
@@ -3769,6 +4038,7 @@ export default function BuildTrackWebPage() {
     setSelectedPlanId(plan.id);
     setActiveTab('plans');
     setSaving(false);
+    setNotice('Plan enregistré.');
     return plan;
   }
 
@@ -3784,7 +4054,13 @@ export default function BuildTrackWebPage() {
         setSaving(false);
         return null;
       }
-      payload.uri = await uploadWebFile('documents', file, `plan_${patch.name ?? plan.name ?? plan.id}`);
+      try {
+        payload.uri = await uploadWebFile('documents', file, `plan_${patch.name ?? plan.name ?? plan.id}`);
+      } catch (uploadError: any) {
+        setError(uploadError?.message ?? "Échec de l'upload du fichier plan.");
+        setSaving(false);
+        return null;
+      }
       payload.file_type = detected;
       payload.dxf_name = detected === 'dxf' ? file.name : null;
       payload.size = formatWebFileSize(file.size);
@@ -4039,12 +4315,176 @@ export default function BuildTrackWebPage() {
 
   async function deleteTimeEntryWeb(entry: any) {
     if (!profile || !canEdit(profile) || !entry?.id) return false;
+    const confirmed = window.confirm(`Supprimer définitivement le pointage de ${entry.worker_name ?? 'ce compagnon'} ?`);
+    if (!confirmed) return false;
     const { error: deleteError } = await supabaseBrowser.from('time_entries').delete().eq('id', entry.id);
     if (deleteError) {
       setError(deleteError.message);
       return false;
     }
     setData(prev => ({ ...prev, timeEntries: prev.timeEntries.filter(item => item.id !== entry.id) }));
+    setNotice('Pointage supprimé.');
+    return true;
+  }
+
+  async function createJournalEntryWeb(payload: Record<string, any>) {
+    if (!profile || !canEdit(profile)) return null;
+    const row = {
+      id: `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      organization_id: profile.organization_id ?? null,
+      chantier_id: payload.chantier_id ?? null,
+      entry_date: payload.date || todayISO(),
+      weather: String(payload.weather ?? ''),
+      worker_count: Number(payload.workerCount ?? 0),
+      work_done: String(payload.workDone ?? ''),
+      materials: String(payload.materials ?? ''),
+      incidents: String(payload.incidents ?? ''),
+      observations: String(payload.observations ?? ''),
+      visitors: String(payload.visitors ?? ''),
+      author: userLabel(profile, authUser),
+      author_id: profile.id ?? null,
+    };
+    const { data: inserted, error: insertError } = await supabaseBrowser.from('journal_entries').insert(row).select().single();
+    if (insertError) {
+      setError(insertError.message);
+      return null;
+    }
+    const saved = inserted ?? row;
+    setData(prev => ({ ...prev, journalEntries: [saved, ...prev.journalEntries] }));
+    setNotice('Entrée de journal enregistrée.');
+    return saved;
+  }
+
+  async function deleteJournalEntryWeb(entry: any) {
+    if (!profile || !canEdit(profile) || !entry?.id) return false;
+    if (!window.confirm('Supprimer cette entrée de journal ?')) return false;
+    const { error: deleteError } = await supabaseBrowser.from('journal_entries').delete().eq('id', entry.id);
+    if (deleteError) {
+      setError(deleteError.message);
+      return false;
+    }
+    setData(prev => ({ ...prev, journalEntries: prev.journalEntries.filter(item => item.id !== entry.id) }));
+    setNotice('Entrée de journal supprimée.');
+    return true;
+  }
+
+  async function migrateLocalJournalWeb(localEntries: any[], chantierId: string) {
+    if (!profile || !localEntries.length) return true;
+    const rows = localEntries.map(entry => ({
+      id: String(entry.id ?? `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+      organization_id: profile.organization_id ?? null,
+      chantier_id: chantierId !== 'all' ? chantierId : null,
+      entry_date: String(entry.date ?? ''),
+      weather: String(entry.weather ?? ''),
+      worker_count: Number(entry.workerCount ?? 0),
+      work_done: String(entry.workDone ?? ''),
+      materials: String(entry.materials ?? ''),
+      incidents: String(entry.incidents ?? ''),
+      observations: String(entry.observations ?? ''),
+      visitors: String(entry.visitors ?? ''),
+      author: String(entry.author ?? userLabel(profile, authUser)),
+      author_id: profile.id ?? null,
+    }));
+    const { error: upsertError } = await supabaseBrowser
+      .from('journal_entries')
+      .upsert(rows, { onConflict: 'id', ignoreDuplicates: true });
+    if (upsertError) {
+      console.warn('[web] migration journal local', upsertError.message);
+      return false;
+    }
+    setData(prev => {
+      const known = new Set(prev.journalEntries.map((item: any) => String(item.id)));
+      return { ...prev, journalEntries: [...rows.filter(row => !known.has(String(row.id))), ...prev.journalEntries] };
+    });
+    return true;
+  }
+
+  async function saveChecklistWeb(payload: Record<string, any>) {
+    if (!profile || !canEdit(profile)) return null;
+    const row = {
+      id: String(payload.id ?? `CHK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+      organization_id: profile.organization_id ?? null,
+      chantier_id: payload.chantier_id ?? null,
+      title: String(payload.title ?? ''),
+      items: checklistItemsToRows(payload.items ?? []),
+      author: String(payload.author ?? userLabel(profile, authUser)),
+      author_id: profile.id ?? null,
+    };
+    const { data: saved, error: saveError } = await supabaseBrowser
+      .from('checklists')
+      .upsert(row, { onConflict: 'id' })
+      .select()
+      .single();
+    if (saveError) {
+      setError(saveError.message);
+      return null;
+    }
+    const next = saved ?? row;
+    setData(prev => {
+      const exists = prev.checklists.some((item: any) => item.id === next.id);
+      return {
+        ...prev,
+        checklists: exists ? prev.checklists.map((item: any) => item.id === next.id ? next : item) : [next, ...prev.checklists],
+      };
+    });
+    return next;
+  }
+
+  async function updateChecklistItemsWeb(checklistId: string, items: any[]) {
+    if (!profile || !canEdit(profile) || !checklistId) return false;
+    const rows = checklistItemsToRows(items);
+    const previous = data.checklists;
+    setData(prev => ({
+      ...prev,
+      checklists: prev.checklists.map((item: any) => item.id === checklistId ? { ...item, items: rows, updated_at: nowISO() } : item),
+    }));
+    const { error: updateError } = await supabaseBrowser
+      .from('checklists')
+      .update({ items: rows, updated_at: nowISO() })
+      .eq('id', checklistId);
+    if (updateError) {
+      setData(prev => ({ ...prev, checklists: previous }));
+      setError(updateError.message);
+      return false;
+    }
+    return true;
+  }
+
+  async function deleteChecklistWeb(checklist: any) {
+    if (!profile || !canEdit(profile) || !checklist?.id) return false;
+    if (!window.confirm(`Supprimer la checklist « ${checklist.title ?? ''} » ?`)) return false;
+    const { error: deleteError } = await supabaseBrowser.from('checklists').delete().eq('id', checklist.id);
+    if (deleteError) {
+      setError(deleteError.message);
+      return false;
+    }
+    setData(prev => ({ ...prev, checklists: prev.checklists.filter((item: any) => item.id !== checklist.id) }));
+    setNotice('Checklist supprimée.');
+    return true;
+  }
+
+  async function migrateLocalChecklistsWeb(localChecklists: any[], chantierId: string) {
+    if (!profile || !localChecklists.length) return true;
+    const rows = localChecklists.map(checklist => ({
+      id: String(checklist.id ?? `CHK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+      organization_id: profile.organization_id ?? null,
+      chantier_id: chantierId !== 'all' ? chantierId : null,
+      title: String(checklist.title ?? ''),
+      items: checklistItemsToRows(checklist.items ?? []),
+      author: String(checklist.createdBy ?? userLabel(profile, authUser)),
+      author_id: profile.id ?? null,
+    }));
+    const { error: upsertError } = await supabaseBrowser
+      .from('checklists')
+      .upsert(rows, { onConflict: 'id', ignoreDuplicates: true });
+    if (upsertError) {
+      console.warn('[web] migration checklists locales', upsertError.message);
+      return false;
+    }
+    setData(prev => {
+      const known = new Set(prev.checklists.map((item: any) => String(item.id)));
+      return { ...prev, checklists: [...rows.filter(row => !known.has(String(row.id))), ...prev.checklists] };
+    });
     return true;
   }
 
@@ -4059,7 +4499,13 @@ export default function BuildTrackWebPage() {
     setError('');
     let uri = draft.uri ?? null;
     if (file) {
-      uri = await uploadWebFile('documents', file, `reglementaire_${title}`);
+      try {
+        uri = await uploadWebFile('documents', file, `reglementaire_${title}`);
+      } catch (uploadError: any) {
+        setError(uploadError?.message ?? "Échec de l'upload du document.");
+        setSaving(false);
+        return null;
+      }
     }
     const payload = {
       type: draft.type || 'autre',
@@ -4079,7 +4525,7 @@ export default function BuildTrackWebPage() {
       : supabaseBrowser.from('regulatory_docs').insert({
           id: `REG-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
           ...payload,
-          created_at: nowFR(),
+          created_at: nowISO(),
         }).select().single();
     const { data: saved, error: saveError } = await query;
     if (saveError) {
@@ -4224,9 +4670,13 @@ export default function BuildTrackWebPage() {
         setError('Selectionnez une visite avant de generer son compte rendu.');
         return;
       }
+      const { data: pdfAuthData } = await supabaseBrowser.auth.getSession();
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(pdfAuthData.session?.access_token ? { Authorization: `Bearer ${pdfAuthData.session.access_token}` } : {}),
+        },
         body: JSON.stringify(payload),
       });
       const rawResult = await response.text();
@@ -4253,6 +4703,7 @@ export default function BuildTrackWebPage() {
       } else {
         throw new Error('Génération PDF impossible.');
       }
+      setNotice('PDF généré.');
     } catch (err: any) {
       setError(err?.message ?? 'Génération PDF impossible.');
     } finally {
@@ -4393,16 +4844,16 @@ export default function BuildTrackWebPage() {
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedPlan = data.sitePlans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
   const selectedChannel = data.channels.find(c => c.id === selectedChannelId) ?? data.channels[0] ?? null;
-  const selectedChannelMessages = selectedChannel
+  const selectedChannelMessages = useMemo(() => selectedChannel
     ? data.messages
         .filter(m => m.channel_id === selectedChannel.id)
         .sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())
-    : [];
+    : [], [selectedChannel, data.messages]);
 
   const stats = useMemo(() => {
     const reserves = projectScoped.reserves;
     const active = reserves.filter(r => !r.archived_at);
-    const overdue = active.filter(r => r.deadline && new Date(r.deadline) < new Date() && !['closed', 'verification'].includes(r.status));
+    const overdue = active.filter(isReserveOverdue);
     const closed = active.filter(r => r.status === 'closed');
     const ackMissing = active.filter(r => reserveCompanies(r).length > 0 && !r.enterprise_acknowledged_at).length;
     return {
@@ -4549,13 +5000,31 @@ export default function BuildTrackWebPage() {
                 <button type="button" onClick={openVisitCreate}>{t('common.newVisit')}</button>
               </>
             )}
-            <button onClick={() => session.user && loadEverything(session.user)} disabled={loading}>
-              {loading ? t('common.syncing') : t('common.sync')}
+            <button onClick={() => session.user && loadEverything(session.user, { background: true })} disabled={loading || syncing}>
+              {loading || syncing ? t('common.syncing') : t('common.sync')}
             </button>
           </div>
         </header>
 
-        {error ? <div className={styles.alert}>{error}</div> : null}
+        {error ? (
+          <div className={styles.floatingAlert} role="alert">
+            <span>{error}</span>
+            <button type="button" aria-label="Fermer" onClick={() => setError('')}>×</button>
+          </div>
+        ) : null}
+        {notice ? (
+          <div className={styles.floatingNotice} role="status">
+            <span>{notice}</span>
+            <button type="button" aria-label="Fermer" onClick={() => setNotice('')}>×</button>
+          </div>
+        ) : null}
+        {textPrompt ? (
+          <TextPromptDialog
+            request={textPrompt}
+            onSubmit={value => resolveTextPrompt(value)}
+            onCancel={() => resolveTextPrompt(null)}
+          />
+        ) : null}
         {storageAlert ? <div className={styles.storageAlert}>{storageAlert}</div> : null}
 
         {loading ? (
@@ -4675,6 +5144,10 @@ export default function BuildTrackWebPage() {
                 selectedProjectId={selectedProjectId}
                 timeEntries={projectScoped.timeEntries}
                 editable={canEdit(profile)}
+                rows={data.journalEntries}
+                onCreate={createJournalEntryWeb}
+                onDelete={deleteJournalEntryWeb}
+                onMigrate={migrateLocalJournalWeb}
               />
             )}
             {activeTab === 'pointage' && (
@@ -4713,6 +5186,11 @@ export default function BuildTrackWebPage() {
                 profile={profile}
                 selectedProjectId={selectedProjectId}
                 editable={canEdit(profile)}
+                rows={data.checklists}
+                onSave={saveChecklistWeb}
+                onToggle={updateChecklistItemsWeb}
+                onDelete={deleteChecklistWeb}
+                onMigrate={migrateLocalChecklistsWeb}
               />
             )}
             {activeTab === 'reglementaire' && (
@@ -4859,7 +5337,7 @@ export default function BuildTrackWebPage() {
           data={data}
           selectedProjectId={selectedProjectId}
           saving={saving}
-          onClose={closeReserveModal}
+          onClose={requestCloseReserveModal}
           onSubmit={submitReserve}
           onToggleCompany={toggleReserveCompany}
         />
@@ -4896,24 +5374,33 @@ function Dashboard({
   onCreateReserve,
   onCreateVisit,
 }: any) {
-  const activeReserves = scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve));
-  const openCount = activeReserves.filter((reserve: any) => reserve.status === 'open').length;
-  const inProgressCount = activeReserves.filter((reserve: any) => reserve.status === 'in_progress').length;
-  const waitingCount = activeReserves.filter((reserve: any) => reserve.status === 'waiting').length;
-  const verificationCount = activeReserves.filter((reserve: any) => reserve.status === 'verification').length;
-  const closedCount = activeReserves.filter((reserve: any) => reserve.status === 'closed').length;
+  const { locale } = useWebI18n();
+  const activeReserves = useMemo<any[]>(() => scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve)), [scoped.reserves]);
+  const statusTallies = useMemo(() => {
+    const tally: Record<string, number> = { open: 0, in_progress: 0, waiting: 0, verification: 0, closed: 0 };
+    for (const reserve of activeReserves) {
+      const status = String(reserve.status ?? '');
+      if (status in tally) tally[status] += 1;
+    }
+    return tally;
+  }, [activeReserves]);
+  const openCount = statusTallies.open;
+  const inProgressCount = statusTallies.in_progress;
+  const waitingCount = statusTallies.waiting;
+  const verificationCount = statusTallies.verification;
+  const closedCount = statusTallies.closed;
   const totalCount = activeReserves.length;
   const progress = totalCount ? Math.round((closedCount / totalCount) * 100) : 0;
   const remainingCount = Math.max(totalCount - closedCount, 0);
   const progressFillWidth = progress > 0 ? Math.max(progress, 4) : 0;
-  const criticalReserves = activeReserves.filter((reserve: any) => reserve.priority === 'critical' && reserve.status !== 'closed');
-  const overdueReserves = activeReserves.filter((reserve: any) => reserve.priority !== 'critical' && isReserveOverdue(reserve));
-  const lateTasks = scoped.tasks.filter(isTaskLateWeb);
-  const openIncidents = scoped.incidents.filter(isIncidentOpenWeb);
+  const criticalReserves = useMemo<any[]>(() => activeReserves.filter((reserve: any) => reserve.priority === 'critical' && reserve.status !== 'closed'), [activeReserves]);
+  const overdueReserves = useMemo<any[]>(() => activeReserves.filter((reserve: any) => reserve.priority !== 'critical' && isReserveOverdue(reserve)), [activeReserves]);
+  const lateTasks = useMemo<any[]>(() => scoped.tasks.filter(isTaskLateWeb), [scoped.tasks]);
+  const openIncidents = useMemo<any[]>(() => scoped.incidents.filter(isIncidentOpenWeb), [scoped.incidents]);
   const project = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
   const firstName = String(profile?.name ?? authUser?.email ?? 'BuildTrack').split(' ')[0];
-  const today = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-  const plansById = new Map<string, any>(data.sitePlans.map((plan: any) => [String(plan.id), plan] as [string, any]));
+  const today = new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' });
+  const plansById = useMemo(() => new Map<string, any>(data.sitePlans.map((plan: any) => [String(plan.id), plan] as [string, any])), [data.sitePlans]);
   const openBuildingInReserves = (building: any, chantierId?: string) => {
     if (!building?.selectable) return;
     if (chantierId) setSelectedProjectId(chantierId);
@@ -4921,7 +5408,7 @@ function Dashboard({
     setTab('reserves');
   };
 
-  const weekStats = (() => {
+  const weekStats = useMemo(() => {
     const now = new Date();
     const weeks = new Map<string, { label: string; created: number; closed: number }>();
     for (let i = 7; i >= 0; i -= 1) {
@@ -4942,9 +5429,9 @@ function Dashboard({
       }
     }
     return Array.from(weeks.values());
-  })();
+  }, [activeReserves]);
 
-  const companyStats = data.companies
+  const companyStats = useMemo<any[]>(() => data.companies
     .map((company: any) => {
       const companyReserves = activeReserves.filter((reserve: any) => reserveCompanies(reserve).some(name => sameName(name, company.name)));
       const total = companyReserves.length;
@@ -4964,10 +5451,10 @@ function Dashboard({
       };
     })
     .filter((company: any) => company.total > 0 || company.actualWorkers > 0 || company.plannedWorkers > 0)
-    .sort((a: any, b: any) => b.rate - a.rate);
+    .sort((a: any, b: any) => b.rate - a.rate), [data.companies, activeReserves]);
 
-  const pinnedReserves = activeReserves.filter(hasReservePlanPin);
-  const companyPinPodium = data.companies
+  const pinnedReserves = useMemo<any[]>(() => activeReserves.filter(hasReservePlanPin), [activeReserves]);
+  const companyPinPodium = useMemo<any[]>(() => data.companies
     .map((company: any) => {
       const companyReserves = activeReserves.filter((reserve: any) =>
         reserveCompanies(reserve).some(name => sameName(name, company.name))
@@ -4984,7 +5471,7 @@ function Dashboard({
     })
     .filter((company: any) => company.pinned > 0)
     .sort((a: any, b: any) => b.pinned - a.pinned || String(a.name).localeCompare(String(b.name)))
-    .slice(0, 5);
+    .slice(0, 5), [data.companies, activeReserves]);
 
   const totalActualWorkers = companyStats.reduce((sum: number, company: any) => sum + company.actualWorkers, 0);
   const totalPlannedWorkers = companyStats.reduce((sum: number, company: any) => sum + company.plannedWorkers, 0);
@@ -5185,11 +5672,11 @@ function Dashboard({
                   </div>
                 </div>
                 <div className={styles.dashboardStatusList}>
-                  <DashboardStatusBar label="Ouvert" count={openCount} total={totalCount} tone="amber" />
-                  <DashboardStatusBar label="En cours" count={inProgressCount} total={totalCount} tone="blue" />
-                  <DashboardStatusBar label="En attente" count={waitingCount} total={totalCount} tone="amber" />
-                  <DashboardStatusBar label="Vérification" count={verificationCount} total={totalCount} tone="purple" />
-                  <DashboardStatusBar label="Clôturé" count={closedCount} total={totalCount} tone="green" />
+                  <DashboardStatusBar label={statusLabel('open')} count={openCount} total={totalCount} tone="red" />
+                  <DashboardStatusBar label={statusLabel('in_progress')} count={inProgressCount} total={totalCount} tone="blue" />
+                  <DashboardStatusBar label={statusLabel('waiting')} count={waitingCount} total={totalCount} tone="amber" />
+                  <DashboardStatusBar label={statusLabel('verification')} count={verificationCount} total={totalCount} tone="purple" />
+                  <DashboardStatusBar label={statusLabel('closed')} count={closedCount} total={totalCount} tone="green" />
                 </div>
               </section>
 
@@ -5480,6 +5967,7 @@ function ReservesView(props: {
   const isCompactReserveView = useMediaQuery('(max-width: 1180px)');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
+  const [commentBusy, setCommentBusy] = useState(false);
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
   const [pdfLanguage, setPdfLanguage] = useState<TextLang>(props.defaultReportLanguage);
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
@@ -5584,7 +6072,7 @@ function ReservesView(props: {
   const pdfBusy =
     props.generatingReport === `global_reserves-${pdfLanguage}` ||
     props.generatingReport === `individual_reserve-${pdfLanguage}`;
-  const filterCounts = RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
+  const filterCounts = useMemo(() => RESERVE_FILTER_OPTIONS.reduce<Record<string, number>>((acc, option) => {
     acc[option.key] =
       option.key === 'all'
         ? activeReserves.length
@@ -5602,7 +6090,7 @@ function ReservesView(props: {
                   ? activeReserves.filter(hasEnterpriseAck).length
                 : activeReserves.filter(reserve => reserve.status === option.key).length;
     return acc;
-  }, {});
+  }, {}), [activeReserves, allReserves]);
   const quickStatusKeys = new Set(['all', 'open', 'in_progress', 'waiting']);
   const quickStatusOptions = RESERVE_FILTER_OPTIONS.filter(option => quickStatusKeys.has(option.key) || option.key === props.statusFilter);
   const advancedStatusOptions = RESERVE_FILTER_OPTIONS.filter(option => !quickStatusKeys.has(option.key));
@@ -5897,7 +6385,30 @@ function ReservesView(props: {
               </em>
             </button>
           ))}
-          {!reserves.length && <p className={styles.empty}>{isTrashView ? 'Corbeille vide.' : 'Aucune réserve avec ces filtres.'}</p>}
+          {!reserves.length && (
+            <p className={styles.empty}>
+              {isTrashView ? 'Corbeille vide.' : 'Aucune réserve avec ces filtres.'}
+              {!isTrashView && (props.search || props.statusFilter !== 'all' || props.priorityFilter !== 'all' || props.companyFilter !== 'all' || props.buildingFilter !== 'all' || props.pinFilter !== 'all') ? (
+                <>
+                  {' '}
+                  <button
+                    type="button"
+                    className={styles.linkButton}
+                    onClick={() => {
+                      props.setSearch('');
+                      props.setStatusFilter('all');
+                      props.setPriorityFilter('all');
+                      props.setCompanyFilter('all');
+                      props.setBuildingFilter('all');
+                      props.setPinFilter('all');
+                    }}
+                  >
+                    Réinitialiser les filtres
+                  </button>
+                </>
+              ) : null}
+            </p>
+          )}
         </div>
       </section>
       )}
@@ -6388,7 +6899,7 @@ function ReservesView(props: {
                       aria-label={`Ouvrir la photo ${index + 1} sur ${selectedPhotos.length}`}
                     >
                       <span className={styles.photoAnnotationFrame}>
-                        <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} />
+                        <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} loading="lazy" decoding="async" />
                         <PhotoAnnotationLayer annotations={photoAnnotationsFrom(photo)} compact />
                       </span>
                       <span className={styles.reservePhotoKindBadge}>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
@@ -6409,9 +6920,14 @@ function ReservesView(props: {
               className={styles.commentForm}
               onSubmit={async event => {
                 event.preventDefault();
-                if (!commentText.trim()) return;
-                await props.onComment(detailReserve, commentText);
-                setCommentText('');
+                if (!commentText.trim() || commentBusy) return;
+                setCommentBusy(true);
+                try {
+                  await props.onComment(detailReserve, commentText);
+                  setCommentText('');
+                } finally {
+                  setCommentBusy(false);
+                }
               }}
             >
               <input
@@ -6419,7 +6935,7 @@ function ReservesView(props: {
                 onChange={event => setCommentText(event.target.value)}
                 placeholder="Ajouter un commentaire de suivi..."
               />
-              <button type="submit" disabled={props.saving || !commentText.trim()}>Ajouter</button>
+              <button type="submit" disabled={props.saving || commentBusy || !commentText.trim()}>Ajouter</button>
               <div className={styles.commentAssist}>
                 <TextAssistControls
                   value={commentText}
@@ -6544,7 +7060,7 @@ function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
       {rows?.length ? rows.slice(-6).map((row, idx) => (
         <div key={row.id ?? idx} className={styles.timelineItem}>
           <strong>{row.author ?? row.action ?? 'Action'}</strong>
-          <span>{row.content ?? row.newValue ?? row.createdAt ?? ''}</span>
+          <span>{row.content ?? row.newValue ?? prettyDate(row.createdAt, true)}</span>
         </div>
       )) : <small>Aucun élément.</small>}
     </div>
@@ -9007,7 +9523,7 @@ function VisitesView({
             </div>
 
             {selectedVisit.cover_photo_uri || selectedVisit.coverPhotoUri ? (
-              <img className={styles.visitCoverHero} src={assetUrl({ uri: selectedVisit.cover_photo_uri ?? selectedVisit.coverPhotoUri }, 'photos')} alt="Photo de couverture de la visite" />
+              <img className={styles.visitCoverHero} src={assetUrl({ uri: selectedVisit.cover_photo_uri ?? selectedVisit.coverPhotoUri }, 'photos')} alt="Photo de couverture de la visite" loading="lazy" decoding="async" />
             ) : null}
 
             <div className={styles.visitInfoGrid}>
@@ -9500,9 +10016,11 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
 
 function MediaView({ photos, documents, isSubcontractor }: { photos: any[]; documents: any[]; isSubcontractor?: boolean }) {
   const [query, setQuery] = useState('');
-  const q = query.trim().toLowerCase();
-  const filteredPhotos = photos.filter(photo => !q || [photo.title, photo.name, photo.comment, photo.location, photo.taken_by, photo.takenBy].join(' ').toLowerCase().includes(q));
-  const filteredDocuments = documents.filter(document => !q || [document.title, document.name, document.file_name, document.category].join(' ').toLowerCase().includes(q));
+  // Recherche différée : la frappe reste fluide même avec des centaines de photos.
+  const deferredQuery = useDeferredValue(query);
+  const q = deferredQuery.trim().toLowerCase();
+  const filteredPhotos = useMemo(() => photos.filter(photo => !q || [photo.title, photo.name, photo.comment, photo.location, photo.taken_by, photo.takenBy].join(' ').toLowerCase().includes(q)), [photos, q]);
+  const filteredDocuments = useMemo(() => documents.filter(document => !q || [document.title, document.name, document.file_name, document.category].join(' ').toLowerCase().includes(q)), [documents, q]);
   return (
     <div className={styles.stack}>
       <section className={styles.panel}>
@@ -9525,7 +10043,7 @@ function MediaView({ photos, documents, isSubcontractor }: { photos: any[]; docu
             const url = assetUrl(photo, 'photos');
             return (
               <a key={photo.id ?? url} className={styles.mediaCard} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
-                {url ? <img src={url} alt={photo.comment ?? photo.title ?? 'Photo chantier'} /> : <span>Photo</span>}
+                {url ? <img src={url} alt={photo.comment ?? photo.title ?? 'Photo chantier'} loading="lazy" decoding="async" /> : <span>Photo</span>}
                 <strong>{photo.comment ?? photo.title ?? photo.name ?? 'Photo chantier'}</strong>
                 <small>{photo.location ?? photo.building ?? 'Sans localisation'} · {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
               </a>
@@ -10137,10 +10655,10 @@ function ProjectStructureEditor({ buildings, onChange }: { buildings: any[]; onC
     });
   }
 
-  function addZone(buildingId: string, levelId: string) {
+  async function addZone(buildingId: string, levelId: string) {
     const building = buildings.find(item => item.id === buildingId);
     const level = (building?.levels ?? []).find((item: any) => item.id === levelId);
-    const zoneName = window.prompt('Nom de la zone');
+    const zoneName = await askTextDialog('Nom de la zone');
     if (!zoneName?.trim()) return;
     updateLevel(buildingId, levelId, {
       zones: [...(level?.zones ?? []), { id: createStructureId('zone'), name: zoneName.trim() }],
@@ -10332,8 +10850,8 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
               </div>
               <div className={styles.chantierMetricGrid}>
                 <span><strong>Statut</strong><em>{selectedProject.status ?? 'active'}</em></span>
-                <span><strong>Début</strong><em>{selectedProject.start_date || '—'}</em></span>
-                <span><strong>Fin</strong><em>{selectedProject.end_date || '—'}</em></span>
+                <span><strong>Début</strong><em>{prettyDate(selectedProject.start_date)}</em></span>
+                <span><strong>Fin</strong><em>{prettyDate(selectedProject.end_date)}</em></span>
                 <span><strong>Entreprises</strong><em>{assignedCompanies.length}</em></span>
                 <span><strong>Bâtiments</strong><em>{selectedBuildings.length}</em></span>
                 <span><strong>Niveaux</strong><em>{selectedLevels}</em></span>
@@ -10614,10 +11132,9 @@ function RestrictedTool({ title }: { title: string }) {
   );
 }
 
-function JournalView({ profile, projectName, selectedProjectId, timeEntries, editable }: any) {
-  const storageKey = makeWebLocalStorageKey('buildtrack-web-journal-v1', profile, selectedProjectId);
-  const [entries, setEntries] = useState<any[]>(() => readWebLocalArray(storageKey));
+function JournalView({ profile, projectName, selectedProjectId, timeEntries, editable, rows, onCreate, onDelete, onMigrate }: any) {
   const [showForm, setShowForm] = useState(false);
+  const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<any>(() => ({
     date: todayISO(),
     weather: '',
@@ -10629,29 +11146,44 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
     visitors: '',
   }));
 
+  // Migration one-shot des anciennes entrées localStorage vers Supabase.
   useEffect(() => {
-    setEntries(readWebLocalArray(storageKey));
-  }, [storageKey]);
+    if (!profile || typeof window === 'undefined') return;
+    const flagKey = makeWebLocalStorageKey('buildtrack-web-journal-migrated-v1', profile, selectedProjectId);
+    if (window.localStorage.getItem(flagKey) === '1') return;
+    const local = readWebLocalArray(makeWebLocalStorageKey('buildtrack-web-journal-v1', profile, selectedProjectId));
+    if (!local.length) {
+      window.localStorage.setItem(flagKey, '1');
+      return;
+    }
+    Promise.resolve(onMigrate?.(local, selectedProjectId)).then(ok => {
+      if (ok) window.localStorage.setItem(flagKey, '1');
+    });
+  }, [profile, selectedProjectId]);
 
-  function persist(next: any[]) {
-    setEntries(next);
-    writeWebLocalArray(storageKey, next);
-  }
+  const entries = useMemo<any[]>(() => (rows ?? [])
+    .filter((row: any) => selectedProjectId === 'all' || !row.chantier_id || row.chantier_id === selectedProjectId)
+    .map(journalRowToEntry)
+    .sort((a: any, b: any) => String(b.date).localeCompare(String(a.date))), [rows, selectedProjectId]);
 
-  function submitEntry(event: React.FormEvent) {
+  async function submitEntry(event: React.FormEvent) {
     event.preventDefault();
-    if (!editable || !draft.workDone.trim()) return;
-    const attendanceCount = new Set(timeEntries.filter((entry: any) => entry.date === draft.date).map((entry: any) => entry.worker_name)).size;
-    const nextEntry = {
-      id: `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-      ...draft,
-      workerCount: Number(draft.workerCount || attendanceCount || 0),
-      author: userLabel(profile, null),
-      createdAt: nowFR(),
-    };
-    persist([nextEntry, ...entries]);
-    setDraft({ date: todayISO(), weather: '', workerCount: '', workDone: '', materials: '', incidents: '', observations: '', visitors: '' });
-    setShowForm(false);
+    if (!editable || !draft.workDone.trim() || busy) return;
+    setBusy(true);
+    try {
+      const attendanceCount = new Set(timeEntries.filter((entry: any) => entry.date === draft.date).map((entry: any) => entry.worker_name)).size;
+      const saved = await onCreate({
+        ...draft,
+        workerCount: Number(draft.workerCount || attendanceCount || 0),
+        chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
+      });
+      if (saved) {
+        setDraft({ date: todayISO(), weather: '', workerCount: '', workDone: '', materials: '', incidents: '', observations: '', visitors: '' });
+        setShowForm(false);
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   function exportJournal() {
@@ -10686,7 +11218,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Entrées" value={entries.length} hint="Journal local web" />
+        <Kpi title="Entrées" value={entries.length} hint="Journal partagé (Supabase)" />
         <Kpi title="Effectif cumulé" value={totalWorkers} hint="Somme des jours" tone="green" />
         <Kpi title="Jours incident" value={incidentDays} hint="À contrôler" tone={incidentDays ? 'red' : 'green'} />
         <Kpi title="Pointage du jour" value={new Set(timeEntries.filter((entry: any) => entry.date === todayISO()).map((entry: any) => entry.worker_name)).size} hint="Depuis Supabase" />
@@ -10712,7 +11244,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
             <label><span>Visiteurs</span><input value={draft.visitors} onChange={event => setDraft((prev: any) => ({ ...prev, visitors: event.target.value }))} /></label>
             <label className={styles.fullSpan}><span>Incidents</span><textarea rows={2} value={draft.incidents} onChange={event => setDraft((prev: any) => ({ ...prev, incidents: event.target.value }))} /></label>
             <label className={styles.fullSpan}><span>Observations</span><textarea rows={2} value={draft.observations} onChange={event => setDraft((prev: any) => ({ ...prev, observations: event.target.value }))} /></label>
-            <div className={styles.modalActions}><button type="submit">Enregistrer</button></div>
+            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button></div>
           </form>
         )}
       </section>
@@ -10723,11 +11255,11 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
             <article key={entry.id} className={styles.timelineCard}>
               <span className={styles.statusDot} />
               <div>
-                <strong>{entry.date} · {entry.workerCount || 0} présent(s)</strong>
+                <strong>{prettyDate(entry.date)} · {entry.workerCount || 0} présent(s)</strong>
                 <small>{entry.weather || 'Météo non renseignée'} · {entry.author}</small>
                 <p>{entry.workDone}</p>
               </div>
-              {editable ? <button type="button" onClick={() => persist(entries.filter(item => item.id !== entry.id))}>Supprimer</button> : null}
+              {editable ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
             </article>
           ))}
           {!entries.length ? <p className={styles.empty}>Aucune entrée journal.</p> : null}
@@ -10740,6 +11272,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, edi
 function PointageView({ entries, companies, profile, editable, onCreate, onUpdate, onDelete }: any) {
   const [date, setDate] = useState(todayISO());
   const [draft, setDraft] = useState<any>({ worker_name: '', company_id: '', arrival_time: '08:00', departure_time: '', notes: '' });
+  const [busy, setBusy] = useState(false);
   const dayEntries = entries.filter((entry: any) => entry.date === date);
   const totalPresent = dayEntries.filter((entry: any) => !entry.departure_time).length;
 
@@ -10749,14 +11282,22 @@ function PointageView({ entries, companies, profile, editable, onCreate, onUpdat
 
   async function submitEntry(event: React.FormEvent) {
     event.preventDefault();
-    const company = selectedCompany(draft.company_id);
-    await onCreate({
-      ...draft,
-      date,
-      company_name: company?.name ?? '',
-      company_color: company?.color ?? '#10B981',
-    });
-    setDraft({ worker_name: '', company_id: draft.company_id, arrival_time: '08:00', departure_time: '', notes: '' });
+    if (busy) return;
+    setBusy(true);
+    try {
+      const company = selectedCompany(draft.company_id);
+      const saved = await onCreate({
+        ...draft,
+        date,
+        company_name: company?.name ?? '',
+        company_color: company?.color ?? '#10B981',
+      });
+      if (saved) {
+        setDraft({ worker_name: '', company_id: draft.company_id, arrival_time: '08:00', departure_time: '', notes: '' });
+      }
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Pointage" />;
@@ -10764,7 +11305,7 @@ function PointageView({ entries, companies, profile, editable, onCreate, onUpdat
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Entrées du jour" value={dayEntries.length} hint={date} />
+        <Kpi title="Entrées du jour" value={dayEntries.length} hint={prettyDate(date)} />
         <Kpi title="Présents" value={totalPresent} hint="Sans départ" tone="green" />
         <Kpi title="Entreprises" value={new Set(dayEntries.map((entry: any) => entry.company_id || entry.company_name)).size} hint="Sur la journée" />
         <Kpi title="Historique" value={entries.length} hint="Pointages Supabase" tone="amber" />
@@ -10790,7 +11331,7 @@ function PointageView({ entries, companies, profile, editable, onCreate, onUpdat
             <label><span>Arrivée</span><input type="time" value={draft.arrival_time} onChange={event => setDraft((prev: any) => ({ ...prev, arrival_time: event.target.value }))} /></label>
             <label><span>Départ</span><input type="time" value={draft.departure_time} onChange={event => setDraft((prev: any) => ({ ...prev, departure_time: event.target.value }))} /></label>
             <label className={styles.fullSpan}><span>Notes</span><input value={draft.notes} onChange={event => setDraft((prev: any) => ({ ...prev, notes: event.target.value }))} /></label>
-            <div className={styles.modalActions}><button type="submit">Ajouter pointage</button></div>
+            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Ajout…' : 'Ajouter pointage'}</button></div>
           </form>
         )}
       </section>
@@ -10981,47 +11522,53 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, editab
   );
 }
 
-function ChecklistsView({ profile, selectedProjectId, editable }: any) {
-  const storageKey = makeWebLocalStorageKey('buildtrack-web-checklists-v1', profile, selectedProjectId);
-  const [checklists, setChecklists] = useState<any[]>(() => readWebLocalArray(storageKey));
+function ChecklistsView({ profile, selectedProjectId, editable, rows, onSave, onToggle, onDelete, onMigrate }: any) {
   const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
   const [itemsText, setItemsText] = useState('EPI conformes\nAccès sécurisé\nSignalisation en place\nZone propre\nRéserves levées');
 
+  // Migration one-shot des anciennes checklists localStorage vers Supabase.
   useEffect(() => {
-    setChecklists(readWebLocalArray(storageKey));
-  }, [storageKey]);
+    if (!profile || typeof window === 'undefined') return;
+    const flagKey = makeWebLocalStorageKey('buildtrack-web-checklists-migrated-v1', profile, selectedProjectId);
+    if (window.localStorage.getItem(flagKey) === '1') return;
+    const local = readWebLocalArray(makeWebLocalStorageKey('buildtrack-web-checklists-v1', profile, selectedProjectId));
+    if (!local.length) {
+      window.localStorage.setItem(flagKey, '1');
+      return;
+    }
+    Promise.resolve(onMigrate?.(local, selectedProjectId)).then(ok => {
+      if (ok) window.localStorage.setItem(flagKey, '1');
+    });
+  }, [profile, selectedProjectId]);
 
-  function persist(next: any[]) {
-    setChecklists(next);
-    writeWebLocalArray(storageKey, next);
-  }
+  const checklists = useMemo<any[]>(() => (rows ?? [])
+    .filter((row: any) => selectedProjectId === 'all' || !row.chantier_id || row.chantier_id === selectedProjectId)
+    .map(checklistRowToView)
+    .sort((a: any, b: any) => String(b.createdAt).localeCompare(String(a.createdAt))), [rows, selectedProjectId]);
 
-  function createChecklist(event: React.FormEvent) {
+  async function createChecklist(event: React.FormEvent) {
     event.preventDefault();
-    if (!title.trim()) return;
-    const checklist = {
-      id: `CHK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-      title: title.trim(),
-      status: 'draft',
-      createdAt: nowFR(),
-      createdBy: userLabel(profile, null),
-      items: itemsText.split('\n').map(label => label.trim()).filter(Boolean).map(label => ({ id: crypto.randomUUID(), label, checked: false })),
-    };
-    persist([checklist, ...checklists]);
-    setTitle('');
+    if (!title.trim() || busy) return;
+    setBusy(true);
+    try {
+      const saved = await onSave({
+        title: title.trim(),
+        chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
+        items: itemsText.split('\n').map(label => label.trim()).filter(Boolean).map(label => ({ id: crypto.randomUUID(), label, done: false })),
+      });
+      if (saved) setTitle('');
+    } finally {
+      setBusy(false);
+    }
   }
 
   function toggleItem(checklistId: string, itemId: string) {
     if (!editable) return;
-    persist(checklists.map(checklist => {
-      if (checklist.id !== checklistId) return checklist;
-      const items = checklist.items.map((item: any) => item.id === itemId ? { ...item, checked: !item.checked } : item);
-      return {
-        ...checklist,
-        items,
-        status: items.every((item: any) => item.checked) ? 'completed' : items.some((item: any) => item.checked) ? 'in_progress' : 'draft',
-      };
-    }));
+    const checklist = checklists.find((item: any) => item.id === checklistId);
+    if (!checklist) return;
+    const items = checklist.items.map((item: any) => item.id === itemId ? { ...item, checked: !item.checked } : item);
+    onToggle(checklistId, items);
   }
 
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Checklists" />;
@@ -11029,7 +11576,7 @@ function ChecklistsView({ profile, selectedProjectId, editable }: any) {
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Checklists" value={checklists.length} hint="Stockage web local" />
+        <Kpi title="Checklists" value={checklists.length} hint="Partagées (Supabase)" />
         <Kpi title="Terminées" value={checklists.filter(item => item.status === 'completed').length} hint="100% validées" tone="green" />
         <Kpi title="En cours" value={checklists.filter(item => item.status === 'in_progress').length} hint="Contrôles ouverts" tone="amber" />
         <Kpi title="Points" value={checklists.reduce((sum, item) => sum + item.items.length, 0)} hint="À contrôler" />
@@ -11040,7 +11587,7 @@ function ChecklistsView({ profile, selectedProjectId, editable }: any) {
           <form className={styles.formGrid} onSubmit={createChecklist}>
             <label><span>Titre</span><input value={title} onChange={event => setTitle(event.target.value)} required /></label>
             <label className={styles.fullSpan}><span>Points à contrôler</span><textarea rows={5} value={itemsText} onChange={event => setItemsText(event.target.value)} /></label>
-            <div className={styles.modalActions}><button type="submit">Créer checklist</button></div>
+            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Création…' : 'Créer checklist'}</button></div>
           </form>
         </section>
       )}
@@ -11054,7 +11601,7 @@ function ChecklistsView({ profile, selectedProjectId, editable }: any) {
               <article key={checklist.id} className={styles.checklistCard}>
                 <div className={styles.panelHeaderCompact}>
                   <div><h3>{checklist.title}</h3><p>{done}/{checklist.items.length} · {pct}%</p></div>
-                  {editable ? <button type="button" onClick={() => persist(checklists.filter(item => item.id !== checklist.id))}>Supprimer</button> : null}
+                  {editable ? <button type="button" onClick={() => onDelete(checklist)}>Supprimer</button> : null}
                 </div>
                 <div className={styles.progressMini}><span style={{ width: `${pct}%` }} /></div>
                 {checklist.items.map((item: any) => (
@@ -11148,7 +11695,7 @@ function ReglementaireView({ docs, companies, profile, editable, saving, onSave,
               <span className={`${styles.statusDot} ${doc.status === 'valid' ? styles.dotDone : ['expired', 'missing'].includes(doc.status) ? styles.dotLate : ''}`} />
               <div>
                 <strong>{doc.title}</strong>
-                <small>{REGULATORY_STATUS_LABELS[doc.status] ?? doc.status} · {doc.company || 'Toutes entreprises'} · échéance {doc.expiry_date || '—'}</small>
+                <small>{REGULATORY_STATUS_LABELS[doc.status] ?? doc.status} · {doc.company || 'Toutes entreprises'} · échéance {prettyDate(doc.expiry_date)}</small>
                 {doc.notes ? <p>{doc.notes}</p> : null}
               </div>
               <div className={styles.inlineActions}>
@@ -11190,8 +11737,10 @@ function ReglementaireView({ docs, companies, profile, editable, saving, onSave,
 
 function SearchView({ scoped, data, setTab, setSelectedReserveId, setSelectedPlanId }: any) {
   const [query, setQuery] = useState('');
-  const q = normalizeSearchText(query);
-  const results = q.length < 2 ? [] : [
+  // Recherche différée + mémoïsée : 7 collections scannées seulement quand la frappe se stabilise.
+  const deferredQuery = useDeferredValue(query);
+  const q = normalizeSearchText(deferredQuery);
+  const results = useMemo(() => q.length < 2 ? [] : [
     ...scoped.reserves.filter((item: any) => normalizeSearchText([item.id, item.title, item.description, item.building, item.level, item.zone, reserveCompanies(item).join(' ')].join(' ')).includes(q)).map((item: any) => ({ type: 'Réserve', title: item.title, meta: item.id, action: () => { setSelectedReserveId(item.id); setTab('reserves'); } })),
     ...scoped.plans.filter((item: any) => normalizeSearchText([item.name, item.building, item.level, item.revision_code].join(' ')).includes(q)).map((item: any) => ({ type: 'Plan', title: item.name, meta: getPlanDisplayLocation(item, data.chantiers.find((project: any) => project.id === item.chantier_id)).building, action: () => { setSelectedPlanId(item.id); setTab('plans'); } })),
     ...scoped.documents.filter((item: any) => normalizeSearchText([item.name, item.category, item.type].join(' ')).includes(q)).map((item: any) => ({ type: 'Document', title: item.name, meta: item.category, action: () => setTab('documents') })),
@@ -11199,7 +11748,7 @@ function SearchView({ scoped, data, setTab, setSelectedReserveId, setSelectedPla
     ...scoped.visites.filter((item: any) => normalizeSearchText([item.title, item.notes, item.building, item.level].join(' ')).includes(q)).map((item: any) => ({ type: 'Visite', title: item.title, meta: prettyDate(item.date), action: () => setTab('visites') })),
     ...scoped.tasks.filter((item: any) => normalizeSearchText([item.title, item.description, item.company, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Tâche', title: item.title, meta: item.company, action: () => setTab('planning') })),
     ...scoped.regulatoryDocs.filter((item: any) => normalizeSearchText([item.title, item.company, item.reference, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Réglementaire', title: item.title, meta: REGULATORY_STATUS_LABELS[item.status] ?? item.status, action: () => setTab('reglementaire') })),
-  ].slice(0, 80);
+  ].slice(0, 80), [q, scoped, data.chantiers, setTab, setSelectedReserveId, setSelectedPlanId]);
 
   return (
     <div className={styles.stack}>
@@ -12296,9 +12845,9 @@ function PhotoAnnotatorModal({
     setCurrentStroke(null);
   }
 
-  function addAnnotation(point: WebPhotoAnnotationPoint) {
+  async function addAnnotation(point: WebPhotoAnnotationPoint) {
     if (activeTool === 'text') {
-      const text = typeof window !== 'undefined' ? window.prompt("Texte de l'annotation") : '';
+      const text = await askTextDialog("Texte de l'annotation");
       if (!text?.trim()) return;
       setAnnotations(prev => [
         ...prev,
@@ -12446,6 +12995,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
 }) {
   const [showTemplates, setShowTemplates] = useState(false);
   const [annotatingPhoto, setAnnotatingPhoto] = useState<WebPhotoDraft | null>(null);
+  useEscapeClose(!saving && !annotatingPhoto, onClose);
   const projectId = draft.chantierId || (selectedProjectId !== 'all' ? selectedProjectId : data.chantiers[0]?.id ?? '');
   const project = data.chantiers.find(item => item.id === projectId) ?? null;
   const plans = data.sitePlans.filter(plan => getChantierId(plan) === projectId);
@@ -12763,7 +13313,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                         onClick={() => setAnnotatingPhoto(photo)}
                       >
                         <span className={styles.photoAnnotationFrame}>
-                          <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} />
+                          <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} loading="lazy" decoding="async" />
                           <PhotoAnnotationLayer annotations={photo.annotations} compact />
                         </span>
                       </button>
@@ -13013,6 +13563,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
   onToggleCompany: (companyId: string) => void;
 }) {
   const { lang } = useWebI18n();
+  useEscapeClose(!saving, onClose);
   const [buildingQuery, setBuildingQuery] = useState('');
   const [newChecklistLabel, setNewChecklistLabel] = useState('');
   const [participantSearch, setParticipantSearch] = useState('');

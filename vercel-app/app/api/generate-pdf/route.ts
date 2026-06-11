@@ -5,6 +5,7 @@ import { sendEmail } from '@/lib/sender';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { createClient } from '@supabase/supabase-js';
 import { normalizeEmailLanguage, type EmailLanguage } from '@/lib/templates';
+import { checkRateLimit } from '@/lib/rateLimit';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
@@ -43,7 +44,7 @@ function corsHeaders(origin: string) {
   return {
     'Access-Control-Allow-Origin': o,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
 }
 
@@ -63,7 +64,80 @@ function pdfRuntimeErrorMessage(error: any) {
   if (isChromiumRuntimeError(error)) {
     return "Le moteur PDF serveur n'est pas disponible sur cet environnement. Utilisez l'impression PDF du navigateur.";
   }
-  return error?.message ?? 'Generation PDF impossible.';
+  // Message générique : les détails (message, stack, runtime) restent côté logs serveur.
+  return 'Génération PDF impossible.';
+}
+
+type PdfCallerProfile = {
+  id: string;
+  email: string | null;
+  organization_id: string | null;
+};
+
+async function authenticatedCallerProfile(req: NextRequest, supabase: any): Promise<PdfCallerProfile | null> {
+  const auth = req.headers.get('authorization') ?? '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
+  if (!token) return null;
+  const { data: userData, error: userError } = await supabase.auth.getUser(token);
+  const userId = userData?.user?.id;
+  if (userError || !userId) return null;
+  const { data: profile, error } = await supabase
+    .from('profiles')
+    .select('id, email, organization_id')
+    .eq('id', userId)
+    .maybeSingle();
+  if (error || !profile) return null;
+  return profile as PdfCallerProfile;
+}
+
+const MAX_PDF_EMAIL_RECIPIENTS = 20;
+
+// Restreint les destinataires aux emails connus de l'organisation de l'appelant
+// (profils ou entreprises). Les emails inconnus sont ignorés (loggés), max 20.
+async function resolveAllowedRecipients(
+  supabase: any,
+  organizationId: string | null,
+  requested: unknown,
+): Promise<string[]> {
+  const requestedEmails = Array.from(new Set(
+    (Array.isArray(requested) ? requested : [])
+      .map(value => String(value ?? '').trim().toLowerCase())
+      .filter(email => email.includes('@'))
+  ));
+  if (requestedEmails.length === 0) return [];
+  if (!organizationId) {
+    console.warn('[generate-pdf] Destinataires ignorés (appelant sans organisation):', requestedEmails.join(', '));
+    return [];
+  }
+
+  const allowed = new Set<string>();
+  const [profilesResult, companiesResult] = await Promise.all([
+    supabase.from('profiles').select('email').eq('organization_id', organizationId),
+    supabase.from('companies').select('email').eq('organization_id', organizationId),
+  ]);
+  if (profilesResult.error) {
+    console.warn('[generate-pdf] Lecture emails profils impossible:', profilesResult.error.message);
+  }
+  if (companiesResult.error) {
+    console.warn('[generate-pdf] Lecture emails entreprises impossible:', companiesResult.error.message);
+  }
+  for (const row of [...(profilesResult.data ?? []), ...(companiesResult.data ?? [])]) {
+    const email = String(row?.email ?? '').trim().toLowerCase();
+    if (email.includes('@')) allowed.add(email);
+  }
+
+  const accepted: string[] = [];
+  const ignored: string[] = [];
+  for (const email of requestedEmails) {
+    (allowed.has(email) ? accepted : ignored).push(email);
+  }
+  if (ignored.length > 0) {
+    console.warn('[generate-pdf] Destinataires ignorés (hors organisation):', ignored.join(', '));
+  }
+  if (accepted.length > MAX_PDF_EMAIL_RECIPIENTS) {
+    console.warn(`[generate-pdf] Destinataires plafonnés à ${MAX_PDF_EMAIL_RECIPIENTS} (${accepted.length} demandés).`);
+  }
+  return accepted.slice(0, MAX_PDF_EMAIL_RECIPIENTS);
 }
 
 function compactPdfError(error: any) {
@@ -189,6 +263,18 @@ function escapeHtmlAttribute(value: string) {
     .replace(/>/g, '&gt;');
 }
 
+// Identique au helper de lib/templates.ts : échappe toute valeur dynamique
+// interpolée dans du HTML (corps et attributs, quotes incluses).
+function escapeHtml(value: unknown): string {
+  if (value == null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 async function optimizeImageBufferForPdf(buffer: Buffer, contentType: string) {
   const mime = String(contentType || '').split(';')[0].trim().toLowerCase();
 
@@ -269,13 +355,54 @@ async function fetchRemoteImageAsDataUrl(url: string, remainingBudget: number) {
   }
 }
 
+// Anti-SSRF : seules les images hébergées sur l'instance Supabase du projet
+// peuvent être téléchargées côté serveur pour être inlinées dans le PDF.
+function allowedRemoteImageHost(): string | null {
+  const raw =
+    process.env.SUPABASE_URL ??
+    process.env.NEXT_PUBLIC_SUPABASE_URL ??
+    process.env.EXPO_PUBLIC_SUPABASE_URL;
+  if (!raw) return null;
+  try {
+    return new URL(raw).host.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedRemoteImageUrl(rawUrl: string, allowedHost: string | null): boolean {
+  if (!allowedHost) return false;
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return false;
+    return parsed.host.toLowerCase() === allowedHost;
+  } catch {
+    return false;
+  }
+}
+
 async function inlineRemoteImagesForPdf(html: string) {
   const srcRegex = /\bsrc="(https?:\/\/[^"]+)"/gi;
   const matches = Array.from(html.matchAll(srcRegex));
-  const attributes = Array.from(new Set(matches.map(match => match[1]).filter(Boolean))).slice(0, PDF_REMOTE_IMAGE_LIMIT);
+  const uniqueAttrs = Array.from(new Set(matches.map(match => match[1]).filter(Boolean)));
 
-  if (attributes.length === 0) return html;
+  if (uniqueAttrs.length === 0) return html;
 
+  const allowedHost = allowedRemoteImageHost();
+  const disallowed = new Set<string>();
+  const fetchable: string[] = [];
+
+  for (const attrValue of uniqueAttrs) {
+    const url = decodeHtmlAttribute(attrValue);
+    if (isAllowedRemoteImageUrl(url, allowedHost)) {
+      fetchable.push(attrValue);
+    } else {
+      disallowed.add(attrValue);
+      console.warn('[generate-pdf] Remote image blocked (host non autorisé):', url.slice(0, 160));
+    }
+  }
+
+  const attributes = fetchable.slice(0, PDF_REMOTE_IMAGE_LIMIT);
   const replacements = new Map<string, string>();
   let budget = PDF_REMOTE_IMAGE_TOTAL_MAX_BYTES;
 
@@ -288,9 +415,10 @@ async function inlineRemoteImagesForPdf(html: string) {
     if (budget <= 0) break;
   }
 
-  if (replacements.size === 0) return html;
+  if (replacements.size === 0 && disallowed.size === 0) return html;
 
   return html.replace(srcRegex, (fullMatch, attrValue: string) => {
+    if (disallowed.has(attrValue)) return '';
     const replacement = replacements.get(attrValue);
     return replacement ? `src="${escapeHtmlAttribute(replacement)}"` : fullMatch;
   });
@@ -642,6 +770,30 @@ export async function POST(req: NextRequest) {
   const origin = req.headers.get('origin') ?? '';
   const headers = corsHeaders(origin);
 
+  const supabase = getServiceClient();
+  if (!supabase) {
+    return NextResponse.json(
+      { success: false, error: 'Configuration Supabase serveur manquante' },
+      { status: 500, headers }
+    );
+  }
+
+  const callerProfile = await authenticatedCallerProfile(req, supabase);
+  if (!callerProfile) {
+    return NextResponse.json(
+      { success: false, error: 'Session invalide' },
+      { status: 401, headers }
+    );
+  }
+
+  const rate = checkRateLimit(`generate-pdf:${callerProfile.id}`, 10, 60_000);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { success: false, error: 'Trop de générations PDF. Réessayez dans quelques instants.' },
+      { status: 429, headers: { ...headers, 'Retry-After': String(rate.retryAfterSeconds) } }
+    );
+  }
+
   try {
     let payload: any;
     try {
@@ -712,6 +864,8 @@ export async function POST(req: NextRequest) {
       });
       console.error('[generate-pdf] PDF runtime unavailable:', diagnostic);
 
+      // Le diagnostic complet (runtime, région, stack…) reste côté logs serveur :
+      // seul un identifiant de corrélation est renvoyé au client.
       if (!payload.sendByEmail) {
         return NextResponse.json(
           {
@@ -719,35 +873,37 @@ export async function POST(req: NextRequest) {
             fallback: 'browser_print',
             printHtml: html,
             message: friendlyError,
-            diagnostic,
           },
           {
             headers: {
               ...headers,
               'X-BuildTrack-PDF-Fallback': 'browser_print',
               'X-BuildTrack-PDF-Diagnostic-Id': String(diagnostic.id ?? ''),
-              'X-BuildTrack-PDF-Diagnostic-Stage': String(diagnostic.stage ?? ''),
             },
           }
         );
       }
 
       return NextResponse.json(
-        { success: false, error: friendlyError, diagnostic },
+        { success: false, error: friendlyError },
         {
           status: 503,
           headers: {
             ...headers,
             'X-BuildTrack-PDF-Diagnostic-Id': String(diagnostic.id ?? ''),
-            'X-BuildTrack-PDF-Diagnostic-Stage': String(diagnostic.stage ?? ''),
           },
         }
       );
     }
 
     if (payload.sendByEmail && Array.isArray(payload.recipients) && payload.recipients.length > 0) {
+      const allowedRecipients = await resolveAllowedRecipients(
+        supabase,
+        callerProfile.organization_id ?? null,
+        payload.recipients,
+      );
       await Promise.allSettled(
-        (payload.recipients as string[]).map(async (to: string) => {
+        allowedRecipients.map(async (to: string) => {
           const language = await resolveRecipientLanguage(to, payload.language);
           const copy = PDF_EMAIL_COPY[language];
           const dateStr = new Date(payload.generatedAt || Date.now()).toLocaleDateString(PDF_LOCALES[language], {
@@ -769,14 +925,14 @@ export async function POST(req: NextRequest) {
             emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
               <div style="background:#003082;padding:24px 32px;border-radius:8px 8px 0 0">
                 <div style="color:#fff;font-size:20px;font-weight:700">${copy.individualTitle}</div>
-                <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${payload.chantierName}</div>
+                <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${escapeHtml(payload.chantierName)}</div>
               </div>
               <div style="background:#f8fafc;padding:24px 32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
                 <p style="margin:0 0 16px 0">${copy.hello}</p>
-                <p style="margin:0 0 16px 0">${copy.individualIntro(title)}</p>
+                <p style="margin:0 0 16px 0">${copy.individualIntro(escapeHtml(title))}</p>
                 <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0">
-                  <div style="font-size:13px;color:#64748b">${copy.status} : <strong>${sLabel}</strong></div>
-                  <div style="font-size:13px;color:#64748b;margin-top:4px">${copy.building} : <strong>${r.building || '—'}</strong> · ${copy.level} : <strong>${r.level || '—'}</strong></div>
+                  <div style="font-size:13px;color:#64748b">${copy.status} : <strong>${escapeHtml(sLabel)}</strong></div>
+                  <div style="font-size:13px;color:#64748b;margin-top:4px">${copy.building} : <strong>${escapeHtml(r.building || '—')}</strong> · ${copy.level} : <strong>${escapeHtml(r.level || '—')}</strong></div>
                 </div>
                 <p style="margin:16px 0 0 0;color:#64748b;font-size:12px">— BuildTrack</p>
               </div>
@@ -795,11 +951,11 @@ export async function POST(req: NextRequest) {
             emailHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;color:#1e293b">
               <div style="background:#003082;padding:24px 32px;border-radius:8px 8px 0 0">
                 <div style="color:#fff;font-size:20px;font-weight:700">${copy.reportTitle(reportKind)}</div>
-                <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${payload.chantierName} · ${companyLabel}</div>
+                <div style="color:rgba(255,255,255,0.75);font-size:13px;margin-top:4px">${escapeHtml(payload.chantierName)} · ${escapeHtml(companyLabel)}</div>
               </div>
               <div style="background:#f8fafc;padding:24px 32px;border:1px solid #e2e8f0;border-top:none;border-radius:0 0 8px 8px">
                 <p style="margin:0 0 16px 0">${copy.hello}</p>
-                <p style="margin:0 0 16px 0">${copy.reportIntro(reportKind, payload.chantierName, companyLabel, dateStr)}</p>
+                <p style="margin:0 0 16px 0">${copy.reportIntro(reportKind, escapeHtml(payload.chantierName), escapeHtml(companyLabel), escapeHtml(dateStr))}</p>
                 <div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;text-align:center">
                   <div style="font-size:32px;font-weight:800;color:#003082">${count}</div>
                   <div style="font-size:11px;color:#64748b;text-transform:uppercase;letter-spacing:1px">${copy.reserveCount(count)}</div>
@@ -827,9 +983,9 @@ export async function POST(req: NextRequest) {
     const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
     return NextResponse.json({ success: true, pdfBase64 }, { headers });
   } catch (err: any) {
-    console.error('[generate-pdf] Erreur:', err?.message ?? err);
+    console.error('[generate-pdf] Erreur:', err?.stack ?? err?.message ?? err);
     return NextResponse.json(
-      { success: false, error: err?.message ?? 'Erreur serveur' },
+      { success: false, error: 'Génération PDF impossible.' },
       { status: 500, headers }
     );
   }

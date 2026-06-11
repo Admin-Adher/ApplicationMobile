@@ -21,7 +21,7 @@ import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
 import DictationTextInput from '@/components/DictationTextInput';
 import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels, validateDeadline } from '@/lib/reserveUtils';
-import { genId, nowTimestampFR } from '@/lib/utils';
+import { genId } from '@/lib/utils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml, loadPhotoAsDataUrlForPdf } from '@/lib/pdfBase';
 import {
   countLocalOnlyReservePhotos,
@@ -734,7 +734,7 @@ export default function ReservesScreen() {
                 id: genId(),
                 action: t('reservesScreen.assistant.historyDescriptionFilled'),
                 author: user?.name ?? t('common.system'),
-                createdAt: nowTimestampFR(),
+                createdAt: new Date().toISOString(),
                 newValue: t('reservesScreen.assistant.historyTitleCopied'),
               },
             ],
@@ -805,7 +805,7 @@ export default function ReservesScreen() {
                   id: genId(),
                   action: t('reservesScreen.assistant.historyBulkTranslation'),
                   author: user?.name ?? t('common.system'),
-                  createdAt: nowTimestampFR(),
+                  createdAt: new Date().toISOString(),
                   newValue: selectedAssistantLanguage.title,
                 },
               ],
@@ -1210,7 +1210,7 @@ export default function ReservesScreen() {
       id: newId,
       title: t('reservesScreen.context.copyTitle', { title: reserve.title }),
       status: 'open',
-      createdAt: new Date().toLocaleDateString('fr-FR'),
+      createdAt: new Date().toISOString().split('T')[0],
       deadline: '—',
       comments: [],
       photos: [],
@@ -1219,7 +1219,7 @@ export default function ReservesScreen() {
         id: genId(),
         action: t('reservesScreen.context.duplicatedHistory'),
         author: user?.name ?? t('common.system'),
-        createdAt: nowTimestampFR(),
+        createdAt: new Date().toISOString(),
         oldValue: reserve.id,
         newValue: newId,
       }],

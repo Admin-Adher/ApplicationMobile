@@ -14,6 +14,7 @@ import {
   APP_URL,
 } from '@/lib/templates';
 import { buildReserveUrl } from '@/lib/reserve-token';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 function safeReserveUrl(reserveId: string, recipientEmail: string, language?: string | null): string {
   try {
@@ -31,6 +32,21 @@ function serviceClient() {
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) return null;
   return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+}
+
+// Auth obligatoire : header `Authorization: Bearer <access_token Supabase>` vérifié
+// via le client service-role (même pattern que /api/send-push). Retourne l'id
+// utilisateur authentifié, ou null.
+async function authenticatedUserId(req: NextRequest): Promise<string | null> {
+  const supabase = serviceClient();
+  if (!supabase) return null;
+  const auth = req.headers.get('authorization') ?? '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
+  if (!token) return null;
+  const { data, error } = await supabase.auth.getUser(token);
+  const userId = data?.user?.id;
+  if (error || !userId) return null;
+  return userId;
 }
 
 async function resolveRecipientLanguage(email: string, fallback?: string | null) {
@@ -101,8 +117,21 @@ export async function POST(req: NextRequest) {
   const headers = {
     'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
   };
+
+  const userId = await authenticatedUserId(req);
+  if (!userId) {
+    return NextResponse.json({ error: 'Session invalide' }, { status: 401, headers });
+  }
+
+  const rate = checkRateLimit(`send-email:${userId}`, 20, 60_000);
+  if (!rate.allowed) {
+    return NextResponse.json(
+      { error: "Trop d'envois d'emails. Réessayez dans quelques instants." },
+      { status: 429, headers: { ...headers, 'Retry-After': String(rate.retryAfterSeconds) } }
+    );
+  }
 
   try {
     const body = await req.json();
@@ -243,7 +272,7 @@ export async function OPTIONS(req: NextRequest) {
     headers: {
       'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Methods': 'POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     },
   });
 }

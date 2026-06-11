@@ -12,37 +12,7 @@ import * as FileSystem from 'expo-file-system';
 import * as pdfjsLib from '@/lib/pdfjs';
 import { getPlanUriCacheFirst, getCachedPlanUri } from '@/lib/planCache';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
-
-const STATUS_COLORS: Record<string, string> = {
-  open: '#EF4444', in_progress: '#F59E0B', waiting: '#6B7280',
-  verification: '#8B5CF6', closed: '#10B981',
-};
-
-function getCompanyColor(companyName: string | undefined | null, companies: Array<{ name: string; color: string }>): string {
-  if (!companyName || companyName === '__mixed__') return '#6B7280';
-  return companies.find(c => c.name === companyName)?.color ?? '#003082';
-}
-
-function getReserveCompanies(r: Reserve | null | undefined): string[] {
-  if (!r) return [];
-  const names: string[] = [];
-  if (r.company && r.company.trim()) names.push(r.company.trim());
-  const arr = (r as any).companies;
-  if (Array.isArray(arr)) {
-    for (const c of arr) {
-      if (typeof c !== 'string') continue;
-      const name = c.trim();
-      if (name && !names.includes(name)) names.push(name);
-    }
-  }
-  return names;
-}
-
-function getReservePinColor(r: Reserve | null | undefined, companies: Array<{ name: string; color: string }>): string {
-  const names = getReserveCompanies(r);
-  if (names.length > 1) return '#6B7280';
-  return getCompanyColor(names[0] ?? '', companies);
-}
+import { getReservePinColor } from '@/lib/planPinColor';
 
 const PALETTE = [
   '#EF4444', '#F97316', '#EAB308', '#22C55E',

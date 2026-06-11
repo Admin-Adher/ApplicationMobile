@@ -31,10 +31,23 @@ function todayISO(): string {
   return d.toISOString().split('T')[0];
 }
 
-function daysBetween(fromISO: string, toISO: string): number {
-  const a = new Date(fromISO).getTime();
-  const b = new Date(toISO).getTime();
-  return Math.max(1, Math.round((b - a) / 86400000));
+// Les deadlines sont du texte dans 2 formats : ISO `yyyy-mm-dd` (web) et
+// FR `dd/mm/yyyy` (mobile), plus des sentinelles ('—', mojibake). On parse
+// les deux formats ; toute valeur non reconnue est ignorée.
+function parseDeadline(value: unknown): Date | null {
+  const raw = String(value ?? '').trim();
+  if (!raw || raw === '—' || raw === 'â€”') return null;
+  let m = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) {
+    const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (m) {
+    const d = new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1])));
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  return null;
 }
 
 function overdueEmailAllowed(pref: any, critical = false) {
@@ -64,7 +77,7 @@ async function preferencesForProfiles(supabase: any, profileIds: string[]) {
 export async function GET(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   const auth = req.headers.get('authorization') ?? '';
-  if (cronSecret && auth !== `Bearer ${cronSecret}`) {
+  if (!cronSecret || auth !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
@@ -74,18 +87,23 @@ export async function GET(req: NextRequest) {
   }
 
   const today = todayISO();
+  const todayMs = Date.parse(`${today}T00:00:00Z`);
   const stats = { scanned: 0, notified: 0, emailsSent: 0, errors: 0 };
 
   try {
+    // La colonne deadline est du texte multi-format : pas de comparaison SQL
+    // fiable possible, on récupère les réserves ouvertes et on filtre en JS.
     const { data: reserves, error: rErr } = await supabase
       .from('reserves')
       .select('id, title, priority, status, deadline, companies, company, chantier_id, organization_id, overdue_last_notified_date, overdue_reminder_count')
       .not('status', 'in', '(closed,verification)')
-      .not('deadline', 'is', null)
-      .lt('deadline', today);
+      .not('deadline', 'is', null);
     if (rErr) throw rErr;
 
-    const list = reserves ?? [];
+    const list = (reserves ?? []).filter((r: any) => {
+      const deadlineDate = parseDeadline(r.deadline);
+      return deadlineDate !== null && deadlineDate.getTime() < todayMs;
+    });
     stats.scanned = list.length;
     if (list.length === 0) return NextResponse.json({ ok: true, stats });
 
@@ -151,7 +169,8 @@ export async function GET(req: NextRequest) {
         );
         if (matchedCompanies.length === 0) continue;
 
-        const daysLate = daysBetween(r.deadline, today);
+        const deadlineDate = parseDeadline(r.deadline)!;
+        const daysLate = Math.max(1, Math.round((todayMs - deadlineDate.getTime()) / 86400000));
 
         // Si la réserve n'a pas été notifiée hier (ou jamais), on remet le compteur à 0
         // (cas d'une réserve qui sort/rentre du retard via modification de l'échéance).

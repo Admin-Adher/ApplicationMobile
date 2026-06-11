@@ -1,4 +1,22 @@
 import { Platform } from 'react-native';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+
+async function getAccessToken(): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data } = await (supabase as any).auth.getSession();
+    return data?.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function buildAuthHeaders(): Promise<Record<string, string>> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const accessToken = await getAccessToken();
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return headers;
+}
 
 function getBaseApiUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -23,7 +41,7 @@ async function callEmailApi(body: Record<string, unknown>): Promise<{ success: b
     const url = getApiUrl();
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await buildAuthHeaders(),
       body: JSON.stringify(body),
     });
     if (!response.ok) {
@@ -199,7 +217,7 @@ export async function generateAndSendPdfReport(
     const url = `${getBaseApiUrl()}/api/generate-pdf`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await buildAuthHeaders(),
       body: JSON.stringify({ ...payload, type: 'plans' }),
     });
     if (!response.ok) {
@@ -243,7 +261,7 @@ export async function generateAndSendReservesReport(
     const url = `${getBaseApiUrl()}/api/generate-pdf`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await buildAuthHeaders(),
       body: JSON.stringify({ ...payload, type: 'global_reserves' }),
     });
     if (!response.ok) {
@@ -295,7 +313,7 @@ export async function generateAndSendIndividualReserve(
     const url = `${getBaseApiUrl()}/api/generate-pdf`;
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await buildAuthHeaders(),
       body: JSON.stringify({ ...payload, type: 'individual_reserve' }),
     });
     if (!response.ok) {

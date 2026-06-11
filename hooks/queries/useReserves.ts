@@ -8,8 +8,8 @@ import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toReserve } from '@/lib/mappers';
 import { Reserve, ReserveStatus, Comment } from '@/constants/types';
-import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
-import { genReserveId } from '@/lib/reserveUtils';
+import { genId } from '@/lib/utils';
+import { genReserveId, toIsoDeadline } from '@/lib/reserveUtils';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
@@ -222,7 +222,7 @@ export function useReserves() {
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     // Fix 16: derive companies first, then company from companies[0] for consistency
     const companies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
-    const deadlineValue = !reserve.deadline || reserve.deadline === '—' ? null : reserve.deadline;
+    const deadlineValue = !reserve.deadline || reserve.deadline === '—' ? null : toIsoDeadline(reserve.deadline);
     const buildPayload = (orgIdValue: string | null) => ({
       id: reserve.id, title: reserve.title,
       description: reserve.description ?? '',
@@ -552,7 +552,7 @@ export function useReserves() {
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     // Fix 16: derive companies first, then company from companies[0] for consistency
     const companies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
-    const deadlineValue = !reserve.deadline || reserve.deadline === '—' ? null : reserve.deadline;
+    const deadlineValue = !reserve.deadline || reserve.deadline === '—' ? null : toIsoDeadline(reserve.deadline);
     const payload = {
       title: reserve.title,
       description: reserve.description ?? '',
@@ -617,7 +617,7 @@ export function useReserves() {
             id: genId(),
             action: 'Supprimee (corbeille)',
             author: deletedBy,
-            createdAt: nowTimestampFR(),
+            createdAt: new Date().toISOString(),
             oldValue: 'Active',
             newValue: 'Corbeille',
           },
@@ -698,7 +698,7 @@ export function useReserves() {
           id: genId(),
           action: 'Restaurée depuis la corbeille',
           author: actualAuthor,
-          createdAt: nowTimestampFR(),
+          createdAt: new Date().toISOString(),
           oldValue: 'Corbeille',
           newValue: 'Active',
         },
@@ -749,7 +749,7 @@ export function useReserves() {
       closed: i18n.t('reserveLabels.status.closed'),
     };
     const historyEntry = {
-      id: genId(), action: i18n.t('syncAlerts.statusChangedAction'), author: actualAuthor, createdAt: nowTimestampFR(),
+      id: genId(), action: i18n.t('syncAlerts.statusChangedAction'), author: actualAuthor, createdAt: new Date().toISOString(),
       oldValue: statusLabels[reserve.status], newValue: statusLabels[status],
     };
     const isClosing = status === 'closed' && reserve.status !== 'closed';
@@ -775,7 +775,7 @@ export function useReserves() {
     const now = new Date().toISOString();
     const today = now.split('T')[0];
     const historyEntry = {
-      id: genId(), action: 'Archivée', author: actualAuthor, createdAt: nowTimestampFR(),
+      id: genId(), action: 'Archivée', author: actualAuthor, createdAt: new Date().toISOString(),
       oldValue: 'Active', newValue: 'Archivée',
     };
     const updated: Reserve = {
@@ -794,7 +794,7 @@ export function useReserves() {
     const actualAuthor = author ?? user?.name ?? 'Système';
     const today = new Date().toISOString().split('T')[0];
     const historyEntry = {
-      id: genId(), action: 'Désarchivée', author: actualAuthor, createdAt: nowTimestampFR(),
+      id: genId(), action: 'Désarchivée', author: actualAuthor, createdAt: new Date().toISOString(),
       oldValue: 'Archivée', newValue: 'Active',
     };
     const updated: Reserve = {
@@ -817,7 +817,7 @@ export function useReserves() {
     const comment: Comment = {
       id: genId(), content, author: author ?? user?.name ?? 'Inconnu',
       authorId: user?.id,
-      createdAt: nowTimestampFR(),
+      createdAt: new Date().toISOString(),
     };
     const updatedComments = [...reserve.comments, comment];
     const updated: Reserve = { ...reserve, comments: updatedComments };
@@ -859,7 +859,7 @@ export function useReserves() {
     const isOwner = (target.authorId && user?.id && target.authorId === user.id) ||
                     (!target.authorId && target.author === user?.name);
     if (!isOwner) return;
-    const editedAt = nowTimestampFR();
+    const editedAt = new Date().toISOString();
     const updatedComments = reserve.comments.map(c =>
       c.id === commentId ? { ...c, content: newContent, editedAt } : c
     );
@@ -952,7 +952,7 @@ export function useReserves() {
       const historyEntries: typeof reserve.history = [];
       if (updates.status && updates.status !== reserve.status) {
         historyEntries.push({
-          id: genId(), action: 'Statut modifié (lot)', author: actualAuthor, createdAt: nowTimestampFR(),
+          id: genId(), action: 'Statut modifié (lot)', author: actualAuthor, createdAt: new Date().toISOString(),
           oldValue: statusLabels[reserve.status], newValue: statusLabels[updates.status],
         });
       }
@@ -960,7 +960,7 @@ export function useReserves() {
       const oldCompanies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
       if (newCompanies && JSON.stringify(newCompanies) !== JSON.stringify(oldCompanies)) {
         historyEntries.push({
-          id: genId(), action: 'Entreprises modifiées (lot)', author: actualAuthor, createdAt: nowTimestampFR(),
+          id: genId(), action: 'Entreprises modifiées (lot)', author: actualAuthor, createdAt: new Date().toISOString(),
           oldValue: oldCompanies.join(', '), newValue: newCompanies.join(', '),
         });
       }
@@ -986,7 +986,7 @@ export function useReserves() {
         status: r.status,
         company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? '',
         companies: r.companies ?? (r.company ? [r.company] : []),
-        deadline: (!r.deadline || r.deadline === '\u2014') ? null : r.deadline,
+        deadline: (!r.deadline || r.deadline === '\u2014') ? null : toIsoDeadline(r.deadline),
         priority: r.priority,
         history: r.history,
         closed_at: r.closedAt ?? null,
@@ -1007,7 +1007,7 @@ export function useReserves() {
           status: r.status,
           company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? '',
           companies: r.companies ?? (r.company ? [r.company] : []),
-          deadline: (!r.deadline || r.deadline === '—') ? null : r.deadline,
+          deadline: (!r.deadline || r.deadline === '—') ? null : toIsoDeadline(r.deadline),
           priority: r.priority, history: r.history,
           closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
         }).eq('id', r.id)

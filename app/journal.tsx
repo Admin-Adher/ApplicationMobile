@@ -1,7 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import {
@@ -17,15 +16,15 @@ import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
+import { useApp } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
 import { usePointage } from '@/context/PointageContext';
+import { useJournal } from '@/hooks/queries/useJournal';
 import Header from '@/components/Header';
 import { JournalEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { isValidDateFR } from '@/lib/dateUtils';
-
-const JOURNAL_KEY = 'buildtrack_journal_v2';
 
 const WEATHER_OPTIONS = ['sunny', 'cloudy', 'partlyCloudy', 'rain', 'storm', 'snow', 'fog', 'wind', 'snowShowers', 'showers'] as const;
 const WEATHER_ICON_BY_KEY: Record<(typeof WEATHER_OPTIONS)[number], string> = {
@@ -173,24 +172,16 @@ export default function JournalScreen() {
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
   const { getEntriesForDate } = usePointage();
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
+  const { activeChantierId } = useApp();
+  // Persistance Supabase offline-first (la migration one-shot des anciennes
+  // clés AsyncStorage buildtrack_journal_v2/v1 s'exécute au premier fetch).
+  const { entries, addEntry } = useJournal();
   const [showNew, setShowNew] = useState(false);
   const [fetchingWeather, setFetchingWeather] = useState(false);
   const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null; code: number | null } | null>(null);
 
   const todayFR = formatDateFR(new Date());
   const hasTodayEntry = entries.some(e => e.date === todayFR);
-
-  useEffect(() => {
-    AsyncStorage.getItem(JOURNAL_KEY).then(raw => {
-      if (raw) { try { setEntries(JSON.parse(raw)); } catch {} }
-      else {
-        AsyncStorage.getItem('buildtrack_journal_v1').then(oldRaw => {
-          if (oldRaw) { try { setEntries(JSON.parse(oldRaw)); } catch {} }
-        });
-      }
-    });
-  }, []);
 
   const [date, setDate] = useState(formatDateFR(new Date()));
   const [weather, setWeather] = useState('');
@@ -290,11 +281,7 @@ export default function JournalScreen() {
         weatherCode: weatherDetail?.code ?? undefined,
         weatherDescription: weatherDetail ? finalWeather : undefined,
       };
-      setEntries(prev => {
-        const updated = [entry, ...prev];
-        AsyncStorage.setItem(JOURNAL_KEY, JSON.stringify(updated)).catch(() => {});
-        return updated;
-      });
+      void addEntry({ ...entry, chantierId: activeChantierId ?? null });
       resetForm();
       setShowNew(false);
     };
@@ -313,7 +300,7 @@ export default function JournalScreen() {
     }
 
     save();
-  }, [date, weather, workerCount, workDone, materials, incidents, observations, visitors, weatherDetail, user, entries, t]);
+  }, [date, weather, workerCount, workDone, materials, incidents, observations, visitors, weatherDetail, user, entries, addEntry, activeChantierId, t]);
 
   async function handleExportPDF() {
     if (!permissions.canExport) {

@@ -412,6 +412,16 @@ const COPY = {
   },
 } as const;
 
+function escapeHtml(value: unknown): string {
+  if (value == null) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function normalizeEmailLanguage(language?: string | null): EmailLanguage {
   const normalized = String(language ?? '').trim().toLowerCase();
   if (normalized.startsWith('en')) return 'en';
@@ -492,7 +502,7 @@ function baseLayout(content: string, preheader = '', language?: string | null): 
   </style>
 </head>
 <body>
-  ${preheader ? `<span style="display:none;max-height:0;overflow:hidden;">${preheader}</span>` : ''}
+  ${preheader ? `<span style="display:none;max-height:0;overflow:hidden;">${escapeHtml(preheader)}</span>` : ''}
   <div class="wrapper">
     <div class="header">
       <div class="logo-box">B</div>
@@ -529,22 +539,22 @@ export function invitationEmail(params: EmailParams & {
   const expDate = formatDate(params.expiresAt, params.language);
   const content = `
     <h1>${c.invitation.title}</h1>
-    <p>${c.invitation.intro(params.invitedByName, params.organizationName)}</p>
-    <p style="text-align:center;"><span class="role-badge">${roleLabel(params.role, params.language)}</span></p>
-    ${params.companyName ? `<p style="text-align:center;margin-top:-4px;">${c.invitation.company(params.companyName)}</p>` : ''}
-    <p>${c.invitation.create(params.email)}</p>
+    <p>${c.invitation.intro(escapeHtml(params.invitedByName), escapeHtml(params.organizationName))}</p>
+    <p style="text-align:center;"><span class="role-badge">${escapeHtml(roleLabel(params.role, params.language))}</span></p>
+    ${params.companyName ? `<p style="text-align:center;margin-top:-4px;">${c.invitation.company(escapeHtml(params.companyName))}</p>` : ''}
+    <p>${c.invitation.create(escapeHtml(params.email))}</p>
     <div style="text-align:center;">
-      <a href="${registerUrl}" class="btn">${c.invitation.button}</a>
+      <a href="${escapeHtml(registerUrl)}" class="btn">${c.invitation.button}</a>
     </div>
     <div class="info-box">
-      <p><strong>${c.invitation.howTitle}</strong><br/>${c.invitation.steps(params.email, params.organizationName)}</p>
+      <p><strong>${c.invitation.howTitle}</strong><br/>${c.invitation.steps(escapeHtml(params.email), escapeHtml(params.organizationName))}</p>
     </div>
     <div class="token-box">
       <p style="font-size:12px;color:#8899BB;margin:0 0 8px;">${c.invitation.token}</p>
-      <div class="token">${params.token}</div>
+      <div class="token">${escapeHtml(params.token)}</div>
     </div>
     <hr class="separator"/>
-    <p style="font-size:12px;color:#8899BB;margin:0;">${c.invitation.expires(expDate)} ${c.common.ignore}</p>
+    <p style="font-size:12px;color:#8899BB;margin:0;">${c.invitation.expires(escapeHtml(expDate))} ${c.common.ignore}</p>
   `;
 
   return {
@@ -561,10 +571,10 @@ export function welcomeEmail(params: EmailParams & {
   const c = copyFor(params.language);
   const name = firstName(params.name);
   const content = `
-    <h1>${c.welcome.title(name)}</h1>
-    <p>${c.welcome.account(params.email)}</p>
+    <h1>${c.welcome.title(escapeHtml(name))}</h1>
+    <p>${c.welcome.account(escapeHtml(params.email))}</p>
     <div class="info-box">
-      <p>${params.organizationName ? c.welcome.orgCreated(params.organizationName) : c.welcome.invited}</p>
+      <p>${params.organizationName ? c.welcome.orgCreated(escapeHtml(params.organizationName)) : c.welcome.invited}</p>
     </div>
     <div style="text-align:center;">
       <a href="${APP_URL}" class="btn">${c.welcome.open}</a>
@@ -587,10 +597,10 @@ export function passwordResetEmail(params: EmailParams & {
   const name = firstName(params.name);
   const content = `
     <h1>${c.passwordReset.title}</h1>
-    <p>${c.common.hello(name)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
     <p>${c.passwordReset.intro}</p>
     <div style="text-align:center;">
-      <a href="${params.resetUrl}" class="btn">${c.passwordReset.button}</a>
+      <a href="${escapeHtml(params.resetUrl)}" class="btn">${c.passwordReset.button}</a>
     </div>
     <div class="info-box">
       <p>${c.passwordReset.validity}</p>
@@ -614,8 +624,8 @@ export function passwordChangedEmail(params: EmailParams & {
   const date = formatDate(new Date(), params.language, true);
   const content = `
     <h1>${c.passwordChanged.title}</h1>
-    <p>${c.common.hello(name)}</p>
-    <p>${c.passwordChanged.changed(date)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
+    <p>${c.passwordChanged.changed(escapeHtml(date))}</p>
     <div class="info-box">
       <p>${c.passwordChanged.safe}</p>
     </div>
@@ -643,11 +653,11 @@ export function invitationAcceptedEmail(params: EmailParams & {
   const name = firstName(params.adminName);
   const content = `
     <h1>${c.accepted.title}</h1>
-    <p>${c.common.hello(name)}</p>
-    <p>${c.accepted.intro(params.inviteeName, params.organizationName)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
+    <p>${c.accepted.intro(escapeHtml(params.inviteeName), escapeHtml(params.organizationName))}</p>
     <div class="info-box">
-      <p><strong>${c.common.email} :</strong> ${params.inviteeEmail}<br/>
-      <strong>${c.common.role} :</strong> <span class="role-badge">${roleLabel(params.role, params.language)}</span></p>
+      <p><strong>${c.common.email} :</strong> ${escapeHtml(params.inviteeEmail)}<br/>
+      <strong>${c.common.role} :</strong> <span class="role-badge">${escapeHtml(roleLabel(params.role, params.language))}</span></p>
     </div>
     <p>${c.accepted.manage}</p>
     <hr class="separator"/>
@@ -668,10 +678,10 @@ export function accessRevokedEmail(params: EmailParams & {
   const name = firstName(params.name);
   const content = `
     <h1>${c.revoked.title}</h1>
-    <p>${c.common.hello(name)}</p>
-    <p>${c.revoked.intro(params.organizationName)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
+    <p>${c.revoked.intro(escapeHtml(params.organizationName))}</p>
     <div class="info-box">
-      <p>${c.revoked.details(params.organizationName)}</p>
+      <p>${c.revoked.details(escapeHtml(params.organizationName))}</p>
     </div>
     <p>${c.revoked.help}</p>
     <hr class="separator"/>
@@ -704,24 +714,24 @@ export function reserveCreatedEmail(params: EmailParams & {
   const name = firstName(params.recipientName);
   const url = params.reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(params.reserveId)}`;
   const detailRows = [
-    params.chantierName ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.chantier}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${params.chantierName}</td></tr>` : '',
-    params.companyName ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.company}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${params.companyName}</td></tr>` : '',
-    params.priority ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.priority}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${priorityLabel(params.priority, params.language)}</td></tr>` : '',
-    params.deadline ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.deadline}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${formatDate(params.deadline, params.language)}</td></tr>` : '',
-    params.building ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.location}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${params.building}${params.level ? ` - ${params.level}` : ''}${params.zone ? ` / ${params.zone}` : ''}</td></tr>` : '',
+    params.chantierName ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.chantier}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${escapeHtml(params.chantierName)}</td></tr>` : '',
+    params.companyName ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.company}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${escapeHtml(params.companyName)}</td></tr>` : '',
+    params.priority ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.priority}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${escapeHtml(priorityLabel(params.priority, params.language))}</td></tr>` : '',
+    params.deadline ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.deadline}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${escapeHtml(formatDate(params.deadline, params.language))}</td></tr>` : '',
+    params.building ? `<tr><td style="color:#64748B;font-size:13px;padding:4px 0;">${c.common.location}</td><td style="font-size:13px;font-weight:600;padding:4px 0 4px 12px;">${escapeHtml(params.building)}${params.level ? ` - ${escapeHtml(params.level)}` : ''}${params.zone ? ` / ${escapeHtml(params.zone)}` : ''}</td></tr>` : '',
   ].filter(Boolean).join('');
 
   const content = `
     <h1>${c.reserveCreated.title}</h1>
-    <p>${c.common.hello(name)}</p>
-    <p>${c.reserveCreated.intro(params.createdBy)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
+    <p>${c.reserveCreated.intro(escapeHtml(params.createdBy))}</p>
     <div class="info-box" style="border-left-color:${priorityColor(params.priority)};">
-      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${params.reserveTitle}${params.reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${params.reserveCode})</span>` : ''}</p>
+      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${escapeHtml(params.reserveTitle)}${params.reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${escapeHtml(params.reserveCode)})</span>` : ''}</p>
       <table style="border-collapse:collapse;width:100%;">${detailRows}</table>
     </div>
-    ${params.description ? `<p style="color:#475569;font-size:13px;"><strong>${c.reserveCreated.description} :</strong> ${params.description}</p>` : ''}
-    <a href="${url}" class="btn">${c.reserveCreated.button}</a>
-    <p style="font-size:12px;color:#8899BB;margin:0;">${c.common.linkFallback(url)}</p>
+    ${params.description ? `<p style="color:#475569;font-size:13px;"><strong>${c.reserveCreated.description} :</strong> ${escapeHtml(params.description)}</p>` : ''}
+    <a href="${escapeHtml(url)}" class="btn">${c.reserveCreated.button}</a>
+    <p style="font-size:12px;color:#8899BB;margin:0;">${c.common.linkFallback(escapeHtml(url))}</p>
   `;
 
   return {
@@ -749,17 +759,17 @@ export function reserveStatusChangedEmail(params: EmailParams & {
   const prevLabel = params.previousStatus ? statusLabel(params.previousStatus, params.language) : null;
   const content = `
     <h1>${c.reserveStatus.title}</h1>
-    <p>${c.common.hello(name)}</p>
-    <p>${c.reserveStatus.intro(params.changedBy)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
+    <p>${c.reserveStatus.intro(escapeHtml(params.changedBy))}</p>
     <div class="info-box">
-      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${params.reserveTitle}${params.reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${params.reserveCode})</span>` : ''}</p>
-      ${prevLabel ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.reserveStatus.previous} : <strong>${prevLabel}</strong></p>` : ''}
-      <p style="font-size:13px;margin:4px 0;">${c.reserveStatus.next} : <strong>${newLabel}</strong></p>
-      ${params.chantierName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.chantier} : ${params.chantierName}</p>` : ''}
-      ${params.companyName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.company} : ${params.companyName}</p>` : ''}
+      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${escapeHtml(params.reserveTitle)}${params.reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${escapeHtml(params.reserveCode)})</span>` : ''}</p>
+      ${prevLabel ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.reserveStatus.previous} : <strong>${escapeHtml(prevLabel)}</strong></p>` : ''}
+      <p style="font-size:13px;margin:4px 0;">${c.reserveStatus.next} : <strong>${escapeHtml(newLabel)}</strong></p>
+      ${params.chantierName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.chantier} : ${escapeHtml(params.chantierName)}</p>` : ''}
+      ${params.companyName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.company} : ${escapeHtml(params.companyName)}</p>` : ''}
     </div>
-    <a href="${url}" class="btn">${c.reserveStatus.button}</a>
-    <p style="font-size:12px;color:#8899BB;margin:0;">${c.common.linkFallback(url)}</p>
+    <a href="${escapeHtml(url)}" class="btn">${c.reserveStatus.button}</a>
+    <p style="font-size:12px;color:#8899BB;margin:0;">${c.common.linkFallback(escapeHtml(url))}</p>
   `;
 
   return {
@@ -785,18 +795,18 @@ export function reserveOverdueEmail(params: EmailParams & {
   const url = params.reserveUrl ?? `${APP_URL}/reserve/${encodeURIComponent(params.reserveId)}`;
   const content = `
     <h1 style="color:#DC2626;">${c.overdue.title}</h1>
-    <p>${c.common.hello(name)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
     <p>${c.overdue.intro(params.daysLate)}</p>
     <div class="info-box" style="border-left-color:#EF4444;">
-      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${params.reserveTitle}${params.reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${params.reserveCode})</span>` : ''}</p>
-      <p style="font-size:13px;margin:4px 0;color:#EF4444;font-weight:600;">${c.overdue.missed} : ${formatDate(params.deadline, params.language)}</p>
-      ${params.priority ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.priority} : ${priorityLabel(params.priority, params.language)}</p>` : ''}
-      ${params.chantierName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.chantier} : ${params.chantierName}</p>` : ''}
-      ${params.companyName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.company} : ${params.companyName}</p>` : ''}
+      <p style="font-size:15px;font-weight:700;margin-bottom:8px;">${escapeHtml(params.reserveTitle)}${params.reserveCode ? ` <span style="font-size:12px;font-weight:400;color:#64748B;">(#${escapeHtml(params.reserveCode)})</span>` : ''}</p>
+      <p style="font-size:13px;margin:4px 0;color:#EF4444;font-weight:600;">${c.overdue.missed} : ${escapeHtml(formatDate(params.deadline, params.language))}</p>
+      ${params.priority ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.priority} : ${escapeHtml(priorityLabel(params.priority, params.language))}</p>` : ''}
+      ${params.chantierName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.chantier} : ${escapeHtml(params.chantierName)}</p>` : ''}
+      ${params.companyName ? `<p style="font-size:13px;margin:4px 0;color:#64748B;">${c.common.company} : ${escapeHtml(params.companyName)}</p>` : ''}
     </div>
     <p>${c.overdue.thanks}</p>
-    <a href="${url}" class="btn" style="background:#DC2626;color:#fff !important;">${c.overdue.button}</a>
-    <p style="font-size:12px;color:#8899BB;margin:0;">${c.common.linkFallback(url)}</p>
+    <a href="${escapeHtml(url)}" class="btn" style="background:#DC2626;color:#fff !important;">${c.overdue.button}</a>
+    <p style="font-size:12px;color:#8899BB;margin:0;">${c.common.linkFallback(escapeHtml(url))}</p>
   `;
 
   return {
@@ -871,28 +881,28 @@ export function reserveOverdueEscalationEmail(params: EmailParams & {
 
   const content = `
     <h1 style="color:#DC2626;">${e.title}</h1>
-    <p>${c.common.hello(name)}</p>
-    <p>${e.intro(params.companyName, params.chantierName, params.reminderDays)}</p>
+    <p>${c.common.hello(escapeHtml(name))}</p>
+    <p>${e.intro(escapeHtml(params.companyName), params.chantierName ? escapeHtml(params.chantierName) : undefined, params.reminderDays)}</p>
 
     <div class="info-box" style="border-left-color:#DC2626;background:#FEF2F2;">
-      <p style="font-size:15px;font-weight:700;color:#1A2742;margin:0 0 6px;">${params.reserveTitle}</p>
-      ${params.reserveCode ? `<p style="font-size:11px;color:#8899BB;margin:0 0 10px;">${c.common.ref} ${params.reserveCode}</p>` : ''}
+      <p style="font-size:15px;font-weight:700;color:#1A2742;margin:0 0 6px;">${escapeHtml(params.reserveTitle)}</p>
+      ${params.reserveCode ? `<p style="font-size:11px;color:#8899BB;margin:0 0 10px;">${c.common.ref} ${escapeHtml(params.reserveCode)}</p>` : ''}
       <p style="margin:0 0 6px;">
-        <span style="display:inline-block;background:${prioColor}18;color:${prioColor};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-right:6px;">${prioLabel.toUpperCase()}</span>
+        <span style="display:inline-block;background:${prioColor}18;color:${prioColor};font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-right:6px;">${escapeHtml(prioLabel.toUpperCase())}</span>
         <span style="display:inline-block;background:#DC262618;color:#DC2626;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;">${e.overdue(params.daysLate)}</span>
         <span style="display:inline-block;background:#7C3AED18;color:#7C3AED;font-size:11px;font-weight:700;padding:3px 10px;border-radius:12px;margin-left:6px;">${e.admin}</span>
       </p>
-      <p style="margin:8px 0 0;font-size:13px;color:#5E738A;">${e.missed} : <strong style="color:#DC2626;">${deadlineDate}</strong></p>
+      <p style="margin:8px 0 0;font-size:13px;color:#5E738A;">${e.missed} : <strong style="color:#DC2626;">${escapeHtml(deadlineDate)}</strong></p>
     </div>
 
-    <p style="font-size:14px;color:#334155;">${e.action(params.companyName)}</p>
+    <p style="font-size:14px;color:#334155;">${e.action(escapeHtml(params.companyName))}</p>
 
     <div style="text-align:center;">
-      <a href="${url}" class="btn" style="background:#DC2626;color:#fff !important;">${e.button}</a>
+      <a href="${escapeHtml(url)}" class="btn" style="background:#DC2626;color:#fff !important;">${e.button}</a>
     </div>
 
     <hr class="separator"/>
-    <p style="font-size:12px;color:#8899BB;margin:0;">${e.footer(params.companyName)}</p>
+    <p style="font-size:12px;color:#8899BB;margin:0;">${e.footer(escapeHtml(params.companyName))}</p>
   `;
 
   return {

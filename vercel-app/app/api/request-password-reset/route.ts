@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/lib/sender';
 import { passwordResetEmail } from '@/lib/templates';
+import { checkRateLimit } from '@/lib/rateLimit';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://jzeojdpgglbxjdasjgta.supabase.co';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -17,8 +18,20 @@ export async function OPTIONS() {
   return new NextResponse(null, { status: 204, headers: CORS_HEADERS });
 }
 
+// Réponse identique que le compte existe ou non (anti-énumération).
+const GENERIC_SUCCESS = { success: true };
+
 export async function POST(req: NextRequest) {
   try {
+    const ip = (req.headers.get('x-forwarded-for') ?? '').split(',')[0].trim() || 'unknown';
+    const rate = checkRateLimit(`password-reset:${ip}`, 5, 15 * 60 * 1000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Trop de demandes. Réessayez plus tard.' },
+        { status: 429, headers: { ...CORS_HEADERS, 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
+    }
+
     const { email } = await req.json();
 
     if (!email || !email.includes('@')) {
@@ -52,11 +65,9 @@ export async function POST(req: NextRequest) {
     });
 
     if (linkError || !linkData?.properties?.action_link) {
+      // Compte inexistant ou erreur interne : même réponse générique (anti-énumération).
       console.error('[request-password-reset] generateLink error:', linkError?.message);
-      return NextResponse.json(
-        { error: linkError?.message ?? 'Impossible de générer le lien de réinitialisation' },
-        { status: 500, headers: CORS_HEADERS }
-      );
+      return NextResponse.json(GENERIC_SUCCESS, { headers: CORS_HEADERS });
     }
 
     const resetUrl = linkData.properties.action_link;
@@ -69,10 +80,11 @@ export async function POST(req: NextRequest) {
     });
 
     if (!result.success) {
-      return NextResponse.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500, headers: CORS_HEADERS });
+      console.error('[request-password-reset] envoi échoué:', result.error);
+      return NextResponse.json(GENERIC_SUCCESS, { headers: CORS_HEADERS });
     }
 
-    return NextResponse.json({ success: true, simulated: result.simulated ?? false }, { headers: CORS_HEADERS });
+    return NextResponse.json(GENERIC_SUCCESS, { headers: CORS_HEADERS });
   } catch (err: any) {
     console.error('[request-password-reset] Exception:', err?.message ?? err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500, headers: CORS_HEADERS });
