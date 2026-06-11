@@ -812,7 +812,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Startup blocks only on the data needed by the first screens. Heavier
   // secondary modules refresh in the background or show their own screen-level
   // loading state, which keeps Supabase sync from holding the whole app.
-  const isLoading = serverRefreshBlocking || chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
+  //
+  // L'overlay plein écran ne doit bloquer que lorsqu'on n'a RIEN à afficher
+  // (premier login, cache vide). Dès que le cache local contient des données,
+  // on rend l'UI immédiatement et le refresh serveur (serverRefreshBlocking)
+  // continue en arrière-plan — c'est le même contrat que le mode hors-ligne
+  // (file de mutations + ConflictModal), donc sans risque de perte. Avant ce
+  // changement, CHAQUE ouverture de l'app (et chaque retour au premier plan
+  // après > 5 s de veille) affichait l'écran de chargement jusqu'à 8 s, le
+  // temps d'un aller-retour réseau complet.
+  const hasHydratedData = chantiersH.chantiers.length > 0
+    || reservesH.reserves.length > 0
+    || companiesH.companies.length > 0
+    || profilesH.profiles.length > 0;
+  const isLoading = (serverRefreshBlocking && !hasHydratedData)
+    || chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
     || tasksH.isLoadingTasks || profilesH.isLoadingProfiles
     || chantiersH.isLoadingSitePlans || companiesH.isLoadingCompanies;
 

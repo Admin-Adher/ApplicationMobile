@@ -574,6 +574,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         debugLogOk(`[AuthContext] Profil restauré depuis cache (instant-restore) → ${cached.email}`);
         setUser(cached);
         setIsOfflineSession(true); // sera repassé à false si getSession() valide
+        // Libère l'UI immédiatement : l'app affiche les données en cache
+        // pendant que getSession()/fetchProfile() valident en arrière-plan.
+        // Sans cela, chaque démarrage à froid restait sur l'écran de
+        // chargement jusqu'au retour réseau (ou 3 s de garde-fou).
+        resolveLoading();
       }
     }).catch(() => {});
 
