@@ -71,9 +71,21 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory, defaultArrivalTime, setDefaultArrivalTime, standardDayHours, setStandardDayHours } = useSettings();
   const { companies } = useApp();
-  const { user, logout, permissions } = useAuth();
+  const { user, logout, permissions, reconnectExpiredSession } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
   const { queue, queueCount, isOnline, syncStatus, syncProgress, clearQueue, retrySync } = useNetwork();
+  // Stuck operations whose error points to an expired/invalid session: writes
+  // went out with the read-only anon key and RLS rejected them. The cure is a
+  // fresh login, not a retry — so we surface a "reconnect" affordance.
+  const queueHasAuthError = queue.some(op => {
+    const e = (op.lastError ?? '').toLowerCase();
+    return e.includes('42501')
+      || e.includes('permission denied')
+      || e.includes('jwt')
+      || e.includes('refresh token')
+      || e.includes('row-level security')
+      || e.includes('401');
+  });
   const { preferences: notifPrefs, updatePreferences, isLoading: notifLoading, lastError: notifError } = useNotificationPreferences();
   const { expoPushToken, permissionStatus, lastError: pushError, retryRegistration: retryPushRegistration } = usePushNotifications();
   const {
@@ -890,6 +902,14 @@ export default function SettingsScreen() {
                             ? t('settings.syncQueue.onlineHint')
                             : t('settings.syncQueue.offlineHint')}
                         </Text>
+                        {queueHasAuthError && (
+                          <View style={styles.queueAuthBanner}>
+                            <Ionicons name="lock-closed-outline" size={14} color="#B45309" />
+                            <Text style={styles.queueAuthBannerTxt}>
+                              {t('settings.syncQueue.authErrorHint')}
+                            </Text>
+                          </View>
+                        )}
                         {queue.slice(0, 5).map((op) => (
                           <View key={op.id} style={styles.queueItem}>
                             <View style={[styles.queueItemDot, op.lastError && styles.queueItemDotErr]} />
@@ -912,6 +932,17 @@ export default function SettingsScreen() {
                         ))}
                         {queue.length > 5 && (
                           <Text style={styles.queueMore}>{t('settings.syncQueue.more', { count: queue.length - 5 })}</Text>
+                        )}
+                        {queueHasAuthError && (
+                          <TouchableOpacity
+                            style={styles.queueReconnectBtn}
+                            onPress={() => { void reconnectExpiredSession(); }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('settings.syncQueue.reconnectAction')}
+                          >
+                            <Ionicons name="log-in-outline" size={15} color="#fff" />
+                            <Text style={styles.queueReconnectTxt}>{t('settings.syncQueue.reconnectAction')}</Text>
+                          </TouchableOpacity>
                         )}
                         <View style={styles.queueActionsRow}>
                           <TouchableOpacity
@@ -1689,6 +1720,10 @@ const styles = StyleSheet.create({
   queueBtnDisabledTxt: { color: '#9CA3AF' },
   queueClearBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
   queueClearTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
+  queueAuthBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FCD34D', backgroundColor: '#FFFBEB', marginBottom: 8 },
+  queueAuthBannerTxt: { flex: 1, fontSize: 11, fontFamily: 'Inter_500Medium', color: '#B45309', lineHeight: 16 },
+  queueReconnectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: C.primary, marginTop: 10 },
+  queueReconnectTxt: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   profileBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,

@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
+import { notifySessionExpired, notifySessionRecovered } from './sessionExpiry';
 
 // Maximum time we wait for getSession() before trying the AsyncStorage fallback.
 // The Supabase auth lock is capped at 5 000 ms (LOCK_MAX_MS in lib/supabase.ts).
@@ -107,6 +108,16 @@ export async function forceRefreshSession(): Promise<string | null> {
     if (!resp.ok) {
       const body = await resp.text().catch(() => '');
       console.warn(`${tag} HTTP ${resp.status} — ${body.slice(0, 200)}`);
+      // ── Terminal vs transient failure ──────────────────────────────────────
+      // A 400/401 from the refresh endpoint means the refresh token itself is
+      // rejected ("Refresh token is not valid", "invalid_grant", token revoked
+      // server-side). Retrying or degrading to the anon key is futile — the only
+      // cure is a fresh login. Signal the React layer so it can prompt a clean
+      // re-authentication instead of leaving the user with an unsyncable queue.
+      // 5xx / 429 are transient (server hiccup) and must NOT trigger logout.
+      if (resp.status === 400 || resp.status === 401) {
+        notifySessionExpired(`refresh_rejected_${resp.status}`);
+      }
       return null;
     }
 
@@ -115,6 +126,8 @@ export async function forceRefreshSession(): Promise<string | null> {
       console.warn(`${tag} réponse sans access_token`);
       return null;
     }
+    // Refresh succeeded — clear any prior terminal-expiry latch.
+    notifySessionRecovered();
 
     // Write the refreshed session back into AsyncStorage so supabase-js
     // picks it up on the next read (after the stuck lock eventually releases).

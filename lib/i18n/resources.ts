@@ -57,6 +57,11 @@ export const resources: Resource = {
         invitationCancelFailed: "L'invitation n'a pas pu être annulée. Veuillez réessayer.",
         profileDeleteFailed: "Le profil n'a pas pu être supprimé. Vérifiez vos permissions.",
       },
+      sessionExpired: {
+        title: 'Session expirée',
+        message: "Ta session a expiré et ne peut plus être renouvelée automatiquement. La synchronisation est en pause. Reconnecte-toi pour reprendre : tes saisies en attente sont conservées et seront envoyées au serveur dès la reconnexion.",
+        reconnect: 'Se reconnecter',
+      },
       app: {
         tagline: 'Gestion de chantier numérique',
         restart: 'Redémarrer',
@@ -4013,6 +4018,8 @@ export const resources: Resource = {
           titleWithCount: 'File de synchronisation ({{count}})',
           onlineHint: "Ces opérations attendent d'être envoyées au serveur. Si elles restent bloquées, elles ont probablement été refusées (ex. permission RLS, données invalides) et peuvent être vidées.",
           offlineHint: 'Hors ligne — les opérations seront envoyées dès le retour de la connexion.',
+          authErrorHint: 'Une ou plusieurs opérations ont été refusées car votre session a expiré (accès en lecture seule). Reconnectez-vous pour les synchroniser.',
+          reconnectAction: 'Se reconnecter',
           failures_one: '{{count}} échec',
           failures_other: '{{count}} échecs',
           more_one: '+ {{count}} autre…',
@@ -4357,6 +4364,11 @@ export const resources: Resource = {
         incidentDeleteLocalMessage: 'The local deletion succeeded but could not be propagated to the server.\n{{error}}',
         invitationCancelFailed: 'The invitation could not be cancelled. Please try again.',
         profileDeleteFailed: 'The profile could not be deleted. Check your permissions.',
+      },
+      sessionExpired: {
+        title: 'Session expired',
+        message: 'Your session has expired and can no longer be renewed automatically. Syncing is paused. Sign in again to resume — your pending changes are kept and will be sent to the server as soon as you reconnect.',
+        reconnect: 'Sign in again',
       },
       app: {
         tagline: 'Digital construction management',
@@ -8314,6 +8326,8 @@ export const resources: Resource = {
           titleWithCount: 'Sync queue ({{count}})',
           onlineHint: 'These operations are waiting to be sent to the server. If they remain blocked, they were probably rejected (RLS permission, invalid data) and can be cleared.',
           offlineHint: 'Offline — operations will be sent when the connection returns.',
+          authErrorHint: 'One or more operations were rejected because your session expired (read-only access). Sign in again to sync them.',
+          reconnectAction: 'Sign in again',
           failures_one: '{{count}} failure',
           failures_other: '{{count}} failures',
           more_one: '+ {{count}} more…',
@@ -8658,6 +8672,11 @@ export const resources: Resource = {
         incidentDeleteLocalMessage: 'La eliminación local se realizó, pero no se pudo propagar al servidor.\n{{error}}',
         invitationCancelFailed: 'No se pudo cancelar la invitación. Inténtalo de nuevo.',
         profileDeleteFailed: 'No se pudo eliminar el perfil. Comprueba tus permisos.',
+      },
+      sessionExpired: {
+        title: 'Sesión expirada',
+        message: 'Tu sesión ha expirado y ya no puede renovarse automáticamente. La sincronización está en pausa. Vuelve a iniciar sesión para continuar: tus cambios pendientes se conservan y se enviarán al servidor en cuanto te reconectes.',
+        reconnect: 'Volver a iniciar sesión',
       },
       app: {
         tagline: 'Gestión digital de obra',
@@ -12615,6 +12634,8 @@ export const resources: Resource = {
           titleWithCount: 'Cola de sincronización ({{count}})',
           onlineHint: 'Estas operaciones esperan enviarse al servidor. Si siguen bloqueadas, probablemente fueron rechazadas (permiso RLS, datos inválidos) y se pueden vaciar.',
           offlineHint: 'Sin conexión — las operaciones se enviarán cuando vuelva la conexión.',
+          authErrorHint: 'Una o más operaciones fueron rechazadas porque tu sesión expiró (acceso de solo lectura). Vuelve a iniciar sesión para sincronizarlas.',
+          reconnectAction: 'Volver a iniciar sesión',
           failures_one: '{{count}} fallo',
           failures_other: '{{count}} fallos',
           more_one: '+ {{count}} más…',

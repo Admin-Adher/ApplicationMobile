@@ -10,6 +10,7 @@ import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail }
 import { markIntentionalLogout } from '@/lib/authIntent';
 import { setPersisterUserId } from '@/lib/queryPersister';
 import { deleteCurrentPushToken } from '@/lib/push/deviceRegistration';
+import { subscribeSessionExpiry, isSessionExpired, notifySessionRecovered } from '@/lib/sessionExpiry';
 import i18n from '@/lib/i18n';
 
 /**
@@ -101,6 +102,20 @@ interface AuthContextValue {
   isLoading: boolean;
   isSessionValidationPending: boolean;
   isOfflineSession: boolean;
+  /**
+   * True once the Supabase refresh token has been terminally rejected by the
+   * auth server (revoked/expired). While true, every server write silently
+   * falls back to the read-only anon key, so the UI must prompt a fresh login
+   * instead of letting the offline queue pile up unsyncable operations.
+   */
+  sessionExpired: boolean;
+  /**
+   * Clean re-authentication entry point for the "session expired" prompt:
+   * signs out (preserving the offline mutation queue) so AuthGuard routes to
+   * the login screen, where a fresh token restores write access and drains the
+   * queue.
+   */
+  reconnectExpiredSession: () => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (params: {
     name: string;
@@ -477,6 +492,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSessionValidationPending, setIsSessionValidationPending] = useState(isSupabaseConfigured);
   const [isOfflineSession, setIsOfflineSession] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoaded, setUsersLoaded] = useState(false);
@@ -491,6 +507,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setPersisterUserId(user?.id ?? null);
   }, [user?.id]);
+
+  // ── Terminal session-expiry → prompt a clean re-login ──────────────────────
+  // When the Supabase refresh token is rejected server-side, lib/sessionExpiry
+  // fires this signal. We surface it (SessionExpiredModal) instead of letting
+  // every write silently degrade to the anon key (RLS rejects → stuck queue).
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    // A signal may have latched before this listener attached (cold start).
+    if (isSessionExpired()) setSessionExpired(true);
+    const unsubscribe = subscribeSessionExpiry(() => setSessionExpired(true));
+    return unsubscribe;
+  }, []);
 
   // Persist profile to AsyncStorage for offline session restoration
   const cacheProfile = useCallback((profile: User) => {
@@ -1195,6 +1223,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const profile = await fetchProfile(session.user.id, true);
             if (profile) {
               setUser(profile);
+              notifySessionRecovered();
+              setSessionExpired(false);
               resolve({ success: true });
               return;
             }
@@ -1306,6 +1336,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsOfflineSession(false);
           cacheProfile(profile);
           setSeedStatus('done');
+          notifySessionRecovered();
+          setSessionExpired(false);
           loginInProgressRef.current = false;
           if (timeoutId) clearTimeout(timeoutId);
           return { success: true };
@@ -1348,6 +1380,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setIsOfflineSession(false);
     clearCachedProfile();
+  }
+
+  // Clean re-authentication after a terminal session expiry. We funnel through
+  // the proven logout() path (which clears the cached profile so the auth-state
+  // listener can't re-restore the dead session) → AuthGuard routes to /login.
+  // The offline mutation queue is NOT cleared by logout(), so unsynced reserves
+  // survive and sync once the fresh token lands.
+  async function reconnectExpiredSession(): Promise<void> {
+    notifySessionRecovered();
+    setSessionExpired(false);
+    await logout();
   }
 
   async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
@@ -1472,6 +1515,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       isLoading,
       isSessionValidationPending,
       isOfflineSession,
+      sessionExpired,
+      reconnectExpiredSession,
       login,
       register,
       logout,

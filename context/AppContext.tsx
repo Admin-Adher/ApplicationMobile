@@ -104,6 +104,7 @@ interface AppContextValue {
   updateReserveFields: (r: Reserve) => void;
   deleteReserve: (id: string) => void;
   restoreReserve: (id: string, author?: string) => void;
+  permanentlyDeleteReserve: (id: string) => Promise<void>;
   updateReserveStatus: (id: string, status: ReserveStatus, author?: string) => void | Promise<void>;
   archiveReserve: (id: string, author?: string) => void;
   unarchiveReserve: (id: string, author?: string) => void;
@@ -875,6 +876,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     updateReserveFields: reservesH.updateReserveFields,
     deleteReserve: reservesH.deleteReserve,
     restoreReserve: reservesH.restoreReserve,
+    permanentlyDeleteReserve: reservesH.permanentlyDeleteReserve,
     updateReserveStatus: updateReserveStatusWithNotif,
     archiveReserve: reservesH.archiveReserve,
     unarchiveReserve: reservesH.unarchiveReserve,
@@ -957,7 +959,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     addChantierWithChannel, deleteChantierWithChannel, chantiersH.updateChantier,
     setActiveChantier, chantiersH.addSitePlan, chantiersH.updateSitePlan,
     chantiersH.deleteSitePlan, reservesH.addReserve, reservesH.updateReserve,
-    reservesH.updateReserveFields, reservesH.deleteReserve, reservesH.restoreReserve,
+    reservesH.updateReserveFields, reservesH.deleteReserve, reservesH.restoreReserve, reservesH.permanentlyDeleteReserve,
     updateReserveStatusWithNotif, reservesH.archiveReserve, reservesH.unarchiveReserve, reservesH.addComment, reservesH.updateComment, reservesH.deleteComment,
     companiesH.addCompany, companiesH.updateCompanyWorkers,
     companiesH.updateCompanyFull, companiesH.deleteCompany,

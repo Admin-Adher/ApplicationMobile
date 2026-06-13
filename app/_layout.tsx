@@ -33,6 +33,7 @@ import OfflineBanner from '@/components/OfflineBanner';
 import OtaUpdateBanner from '@/components/OtaUpdateBanner';
 import ConflictModal from '@/components/ConflictModal';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
+import SessionExpiredModal from '@/components/SessionExpiredModal';
 
 function reloadApp() {
   if (Platform.OS === 'web' && typeof window !== 'undefined') window.location.reload();
@@ -342,6 +343,7 @@ export default function RootLayout() {
                     <OtaUpdateBanner />
                     <ConflictModal />
                     <ChantierSwitcherSheet />
+                    <SessionExpiredModal />
                     <StatusBar style="light" />
                   </SafeKeyboardProvider>
                 </SafeAreaProvider>
