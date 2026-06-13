@@ -436,6 +436,19 @@
   padding: 12px 14px;
 }
 
+.sessionExpiredBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  border: 1px solid #fcd34d;
+  background: #fffbeb;
+  color: #92400e;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 /* Bannières flottantes : visibles au-dessus de toutes les modales (z-index max = 180). */
 .floatingAlert,
 .floatingNotice {

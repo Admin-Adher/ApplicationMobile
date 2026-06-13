@@ -125,6 +125,7 @@ const FR: Record<string, string> = {
   'login.subtitle': "Même base Supabase, mêmes rôles, mêmes réserves que l'application mobile.",
   'login.missingProfile': "Profil introuvable. Vérifiez que l'invitation a bien été acceptée.",
   'login.loadError': 'Chargement impossible.',
+  'sessionExpired.loginMessage': "Votre session a expiré et n'a pas pu être renouvelée automatiquement. Reconnectez-vous pour continuer.",
 
   'status.all': 'Tous',
   'status.open': 'Ouvert',
@@ -509,6 +510,7 @@ const EN: Record<string, string> = {
   'login.subtitle': 'Same Supabase data, same roles, same reserves as the mobile app.',
   'login.missingProfile': 'Profile not found. Check that the invitation was accepted.',
   'login.loadError': 'Unable to load data.',
+  'sessionExpired.loginMessage': 'Your session has expired and could not be renewed automatically. Sign in again to continue.',
 
   'status.all': 'All',
   'status.open': 'Open',
@@ -893,6 +895,7 @@ const ES: Record<string, string> = {
   'login.subtitle': 'La misma base Supabase, los mismos roles y las mismas reservas que en la app móvil.',
   'login.missingProfile': 'Perfil no encontrado. Comprueba que la invitación fue aceptada.',
   'login.loadError': 'No se pudo cargar.',
+  'sessionExpired.loginMessage': 'Tu sesión ha expirado y no se pudo renovar automáticamente. Vuelve a iniciar sesión para continuar.',
 
   'status.all': 'Todas',
   'status.open': 'Abierta',

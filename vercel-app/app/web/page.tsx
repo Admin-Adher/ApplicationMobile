@@ -756,6 +756,10 @@ function isAdmin(profile: Profile | null) {
   return profile?.role === 'super_admin' || profile?.role === 'admin';
 }
 
+function canPermanentlyDeleteReserve(profile: Profile | null) {
+  return profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'conducteur';
+}
+
 function profilePermissionsOverride(profile: Profile | null): PermissionsOverride | undefined {
   const override = profile?.permissions_override ?? profile?.permissionsOverride;
   if (!override || typeof override !== 'object' || Array.isArray(override)) return undefined;
@@ -2539,6 +2543,9 @@ export default function BuildTrackWebPage() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sessionExpiredFlag, setSessionExpiredFlag] = useState(false);
+  const intendedSignOutRef = useRef(false);
+  const hadSessionRef = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [textPrompt, setTextPrompt] = useState<WebTextPromptRequest | null>(null);
@@ -2627,6 +2634,11 @@ export default function BuildTrackWebPage() {
       setAuthUser(authData.session?.user ?? null);
     });
     const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
+      if (nextSession) hadSessionRef.current = true;
+      if (_event === 'SIGNED_OUT' && hadSessionRef.current && !intendedSignOutRef.current) {
+        setSessionExpiredFlag(true);
+      }
+      intendedSignOutRef.current = false;
       setSession(nextSession);
       setAuthUser(nextSession?.user ?? null);
       if (!nextSession) {
@@ -2930,8 +2942,17 @@ export default function BuildTrackWebPage() {
     setSaving(true);
     setError('');
     const { error: loginError } = await supabaseBrowser.auth.signInWithPassword({ email, password });
-    if (loginError) setError(loginError.message);
+    if (loginError) {
+      setError(loginError.message);
+    } else {
+      setSessionExpiredFlag(false);
+    }
     setSaving(false);
+  }
+
+  function handleSignOut() {
+    intendedSignOutRef.current = true;
+    void supabaseBrowser.auth.signOut();
   }
 
   async function patchReserveWeb(reserve: any, patch: Record<string, any>) {
@@ -3305,6 +3326,38 @@ export default function BuildTrackWebPage() {
           reserves: [restoredReserve, ...prev.reserves.filter(item => item.id !== reserve.id)],
         };
       });
+    }
+    setSaving(false);
+  }
+
+  async function permanentlyDeleteReserveWeb(reserve: any) {
+    if (!canPermanentlyDeleteReserve(profile) || !reserve?.id) return;
+    const confirmed = window.confirm(
+      `Supprimer définitivement la réserve ${reserve.id} ?\n\nCette action est irréversible. La réserve disparaîtra de la corbeille et ne pourra plus être restaurée.`,
+    );
+    if (!confirmed) return;
+    setSaving(true);
+    setError('');
+    const { data: deletedRows, error: deleteError } = await supabaseBrowser
+      .from('reserves')
+      .delete()
+      .eq('id', reserve.id)
+      .select('id');
+    if (deleteError) {
+      setError(deleteError.message);
+    } else {
+      setData(prev => {
+        const deletedReserves = prev.deletedReserves.filter(item => item.id !== reserve.id);
+        setSelectedReserveId(current => current === reserve.id ? deletedReserves[0]?.id ?? null : current);
+        return {
+          ...prev,
+          reserves: prev.reserves.filter(item => item.id !== reserve.id),
+          deletedReserves,
+        };
+      });
+      if (!deletedRows?.length) {
+        setError('Aucune ligne supprimée côté serveur. La réserve était peut-être déjà absente.');
+      }
     }
     setSaving(false);
   }
@@ -5119,6 +5172,12 @@ export default function BuildTrackWebPage() {
             <p className={styles.eyebrow}>{t('login.eyebrow')}</p>
             <h1>{t('login.title')}</h1>
             <p className={styles.muted}>{t('login.subtitle')}</p>
+            {sessionExpiredFlag && (
+              <div className={styles.sessionExpiredBanner} role="alert">
+                <span aria-hidden="true">⚠</span>
+                {t('sessionExpired.loginMessage')}
+              </div>
+            )}
             <form className={styles.loginForm} onSubmit={handleLogin}>
               <label>{t('common.email')}</label>
               <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required />
@@ -5208,7 +5267,7 @@ export default function BuildTrackWebPage() {
         <div className={styles.userBox}>
           <strong>{profile?.name ?? authUser.email}</strong>
           <span>{profile?.role_label ?? profile?.role ?? t('common.user')}</span>
-          <button onClick={() => supabaseBrowser.auth.signOut()} title={t('common.logout')}>
+          <button onClick={handleSignOut} title={t('common.logout')}>
             <span className={styles.logoutIcon}>⎋</span>
             <span className={styles.logoutLabel}>{t('common.logout')}</span>
           </button>
@@ -5319,6 +5378,7 @@ export default function BuildTrackWebPage() {
                 onArchive={toggleArchive}
                 onDelete={deleteReserveWeb}
                 onRestore={restoreReserveWeb}
+                onPermanentDelete={permanentlyDeleteReserveWeb}
                 onComment={addReserveComment}
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
@@ -5332,6 +5392,7 @@ export default function BuildTrackWebPage() {
                 editable={canEdit(profile)}
                 canCreateReserve={canCreate(profile)}
                 canDeleteReserve={canDelete(profile)}
+                canPermanentlyDeleteReserve={canPermanentlyDeleteReserve(profile)}
                 canExport={canExport(profile)}
                 canViewTrash={canViewReserveTrash}
                 saving={saving}
@@ -5585,7 +5646,7 @@ export default function BuildTrackWebPage() {
                 onUpdateCompanyField={updateCompanyField}
                 onOpenTab={setActiveTab}
                 onOpenAdmin={() => setActiveTab('admin')}
-                onLogout={async () => { await supabaseBrowser.auth.signOut(); }}
+                onLogout={handleSignOut}
               />
             )}
             {activeTab === 'admin' && (
@@ -6215,6 +6276,7 @@ function ReservesView(props: {
   onArchive: (reserve: any) => void;
   onDelete: (reserve: any) => Promise<void> | void;
   onRestore: (reserve: any) => Promise<void> | void;
+  onPermanentDelete: (reserve: any) => Promise<void> | void;
   onComment: (reserve: any, content: string) => Promise<void> | void;
   onCreate: () => void;
   onEdit: (reserve: any) => void;
@@ -6228,6 +6290,7 @@ function ReservesView(props: {
   editable: boolean;
   canCreateReserve: boolean;
   canDeleteReserve: boolean;
+  canPermanentlyDeleteReserve: boolean;
   canExport: boolean;
   canViewTrash: boolean;
   saving: boolean;
@@ -7235,6 +7298,11 @@ function ReservesView(props: {
             {props.editable && isTrashView && (
               <div className={styles.actionBar}>
                 <button type="button" onClick={() => props.onRestore(detailReserve)} disabled={props.saving}>Restaurer</button>
+                {props.canPermanentlyDeleteReserve && (
+                  <button type="button" className={styles.dangerButton} onClick={() => props.onPermanentDelete(detailReserve)} disabled={props.saving}>
+                    Supprimer définitivement
+                  </button>
+                )}
               </div>
             )}
             {props.editable && !isTrashView && (
