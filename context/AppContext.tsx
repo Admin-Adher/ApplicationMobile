@@ -231,10 +231,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const serverFreshnessKey = needsServerFreshness
     ? `${authH.user!.id}:${serverRefreshToken}`
     : null;
+  // NB : volontairement NON conditionné à `isOnline`. Pendant la fenêtre de
+  // validation initiale (instant-restore → getSession), on doit garder l'overlay
+  // de chargement même si la sonde réseau bascule brièvement hors-ligne (DNS/TLS
+  // froids au 1er démarrage du jour). Sinon, sur ce flicker isOnline true→false,
+  // `appLoading` retombait à false avec un cache vide et l'écran « Aucun chantier
+  // actif » s'affichait une fraction de seconde avant que le loading ne réapparaisse.
+  // Borné par `&& !hasHydratedData` plus bas : ne force le chargement que lorsqu'il
+  // n'y a réellement rien en cache à afficher. Garde-fou de 8 s côté AuthContext
+  // (SESSION_VALIDATION_MAX_WAIT_MS) contre un hang.
   const sessionValidationBlocking = Boolean(
     authH.user?.id &&
       isSupabaseConfigured &&
-      isOnline &&
       authH.isSessionValidationPending
   );
   const serverRefreshBlocking = sessionValidationBlocking || (needsServerFreshness && (
