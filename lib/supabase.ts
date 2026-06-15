@@ -108,6 +108,59 @@ const FETCH_TIMEOUT_AUTH_MS = 12_000;     // /auth/v1/* — petits payloads, ret
 const FETCH_TIMEOUT_REST_MS = 15_000;     // /rest/v1/* — requêtes JSON, + 1 retry si GET
 const FETCH_TIMEOUT_STORAGE_MS = 120_000; // /storage/v1/* — uploads de photos sur réseau lent
 
+let storedAuthCache: { token: string; expiresAt: number; checkedUntil: number } | null = null;
+
+function supabaseStorageKey(): string | null {
+  try {
+    if (!SUPABASE_URL) return null;
+    const ref = new URL(SUPABASE_URL).hostname.split('.')[0];
+    return `sb-${ref}-auth-token`;
+  } catch {
+    return null;
+  }
+}
+
+async function getValidStoredAccessToken(): Promise<string | null> {
+  const nowMs = Date.now();
+  const nowSec = Math.floor(nowMs / 1000);
+  if (storedAuthCache && storedAuthCache.checkedUntil > nowMs && storedAuthCache.expiresAt - 10 > nowSec) {
+    return storedAuthCache.token;
+  }
+
+  const key = supabaseStorageKey();
+  if (!key) return null;
+  try {
+    const raw = await SsrSafeStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.access_token || typeof parsed.expires_at !== 'number') return null;
+    if (parsed.expires_at - 10 <= nowSec) return null;
+    storedAuthCache = {
+      token: parsed.access_token,
+      expiresAt: parsed.expires_at,
+      checkedUntil: nowMs + 2_000,
+    };
+    return parsed.access_token;
+  } catch {
+    return null;
+  }
+}
+
+async function initWithStoredAuthIfNeeded(url: string, init?: any, input?: any): Promise<any> {
+  if (!SUPABASE_URL || !SUPABASE_KEY || url.includes('/auth/v1/')) return init;
+  if (!url.startsWith(SUPABASE_URL)) return init;
+
+  const headers = new Headers(init?.headers ?? input?.headers ?? {});
+  const authorization = headers.get('authorization');
+  const usingPublishableAuth = !authorization || authorization === `Bearer ${SUPABASE_KEY}`;
+  if (!usingPublishableAuth) return init;
+
+  const token = await getValidStoredAccessToken();
+  if (!token) return init;
+  headers.set('authorization', `Bearer ${token}`);
+  return { ...(init ?? {}), headers };
+}
+
 function timeoutForUrl(url: string): number {
   if (url.includes('/auth/v1/')) return FETCH_TIMEOUT_AUTH_MS;
   if (url.includes('/storage/v1/')) return FETCH_TIMEOUT_STORAGE_MS;
@@ -120,14 +173,15 @@ function fetchWithTimeout(input: any, init?: any): Promise<Response> {
   const timeoutMs = timeoutForUrl(url);
   const upstream: AbortSignal | undefined = init?.signal;
 
-  const attempt = (): Promise<Response> => {
+  const attempt = async (): Promise<Response> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     if (upstream) {
       if (upstream.aborted) controller.abort();
       else upstream.addEventListener('abort', () => controller.abort(), { once: true } as any);
     }
-    return fetch(input, { ...(init ?? {}), signal: controller.signal })
+    const authInit = await initWithStoredAuthIfNeeded(url, init, input);
+    return fetch(input, { ...(authInit ?? {}), signal: controller.signal })
       .finally(() => clearTimeout(timer));
   };
 
@@ -146,25 +200,32 @@ let lockChain: Promise<unknown> = Promise.resolve();
 
 export function resetAuthLock() {
   lockChain = Promise.resolve();
-  console.warn('[supabase-lock] lock chain reset (app resumed from background)');
+  console.log('[supabase-lock] lock chain reset (app resumed from background)');
 }
 
 function safeLock<R>(_name: string, acquireTimeoutMs: number, fn: () => Promise<R>): Promise<R> {
   const previous = lockChain;
   let release!: () => void;
+  let released = false;
   const next = new Promise<void>(resolve => { release = resolve; });
+  const releaseOnce = () => {
+    if (released) return;
+    released = true;
+    release();
+  };
   lockChain = next;
 
   // CRITICAL FIX: cap acquireTimeoutMs to LOCK_MAX_MS regardless of what
   // supabase-js passes (it can pass Infinity, making the timer never fire).
-  const effectiveTimeout = Math.min(Math.max(50, acquireTimeoutMs), LOCK_MAX_MS);
+  const requestedTimeout = Number.isFinite(acquireTimeoutMs) ? acquireTimeoutMs : LOCK_MAX_MS;
+  const effectiveTimeout = Math.min(Math.max(50, requestedTimeout), LOCK_MAX_MS);
 
   const wait = new Promise<void>((resolve) => {
     let done = false;
     const timer = setTimeout(() => {
       if (done) return;
       done = true;
-      console.warn(`[supabase-lock] acquire timeout after ${effectiveTimeout}ms (was ${acquireTimeoutMs}ms), forcing release`);
+      console.log(`[supabase-lock] acquire timeout after ${effectiveTimeout}ms (was ${acquireTimeoutMs}ms), forcing release`);
       resolve();
     }, effectiveTimeout);
     previous.finally(() => {
@@ -176,10 +237,15 @@ function safeLock<R>(_name: string, acquireTimeoutMs: number, fn: () => Promise<
   });
 
   return wait.then(async () => {
+    const leaseTimer = setTimeout(() => {
+      console.log(`[supabase-lock] held longer than ${LOCK_MAX_MS}ms, releasing queue lease`);
+      releaseOnce();
+    }, LOCK_MAX_MS);
     try {
       return await fn();
     } finally {
-      release();
+      clearTimeout(leaseTimer);
+      releaseOnce();
     }
   });
 }

@@ -183,7 +183,7 @@ export default function MoreScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 40 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 120 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Bandeau mise à jour APK */}
@@ -282,12 +282,12 @@ export default function MoreScreen() {
 
       {permissions.canCreate && (
         <TouchableOpacity
-          style={[styles.fab, { bottom: Platform.OS === 'web' ? 104 : insets.bottom + 61 }]}
+          style={[styles.fab, { bottom: Platform.OS === 'web' ? 104 : insets.bottom + 12 }]}
           onPress={() => router.push('/reserve/new' as any)}
           activeOpacity={0.85}
+          accessibilityLabel={t('moreScreen.reserveFab')}
         >
           <Ionicons name="add" size={22} color="#fff" />
-          <Text style={styles.fabLabel}>{t('moreScreen.reserveFab')}</Text>
         </TouchableOpacity>
       )}
     </View>
@@ -386,20 +386,18 @@ const styles = StyleSheet.create({
   logoutFullText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.open },
   fab: {
     position: 'absolute',
-    right: 18,
+    right: 12,
     zIndex: 100,
-    flexDirection: 'row',
+    width: 56,
+    height: 56,
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
     backgroundColor: C.primary,
-    paddingVertical: 14,
-    paddingHorizontal: 18,
-    borderRadius: 30,
+    borderRadius: 28,
     elevation: 6,
     ...Platform.select({
       web: { boxShadow: '0px 4px 16px rgba(0,48,130,0.30)' } as any,
       default: { shadowColor: C.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.35, shadowRadius: 10 },
     }),
   },
-  fabLabel: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
 });

@@ -66,6 +66,9 @@ const STATUS_COLORS = {
   expired:   { label: 'Expiré',    color: '#6B7280', bg: '#F3F4F6' },
 } as const;
 
+const DIAGNOSTIC_SDK_TIMEOUT_MS = 8000;
+const DIAGNOSTIC_REST_FAST_TIMEOUT_MS = 5000;
+
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -182,16 +185,34 @@ export default function SettingsScreen() {
     }
   }
 
+  async function recoverDiagnosticFromCachedSession(timeoutMs = DIAGNOSTIC_REST_FAST_TIMEOUT_MS): Promise<boolean> {
+    const cached = await getSessionFromStorage().catch(() => null);
+    const cachedUserId = cached?.user?.id ?? user?.id ?? null;
+    if (!cachedUserId) return false;
+    try {
+      return await withTimeout(
+        recoverDiagnosticViaRest(cachedUserId),
+        timeoutMs,
+        'profil REST',
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async function runDiagnostic() {
     setDiag({ loading: true, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: null });
     if (!isSupabaseConfigured) {
       setDiag({ loading: false, sessionUserId: null, sessionExpiresAt: null, serverRole: null, serverOrgId: null, error: t('settings.diagnostic.supabaseNotConfigured') });
       return;
     }
+    // Resume-after-inactivity path: avoid waiting on supabase-js auth locks
+    // when the persisted JWT can already read the profile through REST.
+    if (await recoverDiagnosticFromCachedSession()) return;
     try {
       const { data: { session } } = await withTimeout(
         (supabase as any).auth.getSession(),
-        15000,
+        DIAGNOSTIC_SDK_TIMEOUT_MS,
         'session',
       ) as any;
       if (!session?.user?.id) {
@@ -204,7 +225,7 @@ export default function SettingsScreen() {
           .select('organization_id, role')
           .eq('id', session.user.id)
           .single(),
-        15000,
+        DIAGNOSTIC_SDK_TIMEOUT_MS,
         'profil',
       ) as any;
       if (profErr) {
@@ -252,7 +273,13 @@ export default function SettingsScreen() {
       // REST brut (connexion neuve). Si le serveur répond, le diagnostic
       // affiche l'état complet — plus besoin de redémarrer l'application.
       if (isTimeout && cachedUserId) {
-        if (await recoverDiagnosticViaRest(cachedUserId)) return;
+        try {
+          if (await withTimeout(
+            recoverDiagnosticViaRest(cachedUserId),
+            DIAGNOSTIC_SDK_TIMEOUT_MS,
+            'profil REST',
+          )) return;
+        } catch {}
       }
       setDiag({
         loading: false,
@@ -261,7 +288,7 @@ export default function SettingsScreen() {
         serverRole: null,
         serverOrgId: null,
         error: isTimeout
-          ? t('settings.diagnostic.authSlow', { seconds: (15000 / 1000).toFixed(0), state: sessionStillValid ? t('settings.diagnostic.localSessionValid') : t('settings.diagnostic.jwtExpired') })
+          ? t('settings.diagnostic.authSlow', { seconds: (DIAGNOSTIC_SDK_TIMEOUT_MS / 1000).toFixed(0), state: sessionStillValid ? t('settings.diagnostic.localSessionValid') : t('settings.diagnostic.jwtExpired') })
           : (err?.message ?? t('settings.diagnostic.unknownError')),
         sessionTimedOut: isTimeout,
       });
@@ -725,7 +752,7 @@ export default function SettingsScreen() {
                   style={styles.pwdInput}
                   value={currentPwd}
                   onChangeText={v => { setCurrentPwd(v); setPwdMsg(null); }}
-                  placeholder="••••••••"
+                  placeholder=""
                   placeholderTextColor={C.textMuted}
                   secureTextEntry={!showCurrentPwd}
                 />
@@ -740,7 +767,7 @@ export default function SettingsScreen() {
                   style={styles.pwdInput}
                   value={newPwd}
                   onChangeText={v => { setNewPwd(v); setPwdMsg(null); }}
-                  placeholder="••••••••"
+                  placeholder=""
                   placeholderTextColor={C.textMuted}
                   secureTextEntry={!showNewPwd}
                 />
@@ -767,7 +794,7 @@ export default function SettingsScreen() {
                 style={styles.input}
                 value={confirmPwd}
                 onChangeText={v => { setConfirmPwd(v); setPwdMsg(null); }}
-                placeholder="••••••••"
+                placeholder=""
                 placeholderTextColor={C.textMuted}
                 secureTextEntry
               />
@@ -804,17 +831,18 @@ export default function SettingsScreen() {
             )}
 
             <TouchableOpacity style={styles.navRow} onPress={toggleDiag}>
-              <View style={[styles.navIcon, { backgroundColor: diagOk ? '#ECFDF5' : (diag && (diag.error || diagIssues.length > 0) ? '#FEF2F2' : '#F3F4F6') }]}>
+              <View style={[styles.navIcon, { backgroundColor: diag?.loading ? C.primaryBg : diagOk ? '#ECFDF5' : (diag && (diag.error || diagIssues.length > 0) ? '#FEF2F2' : '#F3F4F6') }]}>
                 <Ionicons
-                  name={diagOk ? 'checkmark-circle' : (diag && (diag.error || diagIssues.length > 0) ? 'warning' : 'pulse-outline')}
+                  name={diag?.loading ? 'sync' : diagOk ? 'checkmark-circle' : (diag && (diag.error || diagIssues.length > 0) ? 'warning' : 'pulse-outline')}
                   size={18}
-                  color={diagOk ? '#10B981' : (diag && (diag.error || diagIssues.length > 0) ? '#EF4444' : C.textMuted)}
+                  color={diag?.loading ? C.primary : diagOk ? '#10B981' : (diag && (diag.error || diagIssues.length > 0) ? '#EF4444' : C.textMuted)}
                 />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.navLabel}>{t('settings.diagnostic.title')}</Text>
                 <Text style={styles.navSubPlain}>
-                  {diagOk ? t('settings.diagnostic.allSynced')
+                  {diag?.loading ? t('settings.diagnostic.checking')
+                    : diagOk ? t('settings.diagnostic.allSynced')
                     : diag?.error ? diag.error
                     : diag && diagIssues.length > 0 ? t('settings.diagnostic.problemCount', { count: diagIssues.length })
                     : t('settings.diagnostic.checkConsistency')}

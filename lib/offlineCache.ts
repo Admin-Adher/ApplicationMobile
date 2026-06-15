@@ -185,7 +185,7 @@ async function runSupabaseSessionValidation(): Promise<boolean> {
     if (cached?.access_token && typeof cached.expires_at === 'number') {
       const nowSec = Math.floor(Date.now() / 1000);
       if (cached.expires_at - 10 > nowSec) {
-        console.warn('[offlineCache] AsyncStorage fallback: JWT still valid, proceeding');
+        console.log('[offlineCache] AsyncStorage session valid, proceeding');
         return true;
       }
       console.warn('[offlineCache] AsyncStorage fallback: JWT expired — forceRefreshSession()');
@@ -198,6 +198,12 @@ async function runSupabaseSessionValidation(): Promise<boolean> {
     }
     return false;
   };
+
+  // Fast path: on mobile cold start, supabase-js can spend several seconds
+  // recovering/refreshing auth state. A still-valid persisted JWT is enough to
+  // let live RLS-protected queries run instead of showing stale cache or empty
+  // screens while getSession() catches up.
+  if (await hasValidCachedSession()) return true;
 
   try {
     const timeoutPromise = new Promise<null>((_, reject) =>
@@ -344,6 +350,16 @@ export function pendingIdsForTable(
   const ids = new Set<string>();
   for (const op of queue) {
     const rpcFn = op.op === 'rpc' ? op.rpc?.fn : undefined;
+    if (table === 'reserves' && rpcFn === 'append_reserve_status_event') {
+      const reserveId = op.rpc?.args?.p_event?.reserve_id ?? op.data?.id ?? op.filter?.value;
+      if (reserveId) ids.add(String(reserveId));
+      continue;
+    }
+    if (table === 'reserves' && rpcFn === 'apply_reserve_patch') {
+      const reserveId = op.rpc?.args?.p_reserve_id ?? op.data?.id ?? op.filter?.value;
+      if (reserveId) ids.add(String(reserveId));
+      continue;
+    }
     if (rpcFn === 'link_reserves_to_visite' || rpcFn === 'unlink_reserves_from_visite') {
       if (table === 'visites') {
         if (op.data?.visite_id) ids.add(String(op.data.visite_id));

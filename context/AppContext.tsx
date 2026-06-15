@@ -16,6 +16,7 @@ import { clearPersistedRqCache } from '@/lib/queryPersister';
 import { C } from '@/constants/colors';
 import { genId, nowTimestampFR } from '@/lib/utils';
 import { queryKeys } from '@/lib/queryKeys';
+import { readCache } from '@/lib/offlineCache';
 
 import { useChantiers } from '@/hooks/queries/useChantiers';
 import { useReserves } from '@/hooks/queries/useReserves';
@@ -39,6 +40,7 @@ export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
 
 const ACTIVE_CHANTIER_PREFIX = 'buildtrack_active_chantier_v3_';
+const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
 const SERVER_REFRESH_MAX_WAIT_MS = 8_000;
 const FOREGROUND_REFRESH_MIN_SLEEP_MS = 5_000;
 const STARTUP_BLOCKING_QUERY_KEYS = [
@@ -203,6 +205,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useRealtimeSync();
 
   const [activeChantierId, setActiveChantierIdState] = useState<string | null>(null);
+  const [activeChantierFallback, setActiveChantierFallback] = useState<Chantier | null>(null);
   const [lastReadByChannel, setLastReadByChannel] = useState<Record<string, string>>({});
   const [notification, setNotification] = useState<{ msg: Message; channelName: string; channelColor: string; channelIcon: string } | null>(null);
   const [serverRefreshToken, setServerRefreshToken] = useState(0);
@@ -212,6 +215,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUserName, setCurrentUserName] = useState('');
   const activeChannelIdRef = useRef<string | null>(null);
   const chantierInitializedRef = useRef(false);
+  const chantierInitUserRef = useRef<string | null>(null);
   const refreshedServerKeyRef = useRef<string | null>(null);
   const reloadChannelsRef = useRef<(() => Promise<void>) | undefined>(undefined);
   const reloadMessagesRef = useRef<(() => Promise<void>) | undefined>(undefined);
@@ -362,32 +366,90 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [lastReadStorageKey]);
 
   useEffect(() => {
+    const uid = authH.user?.id ?? null;
     const chantiers = chantiersH.chantiers;
-    if (!chantiers.length) return;
+
+    if (!uid) {
+      chantierInitializedRef.current = false;
+      chantierInitUserRef.current = null;
+      return;
+    }
+
+    if (chantierInitUserRef.current !== uid) {
+      chantierInitializedRef.current = false;
+      chantierInitUserRef.current = uid;
+    }
+
+    const chKey = ACTIVE_CHANTIER_PREFIX + uid;
+    const persistActiveChantier = (id: string) => {
+      AsyncStorage.setItem(chKey, id).catch(() => {});
+    };
+    const hydrateActiveChantierFallback = (id: string) => {
+      readCache<Chantier>(CHANTIERS_CACHE_KEY, uid)
+        .then(cached => {
+          const cachedChantier = cached?.find(c => c.id === id) ?? null;
+          if (cachedChantier) setActiveChantierFallback(cachedChantier);
+        })
+        .catch(() => {});
+    };
 
     if (!chantierInitializedRef.current) {
       chantierInitializedRef.current = true;
-      const chKey = ACTIVE_CHANTIER_PREFIX + (authH.user?.id ?? 'anon');
       AsyncStorage.getItem(chKey).then(storedId => {
-        if (storedId && chantiers.some(c => c.id === storedId)) {
+        if (storedId && (!chantiers.length || chantiers.some(c => c.id === storedId))) {
+          if (!chantiers.length) hydrateActiveChantierFallback(storedId);
           setActiveChantierIdState(storedId);
-        } else {
+        } else if (chantiers.length) {
+          setActiveChantierFallback(chantiers[0]);
           setActiveChantierIdState(chantiers[0].id);
-          AsyncStorage.setItem(chKey, chantiers[0].id).catch(() => {});
+          persistActiveChantier(chantiers[0].id);
         }
       }).catch(() => {
-        setActiveChantierIdState(chantiers[0].id);
-        AsyncStorage.setItem(chKey, chantiers[0].id).catch(() => {});
+        if (chantiers.length) {
+          setActiveChantierFallback(chantiers[0]);
+          setActiveChantierIdState(chantiers[0].id);
+          persistActiveChantier(chantiers[0].id);
+        }
       });
       return;
     }
 
-    if (activeChantierId && !chantiers.some(c => c.id === activeChantierId)) {
+    if (!chantiers.length) return;
+
+    if (!activeChantierId || !chantiers.some(c => c.id === activeChantierId)) {
+      setActiveChantierFallback(chantiers[0]);
       setActiveChantierIdState(chantiers[0].id);
-      const chKey = ACTIVE_CHANTIER_PREFIX + (authH.user?.id ?? 'anon');
-      AsyncStorage.setItem(chKey, chantiers[0].id).catch(() => {});
+      persistActiveChantier(chantiers[0].id);
     }
   }, [chantiersH.chantiers, activeChantierId, authH.user?.id]);
+
+  useEffect(() => {
+    const uid = authH.user?.id;
+    if (!uid || !activeChantierId) {
+      setActiveChantierFallback(null);
+      return;
+    }
+
+    const fromQuery = chantiersH.chantiers.find(c => c.id === activeChantierId);
+    if (fromQuery) {
+      setActiveChantierFallback(fromQuery);
+      return;
+    }
+
+    let cancelled = false;
+    readCache<Chantier>(CHANTIERS_CACHE_KEY, uid)
+      .then(cached => {
+        if (cancelled) return;
+        setActiveChantierFallback(cached?.find(c => c.id === activeChantierId) ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveChantierFallback(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeChantierId, authH.user?.id, chantiersH.chantiers]);
 
   useEffect(() => {
     if (!notification) return;
@@ -445,14 +507,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // them intact so the user keeps seeing their data while AuthContext
         // either recovers a fresh session or falls back to the cached profile.
         const intentional = consumeIntentionalLogout();
-        currentUserNameRef.current = '';
-        setCurrentUserName('');
-        setActiveChantierIdState(null);
-        chantierInitializedRef.current = false;
-        setLastReadByChannel({});
-        lastReadByChannelRef.current = {};
-        setNotification(null);
         if (intentional) {
+          currentUserNameRef.current = '';
+          setCurrentUserName('');
+          setActiveChantierIdState(null);
+          chantierInitializedRef.current = false;
+          setLastReadByChannel({});
+          lastReadByChannelRef.current = {};
+          setNotification(null);
           // Clear both in-memory and persisted query cache so the next
           // user never sees stale data from a previous session. We clear
           // both the legacy global key and the per-user namespaced key
@@ -814,8 +876,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [visibleReserves, companiesH.companies]);
 
   const activeChantier = useMemo(
-    () => chantiersH.chantiers.find(c => c.id === activeChantierId) ?? null,
-    [chantiersH.chantiers, activeChantierId]
+    () =>
+      chantiersH.chantiers.find(c => c.id === activeChantierId) ??
+      (activeChantierFallback?.id === activeChantierId ? activeChantierFallback : null),
+    [chantiersH.chantiers, activeChantierFallback, activeChantierId]
   );
 
   // Startup blocks only on the data needed by the first screens. Heavier
@@ -834,10 +898,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     || reservesH.reserves.length > 0
     || companiesH.companies.length > 0
     || profilesH.profiles.length > 0;
-  const isLoading = (serverRefreshBlocking && !hasHydratedData)
-    || chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
+  const startupQueriesLoading = chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
     || tasksH.isLoadingTasks || profilesH.isLoadingProfiles
     || chantiersH.isLoadingSitePlans || companiesH.isLoadingCompanies;
+  const isLoading = (serverRefreshBlocking && !hasHydratedData)
+    || (!hasHydratedData && startupQueriesLoading);
 
   const migrateReservesToPlan = useCallback((fromPlanId: string, toPlanId: string): number => {
     const result = chantiersH.migrateReservesToPlan(fromPlanId, toPlanId);

@@ -13,6 +13,7 @@ import * as pdfjsLib from '@/lib/pdfjs';
 import { getPlanUriCacheFirst, getCachedPlanUri } from '@/lib/planCache';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 import { getReservePinColor } from '@/lib/planPinColor';
+import { useNetwork } from '@/context/NetworkContext';
 
 const PALETTE = [
   '#EF4444', '#F97316', '#EAB308', '#22C55E',
@@ -1148,6 +1149,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   companies = [],
 }, ref) {
   const { t } = useTranslation();
+  const { isOnline } = useNetwork();
   const WebView = require('react-native-webview').default;
   const webViewRef = useRef<any>(null);
   const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
@@ -1638,7 +1640,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
           <Text style={{ color: '#FEE2E2', fontSize: 10, marginTop: 4 }} numberOfLines={3}>{loadError}</Text>
         </View>
       ) : null}
-      {fromCache && !viewerLoading && !loadError ? (
+      {fromCache && !isOnline && !viewerLoading && !loadError ? (
         <View style={{ position: 'absolute' as any, top: 8, right: 8, backgroundColor: 'rgba(15,17,23,0.85)', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 4, flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1, borderColor: 'rgba(148,163,184,0.3)' }}>
           <Ionicons name="cloud-done-outline" size={11} color="#94A3B8" />
           <Text style={{ color: '#94A3B8', fontSize: 10, fontFamily: 'Inter_500Medium' }}>{t('pdfPlanViewer.offlineBadge')}</Text>

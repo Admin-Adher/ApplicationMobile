@@ -13,6 +13,13 @@ import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { triggerMessagePush, triggerReserveCreatedPush } from '@/lib/push/client';
 import type { Comment } from '@/constants/types';
+import {
+  applyReservePatchOperation,
+  buildRequestHash,
+  firstReserveMutationResult,
+  isReserveMutationRpcUnavailable,
+  newOperationId,
+} from '@/lib/reserveOutbox';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
@@ -108,6 +115,11 @@ export interface QueuedOperation {
   lastError?: string;
   /** Number of failed sync attempts. */
   attemptCount?: number;
+  /** Server row version observed when the user made this mutation. */
+  baseVersion?: number | null;
+  /** Terminal failures stay visible but are not replayed automatically. */
+  terminal?: boolean;
+  terminalStatus?: string;
 }
 
 export type SyncStatus = 'idle' | 'syncing' | 'conflict' | 'done' | 'error';
@@ -170,7 +182,7 @@ export function useNetwork() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function genQueueId() {
-  return `q_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+  return newOperationId();
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -186,6 +198,7 @@ const PING_URLS = [
   'https://clients3.google.com/generate_204',
   'https://connectivitycheck.gstatic.com/generate_204',
 ];
+const OFFLINE_CONFIRMATION_FAILURES = 2;
 
 // Reusable promise timeout helper (does not need a label in this context)
 function withTimeoutMs<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -201,11 +214,21 @@ function withTimeoutMs<T>(p: Promise<T>, ms: number): Promise<T> {
 async function checkInternetReachable(): Promise<boolean> {
   for (const url of PING_URLS) {
     try {
-      const res = await withTimeoutMs(fetch(url, { method: 'HEAD', cache: 'no-cache' }), 5000);
-      if (res.ok || res.status === 204) return true;
+      const res = await withTimeoutMs(fetch(url, { method: 'GET', cache: 'no-cache' }), 8000);
+      if (res.ok || res.status === 204 || res.status === 404) return true;
     } catch {}
   }
   return false;
+}
+
+async function hasUsableStoredSession(): Promise<boolean> {
+  try {
+    const cached = await getSessionFromStorage();
+    if (!cached?.access_token || typeof cached.expires_at !== 'number') return false;
+    return cached.expires_at - 30 > Math.floor(Date.now() / 1000);
+  } catch {
+    return false;
+  }
 }
 
 async function checkSupabaseReachable(): Promise<boolean> {
@@ -218,8 +241,11 @@ async function checkSupabaseReachable(): Promise<boolean> {
         apikey: SUPABASE_KEY,
         Authorization: `Bearer ${SUPABASE_KEY}`,
       },
-    }), 6000);
-    return res.ok || res.status === 401 || res.status === 404;
+    }), 12000);
+    // Any HTTP response means DNS/TLS/server routing worked. Auth/RLS failures
+    // are not offline signals; live queries should still be allowed to run and
+    // report their own typed errors.
+    return true;
   } catch {
     return false;
   }
@@ -228,7 +254,12 @@ async function checkSupabaseReachable(): Promise<boolean> {
 async function checkAppOnline(navigatorOnline = true): Promise<boolean> {
   if (!navigatorOnline) return false;
   if (isSupabaseConfigured) {
-    return checkSupabaseReachable();
+    if (await checkSupabaseReachable()) return true;
+    if (await checkInternetReachable()) return true;
+    // React Native probes can false-negative on cold DNS/TLS or emulator
+    // network stalls. A still-valid persisted JWT means the app can safely try
+    // live Supabase queries; failed writes still fall back into the outbox.
+    return hasUsableStoredSession();
   }
   if (Platform.OS !== 'web') {
     return checkInternetReachable();
@@ -262,7 +293,7 @@ async function healSupabaseSessionAfterWake(longSleep: boolean): Promise<boolean
     const session = data?.session;
     if (session?.access_token) return true;
   } catch (err) {
-    console.warn('[wake] refreshSession failed:', (err as any)?.message ?? err);
+    console.log('[wake] refreshSession failed:', (err as any)?.message ?? err);
   }
 
   try {
@@ -372,6 +403,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const lastLoadedKeyRef = useRef<string | null>(null);
   const wakeInFlightRef = useRef(false);
   const wakeAgainRef = useRef(false);
+  const offlineProbeFailuresRef = useRef(0);
 
   // ── Stable refs so any closure (including stale ones in AppState) can always
   // access the CURRENT queue and the CURRENT processSyncQueue implementation.
@@ -382,6 +414,24 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   const isOnlineRef = useRef(true);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
+
+  const applyOnlineReading = useCallback((online: boolean) => {
+    if (online) {
+      offlineProbeFailuresRef.current = 0;
+      isOnlineRef.current = true;
+      setIsOnline(true);
+      return true;
+    }
+
+    offlineProbeFailuresRef.current += 1;
+    if (offlineProbeFailuresRef.current >= OFFLINE_CONFIRMATION_FAILURES) {
+      isOnlineRef.current = false;
+      setIsOnline(false);
+      return false;
+    }
+
+    return isOnlineRef.current;
+  }, []);
 
   // processSyncQueueRef is always updated to point to the latest version of
   // processSyncQueue on every render, so stale closures can safely call
@@ -521,8 +571,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
 
     const check = async () => {
-      const online = await checkAppOnline();
-      setIsOnline(online);
+      const online = applyOnlineReading(await checkAppOnline());
 
       // Safety-net: if we are online with pending ops and not already syncing,
       // trigger a sync attempt — but no more than once every 20 seconds.
@@ -542,7 +591,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     check();
     const interval = setInterval(check, 10_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [applyOnlineReading]);
 
   // ── Trigger sync + refetch when coming back online ─────────────────────────
 
@@ -612,7 +661,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // We heal even after a short return because Android can freeze JS while
       // Supabase is mid-refresh. The helper uses short timeouts plus an
       // AsyncStorage/raw-refresh fallback, so this never blocks forever.
-      await healSupabaseSessionAfterWake(longSleep);
+      const sessionHealthy = await healSupabaseSessionAfterWake(longSleep);
 
       // ── 2. Reconnect the Realtime WebSocket ───────────────────────────────
       try { (supabase as any).realtime?.disconnect?.(); } catch {}
@@ -622,9 +671,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // We can't rely on the stale isOnline state: if the network was already
       // active before sleep, isOnline is still true and the change-based effect
       // won't fire. We ping explicitly and act on the result.
-      const online = await checkAppOnline();
-      setIsOnline(online);
-      isOnlineRef.current = online;
+      const online = applyOnlineReading(sessionHealthy || await checkAppOnline());
 
       // ── 4. Refresh active screens immediately ────────────────────────────
       // invalidateQueries alone can be lazy. Refetch active queries now so
@@ -708,7 +755,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Helper: re-queue an op while attaching the latest error message and
     // bumping its attempt counter so the user can see in the UI why it stays
     // stuck after each retry.
-    const fail = (op: QueuedOperation, err: any) => {
+    const fail = (op: QueuedOperation, err: any, options?: { terminalStatus?: string }) => {
       let msg: string;
       if (!err) msg = 'Erreur inconnue';
       else if (typeof err === 'string') msg = err;
@@ -725,6 +772,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         ...op,
         lastError: msg,
         attemptCount: (op.attemptCount ?? 0) + 1,
+        terminal: Boolean(options?.terminalStatus) || op.terminal,
+        terminalStatus: options?.terminalStatus ?? op.terminalStatus,
       });
     };
 
@@ -732,6 +781,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     for (const op of currentQueue) {
       let retryOpForCatch: QueuedOperation = op;
       try {
+        if (op.terminal) {
+          failedOps.push(op);
+          continue;
+        }
         // ── Status-change conflict detection ───────────────────────────────
         if (op.op === 'rpc') {
           if (!op.rpc?.fn) {
@@ -804,10 +857,45 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             delete preparedPatch.__replace_file_safely;
             args = { ...args, p_patch: preparedPatch };
             retryRpcOp = { ...op, data: preparedPatch, rpc: { ...op.rpc, args } };
+          } else if (op.rpc.fn === 'append_reserve_status_event') {
+            const event = args.p_event ?? op.data;
+            if (!event?.reserve_id || !event?.to_status) {
+              fail(op, 'RPC append_reserve_status_event refusee: event reserve/status manquant.');
+              continue;
+            }
+            args = {
+              ...args,
+              p_operation_id: args.p_operation_id ?? op.id,
+              p_request_hash: args.p_request_hash ?? await buildRequestHash({
+                fn: 'append_reserve_status_event',
+                event,
+              }),
+              p_event: event,
+            };
+            retryRpcOp = { ...op, rpc: { ...op.rpc, args } };
           }
 
-          const { error } = await supabaseRestRpc(op.rpc.fn, args);
-          if (error) fail(retryRpcOp, error);
+          const { data: rpcData, error } = await supabaseRestRpc(op.rpc.fn, args);
+          if (error && op.rpc.fn === 'append_reserve_status_event' && isReserveMutationRpcUnavailable(error)) {
+            if (op.filter?.column === 'id' && op.data) {
+              const { error: fallbackErr } = await supabaseRestMutation(
+                'reserves',
+                'update',
+                op.data,
+                op.filter,
+              );
+              if (fallbackErr) fail({ ...retryRpcOp, data: op.data }, fallbackErr);
+            } else {
+              fail(retryRpcOp, error);
+            }
+          } else if (error) fail(retryRpcOp, error);
+          else if (op.rpc.fn === 'append_reserve_status_event') {
+            const outcome = firstReserveMutationResult(rpcData);
+            if (outcome && outcome.status !== 'ok') {
+              const terminal = ['deleted', 'forbidden', 'not_found', 'duplicate_operation_mismatch', 'invalid_payload'].includes(outcome.status);
+              fail(retryRpcOp, outcome.message ?? outcome.status, terminal ? { terminalStatus: outcome.status } : undefined);
+            }
+          }
           else if (op.rpc.fn === 'create_reserve_with_photos' && args.p_reserve?.id) {
             triggerReserveCreatedPush(String(args.p_reserve.id));
           }
@@ -1131,6 +1219,25 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               p_patch: patch,
               p_reason: 'offline_queue_replace_site_plan_file',
             });
+          } else if (op.table === 'reserves' && op.filter.column === 'id' && typeof op.baseVersion === 'number') {
+            const rpcResult = await applyReservePatchOperation({
+              operationId: op.id,
+              reserveId: String(op.filter.value),
+              baseVersion: op.baseVersion,
+              patch: data!,
+            });
+            const outcome = firstReserveMutationResult(rpcResult.data);
+            if (rpcResult.error && isReserveMutationRpcUnavailable(rpcResult.error)) {
+              result = await supabaseRestMutation(op.table, 'update', data!, op.filter);
+            } else if (rpcResult.error) {
+              result = rpcResult;
+            } else if (!outcome || outcome.status === 'ok') {
+              result = { error: null, data: outcome ? [outcome] : null };
+            } else {
+              const terminal = ['deleted', 'forbidden', 'not_found', 'duplicate_operation_mismatch', 'invalid_payload'].includes(outcome.status);
+              fail(retryOpForCatch, outcome.message ?? outcome.status, terminal ? { terminalStatus: outcome.status } : undefined);
+              continue;
+            }
           } else {
             result = await supabaseRestMutation(op.table, 'update', data!, op.filter);
           }
@@ -1368,7 +1475,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       isOnline,
       queue,
       queueCount: queue.length,
-      stuckCount: queue.filter(op => (op.attemptCount ?? 0) >= 3).length,
+      stuckCount: queue.filter(op => op.terminal || (op.attemptCount ?? 0) >= 3).length,
       queueLoaded,
       syncStatus,
       syncProgress,
