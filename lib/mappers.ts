@@ -83,7 +83,8 @@ export function toReserve(row: any): Reserve {
       ? [row.company]
       : [];
   return {
-    id: row.id, title: row.title, description: row.description ?? '', building: row.building,
+    id: row.id, version: typeof row.version === 'number' ? row.version : undefined,
+    title: row.title, description: row.description ?? '', building: row.building,
     zone: row.zone, level: row.level,
     companies,
     company: companies[0] ?? row.company,

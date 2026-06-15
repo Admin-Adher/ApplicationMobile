@@ -364,6 +364,7 @@ export interface ReservePhoto {
 
 export interface Reserve {
   id: string;
+  version?: number;
   title: string;
   description: string;
   building: string;

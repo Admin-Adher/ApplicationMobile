@@ -16,6 +16,48 @@ import { isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
 import { triggerReserveCreatedPush } from '@/lib/push/client';
 import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
 import i18n from '@/lib/i18n';
+import {
+  appendReserveStatusEventOperation,
+  applyReservePatchOperation,
+  firstReserveMutationResult,
+  isReserveMutationRpcUnavailable,
+  newOperationId,
+  type ReserveStatusEventPayload,
+} from '@/lib/reserveOutbox';
+
+const RESERVE_PATCH_DEDICATED_FIELDS = [
+  'status',
+  'closed_at',
+  'closed_by',
+  'comments',
+  'photos',
+  'photo_uri',
+  'photo_annotations',
+  'company_signatures',
+] as const;
+
+function reservePatchForVersionedRpc(payload: Record<string, any>): Record<string, any> {
+  const patch = { ...payload };
+  for (const key of RESERVE_PATCH_DEDICATED_FIELDS) {
+    delete patch[key];
+  }
+  return patch;
+}
+
+function hasPatchFields(payload: Record<string, any>): boolean {
+  return Object.keys(payload).length > 0;
+}
+
+function photoPatchFromPayload(payload: Record<string, any>): Record<string, any> | null {
+  const patch: Record<string, any> = {};
+  if (Object.prototype.hasOwnProperty.call(payload, 'photo_uri')) {
+    patch.photo_uri = payload.photo_uri ?? null;
+  }
+  if (Object.prototype.hasOwnProperty.call(payload, 'photos')) {
+    patch.photos = payload.photos ?? null;
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+}
 
 function pendingReserveDeletionPayloads(queue: any[] | undefined | null): Map<string, any> {
   const payloads = new Map<string, any>();
@@ -577,8 +619,35 @@ export function useReserves() {
       archived_at: reserve.archivedAt ?? null, archived_by: reserve.archivedBy ?? null,
       deleted_at: reserve.deletedAt ?? null, deleted_by: reserve.deletedBy ?? null,
     };
+    const queuePatch = (patch: Record<string, any>) => {
+      const versioned = typeof reserve.version === 'number';
+      const scalarPatch = versioned ? reservePatchForVersionedRpc(patch) : patch;
+      if (hasPatchFields(scalarPatch)) {
+        enqueueOperation({
+          table: 'reserves',
+          op: 'update',
+          filter: { column: 'id', value: reserve.id },
+          data: scalarPatch,
+          baseVersion: reserve.version ?? null,
+        });
+      }
+      const photoPatch = versioned ? photoPatchFromPayload(patch) : null;
+      if (photoPatch) {
+        enqueueOperation({
+          table: 'reserves',
+          op: 'update',
+          filter: { column: 'id', value: reserve.id },
+          data: photoPatch,
+          photoPatch: {
+            action: 'upsert',
+            photos: Array.isArray(photoPatch.photos) ? photoPatch.photos : undefined,
+            photoUri: typeof photoPatch.photo_uri === 'string' ? photoPatch.photo_uri : null,
+          },
+        });
+      }
+    };
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: reserve.id }, data: payload });
+      queuePatch(payload);
       return;
     }
     if (isSupabaseConfigured) {
@@ -586,17 +655,55 @@ export function useReserves() {
       const prep = await uploadLocalPhotosInPayload('reserves', payload);
       if (!prep.allOk) {
         console.warn('[sync] updateReserve: photo upload failed, queuing for later sync');
-        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: reserve.id }, data: payload });
+        queuePatch(payload);
         return;
       }
       if (prep.hadLocal && prep.data) applyUploadedPhotoPayload(reserve.id, prep.data);
+      if (typeof reserve.version === 'number') {
+        const scalarPatch = reservePatchForVersionedRpc(prep.data!);
+        const photoPatch = photoPatchFromPayload(prep.data!);
+        const rpcResult = await applyReservePatchOperation({
+          operationId: newOperationId(),
+          reserveId: reserve.id,
+          baseVersion: reserve.version,
+          patch: scalarPatch,
+        });
+        const outcome = firstReserveMutationResult(rpcResult.data);
+        if (!rpcResult.error && (!outcome || outcome.status === 'ok')) {
+          if (typeof outcome?.version === 'number') {
+            queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+              (old ?? []).map(x => x.id === reserve.id ? { ...x, version: outcome.version } : x)
+            );
+            persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+          }
+          if (photoPatch) {
+            enqueueOperation({
+              table: 'reserves',
+              op: 'update',
+              filter: { column: 'id', value: reserve.id },
+              data: photoPatch,
+              photoPatch: {
+                action: 'upsert',
+                photos: Array.isArray(photoPatch.photos) ? photoPatch.photos : undefined,
+                photoUri: typeof photoPatch.photo_uri === 'string' ? photoPatch.photo_uri : null,
+              },
+            });
+          }
+          return;
+        }
+        if (!rpcResult.error || !isReserveMutationRpcUnavailable(rpcResult.error)) {
+          console.warn('[sync] updateReserve RPC result, queuing for attention:', outcome?.status ?? rpcResult.error?.message);
+          queuePatch(prep.data!);
+          return;
+        }
+      }
       // Await the result so we can detect failures and queue a retry.
       // prep.data! already has remote photo URLs (file:// paths were uploaded
       // above), so the sync engine's upload step will be a no-op for those.
       const { error } = await (supabase as any).from('reserves').update(prep.data!).eq('id', reserve.id);
       if (error) {
         console.warn('[sync] updateReserve error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: reserve.id }, data: prep.data! });
+        queuePatch(prep.data!);
       }
     }
   }, [queryClient, isOnlineRef, enqueueOperation, persist, applyUploadedPhotoPayload]);
@@ -641,11 +748,46 @@ export function useReserves() {
       : prev.filter(r => r.id !== id);
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), next);
     persist(next);
+    const queueDelete = () => enqueueOperation({
+      table: 'reserves',
+      op: 'update',
+      filter: { column: 'id', value: id },
+      data: deletePayload,
+      baseVersion: previous?.version ?? null,
+    });
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: id }, data: deletePayload });
+      queueDelete();
       return;
     }
     if (isSupabaseConfigured) {
+      if (typeof previous?.version === 'number') {
+        const rpcResult = await applyReservePatchOperation({
+          operationId: newOperationId(),
+          reserveId: id,
+          baseVersion: previous.version,
+          patch: deletePayload,
+        });
+        const outcome = firstReserveMutationResult(rpcResult.data);
+        if (!rpcResult.error && (!outcome || outcome.status === 'ok' || outcome.status === 'not_found')) {
+          return;
+        }
+        if (!rpcResult.error || !isReserveMutationRpcUnavailable(rpcResult.error)) {
+          if (outcome?.status === 'forbidden' && previous) {
+            queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
+              const cur = old ?? [];
+              if (cur.some(r => r.id === previous.id)) {
+                return cur.map(r => r.id === previous.id ? previous : r);
+              }
+              return [previous, ...cur];
+            });
+            persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+            Alert.alert(i18n.t('syncAlerts.deleteDeniedTitle'), i18n.t('syncAlerts.deleteReserveDenied'));
+            return;
+          }
+          queueDelete();
+          return;
+        }
+      }
       const { data: deleted, error } = await (supabase as any)
         .from('reserves')
         .update(deletePayload)
@@ -674,7 +816,7 @@ export function useReserves() {
           // Network / session error: local deletion is already applied and persisted.
           // Queue the delete so the sync engine retries it when connectivity is restored.
           console.warn('[sync] deleteReserve: erreur réseau/session, opération enqueued pour retry');
-          enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: id }, data: deletePayload });
+          queueDelete();
         }
       } else if (!deleted?.length) {
         // If the row doesn't exist server-side (ex: never synced), keep local deletion.
@@ -712,11 +854,40 @@ export function useReserves() {
     const next = prev.map(r => r.id === id ? restored : r);
     queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), next);
     persist(next);
+    const queueRestore = () => enqueueOperation({
+      table: 'reserves',
+      op: 'update',
+      filter: { column: 'id', value: id },
+      data: payload,
+      baseVersion: previous.version ?? null,
+    });
     if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: id }, data: payload });
+      queueRestore();
       return;
     }
     if (isSupabaseConfigured) {
+      if (typeof previous.version === 'number') {
+        const rpcResult = await applyReservePatchOperation({
+          operationId: newOperationId(),
+          reserveId: id,
+          baseVersion: previous.version,
+          patch: payload,
+        });
+        const outcome = firstReserveMutationResult(rpcResult.data);
+        if (!rpcResult.error && (!outcome || outcome.status === 'ok')) {
+          return;
+        }
+        if (!rpcResult.error || !isReserveMutationRpcUnavailable(rpcResult.error)) {
+          if (outcome?.status === 'forbidden') {
+            queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), prev);
+            persist(prev);
+            Alert.alert(i18n.t('syncAlerts.permissionDeniedTitle'), i18n.t('syncAlerts.deleteReserveDenied'));
+            return;
+          }
+          queueRestore();
+          return;
+        }
+      }
       const { error } = await (supabase as any).from('reserves').update(payload).eq('id', id);
       if (error) {
         console.warn('[sync] restoreReserve error:', error.code, error.message);
@@ -728,11 +899,49 @@ export function useReserves() {
           persist(prev);
           Alert.alert(i18n.t('syncAlerts.permissionDeniedTitle'), i18n.t('syncAlerts.deleteReserveDenied'));
         } else {
-          enqueueOperation({ table: 'reserves', op: 'update', filter: { column: 'id', value: id }, data: payload });
+          queueRestore();
         }
       }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+
+  const permanentlyDeleteReserve = useCallback(async (id: string) => {
+    const prev = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
+    const previous = prev.find(r => r.id === id);
+    if (!previous) return;
+
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      Alert.alert(
+        i18n.t('syncAlerts.permissionDeniedTitle'),
+        'La suppression definitive necessite une connexion serveur active.',
+      );
+      return;
+    }
+
+    const next = prev.filter(r => r.id !== id);
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), next);
+    persist(next);
+
+    if (isSupabaseConfigured) {
+      const { data: deleted, error } = await (supabase as any)
+        .from('reserves')
+        .delete()
+        .eq('id', id)
+        .select('id');
+
+      if (error) {
+        console.warn('[sync] permanentlyDeleteReserve error:', error.code, error.message);
+        queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), prev);
+        persist(prev);
+        Alert.alert(
+          i18n.t('syncAlerts.permissionDeniedTitle'),
+          error.message ?? 'Suppression definitive refusee par le serveur.',
+        );
+      } else if (!deleted?.length) {
+        console.warn('[sync] permanentlyDeleteReserve: aucune ligne supprimee (probablement deja absente cote serveur)');
+      }
+    }
+  }, [queryClient, isOnlineRef, persist]);
 
   // Fix 11: use query.data instead of queryClient.getQueryData for fresher reactive data
   const updateReserveStatus = useCallback(async (id: string, status: ReserveStatus, author?: string) => {
@@ -760,8 +969,65 @@ export function useReserves() {
       closedAt: isClosing ? now : isReopening ? undefined : reserve.closedAt,
       closedBy: isClosing ? actualAuthor : isReopening ? undefined : reserve.closedBy,
     };
-    return updateReserve(updated);
-  }, [query.data, user, updateReserve]);
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+      (old ?? []).map(x => x.id === id ? updated : x)
+    );
+    persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+
+    const event: ReserveStatusEventPayload = {
+      id: newOperationId(),
+      reserve_id: id,
+      from_status: reserve.status,
+      to_status: status,
+      actor_id: user?.id ?? null,
+      actor_name: actualAuthor,
+      occurred_at: new Date().toISOString(),
+      reason: historyEntry.action,
+      history_entry: historyEntry,
+      closed_at: updated.closedAt ?? null,
+      closed_by: updated.closedBy ?? null,
+    };
+    const fallbackPayload = {
+      status,
+      history: updated.history,
+      closed_at: updated.closedAt ?? null,
+      closed_by: updated.closedBy ?? null,
+    };
+    const queueStatusEvent = () => enqueueOperation({
+      table: 'reserves',
+      op: 'rpc',
+      filter: { column: 'id', value: id },
+      rpc: { fn: 'append_reserve_status_event', args: { p_event: event } },
+      data: fallbackPayload,
+      baseVersion: reserve.version ?? null,
+    });
+
+    if (!isSupabaseConfigured) return;
+    if (!isOnlineRef.current) {
+      queueStatusEvent();
+      return;
+    }
+
+    const rpcResult = await appendReserveStatusEventOperation({
+      operationId: newOperationId(),
+      event,
+    });
+    const outcome = firstReserveMutationResult(rpcResult.data);
+    if (!rpcResult.error && (!outcome || outcome.status === 'ok')) {
+      if (typeof outcome?.version === 'number') {
+        queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old =>
+          (old ?? []).map(x => x.id === id ? { ...x, version: outcome.version } : x)
+        );
+        persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
+      }
+      return;
+    }
+    if (rpcResult.error && isReserveMutationRpcUnavailable(rpcResult.error)) {
+      return updateReserve(updated);
+    }
+    console.warn('[sync] updateReserveStatus RPC result, queuing:', outcome?.status ?? rpcResult.error?.message);
+    queueStatusEvent();
+  }, [query.data, user, queryClient, persist, enqueueOperation, updateReserve]);
 
   // Archive / désarchive : action distincte du changement de statut.
   // Une réserve archivée garde son statut métier (ouverte, en cours, clôturée…)
@@ -832,21 +1098,7 @@ export function useReserves() {
       commentPatch: { action: 'add', comment },
     });
     if (isSupabaseConfigured) {
-      if (!isOnlineRef.current) {
-        queueComment();
-        return;
-      }
-      (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
-        .then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] addComment error:', error.message);
-            queueComment();
-          }
-        })
-        .catch((error: any) => {
-          console.warn('[sync] addComment error:', error?.message ?? error);
-          queueComment();
-        });
+      queueComment();
     }
   }, [queryClient, user, persist, enqueueOperation]);
 
@@ -875,21 +1127,7 @@ export function useReserves() {
       commentPatch: { action: 'edit', commentId, newContent, editedAt },
     });
     if (isSupabaseConfigured) {
-      if (!isOnlineRef.current) {
-        queueComment();
-        return;
-      }
-      (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
-        .then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] updateComment error:', error.message);
-            queueComment();
-          }
-        })
-        .catch((error: any) => {
-          console.warn('[sync] updateComment error:', error?.message ?? error);
-          queueComment();
-        });
+      queueComment();
     }
   }, [queryClient, user, persist, enqueueOperation]);
 
@@ -915,21 +1153,7 @@ export function useReserves() {
       commentPatch: { action: 'delete', commentId },
     });
     if (isSupabaseConfigured) {
-      if (!isOnlineRef.current) {
-        queueComment();
-        return;
-      }
-      (supabase as any).from('reserves').update({ comments: updatedComments }).eq('id', reserveId)
-        .then(({ error }: { error: any }) => {
-          if (error) {
-            console.warn('[sync] deleteComment error:', error.message);
-            queueComment();
-          }
-        })
-        .catch((error: any) => {
-          console.warn('[sync] deleteComment error:', error?.message ?? error);
-          queueComment();
-        });
+      queueComment();
     }
   }, [queryClient, user, persist, enqueueOperation]);
 
@@ -983,33 +1207,75 @@ export function useReserves() {
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     if (isSupabaseConfigured) {
       const payloadFor = (r: Reserve) => ({
-        status: r.status,
         company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? '',
         companies: r.companies ?? (r.company ? [r.company] : []),
         deadline: (!r.deadline || r.deadline === '\u2014') ? null : toIsoDeadline(r.deadline),
         priority: r.priority,
         history: r.history,
-        closed_at: r.closedAt ?? null,
-        closed_by: r.closedBy ?? null,
       });
-      const queueReserve = (r: Reserve) => enqueueOperation({
-        table: 'reserves',
-        op: 'update',
-        filter: { column: 'id', value: r.id },
-        data: payloadFor(r),
-      });
+      const previousFor = (r: Reserve) => reserves.find(source => source.id === r.id);
+      const queueReserve = (r: Reserve) => {
+        const previous = previousFor(r);
+        const payload = payloadFor(r);
+        enqueueOperation({
+          table: 'reserves',
+          op: 'update',
+          filter: { column: 'id', value: r.id },
+          data: typeof previous?.version === 'number' ? reservePatchForVersionedRpc(payload) : payload,
+          baseVersion: previous?.version ?? null,
+        });
+      };
+      const queueStatusEvent = (r: Reserve) => {
+        const previous = previousFor(r);
+        if (!previous || !updates.status || previous.status === r.status) return;
+        const historyEntry = r.history
+          .slice()
+          .reverse()
+          .find(entry => entry.action === 'Statut modifié (lot)' && entry.newValue === statusLabels[r.status]);
+        const event: ReserveStatusEventPayload = {
+          id: newOperationId(),
+          reserve_id: r.id,
+          from_status: previous.status,
+          to_status: r.status,
+          actor_id: user?.id ?? null,
+          actor_name: actualAuthor,
+          occurred_at: new Date().toISOString(),
+          reason: historyEntry?.action ?? 'Statut modifié (lot)',
+          history_entry: historyEntry,
+          closed_at: r.closedAt ?? null,
+          closed_by: r.closedBy ?? null,
+        };
+        enqueueOperation({
+          table: 'reserves',
+          op: 'rpc',
+          filter: { column: 'id', value: r.id },
+          rpc: { fn: 'append_reserve_status_event', args: { p_event: event } },
+          data: {
+            status: r.status,
+            history: r.history,
+            closed_at: r.closedAt ?? null,
+            closed_by: r.closedBy ?? null,
+          },
+          baseVersion: previous.version ?? null,
+        });
+      };
       if (!isOnlineRef.current) {
         updated.forEach(queueReserve);
+        updated.forEach(queueStatusEvent);
         return;
       }
+      if (updated.some(r => typeof previousFor(r)?.version === 'number')) {
+        updated.forEach(queueReserve);
+        updated.forEach(queueStatusEvent);
+        return;
+      }
+      updated.forEach(queueStatusEvent);
       Promise.all(updated.map(r =>
         (supabase as any).from('reserves').update({
-          status: r.status,
           company: (r.companies ?? (r.company ? [r.company] : []))[0] ?? '',
           companies: r.companies ?? (r.company ? [r.company] : []),
           deadline: (!r.deadline || r.deadline === '—') ? null : toIsoDeadline(r.deadline),
           priority: r.priority, history: r.history,
-          closed_at: r.closedAt ?? null, closed_by: r.closedBy ?? null,
         }).eq('id', r.id)
       )).then(results => {
         const failed = results
@@ -1034,6 +1300,7 @@ export function useReserves() {
     updateReserveFields,
     deleteReserve,
     restoreReserve,
+    permanentlyDeleteReserve,
     updateReserveStatus,
     archiveReserve,
     unarchiveReserve,

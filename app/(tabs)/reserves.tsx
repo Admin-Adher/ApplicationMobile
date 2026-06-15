@@ -258,12 +258,13 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
-  const { reserves, deletedReserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, restoreReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
+  const { reserves, deletedReserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, restoreReserve, permanentlyDeleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
   const { permissions, user } = useAuth();
 
   const isSousTraitant = user?.role === 'sous_traitant';
   const canUseReserveAssistant = user?.role === 'admin' || user?.role === 'super_admin';
   const canTrackEnterpriseWorkflow = permissions.canEdit && !isSousTraitant;
+  const canPermanentlyDeleteFromTrash = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'conducteur';
   const sousTraitantCompanyName = isSousTraitant && user?.companyId
     ? companies.find(c => c.id === user.companyId)?.name ?? null
     : null;
@@ -1308,6 +1309,29 @@ export default function ReservesScreen() {
     );
   }
 
+  function handlePermanentDeleteReserve(reserve: Reserve) {
+    if (!canPermanentlyDeleteFromTrash) {
+      Alert.alert('Action non autorisée', 'Seuls les super administrateurs, administrateurs et conducteurs peuvent supprimer définitivement une réserve.');
+      return;
+    }
+    Alert.alert(
+      'Suppression définitive',
+      `Supprimer définitivement "${reserve.title}" (${reserve.id}) ?\n\nCette action est irréversible. La réserve disparaîtra de la corbeille et ne pourra plus être restaurée.`,
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: 'Supprimer définitivement',
+          style: 'destructive',
+          onPress: () => {
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+            void permanentlyDeleteReserve(reserve.id);
+            setSelectedReserveId(null);
+          },
+        },
+      ],
+    );
+  }
+
   async function handleTabletComment(reserve: Reserve) {
     if (!tabletComment.trim()) return;
     setTabletCommentSending(true);
@@ -1365,16 +1389,31 @@ export default function ReservesScreen() {
             hasPlansAvailable={hasPlansAvailable}
             showEnterpriseTracking={canTrackEnterpriseWorkflow}
           />
-          {showTrash && permissions.canEdit && (
-            <TouchableOpacity
-              style={styles.restoreInlineBtn}
-              onPress={() => handleRestoreReserve(item)}
-              accessibilityRole="button"
-              accessibilityLabel={`Restaurer la réserve ${item.id}`}
-            >
-              <Ionicons name="refresh-outline" size={14} color="#fff" />
-              <Text style={styles.restoreInlineBtnText}>Restaurer</Text>
-            </TouchableOpacity>
+          {showTrash && (permissions.canEdit || canPermanentlyDeleteFromTrash) && (
+            <View style={styles.trashInlineActions}>
+              {permissions.canEdit && (
+                <TouchableOpacity
+                  style={styles.restoreInlineBtn}
+                  onPress={() => handleRestoreReserve(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Restaurer la réserve ${item.id}`}
+                >
+                  <Ionicons name="refresh-outline" size={14} color="#fff" />
+                  <Text style={styles.restoreInlineBtnText}>Restaurer</Text>
+                </TouchableOpacity>
+              )}
+              {canPermanentlyDeleteFromTrash && (
+                <TouchableOpacity
+                  style={styles.deleteForeverInlineBtn}
+                  onPress={() => handlePermanentDeleteReserve(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Supprimer définitivement la réserve ${item.id}`}
+                >
+                  <Ionicons name="trash-outline" size={14} color="#fff" />
+                  <Text style={styles.deleteForeverInlineBtnText}>Supprimer</Text>
+                </TouchableOpacity>
+              )}
+            </View>
           )}
         </View>
       </View>
@@ -1911,21 +1950,36 @@ export default function ReservesScreen() {
                 </View>
 
                 {/* Quick status buttons */}
-                {permissions.canEdit && showTrash && (
+                {showTrash && (permissions.canEdit || canPermanentlyDeleteFromTrash) && (
                   <View style={styles.detailCard}>
                     <Text style={styles.detailLabel}>Corbeille</Text>
                     <Text style={styles.detailText}>
                       Supprimée le {selectedReserve.deletedAt ? formatDate(selectedReserve.deletedAt) : '—'}{selectedReserve.deletedBy ? ` par ${selectedReserve.deletedBy}` : ''}.
                     </Text>
-                    <TouchableOpacity
-                      style={styles.restoreDetailBtn}
-                      onPress={() => handleRestoreReserve(selectedReserve)}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Restaurer la réserve ${selectedReserve.id}`}
-                    >
-                      <Ionicons name="refresh-outline" size={15} color="#fff" />
-                      <Text style={styles.restoreDetailBtnText}>Restaurer</Text>
-                    </TouchableOpacity>
+                    <View style={styles.trashDetailActions}>
+                      {permissions.canEdit && (
+                        <TouchableOpacity
+                          style={styles.restoreDetailBtn}
+                          onPress={() => handleRestoreReserve(selectedReserve)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Restaurer la réserve ${selectedReserve.id}`}
+                        >
+                          <Ionicons name="refresh-outline" size={15} color="#fff" />
+                          <Text style={styles.restoreDetailBtnText}>Restaurer</Text>
+                        </TouchableOpacity>
+                      )}
+                      {canPermanentlyDeleteFromTrash && (
+                        <TouchableOpacity
+                          style={styles.deleteForeverDetailBtn}
+                          onPress={() => handlePermanentDeleteReserve(selectedReserve)}
+                          accessibilityRole="button"
+                          accessibilityLabel={`Supprimer définitivement la réserve ${selectedReserve.id}`}
+                        >
+                          <Ionicons name="trash-outline" size={15} color="#fff" />
+                          <Text style={styles.deleteForeverDetailBtnText}>Supprimer définitivement</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   </View>
                 )}
 
@@ -3508,12 +3562,19 @@ const styles = StyleSheet.create({
   chantierChipTextActive: { color: '#fff' },
   chantierDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: C.closed },
   selectableRow: { flexDirection: 'row', alignItems: 'center', paddingLeft: 12 },
+  trashInlineActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: -2, marginBottom: 10 },
   restoreInlineBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
     backgroundColor: '#B45309', borderRadius: 10, paddingVertical: 10,
-    marginTop: -2, marginBottom: 10, borderWidth: 1, borderColor: '#92400E',
+    borderWidth: 1, borderColor: '#92400E',
   },
   restoreInlineBtnText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
+  deleteForeverInlineBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#DC2626', borderRadius: 10, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#B91C1C',
+  },
+  deleteForeverInlineBtnText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
   checkbox: {
     width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: C.border,
     backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', marginRight: 8,
@@ -3900,11 +3961,18 @@ const styles = StyleSheet.create({
   },
   detailOpenText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary },
   restoreDetailBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     backgroundColor: '#B45309', borderRadius: 10, paddingVertical: 12,
-    borderWidth: 1, borderColor: '#92400E', marginTop: 4,
+    borderWidth: 1, borderColor: '#92400E',
   },
   restoreDetailBtnText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff' },
+  trashDetailActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 },
+  deleteForeverDetailBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#DC2626', borderRadius: 10, paddingVertical: 12,
+    borderWidth: 1, borderColor: '#B91C1C',
+  },
+  deleteForeverDetailBtnText: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#fff', textAlign: 'center' },
   detailEmpty: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 32 },
   detailEmptyText: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   detailEmptyHint: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', lineHeight: 19 },
