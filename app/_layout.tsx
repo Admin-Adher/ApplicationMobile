@@ -250,7 +250,6 @@ export default function RootLayout() {
   const fontsReady = fontsLoaded || !!fontError || timedOut;
 
   useEffect(() => {
-    SplashScreen.hideAsync().catch(() => {});
     if (Platform.OS !== 'web') {
       const timer = setTimeout(() => {
         setTimedOut(true);

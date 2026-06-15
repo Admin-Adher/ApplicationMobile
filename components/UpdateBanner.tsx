@@ -239,7 +239,7 @@ export default function UpdateBanner() {
         <Ionicons name="rocket" size={20} color="#FFFFFF" />
       </View>
       <View style={styles.textWrap}>
-        <Text style={styles.title} numberOfLines={1}>
+        <Text style={styles.title} numberOfLines={2}>
           {t('updateBanner.newVersion', { label: latestLabel ? ` · ${latestLabel}` : '' })}
         </Text>
         <Text style={styles.subtitle} numberOfLines={1}>
@@ -310,6 +310,7 @@ const styles = StyleSheet.create({
   title: {
     color: '#FFFFFF',
     fontSize: 14,
+    lineHeight: 18,
     fontFamily: 'Inter_600SemiBold',
   },
   subtitle: {

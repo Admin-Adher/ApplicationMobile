@@ -1,5 +1,5 @@
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Platform, Alert, ScrollView, Keyboard, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
-import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Platform, ScrollView, Keyboard, KeyboardAvoidingView, ActivityIndicator } from 'react-native';
+import { useState, useEffect, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -20,11 +20,13 @@ export default function LoginScreen() {
   const router = useRouter();
   const { login, user } = useAuth();
   const { setCurrentUser } = useApp();
+  const passwordRef = useRef<TextInput>(null);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
 
   const [showForgot, setShowForgot] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
@@ -37,16 +39,17 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     if (!email.trim() || !password.trim()) {
-      Alert.alert(t('auth.requiredTitle'), t('auth.requiredMessage'));
+      setLoginError(t('auth.requiredMessage'));
       return;
     }
     Keyboard.dismiss();
+    setLoginError('');
     setLoading(true);
     const trimmedEmail = email.trim();
     const result = await login(trimmedEmail, password);
     setLoading(false);
     if (!result.success) {
-      Alert.alert(t('auth.loginErrorTitle'), result.error ?? t('auth.genericError'));
+      setLoginError(result.error ?? t('auth.genericError'));
     }
   }
 
@@ -91,7 +94,7 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={{ flexGrow: 1 }}
@@ -120,6 +123,13 @@ export default function LoginScreen() {
             <View style={styles.card}>
               <Text style={styles.cardTitle}>{t('auth.loginTitle')}</Text>
 
+              {loginError ? (
+                <View style={styles.errorBanner}>
+                  <Ionicons name="alert-circle-outline" size={18} color={C.open} />
+                  <Text style={styles.errorBannerText}>{loginError}</Text>
+                </View>
+              ) : null}
+
               <View style={styles.field}>
                 <Text style={styles.label}>{t('auth.email')}</Text>
                 <View style={styles.inputWrap}>
@@ -129,10 +139,13 @@ export default function LoginScreen() {
                     placeholder="votre@email.fr"
                     placeholderTextColor={C.textMuted}
                     value={email}
-                    onChangeText={setEmail}
+                    onChangeText={v => { setEmail(v); setLoginError(''); }}
                     keyboardType="email-address"
                     autoCapitalize="none"
                     autoCorrect={false}
+                    returnKeyType="next"
+                    blurOnSubmit={false}
+                    onSubmitEditing={() => passwordRef.current?.focus()}
                   />
                 </View>
               </View>
@@ -142,12 +155,15 @@ export default function LoginScreen() {
                 <View style={styles.inputWrap}>
                   <Ionicons name="lock-closed-outline" size={18} color={C.textMuted} />
                   <TextInput
+                    ref={passwordRef}
                     style={styles.input}
                     placeholder="••••••••"
                     placeholderTextColor={C.textMuted}
                     value={password}
-                    onChangeText={setPassword}
+                    onChangeText={v => { setPassword(v); setLoginError(''); }}
                     secureTextEntry={!showPass}
+                    returnKeyType="done"
+                    onSubmitEditing={handleLogin}
                   />
                   <TouchableOpacity onPress={() => setShowPass(!showPass)} hitSlop={8}>
                     <Ionicons name={showPass ? 'eye-off-outline' : 'eye-outline'} size={18} color={C.textMuted} />
@@ -300,6 +316,14 @@ const styles = StyleSheet.create({
     }),
   },
   cardTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 20 },
+  errorBanner: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: 'rgba(255, 167, 38, 0.12)',
+    borderWidth: 1, borderColor: 'rgba(255, 167, 38, 0.35)',
+    borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10,
+    marginBottom: 16,
+  },
+  errorBannerText: { flex: 1, fontSize: 13, fontFamily: 'Inter_500Medium', color: C.text, lineHeight: 18 },
   field: { marginBottom: 16 },
   label: {
     fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub,

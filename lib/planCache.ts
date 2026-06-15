@@ -4,6 +4,7 @@ import * as FileSystem from 'expo-file-system';
 const CACHE_DIR = `${FileSystem.documentDirectory ?? ''}plans_cache/`;
 const MANIFEST_PATH = `${CACHE_DIR}.manifest.json`;
 const MAX_CACHE_SIZE = 500 * 1024 * 1024;
+const PLAN_DOWNLOAD_TIMEOUT_MS = 20_000;
 const inFlightDownloads = new Map<string, Promise<{ localUri: string; fromCache: boolean }>>();
 
 type ManifestEntry = {
@@ -34,6 +35,25 @@ function extOf(url: string): string {
     if (m) return m[1].toLowerCase();
   } catch {}
   return 'bin';
+}
+
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} timeout after ${PLAN_DOWNLOAD_TIMEOUT_MS}ms`)),
+      PLAN_DOWNLOAD_TIMEOUT_MS,
+    );
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function ensureCacheDir(): Promise<void> {
@@ -147,7 +167,7 @@ export async function ensurePlanCached(
     const filename = `${key}.${ext}`;
     const dest = `${CACHE_DIR}${filename}`;
 
-    const dl = await FileSystem.downloadAsync(remoteUrl, dest);
+    const dl = await withTimeout(FileSystem.downloadAsync(remoteUrl, dest), 'plan download');
     if (dl.status && dl.status >= 400) {
       try { await FileSystem.deleteAsync(dest, { idempotent: true }); } catch {}
       throw new Error(`HTTP ${dl.status}`);

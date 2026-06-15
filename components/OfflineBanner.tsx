@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Animated, View, Text, StyleSheet, Platform } from 'react-native';
+import { usePathname } from 'expo-router';
+import { Animated, View, Text, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -11,7 +12,9 @@ export default function OfflineBanner() {
   const { t } = useTranslation();
   const { isOnline, queueCount } = useNetwork();
   const insets = useSafeAreaInsets();
-  const translateY = useRef(new Animated.Value(-60)).current;
+  const pathname = usePathname();
+  const { width } = useWindowDimensions();
+  const translateY = useRef(new Animated.Value(60)).current;
   const wasOffline = useRef(false);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const queueFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -31,7 +34,7 @@ export default function OfflineBanner() {
 
   const slideOut = (onDone?: () => void) => {
     Animated.timing(translateY, {
-      toValue: -60,
+      toValue: 60,
       duration: 300,
       useNativeDriver: true,
     }).start(() => onDone?.());
@@ -99,7 +102,14 @@ export default function OfflineBanner() {
     };
   }, [queueCount]);
 
-  const bottomPad = Platform.OS === 'web' ? 16 : insets.bottom + 8;
+  const isTablet = width >= 768;
+  const isTabsRoute =
+    pathname === '/' ||
+    pathname === '/index' ||
+    pathname.startsWith('/(tabs)') ||
+    ['/plans', '/reserves', '/messages', '/more', '/incidents', '/equipes', '/admin'].some(route => pathname === route || pathname.startsWith(`${route}/`));
+  const tabBarOffset = !isTablet && isTabsRoute ? (Platform.OS === 'web' ? 90 : 84) : 0;
+  const bottomPad = (Platform.OS === 'web' ? 16 : insets.bottom + 8) + tabBarOffset;
 
   const bannerColor = showReconnect
     ? '#10B981'
