@@ -61,6 +61,13 @@ export default function SubscriptionScreen() {
   const { user } = useAuth();
   const { organization, subscription, isLoading, activeOrgUsers, freeOrgUsers, orgUsers, orgSummaries, createOrganization } = useSubscription();
   const isSuperAdmin = user?.role === 'super_admin';
+  const displayPlanName = (name: string) => {
+    const normalized = name.trim().toLowerCase();
+    if (normalized === 'entreprise' || normalized === 'enterprise' || normalized === 'empresa') {
+      return t('adminScreen.licenseDetails.enterprisePlan');
+    }
+    return name;
+  };
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
@@ -237,7 +244,7 @@ export default function SubscriptionScreen() {
                         </Text>
                       </View>
                       <View style={[styles.filialPlanBadge, { backgroundColor: C.primary + '14' }]}>
-                        <Text style={[styles.filialPlanTxt, { color: C.primary }]}>{s.planName}</Text>
+                        <Text style={[styles.filialPlanTxt, { color: C.primary }]}>{displayPlanName(s.planName)}</Text>
                       </View>
                     </View>
                   </View>

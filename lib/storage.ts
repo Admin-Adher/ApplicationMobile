@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
+import i18n from '@/lib/i18n';
 
 // ── File reading ──────────────────────────────────────────────────────────────
 // On native, we use fetch(uri) to obtain a proper Blob that the Supabase
@@ -555,10 +556,10 @@ export async function uploadDocumentDetailed(
           detail = parsed?.message ?? parsed?.error ?? result.body ?? '';
         } catch {}
         const statusLabel =
-          result.status === 401 ? 'JWT invalide ou expiré (401)' :
-          result.status === 403 ? 'Permission refusée — RLS Storage (403)' :
-          result.status === 413 ? 'Fichier trop volumineux (413)' :
-          result.status === 0   ? 'Aucune réponse réseau (status 0)' :
+          result.status === 401 ? i18n.t('storageErrors.jwtInvalid') :
+          result.status === 403 ? i18n.t('storageErrors.permissionDenied') :
+          result.status === 413 ? i18n.t('storageErrors.fileTooLarge') :
+          result.status === 0   ? i18n.t('storageErrors.noNetworkResponse') :
           `HTTP ${result.status}`;
         const msg = `${statusLabel}: ${detail}`.trim();
         console.error(`${tag} ECHEC upload — ${msg}`);

@@ -13,12 +13,12 @@ export async function POST(request: Request) {
     const { email } = await request.json();
 
     if (!email || !email.includes('@')) {
-      return Response.json({ error: 'Email invalide' }, { status: 400 });
+      return Response.json({ error: 'Invalid email' }, { status: 400 });
     }
 
     if (!SERVICE_ROLE_KEY) {
       return Response.json(
-        { error: 'SUPABASE_SERVICE_ROLE_KEY non configurée sur le serveur' },
+        { error: 'SUPABASE_SERVICE_ROLE_KEY is not configured on the server' },
         { status: 500 }
       );
     }
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
     if (linkError || !linkData?.properties?.action_link) {
       console.error('[request-password-reset] generateLink error:', linkError?.message);
       return Response.json(
-        { error: linkError?.message ?? 'Impossible de générer le lien de réinitialisation' },
+        { error: linkError?.message ?? 'Unable to generate the reset link' },
         { status: 500 }
       );
     }
@@ -60,12 +60,12 @@ export async function POST(request: Request) {
     });
 
     if (!result.success) {
-      return Response.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500 });
+      return Response.json({ error: result.error ?? 'Email send failed' }, { status: 500 });
     }
 
     return Response.json({ success: true });
   } catch (err: any) {
     console.error('[request-password-reset] Exception:', err?.message ?? err);
-    return Response.json({ error: 'Erreur serveur' }, { status: 500 });
+    return Response.json({ error: 'Server error' }, { status: 500 });
   }
 }

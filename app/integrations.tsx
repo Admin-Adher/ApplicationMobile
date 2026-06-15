@@ -12,17 +12,19 @@ import { BTPIntegration } from '@/constants/types';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
 
-const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhookUrl' | 'lastSync'> & { category: string; docsUrl: string; features: string[] })[] = [
+const INTEGRATION_CATEGORIES = ['project', 'bim', 'regulatory', 'geolocation', 'forms', 'dms', 'signature', 'weather', 'hr'] as const;
+type IntegrationCategory = typeof INTEGRATION_CATEGORIES[number];
+
+const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhookUrl' | 'lastSync' | 'description'> & { category: IntegrationCategory; docsUrl: string; featureCount: number })[] = [
   {
     id: 'procore',
     name: 'Procore',
     type: 'procore',
     provider: 'Procore Technologies',
     logoUri: '',
-    category: 'Gestion de projet',
-    description: 'Synchronisation des réserves, tâches, et documents avec Procore',
+    category: 'project',
     docsUrl: 'https://developers.procore.com',
-    features: ['Import/export réserves', 'Sync documents', 'Sync entreprises', 'Webhook temps réel'],
+    featureCount: 4,
   },
   {
     id: 'archicad',
@@ -30,10 +32,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'autodesk',
     provider: 'Graphisoft',
     logoUri: '',
-    category: 'BIM/CAO',
-    description: 'Import de plans BIM depuis ArchiCAD et synchronisation des éléments',
+    category: 'bim',
     docsUrl: 'https://graphisoft.com/solutions/archicad',
-    features: ['Import IFC/BIM', 'Localisation sur plans', 'Sync éléments bâtiment'],
+    featureCount: 3,
   },
   {
     id: 'revit',
@@ -41,10 +42,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'autodesk',
     provider: 'Autodesk',
     logoUri: '',
-    category: 'BIM/CAO',
-    description: 'Connexion au modèle BIM Revit pour localiser les réserves',
+    category: 'bim',
     docsUrl: 'https://www.autodesk.com/products/revit',
-    features: ['Import modèle 3D', 'Localisation BIM', 'Export réserves RVT'],
+    featureCount: 3,
   },
   {
     id: 'e-diffusion',
@@ -52,10 +52,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'generic',
     provider: 'e-Diffusion',
     logoUri: '',
-    category: 'Documents réglementaires',
-    description: 'Accès aux DTU, normes et réglementations BTP en temps réel',
+    category: 'regulatory',
     docsUrl: 'https://www.e-diffusion.fr',
-    features: ['DTU & normes', 'CCTP automatique', 'Mises à jour réglementaires'],
+    featureCount: 3,
   },
   {
     id: 'geosat',
@@ -63,10 +62,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'generic',
     provider: 'Géosat',
     logoUri: '',
-    category: 'Géolocalisation',
-    description: 'Positionnement GPS haute précision sur plan et géolocalisation terrain',
+    category: 'geolocation',
     docsUrl: 'https://www.geosat.fr',
-    features: ['GPS haute précision', 'Positionnement plan', 'Export KML/GPX'],
+    featureCount: 3,
   },
   {
     id: 'kizeo',
@@ -74,10 +72,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'generic',
     provider: 'Kizeo',
     logoUri: '',
-    category: 'Formulaires terrain',
-    description: 'Import de formulaires depuis Kizeo et synchronisation des rapports',
+    category: 'forms',
     docsUrl: 'https://www.kizeoforms.com',
-    features: ['Import formulaires', 'Sync OPR', 'Export rapports PDF'],
+    featureCount: 3,
   },
   {
     id: 'docuware',
@@ -85,10 +82,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'google_drive',
     provider: 'DocuWare',
     logoUri: '',
-    category: 'GED',
-    description: 'Gestion électronique de documents et archivage des pièces chantier',
+    category: 'dms',
     docsUrl: 'https://start.docuware.com',
-    features: ['Archivage documents', 'Signature électronique', 'Workflow validation'],
+    featureCount: 3,
   },
   {
     id: 'signaturit',
@@ -96,10 +92,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'generic',
     provider: 'Signaturit',
     logoUri: '',
-    category: 'Signature électronique',
-    description: 'Signature électronique juridiquement valable pour PV et OPR',
+    category: 'signature',
     docsUrl: 'https://www.signaturit.com',
-    features: ['Signature eIDAS', 'PV OPR', 'CR réunions', 'Audit trail'],
+    featureCount: 4,
   },
   {
     id: 'meteofrance',
@@ -107,10 +102,9 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'generic',
     provider: 'Météo-France',
     logoUri: '',
-    category: 'Météo',
-    description: 'Données météo officielles Météo-France pour les journaux chantier',
+    category: 'weather',
     docsUrl: 'https://portail-api.meteofrance.fr',
-    features: ['Météo horaire', 'Prévisions 7 jours', 'Alertes intempéries', 'Archives journal'],
+    featureCount: 4,
   },
   {
     id: 'urssaf-btp',
@@ -118,35 +112,34 @@ const INTEGRATIONS_CATALOG: (Omit<BTPIntegration, 'enabled' | 'apiKey' | 'webhoo
     type: 'generic',
     provider: 'URSSAF',
     logoUri: '',
-    category: 'RH & Paie',
-    description: 'Vérification des attestations de vigilance URSSAF des sous-traitants',
+    category: 'hr',
     docsUrl: 'https://www.urssaf.fr',
-    features: ['Attestation vigilance', 'Vérification sous-traitants', 'Alertes expiration'],
+    featureCount: 3,
   },
 ];
 
-const CATEGORY_COLORS: Record<string, string> = {
-  'Gestion de projet': C.primary,
-  'BIM/CAO': '#7C3AED',
-  'Documents réglementaires': '#0891B2',
-  'Géolocalisation': '#059669',
-  'Formulaires terrain': C.inProgress,
-  'GED': '#BE185D',
-  'Signature électronique': '#6366F1',
-  'Météo': '#0EA5E9',
-  'RH & Paie': '#F59E0B',
+const CATEGORY_COLORS: Record<IntegrationCategory, string> = {
+  project: C.primary,
+  bim: '#7C3AED',
+  regulatory: '#0891B2',
+  geolocation: '#059669',
+  forms: C.inProgress,
+  dms: '#BE185D',
+  signature: '#6366F1',
+  weather: '#0EA5E9',
+  hr: '#F59E0B',
 };
 
-const CATEGORY_LABEL_KEYS: Record<string, string> = {
-  'Gestion de projet': 'integrationsScreen.categories.project',
-  'BIM/CAO': 'integrationsScreen.categories.bim',
-  'Documents réglementaires': 'integrationsScreen.categories.regulatory',
-  'Géolocalisation': 'integrationsScreen.categories.geolocation',
-  'Formulaires terrain': 'integrationsScreen.categories.forms',
-  GED: 'integrationsScreen.categories.dms',
-  'Signature électronique': 'integrationsScreen.categories.signature',
-  Météo: 'integrationsScreen.categories.weather',
-  'RH & Paie': 'integrationsScreen.categories.hr',
+const CATEGORY_LABEL_KEYS: Record<IntegrationCategory, string> = {
+  project: 'integrationsScreen.categories.project',
+  bim: 'integrationsScreen.categories.bim',
+  regulatory: 'integrationsScreen.categories.regulatory',
+  geolocation: 'integrationsScreen.categories.geolocation',
+  forms: 'integrationsScreen.categories.forms',
+  dms: 'integrationsScreen.categories.dms',
+  signature: 'integrationsScreen.categories.signature',
+  weather: 'integrationsScreen.categories.weather',
+  hr: 'integrationsScreen.categories.hr',
 };
 
 const INTEGRATION_TEXT_KEYS = Object.fromEntries(
@@ -154,7 +147,7 @@ const INTEGRATION_TEXT_KEYS = Object.fromEntries(
     integration.id,
     {
       description: `integrationsScreen.integrations.${integration.id}.description`,
-      features: integration.features.map((_, index) => `integrationsScreen.integrations.${integration.id}.features.${index}`),
+      features: Array.from({ length: integration.featureCount }, (_, index) => `integrationsScreen.integrations.${integration.id}.features.${index}`),
     },
   ]),
 ) as Record<string, { description: string; features: string[] }>;
@@ -169,7 +162,7 @@ export default function IntegrationsScreen() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [webhookInput, setWebhookInput] = useState('');
   const [apiKeysStored, setApiKeysStored] = useState<Record<string, string>>({});
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<IntegrationCategory | null>(null);
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
@@ -258,7 +251,7 @@ export default function IntegrationsScreen() {
               style={[styles.catChip, selectedCategory === cat && { backgroundColor: (CATEGORY_COLORS[cat] ?? C.primary) + '20', borderColor: CATEGORY_COLORS[cat] ?? C.primary }]}
               onPress={() => setSelectedCategory(selectedCategory === cat ? null : cat)}
             >
-              <Text style={[styles.catChipText, selectedCategory === cat && { color: CATEGORY_COLORS[cat] ?? C.primary }]}>{t(CATEGORY_LABEL_KEYS[cat] ?? cat)}</Text>
+              <Text style={[styles.catChipText, selectedCategory === cat && { color: CATEGORY_COLORS[cat] ?? C.primary }]}>{t(CATEGORY_LABEL_KEYS[cat])}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -279,7 +272,7 @@ export default function IntegrationsScreen() {
                   <View style={styles.nameRow}>
                     <Text style={styles.integName}>{integration.name}</Text>
                     <View style={[styles.catBadge, { backgroundColor: catColor + '20' }]}>
-                      <Text style={[styles.catBadgeText, { color: catColor }]}>{t(CATEGORY_LABEL_KEYS[integration.category] ?? integration.category)}</Text>
+                      <Text style={[styles.catBadgeText, { color: catColor }]}>{t(CATEGORY_LABEL_KEYS[integration.category])}</Text>
                     </View>
                   </View>
                   <Text style={styles.integProvider}>{integration.provider}</Text>
@@ -292,18 +285,18 @@ export default function IntegrationsScreen() {
                 />
               </View>
 
-              <Text style={styles.integDesc}>{t(INTEGRATION_TEXT_KEYS[integration.id]?.description ?? integration.description)}</Text>
+              <Text style={styles.integDesc}>{t(INTEGRATION_TEXT_KEYS[integration.id].description)}</Text>
 
               <View style={styles.featuresRow}>
-                {integration.features.slice(0, 3).map((f, fi) => (
+                {Array.from({ length: Math.min(integration.featureCount, 3) }).map((_, fi) => (
                   <View key={fi} style={styles.featureChip}>
                     <Ionicons name="checkmark" size={10} color={catColor} />
-                    <Text style={[styles.featureText, { color: catColor }]}>{t(INTEGRATION_TEXT_KEYS[integration.id]?.features[fi] ?? f)}</Text>
+                    <Text style={[styles.featureText, { color: catColor }]}>{t(INTEGRATION_TEXT_KEYS[integration.id].features[fi])}</Text>
                   </View>
                 ))}
-                {integration.features.length > 3 && (
+                {integration.featureCount > 3 && (
                   <View style={[styles.featureChip, { backgroundColor: C.surface2 }]}>
-                    <Text style={styles.featureText}>+{integration.features.length - 3}</Text>
+                    <Text style={styles.featureText}>+{integration.featureCount - 3}</Text>
                   </View>
                 )}
               </View>

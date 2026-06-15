@@ -913,7 +913,7 @@ export function useReserves() {
     if (!isOnlineRef.current && isSupabaseConfigured) {
       Alert.alert(
         i18n.t('syncAlerts.permissionDeniedTitle'),
-        'La suppression definitive necessite une connexion serveur active.',
+        i18n.t('syncAlerts.permanentDeleteRequiresServer'),
       );
       return;
     }
@@ -935,7 +935,7 @@ export function useReserves() {
         persist(prev);
         Alert.alert(
           i18n.t('syncAlerts.permissionDeniedTitle'),
-          error.message ?? 'Suppression definitive refusee par le serveur.',
+          error.message ?? i18n.t('syncAlerts.permanentDeleteServerDenied'),
         );
       } else if (!deleted?.length) {
         console.warn('[sync] permanentlyDeleteReserve: aucune ligne supprimee (probablement deja absente cote serveur)');

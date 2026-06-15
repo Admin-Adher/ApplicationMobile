@@ -1293,12 +1293,12 @@ export default function ReservesScreen() {
 
   function handleRestoreReserve(reserve: Reserve) {
     Alert.alert(
-      'Restaurer la réserve',
-      `Remettre "${reserve.title}" dans les réserves actives ?`,
+      t('reservesScreen.trash.restoreTitle'),
+      t('reservesScreen.trash.restoreMessage', { title: reserve.title }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Restaurer',
+          text: t('reservesScreen.trash.restoreAction'),
           onPress: () => {
             Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
             restoreReserve(reserve.id, user?.name ?? t('common.system'));
@@ -1311,16 +1311,16 @@ export default function ReservesScreen() {
 
   function handlePermanentDeleteReserve(reserve: Reserve) {
     if (!canPermanentlyDeleteFromTrash) {
-      Alert.alert('Action non autorisée', 'Seuls les super administrateurs, administrateurs et conducteurs peuvent supprimer définitivement une réserve.');
+      Alert.alert(t('reservesScreen.trash.forbiddenTitle'), t('reservesScreen.trash.permanentDeleteForbidden'));
       return;
     }
     Alert.alert(
-      'Suppression définitive',
-      `Supprimer définitivement "${reserve.title}" (${reserve.id}) ?\n\nCette action est irréversible. La réserve disparaîtra de la corbeille et ne pourra plus être restaurée.`,
+      t('reservesScreen.trash.permanentDeleteTitle'),
+      t('reservesScreen.trash.permanentDeleteMessage', { title: reserve.title, id: reserve.id }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
-          text: 'Supprimer définitivement',
+          text: t('reservesScreen.trash.permanentDeleteAction'),
           style: 'destructive',
           onPress: () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
@@ -1396,10 +1396,10 @@ export default function ReservesScreen() {
                   style={styles.restoreInlineBtn}
                   onPress={() => handleRestoreReserve(item)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Restaurer la réserve ${item.id}`}
+                  accessibilityLabel={t('reservesScreen.trash.restoreA11y', { id: item.id })}
                 >
                   <Ionicons name="refresh-outline" size={14} color="#fff" />
-                  <Text style={styles.restoreInlineBtnText}>Restaurer</Text>
+                  <Text style={styles.restoreInlineBtnText}>{t('reservesScreen.trash.restoreAction')}</Text>
                 </TouchableOpacity>
               )}
               {canPermanentlyDeleteFromTrash && (
@@ -1407,10 +1407,10 @@ export default function ReservesScreen() {
                   style={styles.deleteForeverInlineBtn}
                   onPress={() => handlePermanentDeleteReserve(item)}
                   accessibilityRole="button"
-                  accessibilityLabel={`Supprimer définitivement la réserve ${item.id}`}
+                  accessibilityLabel={t('reservesScreen.trash.deleteForeverA11y', { id: item.id })}
                 >
                   <Ionicons name="trash-outline" size={14} color="#fff" />
-                  <Text style={styles.deleteForeverInlineBtnText}>Supprimer</Text>
+                  <Text style={styles.deleteForeverInlineBtnText}>{t('reservesScreen.trash.deleteShort')}</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1430,11 +1430,11 @@ export default function ReservesScreen() {
           : <Ionicons name="funnel-outline" size={40} color={C.primary} />}
       </View>
       <Text style={styles.emptyText}>
-        {showTrash ? 'Corbeille vide' : chantierReserves.length === 0 ? t('reservesScreen.empty.noReserve') : t('reservesScreen.empty.noResult')}
+        {showTrash ? t('reservesScreen.trash.emptyTitle') : chantierReserves.length === 0 ? t('reservesScreen.empty.noReserve') : t('reservesScreen.empty.noResult')}
       </Text>
       <Text style={styles.emptyHint}>
         {showTrash
-          ? 'Les réserves supprimées apparaîtront ici et pourront être restaurées.'
+          ? t('reservesScreen.trash.emptyHint')
           : chantierReserves.length === 0
           ? t('reservesScreen.empty.createReserve')
           : t('reservesScreen.empty.resetFilters')}
@@ -1651,7 +1651,7 @@ export default function ReservesScreen() {
                   >
                     <Ionicons name={activeEnterpriseWorkflowFilter.icon as any} size={11} color={activeEnterpriseWorkflowFilter.color} />
                     <Text style={[styles.workflowSummaryChipText, { color: activeEnterpriseWorkflowFilter.color }]}>
-                      {activeEnterpriseWorkflowFilter.label}
+                      {t(activeEnterpriseWorkflowFilter.labelKey)}
                     </Text>
                   </TouchableOpacity>
                 )}
@@ -1726,20 +1726,21 @@ export default function ReservesScreen() {
             }}
             activeOpacity={0.85}
             accessibilityRole="button"
-            accessibilityLabel={showTrash ? 'Vue corbeille' : `${trashCount} réserves en corbeille`}
+            accessibilityLabel={showTrash ? t('reservesScreen.trash.viewA11y') : t('reservesScreen.trash.countA11y', { count: trashCount })}
           >
             <Ionicons name={showTrash ? 'trash' : 'trash-outline'} size={14} color="#B45309" />
             <Text style={[styles.archiveBannerText, styles.trashBannerText]}>
               {showTrash ? (
                 <>
-                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#B45309' }}>Corbeille</Text>
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: '#B45309' }}>{t('reservesScreen.trash.title')}</Text>
                   {' — '}
-                  {trashCount} réserve{trashCount > 1 ? 's' : ''} récupérable{trashCount > 1 ? 's' : ''}
+                  {t('reservesScreen.trash.recoverable', { count: trashCount })}
                 </>
               ) : (
                 <>
                   <Text style={{ fontFamily: 'Inter_700Bold', color: '#B45309' }}>{trashCount}</Text>
-                  {' réserve'}{trashCount > 1 ? 's' : ''} en corbeille
+                  {' '}
+                  {t('reservesScreen.trash.inTrash', { count: trashCount }).replace(String(trashCount), '').trim()}
                 </>
               )}
             </Text>
@@ -1952,9 +1953,12 @@ export default function ReservesScreen() {
                 {/* Quick status buttons */}
                 {showTrash && (permissions.canEdit || canPermanentlyDeleteFromTrash) && (
                   <View style={styles.detailCard}>
-                    <Text style={styles.detailLabel}>Corbeille</Text>
+                    <Text style={styles.detailLabel}>{t('reservesScreen.trash.title')}</Text>
                     <Text style={styles.detailText}>
-                      Supprimée le {selectedReserve.deletedAt ? formatDate(selectedReserve.deletedAt) : '—'}{selectedReserve.deletedBy ? ` par ${selectedReserve.deletedBy}` : ''}.
+                      {t('reservesScreen.trash.deletedAt', {
+                        date: selectedReserve.deletedAt ? formatDate(selectedReserve.deletedAt) : '—',
+                        by: selectedReserve.deletedBy ? t('reservesScreen.trash.deletedBy', { name: selectedReserve.deletedBy }) : '',
+                      })}
                     </Text>
                     <View style={styles.trashDetailActions}>
                       {permissions.canEdit && (
@@ -1962,10 +1966,10 @@ export default function ReservesScreen() {
                           style={styles.restoreDetailBtn}
                           onPress={() => handleRestoreReserve(selectedReserve)}
                           accessibilityRole="button"
-                          accessibilityLabel={`Restaurer la réserve ${selectedReserve.id}`}
+                          accessibilityLabel={t('reservesScreen.trash.restoreA11y', { id: selectedReserve.id })}
                         >
                           <Ionicons name="refresh-outline" size={15} color="#fff" />
-                          <Text style={styles.restoreDetailBtnText}>Restaurer</Text>
+                          <Text style={styles.restoreDetailBtnText}>{t('reservesScreen.trash.restoreAction')}</Text>
                         </TouchableOpacity>
                       )}
                       {canPermanentlyDeleteFromTrash && (
@@ -1973,10 +1977,10 @@ export default function ReservesScreen() {
                           style={styles.deleteForeverDetailBtn}
                           onPress={() => handlePermanentDeleteReserve(selectedReserve)}
                           accessibilityRole="button"
-                          accessibilityLabel={`Supprimer définitivement la réserve ${selectedReserve.id}`}
+                          accessibilityLabel={t('reservesScreen.trash.deleteForeverA11y', { id: selectedReserve.id })}
                         >
                           <Ionicons name="trash-outline" size={15} color="#fff" />
-                          <Text style={styles.deleteForeverDetailBtnText}>Supprimer définitivement</Text>
+                          <Text style={styles.deleteForeverDetailBtnText}>{t('reservesScreen.trash.permanentDeleteAction')}</Text>
                         </TouchableOpacity>
                       )}
                     </View>
@@ -3209,7 +3213,7 @@ export default function ReservesScreen() {
                               styles.filtChipText,
                               isActive && { color: f.color, fontFamily: 'Inter_600SemiBold' },
                             ]}>
-                              {f.label}{f.key !== 'all' ? ` (${count})` : ''}
+                              {t(f.labelKey)}{f.key !== 'all' ? ` (${count})` : ''}
                             </Text>
                           </TouchableOpacity>
                         );

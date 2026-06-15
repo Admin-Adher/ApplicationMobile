@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import i18n from '@/lib/i18n';
 
 async function getAccessToken(): Promise<string | null> {
   if (!isSupabaseConfigured) return null;
@@ -52,7 +53,7 @@ async function callEmailApi(body: Record<string, unknown>): Promise<{ success: b
     }
     return { success: true };
   } catch (err: any) {
-    const errMsg = err?.message ?? 'Erreur réseau';
+    const errMsg = err?.message ?? i18n.t('subscriptionContext.networkError');
     console.warn('[Email Client] Erreur réseau:', errMsg);
     return { success: false, error: errMsg };
   }
@@ -97,7 +98,7 @@ export async function requestPasswordReset(email: string): Promise<{ success: bo
     }
     return { success: true };
   } catch (err: any) {
-    return { success: false, error: err?.message ?? 'Erreur réseau' };
+    return { success: false, error: err?.message ?? i18n.t('subscriptionContext.networkError') };
   }
 }
 
@@ -227,7 +228,7 @@ export async function generateAndSendPdfReport(
     const data = await response.json();
     return { success: true, pdfBase64: data.pdfBase64 };
   } catch (err: any) {
-    return { success: false, error: err?.message ?? 'Erreur réseau' };
+    return { success: false, error: err?.message ?? i18n.t('subscriptionContext.networkError') };
   }
 }
 
@@ -271,7 +272,7 @@ export async function generateAndSendReservesReport(
     const data = await response.json();
     return { success: true, pdfBase64: data.pdfBase64 };
   } catch (err: any) {
-    return { success: false, error: err?.message ?? 'Erreur réseau' };
+    return { success: false, error: err?.message ?? i18n.t('subscriptionContext.networkError') };
   }
 }
 
@@ -323,6 +324,6 @@ export async function generateAndSendIndividualReserve(
     const data = await response.json();
     return { success: true, pdfBase64: data.pdfBase64 };
   } catch (err: any) {
-    return { success: false, error: err?.message ?? 'Erreur réseau' };
+    return { success: false, error: err?.message ?? i18n.t('subscriptionContext.networkError') };
   }
 }

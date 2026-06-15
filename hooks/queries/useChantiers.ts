@@ -247,14 +247,14 @@ export function useChantiers() {
     if (linkedLocalReserves.length > 0) {
       Alert.alert(
         i18n.t('syncAlerts.deleteDeniedTitle'),
-        'Suppression chantier bloquee: des reserves sont rattachees a ce chantier. Archivez ou deplacez les reserves avant toute suppression.',
+        i18n.t('syncAlerts.deleteProjectHasReservesDetailed'),
       );
       return;
     }
     if (!isOnlineRef.current && isSupabaseConfigured) {
       Alert.alert(
         i18n.t('syncAlerts.deleteDeniedTitle'),
-        'Suppression chantier indisponible hors ligne: verification anti-perte impossible.',
+        i18n.t('syncAlerts.deleteProjectOfflineUnavailable'),
       );
       return;
     }
@@ -267,14 +267,14 @@ export function useChantiers() {
       if (reserveCheckError) {
         Alert.alert(
           i18n.t('syncAlerts.deleteDeniedTitle'),
-          'Suppression chantier bloquee: impossible de verifier les reserves rattachees.',
+          i18n.t('syncAlerts.deleteProjectReserveCheckFailed'),
         );
         return;
       }
       if (serverReserves?.length) {
         Alert.alert(
           i18n.t('syncAlerts.deleteDeniedTitle'),
-          'Suppression chantier bloquee: des reserves sont rattachees a ce chantier.',
+          i18n.t('syncAlerts.deleteProjectHasReserves'),
         );
         return;
       }

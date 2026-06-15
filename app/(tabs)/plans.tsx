@@ -486,7 +486,7 @@ ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
         await exportPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName]));
       }
     } catch {
-      Alert.alert(t?.('common.error') ?? 'Erreur', t?.('plansScreen.alerts.pdfFailed') ?? "Impossible de générer le PDF.");
+      Alert.alert(t?.('common.error') ?? 'Error', t?.('plansScreen.alerts.pdfFailed') ?? 'Unable to generate the PDF.');
     }
   }
 }
@@ -568,7 +568,7 @@ async function exportGlobalReport(
 
   for (const building of buildingNames) {
     const buildingPlans = plansWithReserves.filter(p => (p.building ?? '') === building);
-    const buildingLabel = building || 'Sans bâtiment';
+    const buildingLabel = building || tOr(t, 'plansUi.noBuilding', 'No building');
     let buildingReserveCount = 0;
     const planBlocks: string[] = [];
 
@@ -707,7 +707,7 @@ async function exportGlobalReport(
         <div class="building-header">
           <span style="font-size:22px;">🏗️</span>
           ${buildingLabel}
-          <span class="building-reserve-count">${buildingReserveCount} réserve${buildingReserveCount !== 1 ? 's' : ''}</span>
+          <span class="building-reserve-count">${escapeHtml(tOr(t, 'plansUi.buildingReserveCount', 'issues', { count: buildingReserveCount }))}</span>
         </div>
         ${planBlocks.join('')}
       </div>`);
@@ -1581,7 +1581,7 @@ export default function PlansScreen() {
       const names = getReserveCompanyNames(r);
       const keys = names.length > 0 ? names : ['—'];
       for (const key of keys) {
-        const title = key === '—' ? 'Sans entreprise' : key;
+        const title = key === '—' ? tOr(t, 'plansScreen.pdf.noCompany', 'No company') : key;
         if (!groups.has(key)) groups.set(key, { key, title, data: [] });
         groups.get(key)!.data.push(r);
       }
@@ -3825,7 +3825,7 @@ export default function PlansScreen() {
                             const isActive = detailReserve.status === s;
                             return (
                               <TouchableOpacity key={s} style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
-                                onPress={() => { if (!isActive) updateReserveStatus(detailReserve.id, s, user?.name ?? 'Chef de chantier'); }}
+                                onPress={() => { if (!isActive) updateReserveStatus(detailReserve.id, s, user?.name ?? t('plansScreen.defaultAuthor')); }}
                                 accessibilityLabel={t('plansScreen.a11y.status', { status: getStatusLabel(s) })}>
                                 {isActive && <Ionicons name="checkmark" size={11} color="#fff" />}
                                 <Text style={[styles.tabletStatusBtnText, { color: isActive ? '#fff' : cfg.color }]}>{getStatusLabel(s)}</Text>
@@ -4319,7 +4319,7 @@ export default function PlansScreen() {
                     backgroundColor: C.surface,
                     marginBottom: 8,
                   }}
-                  placeholder="chef@entreprise.fr, direction@chantier.fr"
+                  placeholder={t('plansScreen.pdf.emailPlaceholder')}
                   placeholderTextColor={C.textMuted}
                   value={globalReportEmailTo}
                   onChangeText={setGlobalReportEmailTo}
@@ -4420,7 +4420,7 @@ export default function PlansScreen() {
                           style={[styles.tabletStatusBtn, { backgroundColor: isActive ? cfg.color : cfg.bg, borderColor: cfg.color }]}
                           onPress={() => {
                             if (!isActive) {
-                              updateReserveStatus(selected.id, s, user?.name ?? 'Chef de chantier');
+                              updateReserveStatus(selected.id, s, user?.name ?? t('plansScreen.defaultAuthor'));
                               setSelected(prev => prev ? { ...prev, status: s } : null);
                             }
                           }}

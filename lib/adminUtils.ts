@@ -1,25 +1,25 @@
 import { UserRole } from '@/constants/types';
 
 export const ROLES: { value: UserRole; label: string; color: string; bg: string; description: string }[] = [
-  { value: 'admin',         label: 'Administrateur',        color: '#EF4444', bg: '#FEF2F2', description: 'Gestion complète — utilisateurs, entreprises, abonnement' },
-  { value: 'conducteur',    label: 'Conducteur de travaux',  color: '#3B82F6', bg: '#EFF6FF', description: 'Pilotage chantier — réserves, plans, OPR, rapports' },
-  { value: 'chef_equipe',   label: "Chef d'équipe",          color: '#F59E0B', bg: '#FFFBEB', description: "Terrain — réserves, pointage, incidents (pas de suppression)" },
-  { value: 'observateur',   label: 'Observateur',            color: '#6B7280', bg: '#F3F4F6', description: 'Lecture seule — consultation et export des données (gratuit)' },
-  { value: 'sous_traitant', label: 'Sous-traitant',          color: '#10B981', bg: '#ECFDF5', description: 'Portail entreprise — voir et traiter ses propres réserves (gratuit)' },
+  { value: 'admin',         label: 'Administrator',        color: '#EF4444', bg: '#FEF2F2', description: 'Full management - users, companies, subscription' },
+  { value: 'conducteur',    label: 'Construction manager', color: '#3B82F6', bg: '#EFF6FF', description: 'Site steering - reserves, plans, handover, reports' },
+  { value: 'chef_equipe',   label: 'Team lead',            color: '#F59E0B', bg: '#FFFBEB', description: 'Field - reserves, time tracking, incidents (no deletion)' },
+  { value: 'observateur',   label: 'Observer',             color: '#6B7280', bg: '#F3F4F6', description: 'Read-only - view and export data (free)' },
+  { value: 'sous_traitant', label: 'Subcontractor',        color: '#10B981', bg: '#ECFDF5', description: 'Company portal - view and process own reserves (free)' },
 ];
 
 export const ROLE_INFO: Record<string, { label: string; color: string; bg: string }> = {
-  admin:        { color: '#EF4444', bg: '#FEF2F2', label: 'Administrateur' },
-  conducteur:   { color: '#3B82F6', bg: '#EFF6FF', label: 'Conducteur de travaux' },
-  chef_equipe:  { color: '#F59E0B', bg: '#FFFBEB', label: "Chef d'équipe" },
-  observateur:  { color: '#6B7280', bg: '#F3F4F6', label: 'Observateur' },
-  sous_traitant:{ color: '#10B981', bg: '#ECFDF5', label: 'Sous-traitant' },
+  admin:        { color: '#EF4444', bg: '#FEF2F2', label: 'Administrator' },
+  conducteur:   { color: '#3B82F6', bg: '#EFF6FF', label: 'Construction manager' },
+  chef_equipe:  { color: '#F59E0B', bg: '#FFFBEB', label: 'Team lead' },
+  observateur:  { color: '#6B7280', bg: '#F3F4F6', label: 'Observer' },
+  sous_traitant:{ color: '#10B981', bg: '#ECFDF5', label: 'Subcontractor' },
   super_admin:  { color: '#7C3AED', bg: '#F5F3FF', label: 'Super Admin' },
 };
 
 export const PLAN_COLORS: Record<string, string> = {
   Solo:    '#10B981',
-  'Équipe': '#3B82F6',
+  Team:    '#3B82F6',
   Groupe:  '#8B5CF6',
 };
 
@@ -34,6 +34,6 @@ export function hashColor(id: string, palette: string[] = AVATAR_COLORS): string
 }
 
 export function formatDate(iso?: string): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
 }

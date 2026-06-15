@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import i18n from '@/lib/i18n';
 
 export interface AdminEmailPreferenceState {
   emailEnabled: boolean;
@@ -63,7 +64,7 @@ async function requestAdminPreferences(
       },
     });
   } catch (err: any) {
-    throw new Error(err?.message || "Impossible de joindre l'API BuildTrack.");
+    throw new Error(err?.message || i18n.t('apiClient.unreachable'));
   }
 
   const raw = await response.text();

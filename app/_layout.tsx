@@ -238,6 +238,7 @@ const agStyles = StyleSheet.create({
 });
 
 export default function RootLayout() {
+  const { t } = useTranslation();
   const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
@@ -317,8 +318,8 @@ export default function RootLayout() {
                         <Stack.Screen name="subscription" options={{ headerShown: false }} />
                         <Stack.Screen name="superadmin" options={{ headerShown: false }} />
                         <Stack.Screen name="checklist" options={{ headerShown: false, title: 'Checklists' }} />
-                        <Stack.Screen name="journal" options={{ headerShown: false, title: 'Journal de chantier' }} />
-                        <Stack.Screen name="meeting-report" options={{ headerShown: false, title: 'CR Réunions' }} />
+                        <Stack.Screen name="journal" options={{ headerShown: false, title: t('app.screenTitles.journal') }} />
+                        <Stack.Screen name="meeting-report" options={{ headerShown: false, title: t('app.screenTitles.meetingReport') }} />
                         <Stack.Screen name="notifications" options={{ headerShown: false, title: 'Notifications' }} />
                         <Stack.Screen name="portal/[companyId]" options={{ headerShown: false }} />
                         <Stack.Screen name="opr-session/[id]" options={{ headerShown: false }} />

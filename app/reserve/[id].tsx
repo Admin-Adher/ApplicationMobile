@@ -769,7 +769,7 @@ export default function ReserveDetailScreen() {
     const dataUrl = sigPadRef.current?.getSVGData() ?? null;
     if (!dataUrl) return;
     const today = new Date().toISOString().slice(0, 10);
-    const author = user?.name ?? 'Conducteur de travaux';
+    const author = user?.name ?? t('reserveDetail.defaultAuthor');
     const signataire = signataireName.trim() || author;
     const targetCompany = signingForCompany ?? reserveCompanyNames[0];
     if (!canSignReserveForCurrentUser(targetCompany)) {
@@ -800,7 +800,7 @@ export default function ReserveDetailScreen() {
         enterpriseSignataire: signataire,
         history: [...reserve.history, {
           id: genId(),
-          action: 'Levée signée',
+          action: t('reserveDetail.historyLiftSigned'),
           author: signataire,
           createdAt: new Date().toISOString(),
         }],
@@ -1028,13 +1028,13 @@ export default function ReserveDetailScreen() {
       };
       const liftHistoryEntry = {
         id: genId(),
-        action: 'Demande de levee',
+        action: t('reserveDetail.historyLiftRequested'),
         author,
         createdAt,
         newValue: [
-          trimmedComment ? 'Commentaire ajoute' : null,
-          liftPhoto ? 'Photo ajoutee' : null,
-        ].filter(Boolean).join(', ') || 'Sans commentaire/photo',
+          trimmedComment ? t('reserveDetail.historyLiftCommentAdded') : null,
+          liftPhoto ? t('reserveDetail.historyLiftPhotoAdded') : null,
+        ].filter(Boolean).join(', ') || t('reserveDetail.historyLiftNoCommentPhoto'),
       };
       const updated: Reserve = {
         ...reserve,
@@ -1110,12 +1110,12 @@ export default function ReserveDetailScreen() {
       Alert.alert(t('reserveDetail.alerts.invalidDateTitle'), t('reserveDetail.alerts.invalidDateText'));
       return;
     }
-    const author = user?.name ?? 'Conducteur de travaux';
+    const author = user?.name ?? t('reserveDetail.defaultAuthor');
     const today = formatDateFR(new Date());
     const changes = buildChangeSummary(reserve);
     const historyEntry = {
       id: genId(),
-      action: 'Réserve modifiée',
+      action: t('reserveDetail.historyReserveModified'),
       author,
       createdAt: new Date().toISOString(),
       oldValue: changes.length > 0 ? changes.map(c => c.oldVal).join(', ') : undefined,
@@ -1379,7 +1379,7 @@ export default function ReserveDetailScreen() {
     if (!reserve) return;
     const companyCount = reserveCompanyNames.length;
     const doUpdate = () => {
-      updateReserveStatus(reserve.id, newStatus, user?.name ?? 'Conducteur de travaux');
+      updateReserveStatus(reserve.id, newStatus, user?.name ?? t('reserveDetail.defaultAuthor'));
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 2500);
     };
@@ -1411,7 +1411,7 @@ export default function ReserveDetailScreen() {
         {
           text: t('reserveDetail.approve'),
           onPress: () => {
-            updateReserveStatus(reserve.id, 'closed', user?.name ?? 'Conducteur de travaux');
+            updateReserveStatus(reserve.id, 'closed', user?.name ?? t('reserveDetail.defaultAuthor'));
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 2500);
           },
@@ -1425,9 +1425,9 @@ export default function ReserveDetailScreen() {
     const reason = rejectReason.trim();
     const companyCount = reserveCompanyNames.length;
     const doReject = () => {
-      updateReserveStatus(reserve.id, 'in_progress', user?.name ?? 'Conducteur de travaux');
+      updateReserveStatus(reserve.id, 'in_progress', user?.name ?? t('reserveDetail.defaultAuthor'));
       if (reason) {
-        addComment(reserve.id, `Levée rejetée : ${reason}`);
+        addComment(reserve.id, t('reserveDetail.liftRejectedComment', { reason }));
       }
       setShowRejectModal(false);
       setRejectReason('');
@@ -2345,7 +2345,7 @@ export default function ReserveDetailScreen() {
                 {liftSubmitting ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={mStyles.saveBtnText}>Envoyer</Text>
+                  <Text style={mStyles.saveBtnText}>{t('reserveDetail.liftRequest.send')}</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -2354,16 +2354,16 @@ export default function ReserveDetailScreen() {
               <View style={styles.sigInfoBox}>
                 <Ionicons name="information-circle-outline" size={16} color={C.primary} />
                 <Text style={styles.sigInfoText}>
-                  Ajoutez un commentaire ou une photo si besoin. Les deux sont facultatifs.
+                  {t('reserveDetail.liftRequest.optionalHint')}
                 </Text>
               </View>
 
-              <Text style={mStyles.label}>COMMENTAIRE FACULTATIF</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.liftRequest.commentOptional')}</Text>
               <DictationTextInput
                 inputStyle={[mStyles.input, mStyles.textArea]}
                 value={liftComment}
                 onChangeText={setLiftComment}
-                placeholder="Expliquer ce qui a ete repris..."
+                placeholder={t('reserveDetail.liftRequest.commentPlaceholder')}
                 placeholderTextColor={C.textMuted}
                 multiline
                 numberOfLines={4}
@@ -2371,7 +2371,7 @@ export default function ReserveDetailScreen() {
                 textAssistContext="description"
               />
 
-              <Text style={mStyles.label}>PHOTO FACULTATIVE</Text>
+              <Text style={mStyles.label}>{t('reserveDetail.liftRequest.photoOptional')}</Text>
               {liftPhoto ? (
                 <View style={{ marginBottom: 10, alignSelf: 'flex-start' }}>
                   <View style={mStyles.photoThumb}>
@@ -2385,7 +2385,7 @@ export default function ReserveDetailScreen() {
                   </View>
                 </View>
               ) : (
-                <Text style={[mStyles.hint, { marginBottom: 8 }]}>Aucune photo ajoutee.</Text>
+                <Text style={[mStyles.hint, { marginBottom: 8 }]}>{t('reserveDetail.liftRequest.noPhoto')}</Text>
               )}
               <View style={mStyles.photoRow}>
                 <TouchableOpacity style={mStyles.photoBtn} onPress={() => handleAddLiftPhoto(true)} disabled={liftPhotoUploading || liftSubmitting}>

@@ -1,5 +1,6 @@
 import { TextAssistContext, TextAssistLanguage } from '@/lib/textAssist';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import i18n from '@/lib/i18n';
 
 type AdvancedTranslationRequest = {
   text: string;
@@ -52,7 +53,7 @@ export async function requestAdvancedTranslation({
   if (!text.trim()) return null;
   if (source === target) return { text, provider: 'none' };
   if (!base) {
-    throw new AdvancedTranslationError('URL API manquante: configure EXPO_PUBLIC_APP_URL ou EXPO_PUBLIC_API_URL dans le build mobile.');
+    throw new AdvancedTranslationError(i18n.t('textAssistOnline.missingApiUrl'));
   }
 
   const controller = new AbortController();
@@ -80,12 +81,12 @@ export async function requestAdvancedTranslation({
       const errorMessage =
         typeof payload?.detail === 'string' ? payload.detail :
         typeof payload?.error === 'string' ? payload.error :
-        `Erreur API traduction ${response.status}`;
+        i18n.t('textAssistOnline.apiError', { status: response.status });
       throw new AdvancedTranslationError(errorMessage, response.status);
     }
     const translated = typeof payload?.text === 'string' ? payload.text.trim() : '';
     if (!translated) {
-      throw new AdvancedTranslationError('Reponse Azure vide.');
+      throw new AdvancedTranslationError(i18n.t('textAssistOnline.emptyResponse'));
     }
     return {
       text: translated,
@@ -94,9 +95,9 @@ export async function requestAdvancedTranslation({
   } catch (err: any) {
     if (err instanceof AdvancedTranslationError) throw err;
     if (err?.name === 'AbortError') {
-      throw new AdvancedTranslationError('Delai depasse pendant la traduction Azure.');
+      throw new AdvancedTranslationError(i18n.t('textAssistOnline.timeout'));
     }
-    throw new AdvancedTranslationError('Impossible de joindre l API de traduction.');
+    throw new AdvancedTranslationError(i18n.t('textAssistOnline.unreachable'));
   } finally {
     clearTimeout(timer);
   }

@@ -584,7 +584,7 @@ export default function NewReserveScreen() {
   async function savePhoto(uri: string) {
     setPhotoUploading(true);
     try {
-      const author = user?.name ?? 'Conducteur de travaux';
+      const author = user?.name ?? t('reserveNew.defaultAuthor');
       const today = new Date().toISOString().split('T')[0];
 
       const finalUri = await persistLocalPhoto(uri);
@@ -652,7 +652,7 @@ export default function NewReserveScreen() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     try {
-      const author = user?.name ?? 'Conducteur de travaux';
+      const author = user?.name ?? t('reserveNew.defaultAuthor');
       const id = genReserveId(reserves, selectedLot);
       const isoToday = new Date().toISOString().split('T')[0];
       const finalTitle = title.trim();

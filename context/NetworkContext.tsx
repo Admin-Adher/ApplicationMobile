@@ -20,6 +20,7 @@ import {
   isReserveMutationRpcUnavailable,
   newOperationId,
 } from '@/lib/reserveOutbox';
+import i18n from '@/lib/i18n';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
@@ -757,7 +758,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // stuck after each retry.
     const fail = (op: QueuedOperation, err: any, options?: { terminalStatus?: string }) => {
       let msg: string;
-      if (!err) msg = 'Erreur inconnue';
+      if (!err) msg = i18n.t('networkQueue.unknownError');
       else if (typeof err === 'string') msg = err;
       else if (err.message) {
         msg = err.message;
@@ -788,7 +789,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         // ── Status-change conflict detection ───────────────────────────────
         if (op.op === 'rpc') {
           if (!op.rpc?.fn) {
-            fail(op, 'RPC manquante.');
+            fail(op, i18n.t('networkQueue.missingRpc'));
             continue;
           }
           let args = { ...(op.rpc.args ?? {}) };
@@ -802,7 +803,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               user?.role ?? null,
             );
             if (!rawReserve?.id) {
-              fail(op, 'RPC create_reserve_with_photos refusee: reserve payload manquant.');
+              fail(op, i18n.t('networkQueue.createReserveMissingPayload'));
               continue;
             }
             if (rawReserve.deadline === 'â€”' || rawReserve.deadline === '') {
@@ -810,7 +811,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             }
             const prep = await uploadLocalPhotosInPayload('reserves', rawReserve);
             if (!prep.allOk) {
-              fail(op, prep.uploadErrors?.join(' | ') || 'Echec upload photos reserve avant creation atomique.');
+              fail(op, prep.uploadErrors?.join(' | ') || i18n.t('networkQueue.uploadReservePhotosFailed'));
               continue;
             }
             const preparedReserve = prep.data ?? rawReserve;
@@ -845,12 +846,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           } else if (op.rpc.fn === 'replace_site_plan_file_safely') {
             const rawPatch = (args.p_patch ?? op.data) as Record<string, any> | undefined;
             if (!args.p_plan_id || !rawPatch) {
-              fail(op, 'RPC replace_site_plan_file_safely refusee: plan ou patch manquant.');
+              fail(op, i18n.t('networkQueue.replacePlanMissingPatch'));
               continue;
             }
             const prep = await uploadLocalPhotosInPayload('site_plans', rawPatch);
             if (!prep.allOk) {
-              fail(op, prep.uploadErrors?.join(' | ') || 'Echec upload fichier plan avant remplacement controle.');
+              fail(op, prep.uploadErrors?.join(' | ') || i18n.t('networkQueue.uploadPlanFileFailed'));
               continue;
             }
             const preparedPatch = { ...(prep.data ?? rawPatch) };
@@ -860,7 +861,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           } else if (op.rpc.fn === 'append_reserve_status_event') {
             const event = args.p_event ?? op.data;
             if (!event?.reserve_id || !event?.to_status) {
-              fail(op, 'RPC append_reserve_status_event refusee: event reserve/status manquant.');
+              fail(op, i18n.t('networkQueue.reserveStatusEventMissing'));
               continue;
             }
             args = {
@@ -1280,7 +1281,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               continue;
             }
             if (linkedReserves?.[0]) {
-              fail(op, 'DELETE chantier bloque: des reserves sont encore rattachees. Suppression physique refusee.');
+              fail(op, i18n.t('networkQueue.deleteProjectHasReserves'));
               continue;
             }
           }

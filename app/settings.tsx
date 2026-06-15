@@ -60,10 +60,10 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const STATUS_COLORS = {
-  trial:     { label: 'Essai',     color: '#F59E0B', bg: '#FFFBEB' },
-  active:    { label: 'Actif',     color: '#10B981', bg: '#ECFDF5' },
-  suspended: { label: 'Suspendu',  color: '#EF4444', bg: '#FEF2F2' },
-  expired:   { label: 'Expiré',    color: '#6B7280', bg: '#F3F4F6' },
+  trial:     { labelKey: 'adminScreen.subscriptionStatus.trial.label',     color: '#F59E0B', bg: '#FFFBEB' },
+  active:    { labelKey: 'adminScreen.subscriptionStatus.active.label',    color: '#10B981', bg: '#ECFDF5' },
+  suspended: { labelKey: 'adminScreen.subscriptionStatus.suspended.label', color: '#EF4444', bg: '#FEF2F2' },
+  expired:   { labelKey: 'adminScreen.subscriptionStatus.expired.label',   color: '#6B7280', bg: '#F3F4F6' },
 } as const;
 
 const DIAGNOSTIC_SDK_TIMEOUT_MS = 8000;
@@ -247,13 +247,18 @@ export default function SettingsScreen() {
       // getSession() timed out (auth server slow or JWT-refresh call hanging).
       // The network may be perfectly fine — only the Supabase auth endpoint is slow.
       // Try to read the cached session from AsyncStorage to still show useful info.
-      const isTimeout = err?.message?.includes('Connexion lente')
-        || err?.message?.includes('Slow')
-        || err?.message?.includes('lenta')
-        || err?.message?.includes('lent')
-        || err?.message?.includes('timeout')
-        || err?.message?.includes('instable')
-        || err?.message?.includes('unstable');
+      const message = String(err?.message ?? '').toLowerCase();
+      const localizedTimeoutPrefix = t('settings.diagnostic.timeout', { label: '' })
+        .split('(')[0]
+        .trim()
+        .toLowerCase();
+      const isTimeout = (!!localizedTimeoutPrefix && message.includes(localizedTimeoutPrefix))
+        || message.includes('slow')
+        || message.includes('lenta')
+        || message.includes('lent')
+        || message.includes('timeout')
+        || message.includes('instable')
+        || message.includes('unstable');
       let cachedUserId: string | null = null;
       let cachedExpiresAt: number | null = null;
       let sessionStillValid = false;

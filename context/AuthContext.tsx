@@ -65,12 +65,12 @@ export function resolvePermissions(role: UserRole, override?: PermissionsOverrid
 const DEMO_SEED_PASS = process.env.EXPO_PUBLIC_DEMO_SEED_PASS || '';
 
 const DEMO_USERS = [
-  { email: 'superadmin@buildtrack.fr', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: 'Super Administrateur', companyId: undefined as string | undefined },
-  { email: 'admin@buildtrack.fr',     name: 'Admin Système',  role: 'admin',        roleLabel: 'Administrateur',          companyId: undefined as string | undefined },
-  { email: 'j.dupont@buildtrack.fr',  name: 'Jean Dupont',    role: 'conducteur',   roleLabel: 'Conducteur de travaux',    companyId: undefined as string | undefined },
-  { email: 'm.martin@buildtrack.fr',  name: 'Marie Martin',   role: 'chef_equipe',  roleLabel: "Chef d'équipe",            companyId: undefined as string | undefined },
-  { email: 'p.lambert@buildtrack.fr', name: 'Pierre Lambert', role: 'observateur',  roleLabel: 'Observateur',              companyId: undefined as string | undefined },
-  { email: 'st.martin@buildtrack.fr', name: 'Stéphane Martin (ST)', role: 'sous_traitant', roleLabel: 'Sous-traitant', companyId: 'co2' as string | undefined },
+  { email: 'superadmin@buildtrack.fr', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: ROLE_LABELS.super_admin, companyId: undefined as string | undefined },
+  { email: 'admin@buildtrack.fr',     name: 'System Admin',   role: 'admin',        roleLabel: ROLE_LABELS.admin,          companyId: undefined as string | undefined },
+  { email: 'j.dupont@buildtrack.fr',  name: 'Jean Dupont',    role: 'conducteur',   roleLabel: ROLE_LABELS.conducteur,    companyId: undefined as string | undefined },
+  { email: 'm.martin@buildtrack.fr',  name: 'Marie Martin',   role: 'chef_equipe',  roleLabel: ROLE_LABELS.chef_equipe,   companyId: undefined as string | undefined },
+  { email: 'p.lambert@buildtrack.fr', name: 'Pierre Lambert', role: 'observateur',  roleLabel: ROLE_LABELS.observateur,   companyId: undefined as string | undefined },
+  { email: 'st.martin@buildtrack.fr', name: 'Stephen Martin (ST)', role: 'sous_traitant', roleLabel: ROLE_LABELS.sous_traitant, companyId: 'co2' as string | undefined },
 ];
 
 const DEMO_EMAILS = new Set(DEMO_USERS.map(u => u.email));
@@ -80,7 +80,7 @@ const PROFILE_MUTATION_TIMEOUT_MS = 12_000;
 function withProfileMutationTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(
-      () => reject(new Error(`Modification trop longue (${label}). Vérifiez votre connexion et réessayez.`)),
+      () => reject(new Error(i18n.t('auth.profileMutationTimeout', { label }))),
       PROFILE_MUTATION_TIMEOUT_MS,
     );
     promise.then(
@@ -541,9 +541,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured) {
       const offlineUser: User = {
         id: 'offline-admin',
-        name: 'Admin Système',
+        name: 'System Admin',
         role: 'admin',
-        roleLabel: 'Administrateur',
+        roleLabel: ROLE_LABELS.admin,
         email: 'admin@buildtrack.fr',
         organizationId: 'demo-org',
       };
@@ -880,7 +880,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     password: string;
   }): Promise<{ success: boolean; error?: string }> {
     if (!isSupabaseConfigured) {
-      return { success: false, error: 'La création de compte nécessite une connexion au serveur.' };
+      return { success: false, error: i18n.t('auth.registerRequiresServer') };
     }
 
     abortSeedingRef.current = true;
@@ -920,7 +920,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             await new Promise<void>(r => setTimeout(r, 2_000));
           }
         }
-        resolve({ success: false, error: 'La création du compte a pris trop longtemps. Vérifiez votre connexion et réessayez.' });
+        resolve({ success: false, error: i18n.t('auth.registerTimeout') });
       }, REGISTER_TIMEOUT_MS);
     });
 
@@ -942,7 +942,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
           if (!isAlreadyRegistered) {
             cleanup();
-            return { success: false, error: signUpErr?.message ?? "Impossible de créer le compte." };
+            return { success: false, error: signUpErr?.message ?? i18n.t('auth.createAccountFailed') };
           }
 
           // Check if a real profile exists for this email in public.profiles.
@@ -959,7 +959,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           if (existingProfile) {
             // A real, active profile exists → genuine duplicate.
             cleanup();
-            return { success: false, error: 'Un compte existe déjà avec cet email.' };
+            return { success: false, error: i18n.t('auth.accountAlreadyExists') };
           }
 
           // No profile found → dangling auth account (deleted from profiles but not from
@@ -974,7 +974,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             cleanup();
             return {
               success: false,
-              error: "Cet email est lié à un ancien compte désactivé. Utilisez « Mot de passe oublié » depuis l'écran de connexion pour récupérer l'accès.",
+              error: i18n.t('auth.disabledAccountRecovery'),
             };
           }
 
@@ -1010,9 +1010,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             cleanup();
             if (signInErr?.message?.toLowerCase().includes('email not confirmed') ||
                 signInErr?.message?.toLowerCase().includes('email_not_confirmed')) {
-              return { success: false, error: "Un email de confirmation a été envoyé à votre adresse. Confirmez votre email puis connectez-vous." };
+              return { success: false, error: i18n.t('auth.confirmationEmailSent') };
             }
-            return { success: false, error: "Compte créé. Connectez-vous avec vos identifiants." };
+            return { success: false, error: i18n.t('auth.accountCreatedLogin') };
           }
           signInSession = signInData.session;
           signInUserId = signInData.user.id;
@@ -1020,7 +1020,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (!signInUserId) {
           cleanup();
-          return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
+          return { success: false, error: i18n.t('auth.accountCreatedContinue') };
         }
 
         // ── Étape 2 : créer le profil maintenant qu'on a une session ────────
@@ -1180,11 +1180,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
 
         cleanup();
-        return { success: false, error: "Compte créé. Connectez-vous pour continuer." };
+        return { success: false, error: i18n.t('auth.accountCreatedContinue') };
       } catch (err: any) {
         cleanup();
         console.warn('[register] Exception:', err?.message ?? err);
-        return { success: false, error: 'Erreur réseau. Vérifiez votre connexion.' };
+        return { success: false, error: i18n.t('auth.networkCheckConnection') };
       }
     };
 
@@ -1230,7 +1230,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
           }
         } catch {}
-        resolve({ success: false, error: 'La connexion a pris trop longtemps. Vérifiez votre réseau et réessayez.' });
+        resolve({ success: false, error: i18n.t('auth.loginTimeout') });
       }, LOGIN_TIMEOUT_MS);
     });
 
@@ -1239,7 +1239,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const match = demoUser && DEMO_SEED_PASS && DEMO_SEED_PASS === password ? demoUser : null;
       if (!match) {
         loginInProgressRef.current = false;
-        return { success: false, error: 'Email ou mot de passe incorrect.' };
+        return { success: false, error: i18n.t('auth.emailOrPasswordIncorrect') };
       }
       setUser({
         id: `demo-${DEMO_USERS.indexOf(match)}`,
@@ -1268,10 +1268,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             error.message?.toLowerCase().includes('email_not_confirmed')) {
           return {
             success: false,
-            error: "Email non confirmé. Désactivez « Confirm email » dans Supabase → Authentication → Providers → Email, puis relancez l'app.",
+            error: i18n.t('auth.emailNotConfirmedSupabase'),
           };
         }
-        return { success: false, error: 'Email ou mot de passe incorrect.' };
+        return { success: false, error: i18n.t('auth.emailOrPasswordIncorrect') };
       }
 
       const authUser = data?.user;
@@ -1284,7 +1284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (timeoutId) clearTimeout(timeoutId);
         return {
           success: false,
-          error: "Email non confirmé. Désactivez « Confirm email » dans Supabase → Authentication → Providers → Email, puis relancez l'app.",
+          error: i18n.t('auth.emailNotConfirmedSupabase'),
         };
       }
 
@@ -1350,16 +1350,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
       return {
         success: false,
-        error:
-          'Profil introuvable. Votre compte existe mais le profil est manquant ou inaccessible.\n\n' +
-          'Appliquez la migration SQL « 20260406_fix_profiles_rls_recursion.sql » dans Supabase ' +
-          '(Éditeur SQL), puis réessayez.',
+        error: i18n.t('auth.missingProfile'),
       };
     } catch {
       abortSeedingRef.current = false;
       loginInProgressRef.current = false;
       if (timeoutId) clearTimeout(timeoutId);
-      return { success: false, error: 'Impossible de se connecter. Vérifiez votre réseau.' };
+      return { success: false, error: i18n.t('auth.loginNetworkFailed') };
     }
   }
 
@@ -1400,9 +1397,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
         role: newRole,
         role_label: newLabel,
-      }).eq('id', userId).select('id').maybeSingle(), 'role utilisateur');
+      }).eq('id', userId).select('id').maybeSingle(), i18n.t('auth.mutationLabels.role'));
       if (error || !data?.id) {
-        throw new Error(error?.message ?? "Le rôle n'a pas pu être modifié. Vérifiez vos permissions.");
+        throw new Error(error?.message ?? i18n.t('auth.roleUpdateFailed'));
       }
     }
     setUsers(prev => prev.map(u =>
@@ -1415,9 +1412,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resetAuthLock();
       const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
         company_id: companyId,
-      }).eq('id', userId).select('id, company_id').maybeSingle(), 'entreprise utilisateur');
+      }).eq('id', userId).select('id, company_id').maybeSingle(), i18n.t('auth.mutationLabels.company'));
       if (error || !data?.id) {
-        throw new Error(error?.message ?? "L'entreprise n'a pas pu être mise à jour. Vérifiez vos permissions.");
+        throw new Error(error?.message ?? i18n.t('auth.companyUpdateFailed'));
       }
     }
     setUsers(prev => prev.map(u =>
@@ -1431,9 +1428,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resetAuthLock();
       const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
         preferred_language: language,
-      }).eq('id', user.id).select('id, preferred_language').maybeSingle(), 'langue utilisateur');
+      }).eq('id', user.id).select('id, preferred_language').maybeSingle(), i18n.t('auth.mutationLabels.language'));
       if (error || !data?.id) {
-        throw new Error(error?.message ?? "La langue n'a pas pu être synchronisée.");
+        throw new Error(error?.message ?? i18n.t('auth.languageSyncFailed'));
       }
     }
     setUser(prev => prev ? { ...prev, preferredLanguage: language ?? undefined } : prev);
@@ -1463,7 +1460,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Send revocation email (fire-and-forget)
     if (targetUser?.email && targetUser?.name) {
       try {
-        let orgName = 'votre organisation';
+        let orgName = i18n.t('auth.defaultOrganizationName');
         if (targetUser.organizationId && isSupabaseConfigured) {
           const { data: org } = await (supabase as any)
             .from('organizations')
@@ -1489,9 +1486,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resetAuthLock();
       const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
         permissions_override: override,
-      }).eq('id', userId).select('id').maybeSingle(), 'permissions utilisateur');
+      }).eq('id', userId).select('id').maybeSingle(), i18n.t('auth.mutationLabels.permissions'));
       if (error || !data?.id) {
-        throw new Error(error?.message ?? "Les permissions n'ont pas pu être mises à jour. Vérifiez vos accès.");
+        throw new Error(error?.message ?? i18n.t('auth.permissionsUpdateFailed'));
       }
     }
     setUsers(prev => prev.map(u =>

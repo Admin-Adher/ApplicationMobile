@@ -52,7 +52,7 @@ export async function sendEmail(
     console.log('[Email] Email envoyé à', params.to, '—', params.subject, '(', info.messageId, ')');
     return { success: true };
   } catch (err: any) {
-    const msg = err?.message ?? 'Erreur inconnue';
+    const msg = err?.message ?? 'Unknown error';
     console.error('[Email] Exception SMTP:', msg);
     return { success: false, error: msg };
   }

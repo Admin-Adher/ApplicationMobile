@@ -156,7 +156,7 @@ export function useVisites() {
     const visites = queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? [];
     const target = visites.find(v => v.id === visiteId);
     if (!target) {
-      return { success: false, error: 'Visite introuvable.' };
+      return { success: false, error: i18n.t('visits.detail.notFound') };
     }
 
     const currentReserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];
@@ -234,7 +234,7 @@ export function useVisites() {
     const visites = queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? [];
     const target = visites.find(v => v.id === visiteId);
     if (!target) {
-      return { success: false, error: 'Visite introuvable.' };
+      return { success: false, error: i18n.t('visits.detail.notFound') };
     }
 
     const currentReserves = queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [];

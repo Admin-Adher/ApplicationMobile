@@ -1,10 +1,10 @@
 import { UserRole } from './types';
 
 export const ROLE_LABELS: Record<UserRole, string> = {
-  super_admin: 'Super Administrateur',
-  admin: 'Administrateur',
-  conducteur: 'Conducteur de travaux',
-  chef_equipe: "Chef d'équipe",
-  observateur: 'Observateur',
-  sous_traitant: 'Sous-traitant',
+  super_admin: 'Super Administrator',
+  admin: 'Administrator',
+  conducteur: 'Construction manager',
+  chef_equipe: 'Team lead',
+  observateur: 'Observer',
+  sous_traitant: 'Subcontractor',
 };

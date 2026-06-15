@@ -9,6 +9,7 @@ import {
   toNotificationPreferences,
   withDefaultNotificationPreferences,
 } from '@/lib/notificationPreferences';
+import i18n from '@/lib/i18n';
 
 const CACHE_PREFIX = 'buildtrack_notification_preferences_v1_';
 
@@ -41,9 +42,9 @@ async function writeCache(userId: string | undefined, prefs: NotificationPrefere
 
 function friendlyPreferencesError(message: string): string {
   if (/notification_preferences|schema cache|Could not find the table/i.test(message)) {
-    return "Migration Supabase manquante : la table public.notification_preferences n'existe pas encore. Appliquez la migration 20260520183000_add_notification_preferences.sql.";
+    return i18n.t('notificationPreferencesContext.missingTable');
   }
-  return message || 'Impossible de charger les préférences de notifications.';
+  return message || i18n.t('notificationPreferencesContext.loadFailed');
 }
 
 export function NotificationPreferencesProvider({ children }: { children: React.ReactNode }) {
@@ -99,7 +100,7 @@ export function NotificationPreferencesProvider({ children }: { children: React.
       if (upsertError) throw upsertError;
       setLastError(null);
     } catch (err: any) {
-      const message = err?.message ?? 'Impossible de charger les preferences de notifications.';
+      const message = err?.message ?? i18n.t('notificationPreferencesContext.loadFailed');
       console.warn('[notification preferences] load error:', message);
       setLastError(friendlyPreferencesError(message));
     } finally {
@@ -147,7 +148,7 @@ export function NotificationPreferencesProvider({ children }: { children: React.
       }
       setLastError(null);
     } catch (err: any) {
-      const message = err?.message ?? 'Impossible d enregistrer les preferences.';
+      const message = err?.message ?? i18n.t('notificationPreferencesContext.saveFailed');
       console.warn('[notification preferences] save error:', message);
       setLastError(friendlyPreferencesError(message));
     }

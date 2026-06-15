@@ -186,7 +186,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         if (error) throw error;
       }
     } catch (e: any) {
-      const msg = e?.message ?? 'Erreur réseau';
+      const msg = e?.message ?? i18n.t('subscriptionContext.networkError');
       console.warn('Erreur sync incident Supabase:', msg);
       if (mode === 'delete') {
         enqueueOperation({ table: 'incidents', op: 'delete', filter: { column: 'id', value: incident.id } });

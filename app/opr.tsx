@@ -358,7 +358,7 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string 
            <div class="sig-date">${escapeHtml(copy.signedOn)} ${escapeHtml(signedDate)}</div>
          </div>
        </div>`
-    : `<div class="section-header">Signatures</div>
+    : `<div class="section-header">${escapeHtml(copy.signatures)}</div>
        <div class="sig-row">
          <div class="sig-block">
            <div class="sig-label">${escapeHtml(copy.manager)}</div>
@@ -375,22 +375,22 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string 
        </div>`;
 
   const infoItems = [
-    ...(opr.building || opr.level || opr.zone ? [{ label: 'Localisation', value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
-    { label: 'Conducteur de travaux', value: opr.conducteur },
+    ...(opr.building || opr.level || opr.zone ? [{ label: copy.location, value: [opr.building, opr.level, opr.zone].filter(Boolean).join(' — ') }] : []),
+    { label: copy.manager, value: opr.conducteur },
     ...(opr.maireOuvrage ? [{ label: copy.owner, value: opr.maireOuvrage }] : []),
-    { label: 'Date de réception', value: opr.date },
-    ...(opr.visitContradictoire ? [{ label: 'Visite contradictoire', value: opr.visitContradictoire }] : []),
+    { label: copy.receptionDate, value: opr.date },
+    ...(opr.visitContradictoire ? [{ label: copy.contradictoryVisit, value: opr.visitContradictoire }] : []),
   ];
 
   const participants = opr.visitParticipants ?? [];
   const participantsSection = participants.length > 0 ? `
-    <div class="section-header">Participants à la visite contradictoire</div>
+    <div class="section-header">${escapeHtml(copy.participants)}</div>
     <table>
       <thead>
         <tr>
-          <th>NOM</th>
-          <th>ENTREPRISE / FONCTION</th>
-          <th style="text-align:center">PRÉSENCE</th>
+          <th>${escapeHtml(copy.name)}</th>
+          <th>${escapeHtml(copy.companyFunction)}</th>
+          <th style="text-align:center">${escapeHtml(copy.presence)}</th>
         </tr>
       </thead>
       <tbody>
@@ -399,7 +399,7 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string 
             <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${escapeHtml(p.name)}</td>
             <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(p.company || '—')}</td>
             <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
-              <span style="background:${p.present ? '#ECFDF5' : '#FEF2F2'};color:${p.present ? '#059669' : '#DC2626'};font-weight:700;font-size:10px;padding:2px 8px;border-radius:10px">${p.present ? '✓ Présent' : '✗ Absent'}</span>
+              <span style="background:${p.present ? '#ECFDF5' : '#FEF2F2'};color:${p.present ? '#059669' : '#DC2626'};font-weight:700;font-size:10px;padding:2px 8px;border-radius:10px">${p.present ? `✓ ${escapeHtml(copy.present)}` : `✗ ${escapeHtml(copy.absent)}`}</span>
             </td>
           </tr>`).join('')}
       </tbody>
@@ -409,10 +409,10 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string 
     ${buildLetterhead(copy.receptionReport, opr.title, opr.id, today, projectName, { locale })}
     ${buildInfoGrid(infoItems)}
     ${buildKpiRow([
-      { val: totalOk, label: 'Conforme' + (totalOk > 1 ? 's' : ''), color: '#059669' },
-      { val: totalRes, label: 'Réserve' + (totalRes > 1 ? 's' : ''), color: '#DC2626' },
-      { val: totalNA, label: 'Non applicable', color: '#6B7280' },
-      { val: `${pctConformite}%`, label: 'Conformité', color: '#003082' },
+      { val: totalOk, label: copy.compliant, color: '#059669' },
+      { val: totalRes, label: totalRes > 1 ? copy.reserves : copy.reserve, color: '#DC2626' },
+      { val: totalNA, label: copy.nonApplicable, color: '#6B7280' },
+      { val: `${pctConformite}%`, label: copy.conformity, color: '#003082' },
     ])}
     ${participantsSection}
     <div class="section-header">${escapeHtml(copy.detailByLot)}</div>
@@ -477,8 +477,8 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${reserve ? escapeHtml(formatReserveLocation(reserve)) : '—'}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         ${isLevee
-          ? '<span style="background:#ECFDF5;color:#059669;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">✓ Levée</span>'
-          : '<span style="background:#FEF2F2;color:#DC2626;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">⚠ En attente</span>'}
+          ? `<span style="background:#ECFDF5;color:#059669;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">✓ ${escapeHtml(copy.closed)}</span>`
+          : `<span style="background:#FEF2F2;color:#DC2626;font-weight:700;padding:3px 10px;border-radius:12px;font-size:10px">⚠ ${escapeHtml(copy.waiting)}</span>`}
       </td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#059669">${escapeHtml(reserve?.closedAt ?? '—')}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(reserve?.closedBy ?? '—')}</td>
@@ -1920,11 +1920,11 @@ export default function OprScreen() {
           const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
           if (hasSig) {
             Alert.alert(
-              'Fermer sans sauvegarder ?',
-              'Vous avez commencé à signer ce PV. Si vous fermez maintenant, les tracés de signature seront perdus.',
+              t('oprScreen.closeWithoutSavingTitle'),
+              t('oprScreen.closeWithoutSavingText'),
               [
-                { text: 'Continuer la signature', style: 'cancel' },
-                { text: 'Fermer quand même', style: 'destructive', onPress: () => setSignModalOpr(null) },
+                { text: t('oprScreen.continueSignature'), style: 'cancel' },
+                { text: t('oprScreen.closeAnyway'), style: 'destructive', onPress: () => setSignModalOpr(null) },
               ]
             );
           } else {

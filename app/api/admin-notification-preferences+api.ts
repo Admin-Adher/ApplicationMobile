@@ -36,9 +36,9 @@ async function authenticatedProfile(request: Request, supabase: any) {
 
 async function adminTargetProfile(request: Request, supabase: any, targetUserId: string) {
   const actor = await authenticatedProfile(request, supabase);
-  if (!actor) return { status: 401, error: 'Session invalide' };
+  if (!actor) return { status: 401, error: 'Invalid session' };
   if (actor.role !== 'admin' && actor.role !== 'super_admin') {
-    return { status: 403, error: 'Accès admin requis' };
+    return { status: 403, error: 'Admin access required' };
   }
 
   const { data: target, error: targetError } = await supabase
@@ -46,12 +46,12 @@ async function adminTargetProfile(request: Request, supabase: any, targetUserId:
     .select('id, name, email, role, organization_id')
     .eq('id', targetUserId)
     .maybeSingle();
-  if (targetError || !target) return { status: 404, error: 'Utilisateur introuvable' };
+  if (targetError || !target) return { status: 404, error: 'User not found' };
   if (actor.role !== 'super_admin' && target.organization_id !== actor.organization_id) {
-    return { status: 403, error: 'Utilisateur hors organisation' };
+    return { status: 403, error: 'User is outside your organization' };
   }
   if (actor.role === 'admin' && (target.role === 'admin' || target.role === 'super_admin')) {
-    return { status: 403, error: 'Modification réservée au super administrateur' };
+    return { status: 403, error: 'Only a super administrator can change this setting' };
   }
   return { actor, target };
 }
@@ -80,12 +80,12 @@ async function getPreferences(supabase: any, profile: any) {
 
 export async function GET(request: Request) {
   const supabase = adminClient();
-  if (!supabase) return serverError('SUPABASE_SERVICE_ROLE_KEY non configurée sur le serveur');
+  if (!supabase) return serverError('SUPABASE_SERVICE_ROLE_KEY is not configured on the server');
 
   try {
     const url = new URL(request.url);
     const userId = url.searchParams.get('userId')?.trim();
-    if (!userId) return serverError('userId manquant', 400);
+    if (!userId) return serverError('Missing userId', 400);
 
     const access = await adminTargetProfile(request, supabase, userId);
     if (access.error) return serverError(access.error, access.status ?? 500);
@@ -93,18 +93,18 @@ export async function GET(request: Request) {
     return Response.json({ ok: true, user: access.target, preferences });
   } catch (err: any) {
     console.error('[admin-notification-preferences] GET:', err?.message ?? err);
-    return serverError(err?.message ?? 'Erreur serveur');
+    return serverError(err?.message ?? 'Server error');
   }
 }
 
 export async function POST(request: Request) {
   const supabase = adminClient();
-  if (!supabase) return serverError('SUPABASE_SERVICE_ROLE_KEY non configurée sur le serveur');
+  if (!supabase) return serverError('SUPABASE_SERVICE_ROLE_KEY is not configured on the server');
 
   try {
     const { userId, emailEnabled } = await request.json();
     if (!userId || typeof emailEnabled !== 'boolean') {
-      return serverError('Paramètres manquants', 400);
+      return serverError('Missing parameters', 400);
     }
 
     const access = await adminTargetProfile(request, supabase, String(userId));
@@ -128,6 +128,6 @@ export async function POST(request: Request) {
     return Response.json({ ok: true, user: access.target, preferences: data });
   } catch (err: any) {
     console.error('[admin-notification-preferences] POST:', err?.message ?? err);
-    return serverError(err?.message ?? 'Erreur serveur');
+    return serverError(err?.message ?? 'Server error');
   }
 }

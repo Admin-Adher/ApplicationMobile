@@ -1,5 +1,6 @@
 import type { Reserve } from '@/constants/types';
 import { C } from '@/constants/colors';
+import i18n from '@/lib/i18n';
 
 export type EnterpriseWorkflowFilter = 'all' | 'needs_validation' | 'ack_missing' | 'ack_done' | 'signed';
 
@@ -14,15 +15,15 @@ export type EnterpriseWorkflowBadge = {
 
 export const ENTERPRISE_WORKFLOW_FILTERS: {
   key: EnterpriseWorkflowFilter;
-  label: string;
+  labelKey: string;
   icon: string;
   color: string;
 }[] = [
-  { key: 'all', label: 'Tous suivis', icon: 'layers-outline', color: C.primary },
-  { key: 'needs_validation', label: '\u00c0 valider', icon: 'shield-checkmark-outline', color: C.verification },
-  { key: 'ack_missing', label: 'AR manquant', icon: 'mail-unread-outline', color: '#B45309' },
-  { key: 'ack_done', label: 'AR re\u00e7us', icon: 'mail-open-outline', color: C.closed },
-  { key: 'signed', label: 'Sign\u00e9es', icon: 'create-outline', color: '#0EA5E9' },
+  { key: 'all', labelKey: 'reservesScreen.workflow.filters.all', icon: 'layers-outline', color: C.primary },
+  { key: 'needs_validation', labelKey: 'reservesScreen.workflow.filters.needs_validation', icon: 'shield-checkmark-outline', color: C.verification },
+  { key: 'ack_missing', labelKey: 'reservesScreen.workflow.filters.ack_missing', icon: 'mail-unread-outline', color: '#B45309' },
+  { key: 'ack_done', labelKey: 'reservesScreen.workflow.filters.ack_done', icon: 'mail-open-outline', color: C.closed },
+  { key: 'signed', labelKey: 'reservesScreen.workflow.filters.signed', icon: 'create-outline', color: '#0EA5E9' },
 ];
 
 export function getReserveCompanyNames(reserve: Reserve): string[] {
@@ -66,7 +67,7 @@ export function getEnterpriseWorkflowBadges(
   if (reserve.status === 'verification') {
     badges.push({
       key: 'needs_validation',
-      label: 'Lev\u00e9e demand\u00e9e',
+      label: i18n.t('reservesScreen.workflow.badges.needs_validation'),
       icon: 'shield-checkmark-outline',
       color: C.verification,
       bg: C.verificationBg,
@@ -77,7 +78,7 @@ export function getEnterpriseWorkflowBadges(
   if (!options.attentionOnly && workflowActive && reserve.enterpriseAcknowledgedAt) {
     badges.push({
       key: 'ack_done',
-      label: 'AR re\u00e7u',
+      label: i18n.t('reservesScreen.workflow.badges.ack_done'),
       icon: 'mail-open-outline',
       color: C.closed,
       bg: C.closedBg,
@@ -86,7 +87,7 @@ export function getEnterpriseWorkflowBadges(
   } else if (workflowActive) {
     badges.push({
       key: 'ack_missing',
-      label: 'AR manquant',
+      label: i18n.t('reservesScreen.workflow.badges.ack_missing'),
       icon: 'mail-unread-outline',
       color: '#B45309',
       bg: '#FFFBEB',
@@ -96,8 +97,8 @@ export function getEnterpriseWorkflowBadges(
 
   if (!options.attentionOnly && hasSignature) {
     const label = companyNames.length > 1 && signedCount > 0
-      ? `Sign\u00e9e ${signedCount}/${companyNames.length}`
-      : 'Sign\u00e9e';
+      ? i18n.t('reservesScreen.workflow.badges.signedCount', { signed: signedCount, total: companyNames.length })
+      : i18n.t('reservesScreen.workflow.badges.signed');
     badges.push({
       key: 'signed',
       label,

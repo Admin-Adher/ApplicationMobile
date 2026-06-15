@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
 import { isSameUserName } from '@/lib/mappers';
+import i18n from '@/lib/i18n';
 
 const SEEN_PREFIX = 'buildtrack_notif_seen_v2_';
 
@@ -109,8 +110,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         result.push({
           id: `crit_${r.id}`,
           type: 'critical_reserve',
-          title: 'Réserve critique',
-          body: isLate ? `${r.title} — critique et en retard` : r.title,
+          title: i18n.t('notifications.types.critical_reserve'),
+          body: isLate ? i18n.t('notifications.bodies.criticalLate', { title: r.title }) : r.title,
           route: '/reserve/[id]',
           routeParams: { id: r.id },
           createdAt: r.createdAt,
@@ -120,8 +121,8 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         result.push({
           id: `late_${r.id}`,
           type: 'overdue_reserve',
-          title: 'Réserve en retard',
-          body: `${r.title} — échéance dépassée`,
+          title: i18n.t('notifications.types.overdue_reserve'),
+          body: i18n.t('notifications.bodies.overdueReserve', { title: r.title }),
           route: '/reserve/[id]',
           routeParams: { id: r.id },
           createdAt: r.deadline || r.createdAt,
@@ -133,12 +134,16 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
         if (deadlineDate !== null) {
           const daysLeft = Math.floor((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
           if (daysLeft >= 0 && daysLeft <= 3 && !isOverdue(r.deadline, r.status)) {
-            const label = daysLeft === 0 ? "aujourd'hui" : daysLeft === 1 ? 'demain' : `dans ${daysLeft} jours`;
+            const label = daysLeft === 0
+              ? i18n.t('notifications.bodies.today')
+              : daysLeft === 1
+                ? i18n.t('notifications.bodies.tomorrow')
+                : i18n.t('notifications.bodies.inDays', { count: daysLeft });
             result.push({
               id: `soon_${r.id}`,
               type: 'due_soon_reserve',
-              title: 'Échéance imminente',
-              body: `${r.title} — échéance ${label}`,
+              title: i18n.t('notifications.types.due_soon_reserve'),
+              body: i18n.t('notifications.bodies.dueSoonReserve', { title: r.title, label }),
               route: '/reserve/[id]',
               routeParams: { id: r.id },
               createdAt: r.createdAt,
@@ -165,7 +170,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
           result.push({
             id: `task_${t.id}`,
             type: 'late_task',
-            title: 'Tâche en retard',
+            title: i18n.t('notifications.types.late_task'),
             body: t.title,
             route: '/task/[id]',
             routeParams: { id: t.id },

@@ -6,6 +6,7 @@ import { useRouter } from 'expo-router';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
+import i18n from '@/lib/i18n';
 
 type PushPermissionStatus = 'unsupported' | 'undetermined' | 'granted' | 'denied';
 
@@ -61,7 +62,7 @@ async function getExpoPushTokenWithRetry(projectId: string, isCancelled: () => b
   const delays = [0, 1200, 2800];
 
   for (let attempt = 0; attempt < delays.length; attempt += 1) {
-    if (isCancelled()) throw new Error('Enregistrement push annule.');
+    if (isCancelled()) throw new Error(i18n.t('pushNotificationsContext.registrationCancelled'));
     if (delays[attempt] > 0) await delay(delays[attempt]);
 
     try {
@@ -73,7 +74,7 @@ async function getExpoPushTokenWithRetry(projectId: string, isCancelled: () => b
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error('Impossible de recuperer le token push.');
+  throw lastError instanceof Error ? lastError : new Error(i18n.t('pushNotificationsContext.tokenUnavailable'));
 }
 
 function routeNotification(router: ReturnType<typeof useRouter>, data: Record<string, unknown> | undefined) {
@@ -95,18 +96,18 @@ function routeNotification(router: ReturnType<typeof useRouter>, data: Record<st
 
 function friendlyPushError(message: string): string {
   if (/SERVICE_NOT_AVAILABLE|Fetching the token failed|java\.io\.IOException/i.test(message)) {
-    return "Service push Android temporairement indisponible. Verifiez la connexion et Google Play Services, puis reessayez l'enregistrement des notifications.";
+    return i18n.t('pushNotificationsContext.serviceUnavailable');
   }
   if (/push_tokens|schema cache|Could not find the table/i.test(message)) {
-    return "Migration Supabase manquante : la table public.push_tokens n'existe pas encore. Appliquez la migration 20260520143000_add_push_notifications.sql puis relancez l'application.";
+    return i18n.t('pushNotificationsContext.missingTable');
   }
   if (/FirebaseApp is not initialized|fcm-credentials|google-services/i.test(message)) {
-    return "Configuration Android FCM incomplète : ajoutez le fichier google-services.json dans l'app et la clé FCM V1 dans Expo/EAS, puis rebuild l'APK.";
+    return i18n.t('pushNotificationsContext.androidConfigIncomplete');
   }
   if (/Project ID Expo/i.test(message)) {
     return message;
   }
-  return message || 'Impossible de configurer les notifications push.';
+  return message || i18n.t('pushNotificationsContext.setupFailed');
 }
 
 export function PushNotificationsProvider({ children }: { children: React.ReactNode }) {
@@ -202,7 +203,7 @@ export function PushNotificationsProvider({ children }: { children: React.ReactN
         }
       } catch (err: any) {
         if (!cancelled) {
-          const message = err?.message ?? 'Impossible de configurer les notifications push.';
+          const message = err?.message ?? i18n.t('pushNotificationsContext.setupFailed');
           console.warn('[push] registration error:', message);
           setLastError(friendlyPushError(message));
         }

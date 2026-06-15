@@ -34,18 +34,18 @@ function SafeKAV({ children }: { children: React.ReactNode }) {
   return <View style={{ flex: 1 }}>{children}</View>;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: any; hint?: string }> = {
-  trial:     { label: "Période d'essai",  color: '#F59E0B', bg: '#FFFBEB', icon: 'time-outline' },
-  active:    { label: 'Actif',            color: '#10B981', bg: '#ECFDF5', icon: 'checkmark-circle-outline' },
+const STATUS_CONFIG: Record<string, { labelKey: string; color: string; bg: string; icon: any; hintKey?: string }> = {
+  trial:     { labelKey: 'adminScreen.subscriptionStatus.trial.label',  color: '#F59E0B', bg: '#FFFBEB', icon: 'time-outline' },
+  active:    { labelKey: 'adminScreen.subscriptionStatus.active.label', color: '#10B981', bg: '#ECFDF5', icon: 'checkmark-circle-outline' },
   suspended: {
-    label: 'Suspendu',
+    labelKey: 'adminScreen.subscriptionStatus.suspended.label',
     color: '#EF4444', bg: '#FEF2F2', icon: 'warning-outline',
-    hint: 'Votre abonnement est suspendu. Contactez le support BuildTrack pour réactiver votre compte.',
+    hintKey: 'adminScreen.subscriptionStatus.suspended.hint',
   },
   expired:   {
-    label: 'Expiré',
+    labelKey: 'adminScreen.subscriptionStatus.expired.label',
     color: '#6B7280', bg: '#F3F4F6', icon: 'close-circle-outline',
-    hint: 'Votre période d\'essai ou abonnement a expiré. Renouvelez votre plan pour continuer.',
+    hintKey: 'adminScreen.subscriptionStatus.expired.hint',
   },
 };
 
@@ -251,8 +251,8 @@ export default function AdminScreen() {
     const cfg = STATUS_CONFIG[subscription.status] ?? STATUS_CONFIG.trial;
     return {
       ...cfg,
-      label: t(`adminScreen.subscriptionStatus.${subscription.status}.label`, { defaultValue: cfg.label }),
-      hint: t(`adminScreen.subscriptionStatus.${subscription.status}.hint`, { defaultValue: cfg.hint ?? '' }),
+      label: t(cfg.labelKey),
+      hint: cfg.hintKey ? t(cfg.hintKey) : '',
     };
   }, [subscription, t]);
 
@@ -966,7 +966,7 @@ export default function AdminScreen() {
             <View style={styles.hintCard}>
               <Ionicons name="key-outline" size={16} color={C.textMuted} />
               <Text style={styles.hintText}>
-                Pour inviter un nouveau membre, utilisez le bouton "Inviter" ci-dessus. Un code d'accès sera généré à partager avec la personne.
+                {t('adminScreen.inviteEmptyHint')}
               </Text>
             </View>
           )}

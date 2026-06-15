@@ -25,21 +25,18 @@ export function generateOrgSlug(name: string): string {
 
 const FREE_ROLES: UserRole[] = ['observateur', 'sous_traitant'];
 
-const ENTERPRISE_PLAN: Plan = {
-  id: 'plan-entreprise',
-  name: 'Entreprise',
-  maxUsers: -1,
-  priceMonthly: 0,
-  features: [
-    'Utilisateurs illimités',
-    'Sous-traitants & observateurs inclus',
-    'Réserves, plans, OPR, visites',
-    'Rapports PDF/Excel',
-    'Pointage & présences',
-    'Support dédié',
-    'API & intégrations BTP',
-  ],
-};
+function makeEnterprisePlan(): Plan {
+  const features = i18n.t('adminScreen.licenseDetails.features', { returnObjects: true });
+  return {
+    id: 'plan-entreprise',
+    name: i18n.t('adminScreen.licenseDetails.enterprisePlan') as Plan['name'],
+    maxUsers: -1,
+    priceMonthly: 0,
+    features: Array.isArray(features) ? features : [],
+  };
+}
+
+const ENTERPRISE_PLAN: Plan = makeEnterprisePlan();
 
 const DEMO_PLANS: Plan[] = [ENTERPRISE_PLAN];
 
@@ -342,35 +339,35 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     role: UserRole,
     companyId?: string
   ): Promise<{ success: boolean; error?: string; token?: string; emailError?: string }> {
-    if (!user) return { success: false, error: 'Non connecté.' };
+    if (!user) return { success: false, error: i18n.t('subscriptionContext.notConnected') };
     const isFreeRole = FREE_ROLES.includes(role);
     if (!isFreeRole) {
       if (!subscriptionActive) {
         return {
           success: false,
-          error: "Votre abonnement est suspendu ou expiré. Contactez le support pour réactiver votre compte.",
+          error: i18n.t('subscriptionContext.subscriptionInactive'),
         };
       }
       if (!canInvite) {
         return {
           success: false,
-          error: `Limite de sièges atteinte (${seatMax} utilisateurs actifs). Passez à un plan supérieur.`,
+          error: i18n.t('subscriptionContext.seatLimitReached', { count: seatMax }),
         };
       }
     }
 
     const emailLower = email.trim().toLowerCase();
     if (!emailLower.includes('@')) {
-      return { success: false, error: 'Adresse email invalide.' };
+      return { success: false, error: i18n.t('subscriptionContext.invalidEmail') };
     }
 
     const alreadyMember = orgUsers.find(u => u.email.toLowerCase() === emailLower);
     if (alreadyMember) {
-      return { success: false, error: 'Cet utilisateur fait déjà partie de votre organisation.' };
+      return { success: false, error: i18n.t('subscriptionContext.alreadyMember') };
     }
 
     if (!user.organizationId && user.role !== 'super_admin') {
-      return { success: false, error: "Vous n'êtes pas associé à une organisation." };
+      return { success: false, error: i18n.t('subscriptionContext.noOrganization') };
     }
 
     if (!isSupabaseConfigured) {
@@ -400,7 +397,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         new Date(i.expiresAt) > now
     );
     if (existingInv) {
-      return { success: false, error: 'Une invitation est déjà en attente pour cet email.' };
+      return { success: false, error: i18n.t('subscriptionContext.pendingInviteExists') };
     }
 
     try {
@@ -435,7 +432,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         .single();
 
       if (error || !data) {
-        const msg = error?.message ? `Impossible de créer l'invitation : ${error.message}` : "Impossible de créer l'invitation.";
+        const msg = error?.message
+          ? i18n.t('subscriptionContext.createInviteFailedWithMessage', { message: error.message })
+          : i18n.t('subscriptionContext.createInviteFailed');
         console.warn('[inviteUser] insert error:', error?.code, error?.message, error?.details);
         return { success: false, error: msg };
       }
@@ -476,30 +475,30 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         const emailResult = await sendInvitationEmail({
           email: emailLower,
           invitedByName: user.name,
-          organizationName: organization?.name ?? 'votre organisation',
+          organizationName: organization?.name ?? i18n.t('subscriptionContext.defaultOrganizationName'),
           role,
           token: data.token,
           expiresAt: data.expires_at,
           companyName,
           language: user.preferredLanguage,
         });
-        if (!emailResult.success) emailError = emailResult.error ?? 'Envoi impossible';
+        if (!emailResult.success) emailError = emailResult.error ?? i18n.t('subscriptionContext.sendImpossible');
       } catch (err: any) {
-        emailError = err?.message ?? 'Envoi impossible';
+        emailError = err?.message ?? i18n.t('subscriptionContext.sendImpossible');
       }
 
       return { success: true, token: data.token, emailError };
     } catch {
-      return { success: false, error: 'Erreur réseau.' };
+      return { success: false, error: i18n.t('subscriptionContext.networkError') };
     }
   }
 
   async function resendInvitation(id: string): Promise<{ success: boolean; error?: string }> {
-    if (!user) return { success: false, error: 'Non authentifié.' };
+    if (!user) return { success: false, error: i18n.t('subscriptionContext.notAuthenticated') };
     const inv = pendingInvitations.find(i => i.id === id);
-    if (!inv) return { success: false, error: 'Invitation introuvable.' };
+    if (!inv) return { success: false, error: i18n.t('subscriptionContext.invitationNotFound') };
     if (new Date(inv.expiresAt).getTime() <= Date.now()) {
-      return { success: false, error: 'Invitation expirée. Créez-en une nouvelle.' };
+      return { success: false, error: i18n.t('subscriptionContext.invitationExpired') };
     }
 
     let companyName: string | undefined;
@@ -518,7 +517,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     const emailResult = await sendInvitationEmail({
       email: inv.email,
       invitedByName: user.name,
-      organizationName: organization?.name ?? 'votre organisation',
+      organizationName: organization?.name ?? i18n.t('subscriptionContext.defaultOrganizationName'),
       role: inv.role,
       token: inv.token,
       expiresAt: inv.expiresAt,
@@ -580,7 +579,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refreshSubscription();
       return { success: true };
     } catch {
-      return { success: false, error: 'Erreur réseau.' };
+      return { success: false, error: i18n.t('subscriptionContext.networkError') };
     }
   }
 
@@ -602,7 +601,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       if (error) return { success: false, error: error.message };
       if (!data || data.length === 0) {
-        return { success: false, error: 'Aucune ligne modifiée — vérifiez les droits Supabase (RLS) sur la table subscriptions.' };
+        return { success: false, error: i18n.t('subscriptionContext.noRowsSubscriptions') };
       }
       // Mise à jour locale immédiate + synchronisation complète
       setOrgSummaries(prev => prev.map(s =>
@@ -611,7 +610,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refreshSubscription();
       return { success: true };
     } catch {
-      return { success: false, error: 'Erreur réseau.' };
+      return { success: false, error: i18n.t('subscriptionContext.networkError') };
     }
   }
 
@@ -621,7 +620,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     slug?: string
   ): Promise<{ success: boolean; error?: string }> {
     const trimmed = name.trim();
-    if (!trimmed) return { success: false, error: 'Le nom ne peut pas être vide.' };
+    if (!trimmed) return { success: false, error: i18n.t('subscriptionContext.nameRequired') };
 
     const newSlug = slug?.trim() || undefined;
 
@@ -645,12 +644,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       if (error) {
         if (error.code === '23505') {
-          return { success: false, error: 'Cet identifiant est déjà utilisé par une autre organisation. Essayez un nom légèrement différent.' };
+          return { success: false, error: i18n.t('subscriptionContext.organizationSlugUsed') };
         }
         return { success: false, error: error.message };
       }
       if (!data || data.length === 0) {
-        return { success: false, error: 'Aucune ligne modifiée — vérifiez les droits Supabase (RLS) sur la table organizations.' };
+        return { success: false, error: i18n.t('subscriptionContext.noRowsOrganizations') };
       }
       const savedSlug: string = (data[0] as any).slug;
       // Mise à jour locale immédiate + synchronisation complète
@@ -663,7 +662,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refreshSubscription();
       return { success: true };
     } catch {
-      return { success: false, error: 'Erreur réseau.' };
+      return { success: false, error: i18n.t('subscriptionContext.networkError') };
     }
   }
 
@@ -671,7 +670,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     name: string,
     adminEmail?: string
   ): Promise<{ success: boolean; error?: string }> {
-    if (!user) return { success: false, error: 'Non connecté.' };
+    if (!user) return { success: false, error: i18n.t('subscriptionContext.notConnected') };
 
     const slug = name
       .toLowerCase()
@@ -706,7 +705,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         .single();
 
       if (orgErr || !org) {
-        return { success: false, error: orgErr?.message ?? "Impossible de créer l'organisation." };
+        return { success: false, error: orgErr?.message ?? i18n.t('subscriptionContext.createOrganizationFailed') };
       }
 
       // Update local state immediately so the new org appears in the UI without waiting for refresh.
@@ -735,7 +734,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       await (supabase.from('channels') as any).insert({
         id: `general-${org.id}`,
-        name: 'Général',
+        name: i18n.t('subscriptionContext.generalChannel'),
         type: 'general',
         organization_id: org.id,
         created_by: user.id,
@@ -778,13 +777,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       refreshSubscription();
       return { success: true };
     } catch (e: any) {
-      return { success: false, error: e?.message ?? 'Erreur réseau.' };
+      return { success: false, error: e?.message ?? i18n.t('subscriptionContext.networkError') };
     }
   }
 
   async function deleteOrganization(orgId: string): Promise<{ success: boolean; error?: string }> {
     if (!user || user.role !== 'super_admin') {
-      return { success: false, error: 'Action réservée au super administrateur.' };
+      return { success: false, error: i18n.t('subscriptionContext.superAdminOnly') };
     }
 
     if (!isSupabaseConfigured) {
@@ -795,7 +794,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     return {
       success: false,
-      error: 'Suppression definitive organisation desactivee: procedure admin tracee requise pour eviter toute perte de donnees.',
+      error: i18n.t('subscriptionContext.deleteOrganizationDisabled'),
     };
 
     try {
@@ -874,7 +873,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
       return { success: true };
     } catch (e: any) {
-      return { success: false, error: e?.message ?? 'Erreur lors de la suppression.' };
+      return { success: false, error: e?.message ?? i18n.t('subscriptionContext.deleteError') };
     }
   }
 
