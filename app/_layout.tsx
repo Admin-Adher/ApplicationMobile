@@ -107,18 +107,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const hasRestoredTab = useRef(false);
 
-  // Safety net: never block indefinitely if queries error / time out
-  const [appLoadTimedOut, setAppLoadTimedOut] = useState(false);
-  useEffect(() => {
-    if (!isAuthenticated || !appLoading) return;
-    const t = setTimeout(() => setAppLoadTimedOut(true), 10_000);
-    return () => clearTimeout(t);
-  }, [isAuthenticated, appLoading]);
-  useEffect(() => {
-    if (!appLoading && appLoadTimedOut) setAppLoadTimedOut(false);
-  }, [appLoading, appLoadTimedOut]);
-
-  const isLoading = authLoading || (isAuthenticated && appLoading && !appLoadTimedOut);
+  const isLoading = authLoading || (isAuthenticated && appLoading);
 
   // ── Overlay fade logic ───────────────────────────────────────────────────
   const [overlayMounted, setOverlayMounted] = useState(true);

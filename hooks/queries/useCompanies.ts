@@ -28,7 +28,10 @@ export function useCompanies() {
     readCache<Company>(COMPANIES_CACHE_KEY, userId).then(manualCached => {
       if (!manualCached?.length) return;
       const rqCurrent = queryClient.getQueryData<Company[]>(queryKeys.companies());
-      if (!rqCurrent?.length) return;
+      if (!rqCurrent?.length) {
+        queryClient.setQueryData<Company[]>(queryKeys.companies(), manualCached);
+        return;
+      }
       const manualIds = new Set(manualCached.map(c => c.id));
       if (rqCurrent.some(c => !manualIds.has(c.id))) {
         queryClient.setQueryData<Company[]>(queryKeys.companies(), rqCurrent.filter(c => manualIds.has(c.id)));

@@ -30,7 +30,10 @@ export function useTasks() {
     readCache<Task>(TASKS_CACHE_KEY, userId).then(manualCached => {
       if (!manualCached?.length) return;
       const rqCurrent = queryClient.getQueryData<Task[]>(queryKeys.tasks());
-      if (!rqCurrent?.length) return;
+      if (!rqCurrent?.length) {
+        queryClient.setQueryData<Task[]>(queryKeys.tasks(), manualCached);
+        return;
+      }
       const manualIds = new Set(manualCached.map(t => t.id));
       if (rqCurrent.some(t => !manualIds.has(t.id))) {
         queryClient.setQueryData<Task[]>(queryKeys.tasks(), rqCurrent.filter(t => manualIds.has(t.id)));

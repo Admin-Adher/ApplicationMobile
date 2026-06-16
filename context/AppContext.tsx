@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus, Platform } from 'react-native';
-import { useQueryClient } from '@tanstack/react-query';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import {
   Reserve, Company, Task, Document, Photo, Message, Channel, Profile,
   Comment, ReserveStatus, Chantier, SitePlan, Visite, Lot, Opr,
@@ -201,6 +201,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const authH = useAuth();
   const { isOnline, enqueueOperation, queueLoaded } = useNetwork();
   const { preferences: notificationPreferences } = useNotificationPreferences();
+  const startupFetchingCount = useIsFetching({
+    predicate: query => isStartupBlockingQueryKey(query.queryKey),
+  });
 
   useRealtimeSync();
 
@@ -897,12 +900,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const hasHydratedData = chantiersH.chantiers.length > 0
     || reservesH.reserves.length > 0
     || companiesH.companies.length > 0
-    || profilesH.profiles.length > 0;
+    || tasksH.tasks.length > 0
+    || chantiersH.sitePlans.length > 0;
   const startupQueriesLoading = chantiersH.isLoadingChantiers || reservesH.isLoadingReserves
     || tasksH.isLoadingTasks || profilesH.isLoadingProfiles
     || chantiersH.isLoadingSitePlans || companiesH.isLoadingCompanies;
+  const startupQueriesFetching = startupFetchingCount > 0;
   const isLoading = (serverRefreshBlocking && !hasHydratedData)
-    || (!hasHydratedData && startupQueriesLoading);
+    || (!hasHydratedData && (startupQueriesLoading || startupQueriesFetching));
 
   const migrateReservesToPlan = useCallback((fromPlanId: string, toPlanId: string): number => {
     const result = chantiersH.migrateReservesToPlan(fromPlanId, toPlanId);

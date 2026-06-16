@@ -30,7 +30,10 @@ export function useChantiers() {
     readCache<Chantier>(CHANTIERS_CACHE_KEY, userId).then(manualCached => {
       if (!manualCached?.length) return;
       const rqCurrent = queryClient.getQueryData<Chantier[]>(queryKeys.chantiers());
-      if (!rqCurrent?.length) return;
+      if (!rqCurrent?.length) {
+        queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), manualCached);
+        return;
+      }
       const manualIds = new Set(manualCached.map(c => c.id));
       if (rqCurrent.some(c => !manualIds.has(c.id))) {
         queryClient.setQueryData<Chantier[]>(queryKeys.chantiers(), rqCurrent.filter(c => manualIds.has(c.id)));
@@ -39,7 +42,10 @@ export function useChantiers() {
     readCache<SitePlan>(SITE_PLANS_CACHE_KEY, userId).then(manualCached => {
       if (!manualCached?.length) return;
       const rqCurrent = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans());
-      if (!rqCurrent?.length) return;
+      if (!rqCurrent?.length) {
+        queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), manualCached);
+        return;
+      }
       const manualIds = new Set(manualCached.map(p => p.id));
       if (rqCurrent.some(p => !manualIds.has(p.id))) {
         queryClient.setQueryData<SitePlan[]>(queryKeys.sitePlans(), rqCurrent.filter(p => manualIds.has(p.id)));

@@ -143,7 +143,10 @@ export function useReserves() {
     readCache<Reserve>(RESERVES_CACHE_KEY, userId).then(manualCached => {
       if (!manualCached?.length) return;
       const rqCurrent = queryClient.getQueryData<Reserve[]>(queryKeys.reserves());
-      if (!rqCurrent?.length) return;
+      if (!rqCurrent?.length) {
+        queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), manualCached);
+        return;
+      }
       const manualIds = new Set(manualCached.map(r => r.id));
       const hasGhosts = rqCurrent.some(r => !manualIds.has(r.id));
       if (hasGhosts) {
