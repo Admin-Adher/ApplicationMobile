@@ -2,7 +2,7 @@ import React, {
   createContext, useContext, useEffect, useRef,
   useState, useCallback,
 } from 'react';
-import { Platform, AppState, AppStateStatus } from 'react-native';
+import { Platform, AppState, AppStateStatus, InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
@@ -311,7 +311,12 @@ async function healSupabaseSessionAfterWake(longSleep: boolean): Promise<boolean
 
 async function refetchActiveQueries(reason: string): Promise<void> {
   try {
-    await queryClient.invalidateQueries();
+    if (Platform.OS !== 'web') {
+      await new Promise<void>(resolve => {
+        InteractionManager.runAfterInteractions(() => resolve());
+      });
+    }
+    await queryClient.invalidateQueries({ refetchType: 'none' });
     await queryClient.refetchQueries({ type: 'active' });
   } catch (err) {
     console.warn(`[query] foreground refetch failed (${reason}):`, (err as any)?.message ?? err);

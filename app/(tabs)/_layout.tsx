@@ -1,37 +1,13 @@
 import { Tabs, usePathname, useRouter } from 'expo-router';
-import { Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, Image } from 'react-native';
+import { InteractionManager, Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useMemo } from 'react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
-import { useApp } from '@/context/AppContext';
-import { useAuth } from '@/context/AuthContext';
+import { useAppTabBadges } from '@/context/AppContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
-import { isSameUserName } from '@/lib/mappers';
-
-function useMessagesUnreadBadge(): number {
-  const { unreadCount, channels, unreadByChannel } = useApp();
-  const { user } = useAuth();
-  return useMemo(() => {
-    if (user?.role !== 'super_admin') return unreadCount;
-    const myName = user.name ?? '';
-    return channels
-      .filter(c => {
-        if (c.type === 'dm') {
-          return c.members?.some(name => isSameUserName(name, myName)) ||
-            c.dmParticipants?.some(name => isSameUserName(name, myName));
-        }
-        if (c.type === 'group') {
-          return c.members?.some(name => isSameUserName(name, myName)) ||
-            isSameUserName(c.createdBy, myName);
-        }
-        return false;
-      })
-      .reduce((acc, c) => acc + (unreadByChannel[c.id] ?? 0), 0);
-  }, [user?.role, user?.name, unreadCount, channels, unreadByChannel]);
-}
 
 const TAB_ITEMS = [
   { name: 'index',    titleKey: 'tabs.dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
@@ -40,6 +16,8 @@ const TAB_ITEMS = [
   { name: 'messages', titleKey: 'tabs.messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline', path: '/(tabs)/messages' },
   { name: 'more',     titleKey: 'tabs.more',      icon: 'hammer',        iconOutline: 'hammer-outline',      path: '/(tabs)/more' },
 ] as const;
+
+const PREFETCH_TAB_PATHS = ['/(tabs)/plans', '/(tabs)/reserves', '/(tabs)/messages', '/(tabs)/more'] as const;
 
 function TabIcon({ name, color, size, badge }: { name: any; color: string; size: number; badge?: number }) {
   return (
@@ -58,9 +36,8 @@ function TabletSidebar() {
   const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
-  const { stats } = useApp();
+  const { openReserveCount, unreadMessagesCount } = useAppTabBadges();
   const { incidents } = useIncidents();
-  const messagesUnread = useMessagesUnreadBadge();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const insets = useSafeAreaInsets();
 
@@ -99,8 +76,8 @@ function TabletSidebar() {
       {TAB_ITEMS.map(tab => {
         const isFocused = activeTab === tab.name;
         const badgeCount =
-          tab.name === 'messages' ? messagesUnread :
-          tab.name === 'reserves' ? stats.open :
+          tab.name === 'messages' ? unreadMessagesCount :
+          tab.name === 'reserves' ? openReserveCount :
           tab.name === 'more' ? openIncidentsCount :
           0;
         const hasBadge = badgeCount > 0;
@@ -136,17 +113,46 @@ function TabletSidebar() {
 
 function TabsNavigator() {
   const { t } = useTranslation();
-  const { stats } = useApp();
+  const router = useRouter();
+  const { openReserveCount, unreadMessagesCount } = useAppTabBadges();
   const { incidents } = useIncidents();
-  const messagesUnread = useMessagesUnreadBadge();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const { width } = useWindowDimensions();
   const isTablet = width >= 768;
 
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let cancelled = false;
+    let staggerTimer: ReturnType<typeof setTimeout> | null = null;
+    const startTimer = setTimeout(() => {
+      InteractionManager.runAfterInteractions(() => {
+        let index = 0;
+        const prefetchNext = () => {
+          if (cancelled || index >= PREFETCH_TAB_PATHS.length) return;
+          try { router.prefetch(PREFETCH_TAB_PATHS[index] as any); } catch {}
+          index += 1;
+          if (index < PREFETCH_TAB_PATHS.length) {
+            staggerTimer = setTimeout(prefetchNext, 350);
+          }
+        };
+        prefetchNext();
+      });
+    }, 1200);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(startTimer);
+      if (staggerTimer) clearTimeout(staggerTimer);
+    };
+  }, [router]);
+
   return (
     <Tabs
+      detachInactiveScreens={Platform.OS !== 'web'}
       screenOptions={{
         headerShown: false,
+        lazy: true,
+        freezeOnBlur: Platform.OS !== 'web',
         tabBarActiveTintColor: C.primary,
         tabBarInactiveTintColor: C.textMuted,
         tabBarStyle: isTablet ? { display: 'none' } : {
@@ -189,7 +195,7 @@ function TabsNavigator() {
         name="reserves"
         options={{
           title: t('tabs.reserves'),
-          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} badge={stats.open} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'warning' : 'warning-outline'} color={color} size={26} badge={openReserveCount} />,
         }}
       />
       <Tabs.Screen
@@ -197,7 +203,7 @@ function TabsNavigator() {
         options={{
           title: t('tabs.messages'),
           tabBarIcon: ({ color, focused }) => (
-            <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} color={color} size={26} badge={messagesUnread} />
+            <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} color={color} size={26} badge={unreadMessagesCount} />
           ),
         }}
       />

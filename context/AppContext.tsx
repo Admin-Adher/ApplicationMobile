@@ -181,7 +181,16 @@ interface AppContextValue {
   isOfflineSession: boolean;
 }
 
+interface AppTabBadgesValue {
+  openReserveCount: number;
+  unreadMessagesCount: number;
+}
+
 const AppContext = createContext<AppContextValue | null>(null);
+const AppTabBadgesContext = createContext<AppTabBadgesValue>({
+  openReserveCount: 0,
+  unreadMessagesCount: 0,
+});
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -878,6 +887,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return { total, open, inProgress, waiting, verification, closed, progress, totalWorkers, plannedWorkers };
   }, [visibleReserves, companiesH.companies]);
 
+  const tabBadges = useMemo<AppTabBadgesValue>(() => {
+    let unreadMessagesCount = unreadCount;
+    if (authH.user?.role === 'super_admin') {
+      const myName = authH.user.name ?? '';
+      unreadMessagesCount = allChannels
+        .filter(channel => {
+          const members = Array.isArray(channel.members) ? channel.members : [];
+          if (channel.type === 'dm') {
+            const dmParticipants = 'dmParticipants' in channel && Array.isArray(channel.dmParticipants)
+              ? channel.dmParticipants
+              : [];
+            return members.some((name: string) => isSameUserName(name, myName)) ||
+              dmParticipants.some((name: string) => isSameUserName(name, myName));
+          }
+          if (channel.type === 'group') {
+            const createdBy = 'createdBy' in channel ? channel.createdBy : undefined;
+            return members.some((name: string) => isSameUserName(name, myName)) ||
+              isSameUserName(createdBy, myName);
+          }
+          return false;
+        })
+        .reduce((acc, channel) => acc + (unreadByChannel[channel.id] ?? 0), 0);
+    }
+    return {
+      openReserveCount: stats.open,
+      unreadMessagesCount,
+    };
+  }, [allChannels, authH.user?.name, authH.user?.role, stats.open, unreadByChannel, unreadCount]);
+
   const activeChantier = useMemo(
     () =>
       chantiersH.chantiers.find(c => c.id === activeChantierId) ??
@@ -1067,7 +1105,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     authH.isOfflineSession,
   ]);
 
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
+  return (
+    <AppTabBadgesContext.Provider value={tabBadges}>
+      <AppContext.Provider value={value}>{children}</AppContext.Provider>
+    </AppTabBadgesContext.Provider>
+  );
 }
 
 export function useAppContext(): AppContextValue {
@@ -1077,5 +1119,9 @@ export function useAppContext(): AppContextValue {
 }
 
 export const useApp = useAppContext;
+
+export function useAppTabBadges(): AppTabBadgesValue {
+  return useContext(AppTabBadgesContext);
+}
 
 export { AppContext };
