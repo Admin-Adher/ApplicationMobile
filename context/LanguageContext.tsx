@@ -1,4 +1,5 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Localization from 'expo-localization';
 import i18n from '@/lib/i18n';
@@ -47,6 +48,7 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const [languagePreference, setLanguagePreferenceState] = useState<LanguagePreference>('auto');
   const [isLoadingLanguage, setIsLoadingLanguage] = useState(true);
   const [hasStoredPreference, setHasStoredPreference] = useState(false);
+  const profileSyncSeqRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -83,7 +85,14 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, [deviceLanguage, languagePreference, user?.preferredLanguage]);
 
   useEffect(() => {
-    void i18n.changeLanguage(effectiveLanguage);
+    let cancelled = false;
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (!cancelled) void i18n.changeLanguage(effectiveLanguage);
+    });
+    return () => {
+      cancelled = true;
+      task.cancel?.();
+    };
   }, [effectiveLanguage]);
 
   const setLanguagePreference = useCallback(async (next: LanguagePreference) => {
@@ -92,12 +101,15 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     await AsyncStorage.setItem(LANGUAGE_PREFERENCE_KEY, next);
 
     if (user?.id) {
-      try {
-        await updateUserPreferredLanguage(next === 'auto' ? null : next);
-      } catch {
-        // The local setting is already persisted. The profile sync can be
-        // retried naturally when the user changes the setting again.
-      }
+      const syncSeq = ++profileSyncSeqRef.current;
+      const profileLanguage = next === 'auto' ? null : next;
+      InteractionManager.runAfterInteractions(() => {
+        if (profileSyncSeqRef.current !== syncSeq) return;
+        updateUserPreferredLanguage(profileLanguage).catch(() => {
+          // The local setting is already persisted. The profile sync can be
+          // retried naturally when the user changes the setting again.
+        });
+      });
     }
   }, [updateUserPreferredLanguage, user?.id]);
 

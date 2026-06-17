@@ -10,7 +10,7 @@
     "newArchEnabled": false,
     "updates": {
       "url": "https://u.expo.dev/e3c73711-1793-4925-a2c2-c787a3ac739a",
-      "fallbackToCacheTimeout": 3000,
+      "fallbackToCacheTimeout": 0,
       "checkAutomatically": "ON_LOAD"
     },
     "runtimeVersion": {

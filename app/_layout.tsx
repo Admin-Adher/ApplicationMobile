@@ -99,6 +99,7 @@ const eb = StyleSheet.create({
 });
 
 const LAST_TAB_KEY = 'buildtrack_last_tab';
+const APP_LOADING_OVERLAY_MAX_MS = 900;
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading: authLoading, user } = useAuth();
@@ -106,8 +107,19 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const segments = useSegments();
   const router = useRouter();
   const hasRestoredTab = useRef(false);
+  const [appOverlayTimedOut, setAppOverlayTimedOut] = useState(false);
 
-  const isLoading = authLoading || (isAuthenticated && appLoading);
+  useEffect(() => {
+    if (!appLoading) {
+      setAppOverlayTimedOut(false);
+      return;
+    }
+    const timer = setTimeout(() => setAppOverlayTimedOut(true), APP_LOADING_OVERLAY_MAX_MS);
+    return () => clearTimeout(timer);
+  }, [appLoading]);
+
+  const shouldBlockForAppData = isAuthenticated && appLoading && !appOverlayTimedOut;
+  const isLoading = authLoading || shouldBlockForAppData;
 
   // ── Overlay fade logic ───────────────────────────────────────────────────
   const [overlayMounted, setOverlayMounted] = useState(true);

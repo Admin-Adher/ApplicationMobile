@@ -427,6 +427,11 @@ export default function DashboardScreen() {
               <Text style={styles.chantierPillRowText} numberOfLines={1}>{activeChantier.name}</Text>
               <Ionicons name="chevron-down" size={12} color={C.primary} />
             </TouchableOpacity>
+          ) : appLoading ? (
+            <View style={styles.chantierPillRowLoading}>
+              <ActivityIndicator size="small" color={C.textMuted} />
+              <Text style={styles.chantierPillEmptyText}>{t('common.loading')}</Text>
+            </View>
           ) : (
             permissions.canCreate && (
               <TouchableOpacity
@@ -1081,6 +1086,13 @@ const styles = StyleSheet.create({
   },
   chantierPillRowEmpty: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: C.surface2,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 10, borderWidth: 1.5, borderColor: C.border,
+    alignSelf: 'flex-start',
+  },
+  chantierPillRowLoading: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: C.surface2,
     paddingHorizontal: 12, paddingVertical: 7,
     borderRadius: 10, borderWidth: 1.5, borderColor: C.border,

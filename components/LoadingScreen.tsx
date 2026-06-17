@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Image, Animated, Easing, StyleSheet, Platform } from 'react-native';
+import { View, Text, Image, ActivityIndicator, Animated, Easing, StyleSheet, Platform } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
 const NAVY   = '#1B2C4A';
@@ -10,7 +10,42 @@ const BAR_W  = 200;
 const WEB    = Platform.OS === 'web';
 
 export default function LoadingScreen() {
+  return WEB ? <AnimatedLoadingScreen /> : <NativeLoadingScreen />;
+}
+
+function NativeLoadingScreen() {
   const { t } = useTranslation();
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.nativeLogoWrap}>
+        <Image
+          source={require('../assets/images/icon.png')}
+          style={styles.nativeLogoImage}
+          resizeMode="contain"
+        />
+      </View>
+      <View style={styles.textBlock}>
+        <Text style={styles.appName}>BuildTrack</Text>
+        <Text style={styles.tagline}>{t('app.tagline')}</Text>
+      </View>
+      <View style={styles.nativeLoadingRow}>
+        <ActivityIndicator size="small" color={ORANGE} />
+        <Text style={styles.loadingLabel}>{t('common.loading')}</Text>
+      </View>
+      <View style={styles.brandBottom}>
+        <View style={styles.brandPill}>
+          <View style={styles.bpDot} />
+          <Text style={styles.bpLabel}>{t('common.online')}</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function AnimatedLoadingScreen() {
+  const { t } = useTranslation();
+
   // ── Ambient blob ─────────────────────────────────────────────────────────
   const ambientScale   = useRef(new Animated.Value(1)).current;
   const ambientOpacity = useRef(new Animated.Value(0.6)).current;
@@ -505,13 +540,13 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: '700',
     color: NAVY,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
     fontFamily: 'Inter_700Bold',
   },
   tagline: {
     fontSize: 12,
     color: 'rgba(27,44,74,0.38)',
-    letterSpacing: 0.4,
+    letterSpacing: 0,
     fontFamily: 'Inter_400Regular',
   },
 
@@ -540,7 +575,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     color: 'rgba(27,44,74,0.32)',
-    letterSpacing: 1.8,
+    letterSpacing: 0,
     textTransform: 'uppercase',
     fontFamily: 'Inter_500Medium',
   },
@@ -548,7 +583,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '500',
     color: 'rgba(27,44,74,0.32)',
-    letterSpacing: 1.8,
+    letterSpacing: 0,
+  },
+  nativeLogoWrap: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+  },
+  nativeLogoImage: {
+    width: 136,
+    height: 136,
+  },
+  nativeLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 28,
   },
 
   brandBottom: {
