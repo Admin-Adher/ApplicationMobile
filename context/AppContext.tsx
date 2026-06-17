@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { AppState, AppStateStatus, Platform } from 'react-native';
+import { AppState, AppStateStatus, InteractionManager, Platform } from 'react-native';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import {
   Reserve, Company, Task, Document, Photo, Message, Channel, Profile,
@@ -42,6 +42,7 @@ export const STATIC_CHANNELS: Channel[] = [];
 const ACTIVE_CHANTIER_PREFIX = 'buildtrack_active_chantier_v3_';
 const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
 const SERVER_REFRESH_MAX_WAIT_MS = 8_000;
+const BACKGROUND_REFRESH_DEFER_MS = 1200;
 const FOREGROUND_REFRESH_MIN_SLEEP_MS = 5_000;
 const STARTUP_BLOCKING_QUERY_KEYS = [
   queryKeys.chantiers(),
@@ -301,6 +302,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     let cancelled = false;
     let timeout: ReturnType<typeof setTimeout> | null = null;
+    let backgroundRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let interactionTask: ReturnType<typeof InteractionManager.runAfterInteractions> | null = null;
 
     setServerRefreshInProgress(true);
 
@@ -326,26 +329,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       refreshedServerKeyRef.current = serverFreshnessKey;
       setServerRefreshInProgress(false);
 
-      void queryClient.refetchQueries(
-        {
-          type: 'active',
-          predicate: query => !isStartupBlockingQueryKey(query.queryKey),
-        },
-        { cancelRefetch: false },
-      ).catch((err) => {
-        console.warn('[AppContext] background refresh failed:', (err as any)?.message ?? err);
-      });
-      void (reloadChannelsRef.current?.() ?? Promise.resolve()).catch((err) => {
-        console.warn('[AppContext] background channels refresh failed:', (err as any)?.message ?? err);
-      });
-      void (reloadMessagesRef.current?.() ?? Promise.resolve()).catch((err) => {
-        console.warn('[AppContext] background messages refresh failed:', (err as any)?.message ?? err);
-      });
+      const runBackgroundRefresh = () => {
+        if (cancelled) return;
+        void queryClient.refetchQueries(
+          {
+            type: 'active',
+            predicate: query => !isStartupBlockingQueryKey(query.queryKey),
+          },
+          { cancelRefetch: false },
+        ).catch((err) => {
+          console.warn('[AppContext] background refresh failed:', (err as any)?.message ?? err);
+        });
+        void (reloadChannelsRef.current?.() ?? Promise.resolve()).catch((err) => {
+          console.warn('[AppContext] background channels refresh failed:', (err as any)?.message ?? err);
+        });
+        void (reloadMessagesRef.current?.() ?? Promise.resolve()).catch((err) => {
+          console.warn('[AppContext] background messages refresh failed:', (err as any)?.message ?? err);
+        });
+      };
+
+      const scheduleBackgroundRefresh = () => {
+        backgroundRefreshTimer = setTimeout(runBackgroundRefresh, BACKGROUND_REFRESH_DEFER_MS);
+      };
+
+      if (Platform.OS === 'web') {
+        scheduleBackgroundRefresh();
+      } else {
+        interactionTask = InteractionManager.runAfterInteractions(scheduleBackgroundRefresh);
+      }
     });
 
     return () => {
       cancelled = true;
       if (timeout) clearTimeout(timeout);
+      if (backgroundRefreshTimer) clearTimeout(backgroundRefreshTimer);
+      interactionTask?.cancel?.();
     };
   }, [needsServerFreshness, queueLoaded, queryClient, serverFreshnessKey]);
 

@@ -657,6 +657,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
     const runWakeUpPass = async () => {
       const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+      backgroundAt = 0;
+      if (sleptMs <= 0) return;
       const longSleep = sleptMs > 30_000; // more than 30 s in background
 
       // ── 1. Heal the Supabase auth client ──────────────────────────────────
@@ -721,6 +723,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
     const sub = AppState.addEventListener('change', (next: AppStateStatus) => {
       if (next === 'active') {
+        if (backgroundAt <= 0) return;
         wakeUp();
       } else if (next === 'background' || next === 'inactive') {
         backgroundAt = Date.now();

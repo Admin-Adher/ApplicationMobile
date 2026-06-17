@@ -532,11 +532,12 @@ export function useMessages() {
     const subscription = AppState.addEventListener('change', (nextState: AppStateStatus) => {
       if (nextState === 'active') {
         const sleptMs = backgroundAt > 0 ? Date.now() - backgroundAt : 0;
+        backgroundAt = 0;
+        if (sleptMs <= 5000) return;
         if (sleptMs > 5000 && Date.now() - lastReconnectAt > 2000) {
           lastReconnectAt = Date.now();
           setReconnectSeq(seq => seq + 1);
         }
-        loadRecentMessagesRef.current();
       } else if (nextState === 'background' || nextState === 'inactive') {
         backgroundAt = Date.now();
       }

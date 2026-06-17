@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, Animated, InteractionManager } from 'react-native';
 import LoadingScreen from '@/components/LoadingScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -99,7 +99,8 @@ const eb = StyleSheet.create({
 });
 
 const LAST_TAB_KEY = 'buildtrack_last_tab';
-const APP_LOADING_OVERLAY_MAX_MS = 900;
+const APP_LOADING_OVERLAY_MAX_MS = 2500;
+const APP_STARTUP_SETTLE_MIN_MS = 2200;
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading: authLoading, user } = useAuth();
@@ -108,6 +109,8 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const hasRestoredTab = useRef(false);
   const [appOverlayTimedOut, setAppOverlayTimedOut] = useState(false);
+  const [startupSettled, setStartupSettled] = useState(Platform.OS === 'web');
+  const startupSettledUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!appLoading) {
@@ -119,7 +122,41 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [appLoading]);
 
   const shouldBlockForAppData = isAuthenticated && appLoading && !appOverlayTimedOut;
-  const isLoading = authLoading || shouldBlockForAppData;
+  const routeBlocking = authLoading || shouldBlockForAppData;
+
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setStartupSettled(true);
+      return;
+    }
+    if (!isAuthenticated || authLoading) {
+      startupSettledUserRef.current = null;
+      setStartupSettled(false);
+      return;
+    }
+
+    const startupKey = user?.id ?? 'authenticated';
+    if (startupSettledUserRef.current === startupKey) return;
+    startupSettledUserRef.current = startupKey;
+    setStartupSettled(false);
+
+    let cancelled = false;
+    let interactionTask: ReturnType<typeof InteractionManager.runAfterInteractions> | null = null;
+    const timer = setTimeout(() => {
+      interactionTask = InteractionManager.runAfterInteractions(() => {
+        if (!cancelled) setStartupSettled(true);
+      });
+    }, APP_STARTUP_SETTLE_MIN_MS);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+      interactionTask?.cancel?.();
+    };
+  }, [isAuthenticated, authLoading, user?.id]);
+
+  const shouldSettleStartup = Platform.OS !== 'web' && isAuthenticated && !startupSettled;
+  const isLoading = routeBlocking || shouldSettleStartup;
 
   // ── Overlay fade logic ───────────────────────────────────────────────────
   const [overlayMounted, setOverlayMounted] = useState(true);
@@ -168,7 +205,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (!isAuthenticated || isLoading) return;
+    if (!isAuthenticated || routeBlocking) return;
     const routeSegments = segments as string[];
     const seg0 = routeSegments[0];
     const seg1 = routeSegments[1];
@@ -176,17 +213,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       const tab = seg1 ? `/(tabs)/${seg1}` : '/(tabs)';
       AsyncStorage.setItem(LAST_TAB_KEY, tab).catch(() => {});
     }
-  }, [segments, isAuthenticated, isLoading]);
+  }, [segments, isAuthenticated, routeBlocking]);
 
   useEffect(() => {
-    if (isLoading || !isAuthenticated || hasRestoredTab.current) return;
+    if (routeBlocking || !isAuthenticated || hasRestoredTab.current) return;
     hasRestoredTab.current = true;
     AsyncStorage.getItem(LAST_TAB_KEY).then((savedTab) => {
       if (savedTab && savedTab !== '/(tabs)' && savedTab !== '/(tabs)/index') {
         router.replace(savedTab as any);
       }
     }).catch(() => {});
-  }, [isLoading, isAuthenticated]);
+  }, [routeBlocking, isAuthenticated]);
 
   useEffect(() => {
     if (authLoading) return;
