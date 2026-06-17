@@ -222,16 +222,6 @@ async function checkInternetReachable(): Promise<boolean> {
   return false;
 }
 
-async function hasUsableStoredSession(): Promise<boolean> {
-  try {
-    const cached = await getSessionFromStorage();
-    if (!cached?.access_token || typeof cached.expires_at !== 'number') return false;
-    return cached.expires_at - 30 > Math.floor(Date.now() / 1000);
-  } catch {
-    return false;
-  }
-}
-
 async function checkSupabaseReachable(): Promise<boolean> {
   if (!isSupabaseConfigured || !SUPABASE_URL || !SUPABASE_KEY) return true;
   try {
@@ -257,10 +247,10 @@ async function checkAppOnline(navigatorOnline = true): Promise<boolean> {
   if (isSupabaseConfigured) {
     if (await checkSupabaseReachable()) return true;
     if (await checkInternetReachable()) return true;
-    // React Native probes can false-negative on cold DNS/TLS or emulator
-    // network stalls. A still-valid persisted JWT means the app can safely try
-    // live Supabase queries; failed writes still fall back into the outbox.
-    return hasUsableStoredSession();
+    // A cached Supabase JWT keeps the user authenticated offline, but it is
+    // not a connectivity signal. Returning false here lets the UI communicate
+    // "hors connexion" while AuthContext continues to serve the cached session.
+    return false;
   }
   if (Platform.OS !== 'web') {
     return checkInternetReachable();
@@ -669,7 +659,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // We heal even after a short return because Android can freeze JS while
       // Supabase is mid-refresh. The helper uses short timeouts plus an
       // AsyncStorage/raw-refresh fallback, so this never blocks forever.
-      const sessionHealthy = await healSupabaseSessionAfterWake(longSleep);
+      await healSupabaseSessionAfterWake(longSleep);
 
       // ── 2. Reconnect the Realtime WebSocket ───────────────────────────────
       try { (supabase as any).realtime?.disconnect?.(); } catch {}
@@ -679,7 +669,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // We can't rely on the stale isOnline state: if the network was already
       // active before sleep, isOnline is still true and the change-based effect
       // won't fire. We ping explicitly and act on the result.
-      const online = applyOnlineReading(sessionHealthy || await checkAppOnline());
+      const online = applyOnlineReading(await checkAppOnline());
 
       // ── 4. Refresh active screens immediately ────────────────────────────
       // invalidateQueries alone can be lazy. Refetch active queries now so
