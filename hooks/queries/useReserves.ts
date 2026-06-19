@@ -70,6 +70,42 @@ function pendingReserveDeletionPayloads(queue: any[] | undefined | null): Map<st
   return payloads;
 }
 
+function pendingReservePhotoIds(queue: any[] | undefined | null): Set<string> {
+  const ids = new Set<string>();
+  for (const op of queue ?? []) {
+    const rpcReserve = op?.rpc?.args?.p_reserve;
+    const data = op?.data;
+    if (op?.table === 'reserves') {
+      const id = rpcReserve?.id ?? data?.id ?? op?.filter?.value;
+      if (id) ids.add(String(id));
+    }
+    if (op?.table === 'photos') {
+      const reserveId = data?.reserve_id ?? data?.reserveId;
+      if (reserveId) ids.add(String(reserveId));
+    }
+  }
+  return ids;
+}
+
+function stripOrphanedLocalPhotoRefs(reserve: Reserve): Reserve {
+  const photos = reserve.photos;
+  const hasLocalPhotos = Array.isArray(photos)
+    && photos.some(photo => typeof photo?.uri === 'string' && isLocalUri(photo.uri));
+  const nextPhotos = hasLocalPhotos
+    ? photos.filter(photo => !(typeof photo?.uri === 'string' && isLocalUri(photo.uri)))
+    : photos;
+  const nextPhotoUri = typeof reserve.photoUri === 'string' && isLocalUri(reserve.photoUri)
+    ? undefined
+    : reserve.photoUri;
+
+  if (nextPhotoUri === reserve.photoUri && nextPhotos === reserve.photos) return reserve;
+  return {
+    ...reserve,
+    photoUri: nextPhotoUri,
+    photos: Array.isArray(nextPhotos) && nextPhotos.length > 0 ? nextPhotos : undefined,
+  };
+}
+
 function reservePhotoRowsForRpc(source: Record<string, any>, reserve: Reserve, author?: string | null) {
   const photos = Array.isArray(source.photos) ? source.photos : [];
   const rows: any[] = [];
@@ -129,6 +165,25 @@ export function useReserves() {
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
+
+  useEffect(() => {
+    if (!userId || !queueLoaded) return;
+    const pendingPhotoIds = pendingReservePhotoIds(queue);
+    let changed = false;
+    queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
+      if (!old?.length) return old;
+      const next = old.map(reserve => {
+        if (pendingPhotoIds.has(reserve.id)) return reserve;
+        const cleaned = stripOrphanedLocalPhotoRefs(reserve);
+        if (cleaned !== reserve) changed = true;
+        return cleaned;
+      });
+      return changed ? next : old;
+    });
+    if (changed) {
+      writeCache(RESERVES_CACHE_KEY, queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [], userId);
+    }
+  }, [queue, queueLoaded, queryClient, userId]);
 
   // ── On mount: clean stale ghost items from the RQ persisted cache ──────────
   // The RQ persisted cache (restored by PersistQueryClientProvider on startup)

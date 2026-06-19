@@ -7,12 +7,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestRpc, supabaseRestSelect } from '@/lib/supabaseRest';
-import { forceRefreshSession, getSessionFromStorage } from '@/lib/offlineCache';
+import { forceRefreshSession, getSessionFromStorage, writeCache } from '@/lib/offlineCache';
 import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
+import { queryKeys } from '@/lib/queryKeys';
+import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
 import { triggerMessagePush, triggerReserveCreatedPush } from '@/lib/push/client';
-import type { Comment } from '@/constants/types';
+import type { Comment, Reserve } from '@/constants/types';
 import {
   applyReservePatchOperation,
   buildRequestHash,
@@ -367,6 +369,40 @@ function reservePhotoRowsForRpcPayload(source: Record<string, any>, author?: str
   }
 
   return Array.from(rows.values());
+}
+
+async function applySyncedReservePhotoPayloadToCache(
+  userId: string | undefined,
+  reserveId: string,
+  uploadedData: Record<string, any>,
+): Promise<void> {
+  const hasPhotoUri = Object.prototype.hasOwnProperty.call(uploadedData, 'photo_uri');
+  const hasPhotos = Object.prototype.hasOwnProperty.call(uploadedData, 'photos');
+  if (!hasPhotoUri && !hasPhotos) return;
+
+  let nextReserves: Reserve[] | null = null;
+  queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), old => {
+    if (!old?.length) return old;
+    let changed = false;
+    const next = old.map(reserve => {
+      if (reserve.id !== reserveId) return reserve;
+      changed = true;
+      return {
+        ...reserve,
+        photoUri: hasPhotoUri ? (uploadedData.photo_uri ?? undefined) : reserve.photoUri,
+        photos: hasPhotos
+          ? (Array.isArray(uploadedData.photos) && uploadedData.photos.length > 0 ? uploadedData.photos : undefined)
+          : reserve.photos,
+      };
+    });
+    if (!changed) return old;
+    nextReserves = next;
+    return next;
+  });
+
+  if (nextReserves) {
+    await writeCache<Reserve>(RESERVES_CACHE_KEY, nextReserves, userId);
+  }
 }
 
 function queueReplayPriority(op: QueuedOperation): number {
@@ -896,7 +932,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             }
           }
           else if (op.rpc.fn === 'create_reserve_with_photos' && args.p_reserve?.id) {
-            triggerReserveCreatedPush(String(args.p_reserve.id));
+            const reserveId = String(args.p_reserve.id);
+            await applySyncedReservePhotoPayloadToCache(userId, reserveId, retryRpcOp.data ?? args.p_reserve);
+            await queryClient.invalidateQueries({ queryKey: queryKeys.photos(), refetchType: 'active' });
+            triggerReserveCreatedPush(reserveId);
           }
           continue;
         }

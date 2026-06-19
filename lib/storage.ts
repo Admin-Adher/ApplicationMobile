@@ -714,9 +714,18 @@ export async function uploadLocalPhotosInPayload(
   const uploadErrors: string[] = [];
 
   if (table === 'reserves') {
+    const uploadedLocalUris = new Map<string, Awaited<ReturnType<typeof _uploadPhotoWithError>>>();
+    const uploadReservePhotoOnce = async (uri: string, filename: string) => {
+      const cached = uploadedLocalUris.get(uri);
+      if (cached) return cached;
+      const result = await _uploadPhotoWithError(uri, filename);
+      uploadedLocalUris.set(uri, result);
+      return result;
+    };
+
     if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) {
       hadLocal = true;
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.photo_uri, `reserve_${Date.now()}_${nextUploadSeq()}.jpg`);
+      const { url: remote, error: uploadErr } = await uploadReservePhotoOnce(data.photo_uri, `reserve_${Date.now()}_${nextUploadSeq()}.jpg`);
       if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
@@ -727,7 +736,7 @@ export async function uploadLocalPhotosInPayload(
         const p = data.photos[i];
         if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) {
           hadLocal = true;
-          const { url: remote, error: uploadErr } = await _uploadPhotoWithError(p.uri, `reserve_photo_${Date.now()}_${nextUploadSeq()}_${i}.jpg`);
+          const { url: remote, error: uploadErr } = await uploadReservePhotoOnce(p.uri, `reserve_photo_${Date.now()}_${nextUploadSeq()}_${i}.jpg`);
           if (remote === (MISSING_LOCAL_FILE as any)) {
             continue;
           }
