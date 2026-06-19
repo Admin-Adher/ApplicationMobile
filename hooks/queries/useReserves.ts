@@ -291,6 +291,21 @@ export function useReserves() {
       organization_id: orgIdValue,
     });
     const payload = buildPayload(orgId);
+    if (isSupabaseConfigured) {
+      // Keep creation local-first: the form returns once the cache is persisted,
+      // while NetworkContext owns uploads, RPC replay, retries, and push.
+      enqueueOperation({
+        table: 'reserves',
+        op: 'rpc',
+        rpc: {
+          fn: 'create_reserve_with_photos',
+          args: createReserveWithPhotosRpcArgs(payload, reserve, user?.name),
+        },
+        data: payload,
+      });
+    }
+    return reserve;
+
     const queueAtomicCreate = (sourcePayload: Record<string, any>) => enqueueOperation({
       table: 'reserves',
       op: 'rpc',
