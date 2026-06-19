@@ -10,6 +10,7 @@ import StatusBadge from './StatusBadge';
 import PriorityBadge from './PriorityBadge';
 import { isOverdue, formatDate, deadlineDaysLeft, formatRelativeDate } from '@/lib/reserveUtils';
 import { useApp } from '@/context/AppContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { isLocalUri } from '@/lib/storage';
 import { getEnterpriseWorkflowBadges } from '@/lib/reserveEnterpriseWorkflow';
 
@@ -30,6 +31,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
   const router = useRouter();
   const { t } = useTranslation();
   const { lots } = useApp();
+  const { isOnline } = useNetwork();
   const swipeRef = useRef<Swipeable>(null);
   const flashAnim = useRef(new Animated.Value(0)).current;
 
@@ -53,6 +55,8 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
   const hasUnsyncedPhoto =
     (typeof reserve.photoUri === 'string' && isLocalUri(reserve.photoUri)) ||
     (Array.isArray(reserve.photos) && reserve.photos.some(p => p?.uri && isLocalUri(p.uri)));
+  const syncPhotoIcon = isOnline ? 'cloud-upload-outline' : 'cloud-offline';
+  const syncPhotoLabel = isOnline ? t('reserveCard.photoUploadPending') : t('reserveCard.unsyncedPhoto');
   const relativeDate = formatRelativeDate(reserve.createdAt);
   const enterpriseBadges = showEnterpriseTracking ? getEnterpriseWorkflowBadges(reserve, { attentionOnly: true }) : [];
   const statusLabel = reserve.status === 'open'
@@ -212,16 +216,16 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
           <View style={styles.photoThumbWrap}>
             <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" accessibilityLabel={t('reserveCard.reservePhoto')} />
             {hasUnsyncedPhoto && (
-              <View style={styles.syncDot} accessibilityLabel={t('reserveCard.unsyncedPhoto')}>
-                <Ionicons name="cloud-offline" size={10} color="#fff" />
+              <View style={[styles.syncDot, isOnline ? styles.syncDotPending : styles.syncDotOffline]} accessibilityLabel={syncPhotoLabel}>
+                <Ionicons name={syncPhotoIcon} size={10} color="#fff" />
               </View>
             )}
           </View>
         ) : hasUnsyncedPhoto ? (
           <View style={[styles.photoThumb, styles.photoThumbPlaceholder]}>
             <Ionicons name="image-outline" size={20} color={C.textMuted} />
-            <View style={styles.syncDot} accessibilityLabel={t('reserveCard.unsyncedPhoto')}>
-              <Ionicons name="cloud-offline" size={10} color="#fff" />
+            <View style={[styles.syncDot, isOnline ? styles.syncDotPending : styles.syncDotOffline]} accessibilityLabel={syncPhotoLabel}>
+              <Ionicons name={syncPhotoIcon} size={10} color="#fff" />
             </View>
           </View>
         ) : null}
@@ -498,11 +502,16 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#DC2626',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
     borderColor: '#fff',
+  },
+  syncDotPending: {
+    backgroundColor: '#2563EB',
+  },
+  syncDotOffline: {
+    backgroundColor: '#DC2626',
   },
   bottom: {
     flexDirection: 'row',
