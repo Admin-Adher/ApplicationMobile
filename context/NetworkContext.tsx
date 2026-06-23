@@ -21,6 +21,7 @@ import {
   firstReserveMutationResult,
   isReserveMutationRpcUnavailable,
   newOperationId,
+  type ReserveMutationResult,
 } from '@/lib/reserveOutbox';
 import i18n from '@/lib/i18n';
 
@@ -431,6 +432,79 @@ function queueReplayPriority(op: QueuedOperation): number {
   if (op.table === 'reserves' && op.op === 'insert') return 10;
   if (op.table === 'photos' && op.op === 'insert') return 20;
   return 30;
+}
+
+type ReserveRebaseResult =
+  | { kind: 'applied'; outcome: ReserveMutationResult }
+  // À ré-enfiler : nouvel operation_id + base_version rafraîchie pour réessayer.
+  | { kind: 'retry'; baseVersion: number | null; operationId: string; reason: string }
+  | { kind: 'terminal'; status: string; message?: string };
+
+/**
+ * Résout un `version_conflict` sur une réserve.
+ *
+ * Pourquoi c'est nécessaire : `apply_reserve_patch` mémorise son résultat (y
+ * compris un `version_conflict`) dans `reserve_outbox_operations`, indexé par
+ * `operation_id`. Rejouer la MÊME opération (même id + même hash, donc même
+ * `base_version`) renvoie indéfiniment le conflit mémorisé — l'opération reste
+ * coincée pour toujours (« 5 fallos · version_conflict »).
+ *
+ * La seule issue est de REBASER : on ré-applique le patch sur la version
+ * courante du serveur avec un NOUVEL `operation_id` (donc un nouveau hash →
+ * réévaluation fraîche). Comme ce chemin ne touche qu'à des champs « simples »
+ * (statut, photos, commentaires ont leurs propres mutations dédiées et sont
+ * refusés ici), appliquer l'édition locale par-dessus la dernière version est
+ * le comportement attendu : l'édition de l'utilisateur prend effet (dernier
+ * écrivain gagne, par champ), au lieu d'être bloquée ou perdue.
+ */
+async function rebaseReservePatchOnConflict(
+  reserveId: string,
+  patch: Record<string, any>,
+  conflict: ReserveMutationResult,
+): Promise<ReserveRebaseResult> {
+  // Version courante la plus fraîche connue : celle renvoyée par le conflit,
+  // sinon un SELECT direct (le conflit peut être un résultat mémorisé, donc
+  // potentiellement périmé).
+  let currentVersion: number | null =
+    typeof conflict.current_version === 'number' ? conflict.current_version : null;
+  if (currentVersion === null) {
+    try {
+      const { data: rows } = await supabaseRestSelect<any>(
+        'reserves',
+        'version',
+        { column: 'id', value: reserveId },
+      );
+      const v = rows?.[0]?.version;
+      currentVersion = typeof v === 'number' ? v : null;
+    } catch {}
+  }
+
+  const operationId = newOperationId();
+  const rpc = await applyReservePatchOperation({ operationId, reserveId, baseVersion: currentVersion, patch });
+
+  if (rpc.error) {
+    // Erreur réseau : on réessaie au prochain passage. On réutilise le même
+    // operation_id (idempotent : si l'écriture a en fait abouti, le serveur
+    // renverra le résultat mémorisé).
+    return { kind: 'retry', baseVersion: currentVersion, operationId, reason: rpc.error?.message ?? 'network' };
+  }
+
+  const outcome = firstReserveMutationResult(rpc.data);
+  if (!outcome || outcome.status === 'ok') {
+    return { kind: 'applied', outcome: outcome ?? { status: 'ok', reserve_id: reserveId } };
+  }
+  if (outcome.status === 'version_conflict') {
+    // Écriture concurrente entre le SELECT et l'apply : on réessaie au prochain
+    // passage avec la nouvelle version et un NOUVEL operation_id (l'actuel est
+    // désormais mémorisé avec un conflit).
+    return {
+      kind: 'retry',
+      baseVersion: typeof outcome.current_version === 'number' ? outcome.current_version : currentVersion,
+      operationId: newOperationId(),
+      reason: 'version_conflict',
+    };
+  }
+  return { kind: 'terminal', status: outcome.status, message: outcome.message };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1346,6 +1420,28 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               result = rpcResult;
             } else if (!outcome || outcome.status === 'ok') {
               result = { error: null, data: outcome ? [outcome] : null };
+            } else if (outcome.status === 'version_conflict') {
+              // Conflit de version : rebaser le patch sur la version courante du
+              // serveur avec un nouvel operation_id (sinon le serveur renvoie le
+              // conflit mémorisé à l'infini → opération coincée pour toujours).
+              const rebase = await rebaseReservePatchOnConflict(String(op.filter.value), data!, outcome);
+              if (rebase.kind === 'applied') {
+                result = { error: null, data: [rebase.outcome] };
+              } else if (rebase.kind === 'retry') {
+                // Ré-enfiler avec la version rebasée + un nouvel id pour
+                // réessayer proprement (et non rejouer le conflit mémorisé).
+                failedOps.push({
+                  ...op,
+                  id: rebase.operationId,
+                  baseVersion: rebase.baseVersion,
+                  lastError: `version_conflict — rebasé sur v${rebase.baseVersion ?? '?'}, réessai au prochain passage`,
+                  attemptCount: (op.attemptCount ?? 0) + 1,
+                });
+                continue;
+              } else {
+                fail(retryOpForCatch, rebase.message ?? rebase.status, { terminalStatus: rebase.status });
+                continue;
+              }
             } else {
               const terminal = ['deleted', 'forbidden', 'not_found', 'duplicate_operation_mismatch', 'invalid_payload'].includes(outcome.status);
               fail(retryOpForCatch, outcome.message ?? outcome.status, terminal ? { terminalStatus: outcome.status } : undefined);
