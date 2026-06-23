@@ -38,6 +38,14 @@ const PHOTO_UPLOAD_TIMEOUT_MS = 30_000;
 // on alloue 120 s pour couvrir les connexions chantier vraiment lentes.
 const DOCUMENT_UPLOAD_TIMEOUT_MS = 120_000;
 
+// Borne pour les appels FileSystem.getInfoAsync (stat d'un fichier local).
+// Sur certains appareils Android, stat-er un fichier (content provider
+// instable, stockage externe/SD lent) peut se bloquer indéfiniment. Sans
+// borne, cet await ne se résout jamais : toute la passe d'upload — et donc la
+// file de synchronisation — gèle (opérations « en attente » bloquées pendant
+// des jours). On borne donc systématiquement ce stat.
+const FILE_STAT_TIMEOUT_MS = 8_000;
+
 // Module-level upload counter so that filenames are unique even when several
 // photos are uploaded within the same millisecond (e.g. bulk offline sync).
 let _uploadSeq = 0;
@@ -218,7 +226,14 @@ async function localFileMissing(uri: string): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   if (!uri.startsWith('file://')) return false;
   try {
-    const info = await FileSystem.getInfoAsync(uri);
+    // Borné : si le stat se bloque (cf. FILE_STAT_TIMEOUT_MS), on suppose le
+    // fichier présent et on laisse l'upload (lui-même borné) trancher, plutôt
+    // que de figer toute la file de synchronisation sur un await éternel.
+    const info = await withTimeout(
+      FileSystem.getInfoAsync(uri),
+      FILE_STAT_TIMEOUT_MS,
+      'stat fichier local',
+    );
     return !info?.exists;
   } catch {
     return false;

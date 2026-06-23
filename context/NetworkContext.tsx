@@ -27,6 +27,26 @@ import i18n from '@/lib/i18n';
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
 
+// Délai max pour l'étape d'upload de fichiers (photos / plan) d'UNE opération.
+// Chaque fichier a déjà sa propre borne (30 s photo, 120 s document) côté
+// storage.ts, mais une opération peut enchaîner plusieurs fichiers : on borne
+// l'étape complète pour qu'un upload gelé fasse échouer proprement l'opération
+// (réessayée au passage suivant) au lieu de figer toute la file.
+const UPLOAD_STEP_TIMEOUT_MS = 150_000;
+
+// Borne pour le rafraîchissement du token et le refetch post-sync, afin qu'un
+// appel réseau bloqué en fin de passe ne laisse pas la file verrouillée.
+const TOKEN_REFRESH_TIMEOUT_MS = 20_000;
+const REFETCH_TIMEOUT_MS = 30_000;
+
+// Si une passe de synchronisation ne fait AUCUN progrès pendant ce délai, on la
+// considère « zombie » (await réseau/fichier resté bloqué malgré les bornes) et
+// on autorise une nouvelle passe à la préempter. Filet de sécurité ultime
+// contre le blocage définitif observé (« opérations en attente » figées des
+// jours, bouton de sync gelé sur « 0/1 »). Largement supérieur à la durée d'une
+// passe légitime, donc jamais déclenché en fonctionnement normal.
+const SYNC_STUCK_RECOVERY_MS = 10 * 60 * 1000;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────────────────────────────────────
@@ -431,6 +451,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   const prevOnlineRef = useRef(true);
   const syncingRef = useRef(false);
+  // Jeton de génération : chaque passe de sync capture le sien. Si une passe
+  // « zombie » est préemptée, sa génération devient obsolète et elle n'a plus
+  // le droit d'écrire l'état de la file ni de relâcher le verrou (évite qu'une
+  // passe gelée, en se réveillant tardivement, écrase le travail de la passe
+  // qui l'a remplacée).
+  const syncGenerationRef = useRef(0);
+  // Horodatage du dernier progrès (incrément d'opération traitée). Sert à
+  // détecter une passe gelée sans pénaliser une passe lente mais qui avance.
+  const syncProgressAtRef = useRef(0);
   const reloadHandlerRef = useRef<(() => void) | null>(null);
   const lastLoadedKeyRef = useRef<string | null>(null);
   const wakeInFlightRef = useRef(false);
@@ -605,15 +634,19 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const check = async () => {
       const online = applyOnlineReading(await checkAppOnline());
 
-      // Safety-net: if we are online with pending ops and not already syncing,
-      // trigger a sync attempt — but no more than once every 20 seconds.
-      // This covers the case where the app woke up with isOnline already true
-      // (no state transition) so the isOnline-change effect below never fired.
+      // Safety-net: if we are online with pending ops, trigger a sync attempt —
+      // but no more than once every 20 seconds. This covers the case where the
+      // app woke up with isOnline already true (no state transition) so the
+      // isOnline-change effect below never fired.
+      //
+      // On ne conditionne PLUS à `!syncingRef.current` : processSyncQueue se
+      // protège lui-même (early-return si une passe progresse, préemption si
+      // elle est gelée). L'ancienne condition empêchait toute relance dès qu'une
+      // passe restait coincée avec `syncingRef = true` → file bloquée à vie.
       if (
         online &&
         isSupabaseConfigured &&
         queueRef.current.length > 0 &&
-        !syncingRef.current &&
         Date.now() - lastSyncAttemptRef.current > 20_000
       ) {
         processSyncQueueRef.current();
@@ -648,7 +681,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (!isSupabaseConfigured) return;
     if (!userId) return;
     if (queue.length === 0) return;
-    if (syncingRef.current) return;
+    // Pas de court-circuit sur `syncingRef` : processSyncQueue gère lui-même le
+    // verrou (et la préemption d'une passe gelée).
     const t = setTimeout(() => {
       processSyncQueueRef.current();
     }, 800);
@@ -714,7 +748,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       try { reloadHandlerRef.current?.(); } catch {}
 
       // ── 5. Trigger sync if we have pending operations ─────────────────────
-      if (online && queueRef.current.length > 0 && !syncingRef.current) {
+      // Pas de garde `!syncingRef.current` : processSyncQueue early-return si
+      // une passe progresse, ou préempte une passe gelée.
+      if (online && queueRef.current.length > 0) {
         await processSyncQueueRef.current();
         await refetchActiveQueries('foreground-after-queue-sync');
         try { reloadHandlerRef.current?.(); } catch {}
@@ -766,16 +802,39 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // IMPORTANT: use queueRef.current (not queue from closure) so this function
     // works correctly even when called from a stale closure (AppState listener,
     // ping interval, etc.).
-    if (syncingRef.current || queueRef.current.length === 0 || !isSupabaseConfigured) return;
+    if (queueRef.current.length === 0 || !isSupabaseConfigured) return;
+
+    // ── Garde-fou anti-blocage définitif ──────────────────────────────────────
+    // On ne lance pas de passe concurrente TANT QUE la passe en cours progresse.
+    // Mais si elle n'a fait aucun progrès depuis trop longtemps, c'est qu'un
+    // await réseau/fichier est resté bloqué (malgré toutes les bornes) : on la
+    // considère gelée et on la préempte, sinon la file reste verrouillée pour
+    // toujours (`syncingRef` jamais relâché → toutes les relances ignorées,
+    // bouton « Réessayer » désactivé). C'est exactement le symptôme observé :
+    // « Sync 0/1 » figé et opérations en attente bloquées pendant des jours.
+    if (syncingRef.current) {
+      const sinceProgress = Date.now() - syncProgressAtRef.current;
+      if (sinceProgress < SYNC_STUCK_RECOVERY_MS) return;
+      console.warn(`[queue] passe de sync gelée depuis ${Math.round(sinceProgress / 1000)}s — préemption forcée`);
+    }
+
+    const myGeneration = ++syncGenerationRef.current;
+    const isCurrentGeneration = () => syncGenerationRef.current === myGeneration;
     syncingRef.current = true;
+    syncProgressAtRef.current = Date.now();
     lastSyncAttemptRef.current = Date.now();
     setSyncStatus('syncing');
 
+    // Tout le corps est encapsulé dans un try/finally : le verrou (`syncingRef`)
+    // et l'indicateur de progression sont TOUJOURS relâchés en fin de passe,
+    // même en cas d'exception inattendue, pour ne jamais laisser la file gelée.
+    try {
     // ── Ensure the Supabase session is fresh before any upload ────────────────
     // A stale/expired JWT causes Storage uploads to fail with HTTP 401 under
     // RLS, resulting in the endless "32 échecs" cycle the user sees.
-    // We always refresh here (cheap no-op if the token is still valid).
-    try { await getSupabaseRestAccessToken(); } catch {}
+    // We always refresh here (cheap no-op if the token is still valid). Borné
+    // pour qu'un rafraîchissement bloqué ne gèle pas la passe avant la boucle.
+    try { await withTimeoutMs(getSupabaseRestAccessToken(), TOKEN_REFRESH_TIMEOUT_MS); } catch {}
 
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
@@ -783,7 +842,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const currentQueue = [...queueRef.current].sort((a, b) => {
       const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
       if (priorityDiff !== 0) return priorityDiff;
-      return a.queuedAt.localeCompare(b.queuedAt);
+      return (a.queuedAt ?? '').localeCompare(b.queuedAt ?? '');
     });
     setSyncProgress({ done: 0, total: currentQueue.length });
 
@@ -814,6 +873,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
     let processed = 0;
     for (const op of currentQueue) {
+      // Si une passe plus récente nous a préemptés (nous étions gelés puis
+      // réveillés), on cesse immédiatement tout travail : la passe courante
+      // possède la file et a déjà rejoué (ou est en train de rejouer) ces ops.
+      if (!isCurrentGeneration()) break;
       let retryOpForCatch: QueuedOperation = op;
       try {
         if (op.terminal) {
@@ -843,7 +906,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             if (rawReserve.deadline === 'â€”' || rawReserve.deadline === '') {
               rawReserve.deadline = null;
             }
-            const prep = await uploadLocalPhotosInPayload('reserves', rawReserve);
+            const prep = await withTimeoutMs(
+              uploadLocalPhotosInPayload('reserves', rawReserve),
+              UPLOAD_STEP_TIMEOUT_MS,
+            );
             if (!prep.allOk) {
               fail(op, prep.uploadErrors?.join(' | ') || i18n.t('networkQueue.uploadReservePhotosFailed'));
               continue;
@@ -869,7 +935,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               fail(op, 'RPC create_site_plan_revision_with_reserve_migration refusee: plan parent ou nouvelle revision manquant.');
               continue;
             }
-            const prep = await uploadLocalPhotosInPayload('site_plans', rawPlan);
+            const prep = await withTimeoutMs(
+              uploadLocalPhotosInPayload('site_plans', rawPlan),
+              UPLOAD_STEP_TIMEOUT_MS,
+            );
             if (!prep.allOk) {
               fail(op, prep.uploadErrors?.join(' | ') || 'Echec upload fichier plan avant creation revision controlee.');
               continue;
@@ -883,7 +952,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               fail(op, i18n.t('networkQueue.replacePlanMissingPatch'));
               continue;
             }
-            const prep = await uploadLocalPhotosInPayload('site_plans', rawPatch);
+            const prep = await withTimeoutMs(
+              uploadLocalPhotosInPayload('site_plans', rawPatch),
+              UPLOAD_STEP_TIMEOUT_MS,
+            );
             if (!prep.allOk) {
               fail(op, prep.uploadErrors?.join(' | ') || i18n.t('networkQueue.uploadPlanFileFailed'));
               continue;
@@ -1060,7 +1132,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             console.log(`[SYNC:site_plans] uri locale : ${hasLocalUri ? 'OUI → upload requis' : 'NON (déjà remote ou null)'}`);
           }
           try {
-            const prep = await uploadLocalPhotosInPayload(op.table, data);
+            const prep = await withTimeoutMs(
+              uploadLocalPhotosInPayload(op.table, data),
+              UPLOAD_STEP_TIMEOUT_MS,
+            );
             if (op.table === 'site_plans') {
               console.log(`[SYNC:site_plans] upload résultat — allOk:${prep.allOk} hadLocal:${prep.hadLocal}`);
               if (!prep.allOk) {
@@ -1072,8 +1147,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             }
             if (prep.data === null && prep.allOk && op.table === 'photos') {
               console.warn(`[queue] dropping photos op ${op.id}: local file missing on disk`);
-              processed += 1;
-              setSyncProgress({ done: processed, total: currentQueue.length });
+              // La progression est incrémentée par le `finally` de l'opération
+              // (ne pas la compter ici aussi, sous peine de double comptage).
               continue;
             }
             if (prep.data) {
@@ -1369,9 +1444,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         fail(retryOpForCatch, e);
       } finally {
         processed += 1;
+        // Marque le progrès : tant qu'une opération est traitée régulièrement,
+        // la passe n'est jamais considérée comme gelée par le garde-fou.
+        syncProgressAtRef.current = Date.now();
         setSyncProgress({ done: processed, total: currentQueue.length });
       }
     }
+
+    // Si une passe plus récente nous a préemptés (cette passe était gelée puis
+    // a fini par se réveiller), on n'écrit RIEN : la passe courante est
+    // désormais propriétaire de la file. Écraser l'état ici ferait revivre des
+    // opérations déjà rejouées ou supprimerait celles enfilées entre-temps.
+    if (!isCurrentGeneration()) return;
 
     // Keep only unresolved items in the queue
     const remaining = [
@@ -1380,10 +1464,29 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     ].filter(Boolean);
 
     await backupQueue(currentQueue, 'before-sync-prune');
-    setQueue(remaining);
-    await saveQueue(remaining);
 
-    await refetchActiveQueries('queue-processed');
+    // Ne pas écraser la file avec le seul instantané traité : des opérations ont
+    // pu être enfilées PENDANT la passe (ex. une réserve modifiée pendant
+    // l'upload d'une autre). On préserve donc, en plus des opérations restantes,
+    // toute opération ajoutée depuis le début de la passe — sinon elles seraient
+    // perdues silencieusement (et jamais synchronisées). On persiste DANS le
+    // updater (même motif que enqueueOperation) pour rester insensible au
+    // batching React et aux courses avec un enqueue concurrent.
+    const processedIds = new Set(currentQueue.map(o => o.id));
+    setQueue(prev => {
+      const next = [...remaining, ...prev.filter(o => !processedIds.has(o.id))];
+      void saveQueue(next);
+      return next;
+    });
+
+    // Décision de statut / purge : basée sur l'état le plus récent connu.
+    const leftover = [
+      ...remaining,
+      ...queueRef.current.filter(o => !processedIds.has(o.id)),
+    ];
+
+    // Borné : un refetch bloqué ne doit pas laisser le verrou pris.
+    await withTimeoutMs(refetchActiveQueries('queue-processed'), REFETCH_TIMEOUT_MS).catch(() => {});
 
     if (pendingConflicts.length > 0) {
       setConflicts(pendingConflicts);
@@ -1391,10 +1494,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     } else if (failedOps.length > 0) {
       setSyncStatus('error');
       reloadHandlerRef.current?.();
+    } else if (leftover.length > 0) {
+      // Tout l'instantané est passé, mais des opérations enfilées pendant la
+      // passe restent à synchroniser : on n'affiche pas « terminé », une
+      // nouvelle passe (cold-start / ping) les prendra en charge.
+      setSyncStatus('idle');
+      reloadHandlerRef.current?.();
     } else {
       setSyncStatus('done');
       reloadHandlerRef.current?.();
-      setTimeout(() => setSyncStatus('idle'), 4000);
+      setTimeout(() => { if (isCurrentGeneration()) setSyncStatus('idle'); }, 4000);
 
       // ── Purge orphaned local photo files after a clean sync ───────────────
       // When all operations synced successfully there are no remaining local
@@ -1403,7 +1512,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // in documentDirectory/photos/ that is older than 7 days.
       // This prevents device storage from filling with undeleted photo copies.
       const referencedUris = new Set<string>();
-      for (const op of remaining) {
+      for (const op of leftover) {
         const d = op.data;
         if (!d) continue;
         if (typeof d.photo_uri === 'string' && isLocalUri(d.photo_uri)) referencedUris.add(d.photo_uri);
@@ -1416,9 +1525,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
       purgeOrphanedPhotoFiles(referencedUris).catch(() => {});
     }
-
-    setSyncProgress({ done: 0, total: 0 });
-    syncingRef.current = false;
+    } finally {
+      // Ne relâcher le verrou / réinitialiser la progression que si nous sommes
+      // toujours la passe courante (une passe préemptée ne doit pas toucher
+      // l'état de la passe qui l'a remplacée).
+      if (isCurrentGeneration()) {
+        setSyncProgress({ done: 0, total: 0 });
+        syncingRef.current = false;
+      }
+    }
   }
 
   // Keep processSyncQueueRef always pointing at the latest implementation so
