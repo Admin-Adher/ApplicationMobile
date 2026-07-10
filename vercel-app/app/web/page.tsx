@@ -139,6 +139,10 @@ type WebPhotoAnnotation = {
   fontSize?: number;
   points?: WebPhotoAnnotationPoint[];
   strokeWidth?: number;
+  // Convention commune web/mobile : 'image' = x, y et points sont des % du
+  // rectangle réel de l'image (dimensions naturelles). Absent = annotation
+  // legacy, % du conteneur d'origine (rendue sur toute la surface du cadre).
+  coordSpace?: 'image';
 };
 
 type WebPhotoDraft = {
@@ -149,6 +153,10 @@ type WebPhotoDraft = {
   file?: File;
   existing?: boolean;
   annotations?: WebPhotoAnnotation[];
+  // Objet photo JSONB d'origine (photos existantes) : sert de base au patch de
+  // sauvegarde pour ne pas réécrire takenAt/takenBy ni perdre les champs non
+  // re-mappés (label, gpsLat/gpsLon/gpsAccuracy...).
+  original?: Record<string, any>;
 };
 
 type ReservePinDraft = {
@@ -1381,6 +1389,7 @@ function normalizePhotoAnnotations(value: any): WebPhotoAnnotation[] {
       tool,
       points,
       strokeWidth: Number.isFinite(Number(item?.strokeWidth)) ? Number(item.strokeWidth) : undefined,
+      coordSpace: item?.coordSpace === 'image' ? 'image' as const : undefined,
       text: item?.text ? String(item.text) : undefined,
       fontSize: Number.isFinite(Number(item?.fontSize)) ? Number(item.fontSize) : undefined,
       x2: Number.isFinite(Number(item?.x2)) ? Number(clampPercent(Number(item.x2)).toFixed(2)) : undefined,
@@ -2267,6 +2276,8 @@ function reserveToDraft(reserve: any): ReserveDraft {
           kind: photo.kind === 'resolution' ? 'resolution' : 'defect',
           existing: true,
           annotations: photoAnnotationsFrom(photo),
+          // Objet JSONB d'origine conservé tel quel : base du patch de sauvegarde.
+          original: photo,
         })).filter((photo: WebPhotoDraft) => !!photo.uri)
       : (reserve.photo_uri ?? reserve.photoUri)
         ? [{
@@ -2276,6 +2287,7 @@ function reserveToDraft(reserve: any): ReserveDraft {
             kind: 'defect' as const,
             existing: true,
             annotations: photoAnnotationsFrom(reserve),
+            original: { id: 'legacy', uri: reserve.photo_uri ?? reserve.photoUri, name: 'Photo' },
           }].filter((photo: WebPhotoDraft) => !!photo.uri)
         : [],
   };
@@ -3656,12 +3668,14 @@ export default function BuildTrackWebPage() {
     const existingPhotos = draft.photos
       .filter(photo => photo.existing && photo.uri)
       .map(photo => ({
+        // Photo existante : on repart de l'objet JSONB d'origine (takenAt,
+        // takenBy, label, gpsLat/gpsLon... préservés) et on ne surcharge que
+        // les champs réellement éditables côté web (kind, annotations).
+        ...(photo.original ?? {}),
         id: photo.id,
-        uri: photo.uri,
+        uri: photo.original?.uri ?? photo.uri,
         kind: photo.kind ?? 'defect',
-        takenAt: new Date().toISOString(),
-        takenBy: userLabel(profile, authUser),
-        name: photo.name ?? 'Photo',
+        name: photo.original?.name ?? photo.name ?? 'Photo',
         annotations: normalizePhotoAnnotations(photo.annotations),
       }));
     const newPhotos = draft.photos.filter(photo => photo.file);
@@ -7292,7 +7306,7 @@ function ReservesView(props: {
                     >
                       <span className={styles.photoAnnotationFrame}>
                         <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} loading="lazy" decoding="async" />
-                        <PhotoAnnotationLayer annotations={photoAnnotationsFrom(photo)} compact />
+                        <PhotoAnnotationLayer annotations={photoAnnotationsFrom(photo)} compact fit="cover" imageSrc={photo.uri} />
                       </span>
                       <span className={styles.reservePhotoKindBadge}>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
                     </button>
@@ -7415,7 +7429,9 @@ function ReservesView(props: {
               )}
               <span className={styles.reservePhotoLightboxImageFrame}>
                 <img src={lightboxPhoto.uri} alt={lightboxPhoto.comment ?? lightboxPhoto.name ?? 'Photo réserve'} />
-                <PhotoAnnotationLayer annotations={photoAnnotationsFrom(lightboxPhoto)} compact />
+                {/* Le cadre de la lightbox moule l'image : les % s'appliquent à
+                    toute la boîte, en pleine épaisseur (pas de mode compact). */}
+                <PhotoAnnotationLayer annotations={photoAnnotationsFrom(lightboxPhoto)} />
               </span>
               {selectedPhotos.length > 1 && (
                 <button type="button" className={styles.reservePhotoLightboxNext} onClick={() => moveLightboxPhoto(1)} aria-label="Photo suivante">
@@ -13200,55 +13216,154 @@ function TextAssistControls({
   );
 }
 
-function PhotoAnnotationLayer({ annotations, compact = false }: { annotations?: WebPhotoAnnotation[]; compact?: boolean }) {
+type PhotoAnnotationLayerFit = 'stretch' | 'contain' | 'cover';
+
+// Rectangle réellement occupé par l'image dans son cadre (en % du cadre),
+// selon le object-fit du contexte d'affichage : contain (éditeur, bandes de
+// letterbox centrées) ou cover (vignettes, débordement clippé par le cadre).
+function computePhotoImageRect(
+  fit: 'contain' | 'cover',
+  natural: { width: number; height: number },
+  box: { width: number; height: number },
+) {
+  const scale = fit === 'contain'
+    ? Math.min(box.width / natural.width, box.height / natural.height)
+    : Math.max(box.width / natural.width, box.height / natural.height);
+  const width = ((natural.width * scale) / box.width) * 100;
+  const height = ((natural.height * scale) / box.height) * 100;
+  return { left: (100 - width) / 2, top: (100 - height) / 2, width, height };
+}
+
+function PhotoAnnotationLayer({
+  annotations,
+  compact = false,
+  fit = 'stretch',
+  imageSrc,
+}: {
+  annotations?: WebPhotoAnnotation[];
+  compact?: boolean;
+  // 'stretch' : le cadre moule l'image (lightbox), les % s'appliquent à toute
+  // la boîte. 'contain'/'cover' : recale les annotations coordSpace 'image'
+  // dans le rectangle réel de l'image du cadre.
+  fit?: PhotoAnnotationLayerFit;
+  imageSrc?: string;
+}) {
+  const layerRef = useRef<HTMLSpanElement | null>(null);
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const [boxSize, setBoxSize] = useState<{ width: number; height: number } | null>(null);
   const normalized = normalizePhotoAnnotations(annotations);
+  // Seules les annotations coordSpace 'image' nécessitent le rectangle réel de
+  // l'image ; les annotations legacy restent rendues sur toute la surface du
+  // cadre, exactement comme avant.
+  const needsImageRect = fit !== 'stretch' && normalized.some(annotation => annotation.coordSpace === 'image');
+
+  useEffect(() => {
+    if (!needsImageRect || !imageSrc) return;
+    let cancelled = false;
+    const image = new Image();
+    image.onload = () => {
+      if (!cancelled && image.naturalWidth > 0 && image.naturalHeight > 0) {
+        setNaturalSize({ width: image.naturalWidth, height: image.naturalHeight });
+      }
+    };
+    image.src = imageSrc;
+    return () => {
+      cancelled = true;
+    };
+  }, [needsImageRect, imageSrc]);
+
+  useEffect(() => {
+    if (!needsImageRect || typeof ResizeObserver === 'undefined') return;
+    const node = layerRef.current;
+    if (!node) return;
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (entry) setBoxSize({ width: entry.contentRect.width, height: entry.contentRect.height });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [needsImageRect]);
+
   if (!normalized.length) return null;
+
+  const imageRect = needsImageRect && naturalSize && boxSize && boxSize.width > 0 && boxSize.height > 0
+    ? computePhotoImageRect(fit, naturalSize, boxSize)
+    : null;
+  // Projette un point annoté (%) vers le cadre : identité pour le legacy (et
+  // tant que les mesures ne sont pas disponibles), recalage dans le rectangle
+  // réel de l'image pour coordSpace 'image'.
+  const projectPoint = (point: WebPhotoAnnotationPoint, coordSpace?: 'image') =>
+    coordSpace === 'image' && imageRect
+      ? {
+          x: imageRect.left + (point.x * imageRect.width) / 100,
+          y: imageRect.top + (point.y * imageRect.height) / 100,
+        }
+      : point;
+  // Convention commune web/mobile : la valeur du sélecteur (2/8/18) est
+  // l'épaisseur à l'écran (non-scaling-stroke) dans l'éditeur et la lightbox,
+  // réduite dans les vignettes compactes.
+  const penScreenWidth = (strokeWidth?: number) => {
+    const width = strokeWidth ?? 8;
+    return compact ? Math.max(1.5, Math.min(8, width * 0.45)) : width;
+  };
+
   return (
-    <span className={styles.photoAnnotationLayer} aria-hidden="true">
+    <span ref={layerRef} className={styles.photoAnnotationLayer} aria-hidden="true">
       <svg className={styles.photoAnnotationSvg} viewBox="0 0 100 100" preserveAspectRatio="none">
         {normalized
-          .filter(annotation => annotation.tool === 'pen' && (annotation.points?.length ?? 0) > 1)
-          .map(annotation => (
-            <polyline
-              key={annotation.id}
-              points={annotation.points!.map(point => `${point.x},${point.y}`).join(' ')}
-              fill="none"
-              stroke={annotation.color}
-              strokeWidth={Math.max(0.35, (annotation.strokeWidth ?? 8) * (compact ? 0.12 : 0.18))}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              vectorEffect="non-scaling-stroke"
-            />
-          ))}
+          .filter(annotation => annotation.tool === 'pen' && (annotation.points?.length ?? 0) >= 1)
+          .map(annotation => {
+            const projected = (annotation.points ?? []).map(point => projectPoint(point, annotation.coordSpace));
+            // Un trait d'un seul point = pastille de diamètre strokeWidth
+            // (comme mobile) : point dupliqué + bouts arrondis = disque.
+            const points = projected.length === 1
+              ? [projected[0], { x: projected[0].x + 0.01, y: projected[0].y }]
+              : projected;
+            return (
+              <polyline
+                key={annotation.id}
+                points={points.map(point => `${point.x},${point.y}`).join(' ')}
+                fill="none"
+                stroke={annotation.color}
+                strokeWidth={penScreenWidth(annotation.strokeWidth)}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                vectorEffect="non-scaling-stroke"
+              />
+            );
+          })}
       </svg>
       {normalized
         .filter(annotation => annotation.tool !== 'pen')
-        .map(annotation => (
-          <span
-            key={annotation.id}
-            className={[
-              styles.photoAnnotationMarker,
-              annotation.tool === 'text' ? styles.photoAnnotationMarkerText : '',
-              annotation.tool === 'rect' ? styles.photoAnnotationMarkerRect : '',
-              annotation.tool === 'measure' ? styles.photoAnnotationMarkerMeasure : '',
-            ].filter(Boolean).join(' ')}
-            style={{
-              left: `${annotation.x}%`,
-              top: `${annotation.y}%`,
-              '--marker-color': annotation.color,
-            } as React.CSSProperties}
-          >
-            {annotation.tool === 'text'
-              ? annotation.label
-              : annotation.tool === 'arrow'
-                ? '↗'
-                : annotation.tool === 'rect'
-                  ? ''
-                  : annotation.tool === 'measure'
-                    ? '↔'
-                    : annotation.label.slice(0, 2)}
-          </span>
-        ))}
+        .map(annotation => {
+          const position = projectPoint({ x: annotation.x, y: annotation.y }, annotation.coordSpace);
+          return (
+            <span
+              key={annotation.id}
+              className={[
+                styles.photoAnnotationMarker,
+                annotation.tool === 'text' ? styles.photoAnnotationMarkerText : '',
+                annotation.tool === 'rect' ? styles.photoAnnotationMarkerRect : '',
+                annotation.tool === 'measure' ? styles.photoAnnotationMarkerMeasure : '',
+              ].filter(Boolean).join(' ')}
+              style={{
+                left: `${position.x}%`,
+                top: `${position.y}%`,
+                '--marker-color': annotation.color,
+              } as React.CSSProperties}
+            >
+              {annotation.tool === 'text'
+                ? annotation.label
+                : annotation.tool === 'arrow'
+                  ? '↗'
+                  : annotation.tool === 'rect'
+                    ? ''
+                    : annotation.tool === 'measure'
+                      ? '↔'
+                      : annotation.label.slice(0, 2)}
+            </span>
+          );
+        })}
     </span>
   );
 }
@@ -13269,14 +13384,40 @@ function PhotoAnnotatorModal({
   const [currentStroke, setCurrentStroke] = useState<WebPhotoAnnotation | null>(null);
   const currentStrokeRef = useRef<WebPhotoAnnotation | null>(null);
   const stageRef = useRef<HTMLButtonElement | null>(null);
+  const [imageNaturalSize, setImageNaturalSize] = useState<{ width: number; height: number } | null>(null);
+
+  // Rectangle réellement occupé par l'image (object-fit: contain) dans le
+  // stage, en pixels viewport : les bandes de letterbox n'en font pas partie.
+  function stageImageRect() {
+    const rect = stageRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    // Tant que les dimensions naturelles sont inconnues, on retombe sur le cadre entier.
+    if (!imageNaturalSize) return { left: rect.left, top: rect.top, width: rect.width, height: rect.height };
+    const scale = Math.min(rect.width / imageNaturalSize.width, rect.height / imageNaturalSize.height);
+    const width = imageNaturalSize.width * scale;
+    const height = imageNaturalSize.height * scale;
+    return {
+      left: rect.left + (rect.width - width) / 2,
+      top: rect.top + (rect.height - height) / 2,
+      width,
+      height,
+    };
+  }
 
   function pointFromEvent(event: PointerEvent<HTMLButtonElement>): WebPhotoAnnotationPoint {
-    const rect = stageRef.current?.getBoundingClientRect();
+    const rect = stageImageRect();
     if (!rect) return { x: 50, y: 50 };
     return {
       x: Number(clampPercent(((event.clientX - rect.left) / Math.max(1, rect.width)) * 100).toFixed(2)),
       y: Number(clampPercent(((event.clientY - rect.top) / Math.max(1, rect.height)) * 100).toFixed(2)),
     };
+  }
+
+  function eventInsideImage(event: PointerEvent<HTMLButtonElement>) {
+    const rect = stageImageRect();
+    if (!rect) return false;
+    return event.clientX >= rect.left && event.clientX <= rect.left + rect.width
+      && event.clientY >= rect.top && event.clientY <= rect.top + rect.height;
   }
 
   function shouldAppendPoint(points: WebPhotoAnnotationPoint[], point: WebPhotoAnnotationPoint) {
@@ -13296,6 +13437,7 @@ function PhotoAnnotatorModal({
       tool: 'pen',
       points: [point],
       strokeWidth,
+      coordSpace: 'image',
     };
     currentStrokeRef.current = stroke;
     setCurrentStroke(stroke);
@@ -13315,7 +13457,10 @@ function PhotoAnnotatorModal({
   function finishStroke() {
     const stroke = currentStrokeRef.current;
     if (!stroke) return;
-    if ((stroke.points?.length ?? 0) > 1) {
+    // Un seul point suffit : un tap = pastille de diamètre strokeWidth (comme
+    // mobile), et un pointercancel (geste tactile intercepté par le
+    // navigateur) committe le trait en cours plutôt que de le perdre.
+    if ((stroke.points?.length ?? 0) >= 1) {
       setAnnotations(prev => [...prev, stroke]);
     }
     currentStrokeRef.current = null;
@@ -13336,6 +13481,7 @@ function PhotoAnnotatorModal({
           label: text.trim(),
           text: text.trim(),
           tool: 'text',
+          coordSpace: 'image',
         },
       ]);
       return;
@@ -13352,6 +13498,7 @@ function PhotoAnnotatorModal({
           ? `M${prev.filter(item => item.tool === 'measure').length + 1}`
           : String(prev.filter(item => item.tool !== 'pen').length + 1),
         tool: activeTool,
+        coordSpace: 'image',
       },
     ]);
   }
@@ -13363,6 +13510,8 @@ function PhotoAnnotatorModal({
       beginStroke(event);
       return;
     }
+    // Les clics de placement dans les bandes de letterbox (hors photo) sont ignorés.
+    if (!eventInsideImage(event)) return;
     addAnnotation(pointFromEvent(event));
   }
 
@@ -13439,8 +13588,18 @@ function PhotoAnnotatorModal({
           onPointerCancel={finishStroke}
           onPointerLeave={finishStroke}
         >
-          <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} draggable={false} />
-          <PhotoAnnotationLayer annotations={[...annotations, ...(currentStroke ? [currentStroke] : [])]} />
+          <img
+            src={photo.uri}
+            alt={photo.name ?? 'Photo réserve'}
+            draggable={false}
+            onLoad={event => {
+              const image = event.currentTarget;
+              if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+                setImageNaturalSize({ width: image.naturalWidth, height: image.naturalHeight });
+              }
+            }}
+          />
+          <PhotoAnnotationLayer annotations={[...annotations, ...(currentStroke ? [currentStroke] : [])]} fit="contain" imageSrc={photo.uri} />
         </button>
         <div className={styles.photoAnnotatorFooter}>
           <button type="button" onClick={() => setAnnotations(prev => prev.slice(0, -1))} disabled={!annotations.length}>
@@ -13791,7 +13950,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                       >
                         <span className={styles.photoAnnotationFrame}>
                           <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} loading="lazy" decoding="async" />
-                          <PhotoAnnotationLayer annotations={photo.annotations} compact />
+                          <PhotoAnnotationLayer annotations={photo.annotations} compact fit="cover" imageSrc={photo.uri} />
                         </span>
                       </button>
                       <div className={styles.reservePhotoActions}>

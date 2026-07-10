@@ -1,5 +1,9 @@
 export interface PdfReservePhoto {
   uri: string;
+  // Annotations dessinées sur la photo (format partagé mobile/web, champ
+  // annotations du JSONB reserves.photos) — rendues en surimpression SVG
+  // dans les rapports PDF.
+  annotations?: Array<Record<string, unknown>>;
 }
 
 export interface PdfReserveItem {

@@ -8378,6 +8378,7 @@
   place-items: center;
   padding: 24px;
   background: rgba(15, 23, 42, 0.58);
+  overscroll-behavior: contain;
 }
 
 .photoAnnotatorPanel {
@@ -8487,6 +8488,9 @@
   border: 0;
   background: #111827;
   cursor: crosshair;
+  /* Dessin tactile : sans touch-action none, le navigateur panne la page et
+     émet pointercancel, ce qui tronque ou perd les traits en cours. */
+  touch-action: none;
 }
 
 .photoAnnotatorStage img {

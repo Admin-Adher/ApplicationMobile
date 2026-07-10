@@ -15,12 +15,65 @@ type ReportLanguage = 'fr' | 'en' | 'es';
 const PDF_EMBEDDABLE_URI_RE = /^(https?:|data:image\/)/i;
 
 /**
+ * Calque SVG des annotations d'une photo (format partagé mobile/web, champ
+ * annotations du JSONB reserves.photos). Dans le PDF, la boîte de l'<img>
+ * épouse l'image (width fixe, height auto) : les annotations coordSpace
+ * 'image' et legacy (% du cadre) se rendent donc à l'identique sur la boîte
+ * entière — aucun calcul de letterbox n'est nécessaire ici.
+ * Retourne '' sans annotation.
+ */
+function buildReservePhotoAnnotationsSvg(annotations: unknown): string {
+  const items = Array.isArray(annotations) ? annotations.filter(item => item && typeof item === 'object') : [];
+  if (items.length === 0) return '';
+  const clampPct = (value: unknown, fallback = 50) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? Math.max(0, Math.min(100, num)) : fallback;
+  };
+  const shapes = items.map((item: any) => {
+    const color = typeof item.color === 'string' && item.color.trim() ? escapeHtml(item.color.trim()) : '#EF4444';
+    const points = (Array.isArray(item.points) ? item.points : [])
+      .map((point: any) => ({ x: Number(point?.x), y: Number(point?.y) }))
+      .filter((point: any) => Number.isFinite(point.x) && Number.isFinite(point.y))
+      .map((point: any) => ({ x: clampPct(point.x), y: clampPct(point.y) }));
+    if (item.tool === 'pen' && points.length > 0) {
+      // Trait d'un seul point = pastille (même convention que web/mobile).
+      if (points.length === 1) {
+        return `<circle cx="${points[0].x}" cy="${points[0].y}" r="1.2" fill="${color}"/>`;
+      }
+      const path = points.map((point: any) => `${point.x},${point.y}`).join(' ');
+      return `<polyline points="${path}" fill="none" stroke="${color}" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/>`;
+    }
+    const x = clampPct(item.x ?? points[0]?.x);
+    const y = clampPct(item.y ?? points[0]?.y);
+    if (item.tool === 'text') {
+      const label = String(item.label ?? item.text ?? '').trim().slice(0, 18);
+      if (!label) return '';
+      // Petite étiquette : rectangle arrondi de la couleur + texte blanc.
+      const boxWidth = Math.min(64, label.length * 3 + 6);
+      const left = Math.max(0, Math.min(100 - boxWidth, x - boxWidth / 2));
+      const top = Math.max(0, Math.min(92, y - 4));
+      return `<g><rect x="${left}" y="${top}" width="${boxWidth}" height="8" rx="2" fill="${color}"/>`
+        + `<text x="${left + boxWidth / 2}" y="${top + 4}" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="4.5" font-family="Arial,sans-serif">${escapeHtml(label)}</text></g>`;
+    }
+    // dot / arrow / rect / measure : pastille numérotée pleine.
+    const label = String(item.label ?? '').trim().slice(0, 2) || '•';
+    return `<g><circle cx="${x}" cy="${y}" r="4" fill="${color}" stroke="#fff" stroke-width="0.8"/>`
+      + `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="central" fill="#fff" font-size="5" font-weight="bold" font-family="Arial,sans-serif">${escapeHtml(label)}</text></g>`;
+  }).filter(Boolean).join('');
+  if (!shapes) return '';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%">${shapes}</svg>`;
+}
+
+/**
  * Pile verticale de miniatures pour la cellule « Observation » d'un tableau de
  * réserves — mise en page du rapport de pendientes : photos empilées sous le
- * texte, dans la cellule, plutôt qu'en section séparée. Retourne '' sans photo.
+ * texte, dans la cellule, plutôt qu'en section séparée. Les annotations de
+ * chaque photo sont rendues en surimpression SVG (aucun <img> supplémentaire :
+ * la limite d'images du pipeline serveur n'est pas impactée).
+ * Retourne '' sans photo.
  */
 function buildReservePhotoStackHtml(
-  photos: Array<{ uri?: string | null }> | undefined,
+  photos: Array<{ uri?: string | null; annotations?: unknown }> | undefined,
   opts?: { omittedNote?: string | null; width?: number },
 ): string {
   const width = opts?.width ?? 108;
@@ -28,8 +81,11 @@ function buildReservePhotoStackHtml(
   if (usable.length === 0) return '';
   const imgs = usable.map(p =>
     `<div style="margin-top:6px;page-break-inside:avoid">
-      <img src="${escapeHtml(p.uri as string)}" onerror="this.style.opacity='0.15'"
-        style="width:${width}px;max-width:100%;height:auto;max-height:150px;object-fit:cover;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB"/>
+      <div style="position:relative;width:${width}px;max-width:100%">
+        <img src="${escapeHtml(p.uri as string)}" onerror="this.style.opacity='0.15'"
+          style="width:100%;height:auto;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB"/>
+        ${buildReservePhotoAnnotationsSvg(p.annotations)}
+      </div>
     </div>`,
   ).join('');
   const omitted = opts?.omittedNote
