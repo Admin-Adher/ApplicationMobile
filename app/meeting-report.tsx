@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, Modal, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Modal, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -21,6 +21,8 @@ import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
 import { MeetingReport, MeetingReportAction } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
 
@@ -178,7 +180,7 @@ export default function MeetingReportScreen() {
 
   function addActionToReport(reportId: string) {
     if (!actionDesc.trim() || !actionResp.trim() || !actionDeadline.trim()) {
-      Alert.alert(t('meetingReport.requiredFieldsTitle'), t('meetingReport.actionRequiredText'));
+      showAlert(t('meetingReport.requiredFieldsTitle'), t('meetingReport.actionRequiredText'));
       return;
     }
     const action: MeetingReportAction = {
@@ -204,7 +206,7 @@ export default function MeetingReportScreen() {
   }
 
   function removeAction(reportId: string, actionId: string) {
-    Alert.alert(t('meetingReport.deleteActionTitle'), t('meetingReport.deleteActionText'), [
+    showAlert(t('meetingReport.deleteActionTitle'), t('meetingReport.deleteActionText'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () =>
         updateReportData(reportId, r => ({ ...r, actions: r.actions.filter(a => a.id !== actionId) }))
@@ -240,7 +242,7 @@ export default function MeetingReportScreen() {
 
   const handleCreate = useCallback(() => {
     if (!subject.trim()) {
-      Alert.alert(t('meetingReport.requiredFieldTitle'), t('meetingReport.subjectRequired'));
+      showAlert(t('meetingReport.requiredFieldTitle'), t('meetingReport.subjectRequired'));
       return;
     }
     const report: MeetingReport = {
@@ -268,14 +270,14 @@ export default function MeetingReportScreen() {
 
   async function handleExportPDF(report: MeetingReport) {
     if (!permissions.canExport) {
-      Alert.alert(t('documentsScreen.accessDenied'), t('meetingReport.exportDenied'));
+      showAlert(t('documentsScreen.accessDenied'), t('meetingReport.exportDenied'));
       return;
     }
     try {
       const html = buildMeetingHTML(report, projectName, t);
       await exportPDFHelper(html, buildPdfFilename('CR_Reunion', [report.subject, report.location, projectName]));
     } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message ?? t('meetingReport.pdfError'));
+      showAlert(t('common.error'), e?.message ?? t('meetingReport.pdfError'));
     }
   }
 
@@ -307,6 +309,7 @@ export default function MeetingReportScreen() {
         onRightPress={permissions.canCreate ? () => { if (showNew) { setShowNew(false); resetForm(); } else setShowNew(true); } : undefined}
       />
 
+      <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {!showNew && permissions.canCreate && (
@@ -554,6 +557,7 @@ export default function MeetingReportScreen() {
           );
         })}
       </ScrollView>
+      </PageContainer>
 
       <Modal visible={showReservePicker} transparent animationType="slide" onRequestClose={() => setShowReservePicker(false)}>
         <View style={styles.tplOverlay}>
@@ -668,6 +672,8 @@ const styles = StyleSheet.create({
   tplSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, paddingBottom: 36,
+    // Desktop : feuille bornée et centrée au lieu d'un bandeau pleine largeur.
+    width: '100%', maxWidth: 560, alignSelf: 'center',
   },
   tplHandle: { width: 36, height: 4, backgroundColor: C.border, borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
   tplSheetTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, marginBottom: 4 },

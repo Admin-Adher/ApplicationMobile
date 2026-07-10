@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, Alert, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView, Share, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image, Platform, ActivityIndicator, Modal, TextInput, ScrollView, Share, KeyboardAvoidingView, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,10 @@ import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
+
+const PAGE_MAX_WIDTH = 1100;
 
 export default function PhotosScreen() {
   const { t } = useTranslation();
@@ -34,10 +38,44 @@ export default function PhotosScreen() {
   const [pendingGps, setPendingGps] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
   const [gpsStatus, setGpsStatus] = useState<'idle' | 'loading' | 'unavailable'>('idle');
 
+  // Grille responsive : 2 colonnes sur téléphone, 3-4 sur tablette/desktop,
+  // largeur de vignette calculée en pixels (padding 12 de chaque côté, gap 10).
+  const { width: windowWidth } = useWindowDimensions();
+  const gridWidth = Math.min(windowWidth, PAGE_MAX_WIDTH);
+  const numColumns = gridWidth >= 900 ? 4 : gridWidth >= 640 ? 3 : 2;
+  const cardWidth = Math.floor((gridWidth - 24 - (numColumns - 1) * 10) / numColumns);
+  const thumbHeight = Math.round(cardWidth * 0.72);
+
   // Capture GPS au moment de la prise : pendingGps n'était jamais alimenté
   // (bandeau « en cours » permanent, coordonnées jamais enregistrées).
   async function captureGps() {
-    if (Platform.OS === 'web') { setGpsStatus('unavailable'); return; }
+    if (Platform.OS === 'web') {
+      // Géolocalisation navigateur : même résultat que le natif (pendingGps),
+      // refus/échec/timeout → 'unavailable' (aucun bandeau affiché).
+      if (typeof navigator === 'undefined' || !navigator.geolocation) {
+        setGpsStatus('unavailable');
+        return;
+      }
+      setGpsStatus('loading');
+      try {
+        const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 30000,
+          })
+        );
+        setPendingGps({
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          accuracy: Math.round(pos.coords.accuracy ?? 0),
+        });
+        setGpsStatus('idle');
+      } catch {
+        setGpsStatus('unavailable');
+      }
+      return;
+    }
     setGpsStatus('loading');
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -73,7 +111,7 @@ export default function PhotosScreen() {
       ? t('photosScreen.shareChannelWithImage', { channel: channel.name })
       : t('photosScreen.shareChannelNoImage', { channel: channel.name });
     setShareModalVisible(false);
-    Alert.alert(t('photosScreen.shareDoneTitle'), note, [{ text: 'OK' }]);
+    showAlert(t('photosScreen.shareDoneTitle'), note, [{ text: 'OK' }]);
   }
 
   async function handleSystemShare() {
@@ -87,9 +125,9 @@ export default function PhotosScreen() {
           await (navigator as any).share({ title: caption, url: uri });
         } else if (uri?.startsWith('http')) {
           await (navigator as any).clipboard?.writeText(uri);
-          Alert.alert(t('photosScreen.linkCopiedTitle'), t('photosScreen.linkCopiedText'));
+          showAlert(t('photosScreen.linkCopiedTitle'), t('photosScreen.linkCopiedText'));
         } else {
-          Alert.alert(t('photosScreen.shareUnavailableTitle'), t('photosScreen.webLocalUnavailable'));
+          showAlert(t('photosScreen.shareUnavailableTitle'), t('photosScreen.webLocalUnavailable'));
         }
         return;
       }
@@ -110,24 +148,24 @@ export default function PhotosScreen() {
           }
           await Sharing.shareAsync(fileUri, { mimeType: 'image/jpeg', dialogTitle: caption });
         } else {
-          Alert.alert(t('photosScreen.unavailableTitle'), t('photosScreen.fileShareUnavailable'));
+          showAlert(t('photosScreen.unavailableTitle'), t('photosScreen.fileShareUnavailable'));
         }
         return;
       }
 
-      Alert.alert(t('photosScreen.noImageTitle'), t('photosScreen.invalidUri'));
+      showAlert(t('photosScreen.noImageTitle'), t('photosScreen.invalidUri'));
     } catch (err: any) {
       if (err?.message?.includes('cancel') || err?.message?.includes('abort')) return;
-      Alert.alert(t('common.error'), t('photosScreen.shareError', { message: err?.message ?? '' }));
+      showAlert(t('common.error'), t('photosScreen.shareError', { message: err?.message ?? '' }));
     }
   }
 
   function handleDeletePhoto(id: string, comment: string) {
     if (!permissions.canDelete) {
-      Alert.alert(t('photosScreen.deniedTitle'), t('photosScreen.deleteDenied'));
+      showAlert(t('photosScreen.deniedTitle'), t('photosScreen.deleteDenied'));
       return;
     }
-    Alert.alert(t('photosScreen.deletePhotoTitle'), t('photosScreen.deletePhotoText', { comment }), [
+    showAlert(t('photosScreen.deletePhotoTitle'), t('photosScreen.deletePhotoText', { comment }), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => deletePhoto(id) },
     ]);
@@ -192,10 +230,10 @@ export default function PhotosScreen() {
       };
       addPhoto(newPhoto);
       if (storageUrl) {
-        Alert.alert(t('photosScreen.savedTitle'), t('photosScreen.uploadedText'));
+        showAlert(t('photosScreen.savedTitle'), t('photosScreen.uploadedText'));
       }
     } catch {
-      Alert.alert(t('common.error'), t('photosScreen.processError'));
+      showAlert(t('common.error'), t('photosScreen.processError'));
     } finally {
       setLoading(false);
       setPendingUri(null);
@@ -230,13 +268,13 @@ export default function PhotosScreen() {
 
   async function handlePickPhoto() {
     if (!permissions.canCreate) {
-      Alert.alert(t('photosScreen.deniedTitle'), t('photosScreen.createDenied'));
+      showAlert(t('photosScreen.deniedTitle'), t('photosScreen.createDenied'));
       return;
     }
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert(t('photosScreen.permissionDenied'), t('photosScreen.galleryRequired'));
+        showAlert(t('photosScreen.permissionDenied'), t('photosScreen.galleryRequired'));
         return;
       }
     }
@@ -252,16 +290,16 @@ export default function PhotosScreen() {
 
   async function handleCamera() {
     if (!permissions.canCreate) {
-      Alert.alert(t('photosScreen.deniedTitle'), t('photosScreen.createDenied'));
+      showAlert(t('photosScreen.deniedTitle'), t('photosScreen.createDenied'));
       return;
     }
     if (Platform.OS === 'web') {
-      Alert.alert(t('photosScreen.infoTitle'), t('photosScreen.cameraMobileOnly'));
+      showAlert(t('photosScreen.infoTitle'), t('photosScreen.cameraMobileOnly'));
       return;
     }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert(t('photosScreen.permissionDenied'), t('photosScreen.cameraRequired'));
+      showAlert(t('photosScreen.permissionDenied'), t('photosScreen.cameraRequired'));
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
@@ -280,9 +318,11 @@ export default function PhotosScreen() {
         onRightPress={permissions.canCreate ? handleCamera : undefined}
       />
 
+      <PageContainer maxWidth={PAGE_MAX_WIDTH}>
       <FlatList
+        key={`cols-${numColumns}`}
         data={filteredPhotos}
-        numColumns={2}
+        numColumns={numColumns}
         keyExtractor={item => item.id}
         contentContainerStyle={styles.content}
         columnWrapperStyle={styles.row}
@@ -364,20 +404,20 @@ export default function PhotosScreen() {
           </>
         )}
         renderItem={({ item }) => (
-          <View style={styles.photoCard}>
+          <View style={[styles.photoCard, { width: cardWidth }]}>
             <TouchableOpacity
               onPress={() => item.uri ? setFullScreenUri(item.uri) : null}
               activeOpacity={0.9}
             >
               {item.uri ? (
                 <View>
-                  <Image source={{ uri: item.uri }} style={styles.photoThumbImg} resizeMode="cover" />
+                  <Image source={{ uri: item.uri }} style={[styles.photoThumbImg, { height: thumbHeight }]} resizeMode="cover" />
                   <View style={styles.expandHint}>
                     <Ionicons name="expand-outline" size={10} color="#fff" />
                   </View>
                 </View>
               ) : (
-                <View style={[styles.photoThumb, styles.photoThumbPlaceholder]}>
+                <View style={[styles.photoThumb, styles.photoThumbPlaceholder, { height: thumbHeight }]}>
                   <Ionicons name="image-outline" size={28} color={C.textMuted} />
                   <Text style={styles.placeholderLabel} numberOfLines={1}>{item.location}</Text>
                 </View>
@@ -425,6 +465,7 @@ export default function PhotosScreen() {
           </View>
         )}
       />
+      </PageContainer>
 
       {/* Vue plein écran */}
       <Modal visible={!!fullScreenUri} transparent animationType="fade" onRequestClose={() => setFullScreenUri(null)}>
@@ -598,7 +639,9 @@ const styles = StyleSheet.create({
   filterChipText: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub },
   filterChipTextActive: { color: C.primary },
   filterResult: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 10, textAlign: 'center' },
-  row: { justifyContent: 'space-between', gap: 10 },
+  // Largeur des cartes fixée en pixels (cardWidth) : un simple gap suffit,
+  // space-between écarterait mal les rangées incomplètes en 3-4 colonnes.
+  row: { gap: 10 },
   statsRow: { flexDirection: 'row', gap: 10, marginBottom: 12, width: '100%' },
   statItem: { flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 14, alignItems: 'center', borderWidth: 1, borderColor: C.border },
   statVal: { fontSize: 24, fontFamily: 'Inter_700Bold', color: C.primary },
@@ -608,11 +651,11 @@ const styles = StyleSheet.create({
   actionBtnText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
   loadingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 8, marginBottom: 8 },
   loadingText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub },
-  photoCard: { width: '48.5%', backgroundColor: C.surface, borderRadius: 14, overflow: 'hidden', marginBottom: 10, borderWidth: 1, borderColor: C.border },
-  photoThumb: { height: 110, alignItems: 'center', justifyContent: 'center' },
+  photoCard: { backgroundColor: C.surface, borderRadius: 14, overflow: 'hidden', marginBottom: 10, borderWidth: 1, borderColor: C.border },
+  photoThumb: { alignItems: 'center', justifyContent: 'center' },
   photoThumbPlaceholder: { backgroundColor: C.surface2, gap: 6 },
   placeholderLabel: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textMuted, paddingHorizontal: 8, textAlign: 'center' },
-  photoThumbImg: { width: '100%', height: 110 },
+  photoThumbImg: { width: '100%' },
   expandHint: { position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 4, padding: 3 },
   photoInfo: { padding: 10 },
   photoComment: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, marginBottom: 6, lineHeight: 16 },
@@ -631,7 +674,7 @@ const styles = StyleSheet.create({
   fullScreenClose: { position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 8 },
   fullScreenImage: { width: '100%', height: '100%' },
   modalOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' },
-  modalCard: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36 },
+  modalCard: { backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, paddingBottom: 36, width: '100%', maxWidth: 560, alignSelf: 'center' },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text },
   modalPreview: { width: '100%', height: 150, borderRadius: 12, marginBottom: 16 },

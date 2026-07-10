@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Alert, Platform, ActivityIndicator, Linking } from 'react-native';
+import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Platform, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -11,6 +11,8 @@ import Header from '@/components/Header';
 import { uploadDocument } from '@/lib/storage';
 import { genId, formatSize, formatDateFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 
 const DOC_ICONS: Record<DocumentType, string> = {
   plan: 'map-outline',
@@ -61,7 +63,7 @@ export default function DocumentsScreen() {
 
   async function handlePickDocument() {
     if (!permissions.canCreate) {
-      Alert.alert(t('documentsScreen.accessDenied'), t('documentsScreen.importDenied'));
+      showAlert(t('documentsScreen.accessDenied'), t('documentsScreen.importDenied'));
       return;
     }
     setLoading(true);
@@ -77,7 +79,7 @@ export default function DocumentsScreen() {
 
         if (docType === 'plan') {
           setLoading(false);
-          Alert.alert(
+          showAlert(
             t('documentsScreen.planBuildingTitle'),
             t('documentsScreen.planBuildingMessage'),
             ['A', 'B', 'C'].map(building => ({
@@ -100,14 +102,14 @@ export default function DocumentsScreen() {
                     chantierId: activeChantierId ?? undefined,
                   };
                   addDocument(newDoc);
-                  Alert.alert(
+                  showAlert(
                     t('documentsScreen.planImported'),
                     storageUrl
                       ? t('documentsScreen.uploadedStorage', { name: asset.name })
                       : t('documentsScreen.importedLocal', { name: asset.name })
                   );
                 } catch {
-                  Alert.alert(t('common.error'), t('documentsScreen.loadError'));
+                  showAlert(t('common.error'), t('documentsScreen.loadError'));
                 } finally {
                   setLoading(false);
                 }
@@ -139,7 +141,7 @@ export default function DocumentsScreen() {
           chantierId: activeChantierId ?? undefined,
         };
         addDocument(newDoc);
-        Alert.alert(
+        showAlert(
           t('documentsScreen.documentImported'),
           storageUrl
             ? t('documentsScreen.uploadedStorage', { name: asset.name })
@@ -147,7 +149,7 @@ export default function DocumentsScreen() {
         );
       }
     } catch (e) {
-      Alert.alert(t('common.error'), t('documentsScreen.loadError'));
+      showAlert(t('common.error'), t('documentsScreen.loadError'));
     } finally {
       setLoading(false);
     }
@@ -155,24 +157,44 @@ export default function DocumentsScreen() {
 
   function handleDownload(doc: Document) {
     if (!doc.uri) {
-      Alert.alert(t('documentsScreen.noFileTitle'), t('documentsScreen.noFileMessage'));
+      showAlert(t('documentsScreen.noFileTitle'), t('documentsScreen.noFileMessage'));
       return;
     }
     if (doc.uri.startsWith('http')) {
       Linking.openURL(doc.uri).catch(() =>
-        Alert.alert(t('common.error'), t('documentsScreen.openLinkError'))
+        showAlert(t('common.error'), t('documentsScreen.openLinkError'))
       );
-    } else {
-      Alert.alert(t('documentsScreen.localFileTitle'), t('documentsScreen.localFileMessage', { uri: doc.uri.slice(0, 80) }));
+      return;
     }
+    // Web : les URI blob:/data: (upload cloud absent ou échoué) restent ouvrables
+    // dans le navigateur — nouvel onglet, sinon téléchargement via une ancre.
+    if (Platform.OS === 'web' && (doc.uri.startsWith('blob:') || doc.uri.startsWith('data:'))) {
+      try {
+        // Les navigateurs bloquent la navigation d'onglet vers les data: URI :
+        // dans ce cas on passe directement par le téléchargement.
+        const win = doc.uri.startsWith('blob:') ? window.open(doc.uri, '_blank') : null;
+        if (!win) {
+          const a = document.createElement('a');
+          a.href = doc.uri;
+          a.download = doc.name || 'document';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+        }
+        return;
+      } catch {
+        // On retombe sur le message d'information ci-dessous.
+      }
+    }
+    showAlert(t('documentsScreen.localFileTitle'), t('documentsScreen.localFileMessage', { uri: doc.uri.slice(0, 80) }));
   }
 
   function handleDelete(doc: Document) {
     if (!permissions.canDelete) {
-      Alert.alert(t('documentsScreen.accessDenied'), t('documentsScreen.deleteDenied'));
+      showAlert(t('documentsScreen.accessDenied'), t('documentsScreen.deleteDenied'));
       return;
     }
-    Alert.alert(t('documentsScreen.deleteTitle'), t('documentsScreen.deleteMessage', { name: doc.name }), [
+    showAlert(t('documentsScreen.deleteTitle'), t('documentsScreen.deleteMessage', { name: doc.name }), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => deleteDocument(doc.id) },
     ]);
@@ -188,6 +210,7 @@ export default function DocumentsScreen() {
         onRightPress={permissions.canCreate ? handlePickDocument : undefined}
       />
 
+      <PageContainer maxWidth={1000}>
       <View style={styles.searchWrap}>
         <Ionicons name="search-outline" size={16} color={C.textMuted} />
         <TextInput
@@ -268,6 +291,7 @@ export default function DocumentsScreen() {
           </View>
         )}
       />
+      </PageContainer>
       <BottomNavBar />
     </View>
   );

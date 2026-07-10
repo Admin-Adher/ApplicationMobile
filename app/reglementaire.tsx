@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, SectionList, TouchableOpacity, Modal,
-  TextInput, Platform, Alert, TouchableWithoutFeedback, ScrollView, KeyboardAvoidingView,
+  TextInput, Platform, TouchableWithoutFeedback, ScrollView, KeyboardAvoidingView,
 } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useMemo } from 'react';
@@ -12,6 +12,8 @@ import { useReglementaire } from '@/context/ReglementaireContext';
 import Header from '@/components/Header';
 import { RegulatoryDoc, RegDocType, RegDocStatus } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 
 const DOC_TYPES: { value: RegDocType; labelKey: string; descKey: string; icon: string; color: string }[] = [
   { value: 'ppsps', labelKey: 'regulatory.docTypes.ppsps.label', descKey: 'regulatory.docTypes.ppsps.desc', icon: 'shield-checkmark', color: '#DC2626' },
@@ -105,7 +107,7 @@ export default function ReglementaireScreen() {
 
   async function handleSave() {
     if (!title.trim()) {
-      Alert.alert(t('regulatory.requiredTitle'), t('regulatory.titleRequired'));
+      showAlert(t('regulatory.requiredTitle'), t('regulatory.titleRequired'));
       return;
     }
     const payload = {
@@ -128,7 +130,7 @@ export default function ReglementaireScreen() {
   }
 
   function handleDelete(doc: RegulatoryDoc) {
-    Alert.alert(t('regulatory.deleteTitle'), t('regulatory.deleteText', { title: doc.title }), [
+    showAlert(t('regulatory.deleteTitle'), t('regulatory.deleteText', { title: doc.title }), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => deleteDoc(doc.id) },
     ]);
@@ -137,7 +139,7 @@ export default function ReglementaireScreen() {
   function handleStatusChange(doc: RegulatoryDoc) {
     const idx = STATUSES.indexOf(doc.status);
     const next = STATUSES[(idx + 1) % STATUSES.length];
-    Alert.alert(
+    showAlert(
       t('regulatory.changeStatusTitle'),
       t('regulatory.changeStatusText', { title: doc.title, status: t(STATUS_CONFIG[next].labelKey) }),
       [
@@ -159,6 +161,7 @@ export default function ReglementaireScreen() {
         onRightPress={permissions.canCreate ? openAdd : undefined}
       />
 
+      <PageContainer maxWidth={1000}>
       <View style={styles.statusBar}>
         {Object.entries(counts).filter(([, v]) => v > 0).map(([key, val]) => {
           const cfg = STATUS_CONFIG[key as RegDocStatus];
@@ -277,6 +280,7 @@ export default function ReglementaireScreen() {
           )}
         />
       )}
+      </PageContainer>
 
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={closeModal}>
         <KeyboardAvoidingView style={styles.overlay} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -463,6 +467,7 @@ const styles = StyleSheet.create({
   modalCard: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, paddingBottom: 32, maxHeight: '92%',
+    width: '100%', maxWidth: 640, alignSelf: 'center',
   },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   modalTitle: { fontSize: 17, fontFamily: 'Inter_700Bold', color: C.text, flex: 1, marginRight: 8 },
