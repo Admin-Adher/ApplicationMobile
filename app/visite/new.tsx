@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Image, Animated,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Image, Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useState, useCallback, useMemo, useRef } from 'react';
@@ -25,6 +25,8 @@ import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import LocationPicker from '@/components/LocationPicker';
 import CompanySelector from '@/components/CompanySelector';
 import DictationTextInput from '@/components/DictationTextInput';
+import PageContainer from '@/components/PageContainer';
+import { showAlert } from '@/lib/appAlert';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -343,7 +345,7 @@ export default function NewVisiteScreen() {
   async function pickCoverPhoto() {
     const { status: ps } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (ps !== 'granted') {
-      Alert.alert(t('visits.new.permissionDenied'), t('visits.new.galleryRequired'));
+      showAlert(t('visits.new.permissionDenied'), t('visits.new.galleryRequired'));
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -355,7 +357,7 @@ export default function NewVisiteScreen() {
   async function takeCoverPhoto() {
     const { status: cs } = await ImagePicker.requestCameraPermissionsAsync();
     if (cs !== 'granted') {
-      Alert.alert(t('visits.new.permissionDenied'), t('visits.new.cameraRequired'));
+      showAlert(t('visits.new.permissionDenied'), t('visits.new.cameraRequired'));
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
@@ -498,23 +500,23 @@ export default function NewVisiteScreen() {
   function handleSubmit() {
     if (isSubmitting) return;
     if (!activeChantierId) {
-      Alert.alert(t('visits.new.chantierRequiredTitle'), t('visits.new.chantierRequiredText'));
+      showAlert(t('visits.new.chantierRequiredTitle'), t('visits.new.chantierRequiredText'));
       return;
     }
     if (!visitType) {
-      Alert.alert(t('visits.new.typeRequiredTitle'), t('visits.new.typeRequiredText'));
+      showAlert(t('visits.new.typeRequiredTitle'), t('visits.new.typeRequiredText'));
       return;
     }
     if (!title.trim()) {
-      Alert.alert(t('visits.new.requiredTitle'), t('visits.new.titleRequiredText'));
+      showAlert(t('visits.new.requiredTitle'), t('visits.new.titleRequiredText'));
       return;
     }
     if (!date.trim()) {
-      Alert.alert(t('visits.new.requiredTitle'), t('visits.new.dateRequiredText'));
+      showAlert(t('visits.new.requiredTitle'), t('visits.new.dateRequiredText'));
       return;
     }
     if (hasBuildingHierarchy && visitedLocations.length === 0) {
-      Alert.alert(
+      showAlert(
         t('visits.new.perimeterRequiredTitle'),
         t('visits.new.perimeterRequiredText')
       );
@@ -524,15 +526,15 @@ export default function NewVisiteScreen() {
     const startMinutes = startTime.trim() ? parseTimeToMinutes(startTime.trim()) : null;
     const endMinutes = endTime.trim() ? parseTimeToMinutes(endTime.trim()) : null;
     if (startTime.trim() && startMinutes === null) {
-      Alert.alert(t('visits.new.invalidTimeTitle'), t('visits.new.startTimeInvalid'));
+      showAlert(t('visits.new.invalidTimeTitle'), t('visits.new.startTimeInvalid'));
       return;
     }
     if (endTime.trim() && endMinutes === null) {
-      Alert.alert(t('visits.new.invalidTimeTitle'), t('visits.new.endTimeInvalid'));
+      showAlert(t('visits.new.invalidTimeTitle'), t('visits.new.endTimeInvalid'));
       return;
     }
     if (startMinutes !== null && endMinutes !== null && endMinutes <= startMinutes) {
-      Alert.alert(t('visits.new.inconsistentTimeTitle'), t('visits.new.inconsistentTimeText'));
+      showAlert(t('visits.new.inconsistentTimeTitle'), t('visits.new.inconsistentTimeText'));
       return;
     }
 
@@ -583,13 +585,16 @@ export default function NewVisiteScreen() {
     });
 
     const count = intervals.length;
-    setIsSubmitting(false);
-    Alert.alert(
+    // isSubmitting reste à true tant que la boîte est ouverte : le bouton
+    // « Créer » est désactivé, aucune double soumission possible. Le style
+    // 'cancel' garantit que router.back() est aussi appelé si la boîte est
+    // fermée via le fond/Échap sur web.
+    showAlert(
       t('visits.new.createdTitle', { count }),
       count > 1
         ? t('visits.new.createdSeries', { title: title.trim(), count })
         : t('visits.new.createdSingle', { title: title.trim() }),
-      [{ text: 'OK', onPress: () => router.back() }]
+      [{ text: 'OK', style: 'cancel', onPress: () => router.back() }]
     );
   }
 
@@ -635,6 +640,7 @@ export default function NewVisiteScreen() {
         onRightPress={handleSubmit}
       />
 
+      <PageContainer maxWidth={800}>
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={styles.content}
@@ -696,10 +702,14 @@ export default function NewVisiteScreen() {
                 <Ionicons name="images-outline" size={18} color={C.primary} />
                 <Text style={styles.photoBtnText}>{t('visits.new.choosePhoto')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.photoBtn} onPress={takeCoverPhoto}>
-                <Ionicons name="camera-outline" size={18} color={C.primary} />
-                <Text style={styles.photoBtnText}>{t('visits.new.takePhoto')}</Text>
-              </TouchableOpacity>
+              {/* Pas de vraie caméra web via expo-image-picker : on masque le
+                  bouton sur navigateur au profit du choix depuis la galerie. */}
+              {Platform.OS !== 'web' && (
+                <TouchableOpacity style={styles.photoBtn} onPress={takeCoverPhoto}>
+                  <Ionicons name="camera-outline" size={18} color={C.primary} />
+                  <Text style={styles.photoBtnText}>{t('visits.new.takePhoto')}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           )}
         </View>
@@ -1459,6 +1469,7 @@ export default function NewVisiteScreen() {
         </TouchableOpacity>
 
       </ScrollView>
+      </PageContainer>
     </KeyboardAvoidingView>
   );
 }

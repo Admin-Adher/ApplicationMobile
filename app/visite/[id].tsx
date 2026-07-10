@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform, Modal, TextInput, ActivityIndicator, KeyboardAvoidingView, Image, FlatList } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Modal, TextInput, ActivityIndicator, KeyboardAvoidingView, Image, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useMemo, useRef, useState } from 'react';
@@ -40,6 +40,8 @@ import {
   RESERVE_STATUS_LABELS as SHARED_STATUS_LABELS,
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
+import PageContainer from '@/components/PageContainer';
+import { showAlert } from '@/lib/appAlert';
 
 const STATUS_CFG: Record<VisiteStatus, { color: string }> = {
   planned: { color: '#6366F1' },
@@ -986,7 +988,7 @@ export default function VisiteDetailScreen() {
 
   function handleDelete() {
     if (!visite) return;
-    Alert.alert(t('visits.deleteTitle'), t('visits.deleteText', { title: visite.title }), [
+    showAlert(t('visits.deleteTitle'), t('visits.deleteText', { title: visite.title }), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'), style: 'destructive', onPress: () => {
@@ -1006,11 +1008,11 @@ export default function VisiteDetailScreen() {
       const entrepriseSig = entrepriseSigRef.current?.getSVGData() ?? visite.entrepriseSignature ?? null;
       const signataire = entrepriseSignataire.trim() || visite.entrepriseSignataire;
       if (!conducteurSig && !entrepriseSig) {
-        Alert.alert(t('visits.detail.signatureRequiredTitle'), t('visits.detail.signatureRequiredText'));
+        showAlert(t('visits.detail.signatureRequiredTitle'), t('visits.detail.signatureRequiredText'));
         return;
       }
       if (entrepriseSig && !signataire) {
-        Alert.alert(t('visits.detail.signerRequiredTitle'), t('visits.detail.signerRequiredText'));
+        showAlert(t('visits.detail.signerRequiredTitle'), t('visits.detail.signerRequiredText'));
         setSigningTab('entreprise');
         return;
       }
@@ -1025,7 +1027,7 @@ export default function VisiteDetailScreen() {
         status: 'completed',
       });
       setSignModalVisible(false);
-      Alert.alert(t('visits.detail.signedTitle'), t('visits.detail.signedText'));
+      showAlert(t('visits.detail.signedTitle'), t('visits.detail.signedText'));
     } finally {
       setIsSigning(false);
     }
@@ -1072,7 +1074,7 @@ export default function VisiteDetailScreen() {
       || visites.some(v => v.id !== visite.id && (v.reserveIds ?? []).includes(r.id))
     );
     if (reservesAlreadyInOtherVisit.length > 0 && !forceMove) {
-      Alert.alert(
+      showAlert(
         t('visits.detail.moveReservesTitle'),
         t('visits.detail.moveReservesText', { count: reservesAlreadyInOtherVisit.length }),
         [
@@ -1087,14 +1089,14 @@ export default function VisiteDetailScreen() {
     try {
       const result = await attachReservesToVisite(visite.id, selectedIds);
       if (!result.success) {
-        Alert.alert(t('visits.detail.attachImpossibleTitle'), result.error ?? t('visits.detail.attachImpossibleText'));
+        showAlert(t('visits.detail.attachImpossibleTitle'), result.error ?? t('visits.detail.attachImpossibleText'));
         return;
       }
 
       setAttachSelectedIds([]);
       setAttachSearch('');
       setAttachModalVisible(false);
-      Alert.alert(
+      showAlert(
         result.queued ? t('visits.detail.attachQueuedTitle') : t('visits.detail.attachDoneTitle'),
         result.queued
           ? t('visits.detail.attachQueuedText', { count: selected.length })
@@ -1111,10 +1113,10 @@ export default function VisiteDetailScreen() {
     try {
       const result = await unlinkReservesFromVisite(visite.id, [reserve.id]);
       if (!result.success) {
-        Alert.alert(t('visits.detail.unlinkImpossibleTitle'), result.error ?? t('visits.detail.unlinkImpossibleText'));
+        showAlert(t('visits.detail.unlinkImpossibleTitle'), result.error ?? t('visits.detail.unlinkImpossibleText'));
         return;
       }
-      Alert.alert(
+      showAlert(
         result.queued ? t('visits.detail.unlinkQueuedTitle') : t('visits.detail.unlinkDoneTitle'),
         result.queued
           ? t('visits.detail.unlinkQueuedText')
@@ -1126,7 +1128,7 @@ export default function VisiteDetailScreen() {
   }
 
   function confirmRemoveReserveFromVisit(reserve: Reserve) {
-    Alert.alert(
+    showAlert(
       t('visits.detail.removeFromVisitTitle'),
       t('visits.detail.removeFromVisitText', { title: reserve.title }),
       [
@@ -1138,7 +1140,7 @@ export default function VisiteDetailScreen() {
 
   function toggleArchiveReserveFromVisit(reserve: Reserve) {
     if (reserve.archivedAt) {
-      Alert.alert(
+      showAlert(
         t('visits.detail.unarchiveReserveTitle'),
         t('visits.detail.unarchiveReserveText', { title: reserve.title }),
         [
@@ -1149,7 +1151,7 @@ export default function VisiteDetailScreen() {
       return;
     }
 
-    Alert.alert(
+    showAlert(
       t('visits.detail.archiveReserveTitle'),
       t('visits.detail.archiveReserveText', { title: reserve.title }),
       [
@@ -1160,7 +1162,7 @@ export default function VisiteDetailScreen() {
   }
 
   function confirmDeleteReserveFromVisit(reserve: Reserve) {
-    Alert.alert(
+    showAlert(
       t('visits.detail.deleteReserveForeverTitle'),
       t('visits.detail.deleteReserveForeverText', { title: reserve.title }),
       [
@@ -1183,7 +1185,7 @@ export default function VisiteDetailScreen() {
       buttons.push({ text: t('visits.detail.deleteReserveForeverTitle'), style: 'destructive', onPress: () => confirmDeleteReserveFromVisit(reserve) });
     }
     buttons.push({ text: t('common.cancel'), style: 'cancel' });
-    Alert.alert(reserve.id, reserve.title, buttons);
+    showAlert(reserve.id, reserve.title, buttons);
   }
 
   function renderAttachReserve({ item: reserve }: { item: Reserve }) {
@@ -1253,7 +1255,7 @@ export default function VisiteDetailScreen() {
       const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap, coverPhotoDataUrl, language);
       await exportPDFHelper(html, buildPdfFilename(`CR_Visite_${language.toUpperCase()}`, [visite.title, visite.level, projectName]));
     } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message ?? t('visits.detail.pdfError'));
+      showAlert(t('common.error'), e?.message ?? t('visits.detail.pdfError'));
     }
   }
 
@@ -1267,6 +1269,7 @@ export default function VisiteDetailScreen() {
         onRightPress={permissions.canExport ? () => exportPDF(reportLanguage) : undefined}
       />
 
+      <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {/* Cover photo */}
@@ -1636,6 +1639,7 @@ export default function VisiteDetailScreen() {
           </View>
         )}
       </ScrollView>
+      </PageContainer>
 
       <Modal visible={statusModalVisible} transparent animationType="fade" onRequestClose={() => setStatusModalVisible(false)}>
         <View style={styles.statusModalOverlay}>
@@ -2099,6 +2103,7 @@ const styles = StyleSheet.create({
   signModal: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     maxHeight: '90%', paddingBottom: 34,
+    width: '100%', maxWidth: 640, alignSelf: 'center',
   },
   signModalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -2142,6 +2147,7 @@ const styles = StyleSheet.create({
   locModal: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     maxHeight: '60%', paddingBottom: 34,
+    width: '100%', maxWidth: 640, alignSelf: 'center',
   },
   locModalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -2159,6 +2165,7 @@ const styles = StyleSheet.create({
   attachModal: {
     backgroundColor: C.surface, borderTopLeftRadius: 22, borderTopRightRadius: 22,
     maxHeight: '88%', paddingBottom: 28,
+    width: '100%', maxWidth: 640, alignSelf: 'center',
   },
   attachHandle: {
     width: 44, height: 5, borderRadius: 999, backgroundColor: C.border,

@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useMemo, useState, useCallback } from 'react';
@@ -10,6 +10,8 @@ import { useAuth } from '@/context/AuthContext';
 import { Visite, VisiteStatus, VisiteType } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
+import PageContainer from '@/components/PageContainer';
+import { showAlert } from '@/lib/appAlert';
 
 const STATUS_CFG: Record<VisiteStatus, { color: string; icon: string }> = {
   planned: { color: '#6366F1', icon: 'calendar-outline' },
@@ -192,7 +194,7 @@ export default function VisitesScreen() {
   }
 
   function handleDelete(v: Visite) {
-    Alert.alert(t('visits.deleteTitle'), t('visits.deleteText', { title: v.title }), [
+    showAlert(t('visits.deleteTitle'), t('visits.deleteText', { title: v.title }), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('visits.delete'), style: 'destructive', onPress: () => {
@@ -213,6 +215,7 @@ export default function VisitesScreen() {
         onRightPress={permissions.canCreate ? () => router.push('/visite/new' as any) : undefined}
       />
 
+      <PageContainer maxWidth={1000}>
       <ScrollView
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
@@ -301,6 +304,7 @@ export default function VisitesScreen() {
           ))
         )}
       </ScrollView>
+      </PageContainer>
 
       <BottomNavBar />
     </View>
