@@ -20,3 +20,6 @@ web-build/
 
 expo-env.d.ts
 # @end expo-cli
+
+# TypeScript incremental build cache (regénéré à chaque tsc --noEmit)
+*.tsbuildinfo
