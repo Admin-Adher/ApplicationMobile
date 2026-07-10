@@ -17,6 +17,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { queryClient } from '@/lib/queryClient';
 import { asyncStoragePersister } from '@/lib/queryPersister';
 import { AppProvider, useApp } from '@/context/AppContext';
+import { AppAlertHost } from '@/lib/appAlert';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
 import { IncidentsProvider } from '@/context/IncidentsContext';
@@ -382,6 +383,7 @@ export default function RootLayout() {
                     <ConflictModal />
                     <ChantierSwitcherSheet />
                     <SessionExpiredModal />
+                    <AppAlertHost />
                     <StatusBar style="light" />
                   </SafeKeyboardProvider>
                 </SafeAreaProvider>
