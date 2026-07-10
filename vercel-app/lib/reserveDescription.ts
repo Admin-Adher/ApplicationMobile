@@ -16,3 +16,18 @@ export function getReserveDescriptionText(
   const cleanTitle = String(title ?? '').trim();
   return cleanTitle || fallback;
 }
+
+/**
+ * True quand la réserve porte une VRAIE description (ni vide, ni placeholder,
+ * ni simple recopie du titre). Sert à éviter de répéter le titre sous lui-même
+ * dans la colonne Observation des rapports PDF.
+ */
+export function hasCustomReserveDescription(
+  description?: string | null,
+  title?: string | null,
+): boolean {
+  const cleanDescription = String(description ?? '').trim();
+  if (!cleanDescription || EMPTY_DESCRIPTION_PLACEHOLDERS.has(cleanDescription)) return false;
+  const cleanTitle = String(title ?? '').trim();
+  return cleanDescription !== cleanTitle;
+}

@@ -1646,7 +1646,10 @@ function getPdfReservePhotoUrls(reserve: any) {
 }
 
 const REPORT_MAX_TOTAL_REMOTE_PHOTOS = 150;
-const REPORT_MAX_PHOTOS_PER_RESERVE = 2;
+// 3 photos/réserve : les photos sont désormais empilées dans la colonne
+// Observation des rapports (mise en page façon rapport de pendientes), comme
+// sur mobile. Le pipeline serveur borne de toute façon le total (≈160 images).
+const REPORT_MAX_PHOTOS_PER_RESERVE = 3;
 const INDIVIDUAL_RESERVE_MAX_PHOTOS = 3;
 const PLAN_REPORT_PHOTO_RENDER_WIDTH = 800;
 const PLAN_REPORT_PHOTO_QUALITY = 0.55;
