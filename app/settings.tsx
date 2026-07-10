@@ -1,6 +1,7 @@
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, KeyboardAvoidingView, Switch, Linking,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, KeyboardAvoidingView, Switch, Linking,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
@@ -9,6 +10,7 @@ import * as Application from 'expo-application';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { C } from '@/constants/colors';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -448,7 +450,7 @@ export default function SettingsScreen() {
       try {
         await Linking.openSettings();
       } catch {
-        Alert.alert(t('settings.pushPermission.settingsUnavailableTitle'), t('settings.pushPermission.settingsUnavailableText'));
+        showAlert(t('settings.pushPermission.settingsUnavailableTitle'), t('settings.pushPermission.settingsUnavailableText'));
       } finally {
         retryPushRegistration();
       }
@@ -458,7 +460,7 @@ export default function SettingsScreen() {
   async function handlePushPermissionAction() {
     if (Platform.OS === 'web') return;
     if (permissionStatus === 'denied') {
-      Alert.alert(
+      showAlert(
         t('settings.pushPermission.alertTitle'),
         t('settings.pushPermission.alertText'),
         [
@@ -474,7 +476,7 @@ export default function SettingsScreen() {
 
   function handleClearQueue() {
     if (queueCount === 0) return;
-    Alert.alert(
+    showAlert(
       t('settings.syncQueue.clearTitle'),
       t('settings.syncQueue.clearMessage', { count: queueCount }),
       [
@@ -484,7 +486,7 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: async () => {
             await clearQueue();
-            Alert.alert(t('settings.syncQueue.clearedTitle'), t('settings.syncQueue.clearedText'));
+            showAlert(t('settings.syncQueue.clearedTitle'), t('settings.syncQueue.clearedText'));
           },
         },
       ],
@@ -543,22 +545,22 @@ export default function SettingsScreen() {
 
   async function handleSave() {
     if (!nameInput.trim()) {
-      Alert.alert(t('settings.projectTab.requiredTitle'), t('settings.projectTab.nameRequired'));
+      showAlert(t('settings.projectTab.requiredTitle'), t('settings.projectTab.nameRequired'));
       return;
     }
     setSaving(true);
     await setProjectName(nameInput.trim());
     await setProjectDescription(descInput.trim());
     setSaving(false);
-    Alert.alert(t('settings.projectTab.savedTitle'), t('settings.projectTab.savedText'));
+    showAlert(t('settings.projectTab.savedTitle'), t('settings.projectTab.savedText'));
   }
 
   async function handleSaveAttendance() {
     if (companies.length === 0) {
-      Alert.alert(t('settings.attendanceTab.noCompanyTitle'), t('settings.attendanceTab.noCompanyText'));
+      showAlert(t('settings.attendanceTab.noCompanyTitle'), t('settings.attendanceTab.noCompanyText'));
       return;
     }
-    Alert.alert(
+    showAlert(
       t('settings.attendanceTab.saveSnapshotTitle'),
       t('settings.attendanceTab.saveSnapshotText', { count: companies.reduce<number>((a, c) => a + c.actualWorkers, 0) }),
       [
@@ -567,7 +569,7 @@ export default function SettingsScreen() {
           text: t('settings.attendanceTab.saveSnapshotAction'),
           onPress: async () => {
             await saveAttendanceSnapshot(companies, user?.name ?? t('settings.systemUser'));
-            Alert.alert(t('settings.attendanceTab.snapshotSavedTitle'), t('settings.attendanceTab.snapshotSavedText'));
+            showAlert(t('settings.attendanceTab.snapshotSavedTitle'), t('settings.attendanceTab.snapshotSavedText'));
           },
         },
       ]
@@ -575,7 +577,7 @@ export default function SettingsScreen() {
   }
 
   function handleClearHistory() {
-    Alert.alert(
+    showAlert(
       t('settings.attendanceTab.clearHistoryTitle'),
       t('settings.attendanceTab.clearHistoryText', { count: attendanceHistory.length }),
       [
@@ -586,7 +588,7 @@ export default function SettingsScreen() {
   }
 
   function handleLogout() {
-    Alert.alert(
+    showAlert(
       t('settings.logoutTitle'),
       t('settings.logoutMessage'),
       [
@@ -612,6 +614,7 @@ export default function SettingsScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header title={t('common.settings')} subtitle={t('settings.accountAndProject')} showBack />
 
+      <PageContainer maxWidth={820}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
         {[
           { key: 'compte',       icon: 'person-circle-outline', label: t('settings.account'),          nav: false },
@@ -1407,6 +1410,7 @@ export default function SettingsScreen() {
           </View>
         )}
       </ScrollView>
+      </PageContainer>
       <BottomNavBar />
     </KeyboardAvoidingView>
   );

@@ -1,4 +1,5 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
 import { Ionicons } from '@expo/vector-icons';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -21,6 +22,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import BottomNavBar from '@/components/BottomNavBar';
 import {
   buildPhotoAnnotationsOverlayHtml,
@@ -480,7 +482,7 @@ export default function RapportsScreen() {
 
   async function exportPDF(type: 'daily' | 'weekly') {
     if (!permissions.canExport) {
-      Alert.alert(t('documentsScreen.accessDenied'), t('reportsScreen.exportDenied'));
+      showAlert(t('documentsScreen.accessDenied'), t('reportsScreen.exportDenied'));
       return;
     }
     try {
@@ -494,13 +496,13 @@ export default function RapportsScreen() {
           : buildPdfFilename('Rapport_Hebdomadaire', [`Semaine_${weekNum}`, projectName]),
       );
     } catch (e: any) {
-      Alert.alert(t('common.error'), t('reportsScreen.pdfError', { error: e?.message ?? e }));
+      showAlert(t('common.error'), t('reportsScreen.pdfError', { error: e?.message ?? e }));
     }
   }
 
   async function exportCSV() {
     if (!permissions.canExport) {
-      Alert.alert(t('documentsScreen.accessDenied'), t('reportsScreen.exportDenied'));
+      showAlert(t('documentsScreen.accessDenied'), t('reportsScreen.exportDenied'));
       return;
     }
     try {
@@ -525,10 +527,10 @@ export default function RapportsScreen() {
       if (canShare) {
         await Sharing.shareAsync(fileUri, { mimeType: 'text/csv', dialogTitle: t('reportsScreen.shareCsv'), UTI: 'public.comma-separated-values-text' });
       } else {
-        Alert.alert(t('reportsScreen.csvGenerated'), t('reportsScreen.csvGeneratedText', { count: reserves.length, fileUri }));
+        showAlert(t('reportsScreen.csvGenerated'), t('reportsScreen.csvGeneratedText', { count: reserves.length, fileUri }));
       }
     } catch (e: any) {
-      Alert.alert(t('common.error'), t('reportsScreen.exportError', { error: e?.message ?? e }));
+      showAlert(t('common.error'), t('reportsScreen.exportError', { error: e?.message ?? e }));
     }
   }
 
@@ -536,6 +538,7 @@ export default function RapportsScreen() {
     <View style={styles.container}>
       <Header title={t('reportsScreen.title')} subtitle={t('reportsScreen.subtitle')} showBack />
 
+      <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.reportCard}>
           <View style={styles.reportHeader}>
@@ -655,7 +658,7 @@ export default function RapportsScreen() {
                           const html = buildIncidentHTML(i, projectName, t);
                           await exportPDFHelper(html, buildPdfFilename('Incident', [i.id, i.title, projectName]));
                         } catch (e: any) {
-                          Alert.alert(t('common.error'), e?.message ?? t('reportsScreen.pdfGenerateError'));
+                          showAlert(t('common.error'), e?.message ?? t('reportsScreen.pdfGenerateError'));
                         }
                       }}
                       style={[styles.exportBtn, { marginLeft: 8 }]}
@@ -708,7 +711,7 @@ export default function RapportsScreen() {
                           const html = await buildCompanyReserveHTML(company, companyReserves, projectName, t);
                           await exportPDFHelper(html, buildPdfFilename('Bon_Reserves', [company.name, projectName]));
                         } catch (e: any) {
-                          Alert.alert(t('common.error'), e?.message ?? t('reportsScreen.pdfGenerateError'));
+                          showAlert(t('common.error'), e?.message ?? t('reportsScreen.pdfGenerateError'));
                         }
                       }}
                     >
@@ -765,6 +768,7 @@ export default function RapportsScreen() {
           )}
         </View>
       </ScrollView>
+      </PageContainer>
       <BottomNavBar />
     </View>
   );

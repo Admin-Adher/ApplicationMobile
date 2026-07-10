@@ -1,12 +1,14 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Platform, Alert, Linking, Switch, TextInput, Modal, KeyboardAvoidingView,
+  Platform, Linking, Switch, TextInput, Modal, KeyboardAvoidingView,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import BottomNavBar from '@/components/BottomNavBar';
 import { BTPIntegration } from '@/constants/types';
 import { useAuth } from '@/context/AuthContext';
@@ -204,7 +206,7 @@ export default function IntegrationsScreen() {
     if (!configModal) return;
     setApiKeysStored(prev => ({ ...prev, [configModal]: apiKeyInput }));
     setConfigModal(null);
-    Alert.alert(t('integrationsScreen.configSavedTitle'), t('integrationsScreen.configSavedText'), [{ text: 'OK' }]);
+    showAlert(t('integrationsScreen.configSavedTitle'), t('integrationsScreen.configSavedText'), [{ text: 'OK' }]);
   }
 
   function toggleIntegration(id: string, value: boolean) {
@@ -214,7 +216,7 @@ export default function IntegrationsScreen() {
     }
     setEnabledMap(prev => ({ ...prev, [id]: value }));
     if (value) {
-      Alert.alert(t('integrationsScreen.enabledTitle'), t('integrationsScreen.enabledText'), [{ text: 'OK' }]);
+      showAlert(t('integrationsScreen.enabledTitle'), t('integrationsScreen.enabledText'), [{ text: 'OK' }]);
     }
   }
 
@@ -226,6 +228,7 @@ export default function IntegrationsScreen() {
         showBack
       />
 
+      <PageContainer maxWidth={900}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {/* Banner */}
@@ -344,6 +347,7 @@ export default function IntegrationsScreen() {
         </View>
 
       </ScrollView>
+      </PageContainer>
 
       {/* Config modal */}
       <Modal visible={!!configModal} transparent animationType="slide" onRequestClose={() => setConfigModal(null)}>
@@ -497,10 +501,19 @@ const styles = StyleSheet.create({
   },
   infoText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
+    // Sur web desktop, un dialogue centré remplace la feuille basse mobile.
+    ...(Platform.OS === 'web'
+      ? { justifyContent: 'center' as const, alignItems: 'center' as const, padding: 20 }
+      : { justifyContent: 'flex-end' as const }),
+  },
   modalContent: {
-    backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 24, paddingBottom: 40,
+    backgroundColor: C.surface,
+    padding: 24,
+    ...(Platform.OS === 'web'
+      ? { borderRadius: 20, width: '100%' as const, maxWidth: 480, paddingBottom: 24 }
+      : { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 }),
   },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   modalTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
