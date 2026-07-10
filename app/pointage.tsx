@@ -1,7 +1,9 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, Modal,
-  TextInput, Platform, Alert, TouchableWithoutFeedback, KeyboardAvoidingView,
+  TextInput, Platform, TouchableWithoutFeedback, KeyboardAvoidingView,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -267,7 +269,7 @@ export default function PointageScreen() {
 
   function closeModal() {
     if (hasFormChanges()) {
-      Alert.alert(
+      showAlert(
         t('pointage.unsavedTitle'),
         t('pointage.unsavedText'),
         [
@@ -294,25 +296,25 @@ export default function PointageScreen() {
   async function handleSave() {
     const trimmedName = workerName.trim();
     if (!trimmedName) {
-      Alert.alert(t('pointage.requiredField'), t('pointage.workerRequired'));
+      showAlert(t('pointage.requiredField'), t('pointage.workerRequired'));
       return;
     }
     if (!selectedCompanyId) {
-      Alert.alert(t('pointage.requiredField'), t('pointage.companyRequired'));
+      showAlert(t('pointage.requiredField'), t('pointage.companyRequired'));
       return;
     }
     if (!validateTime(arrivalTime)) {
-      Alert.alert(t('pointage.invalidTimeTitle'), t('pointage.invalidArrivalTime'));
+      showAlert(t('pointage.invalidTimeTitle'), t('pointage.invalidArrivalTime'));
       return;
     }
     const effDeparture = showDeparture ? departureTime.trim() : '';
     if (effDeparture && !validateTime(effDeparture)) {
-      Alert.alert(t('pointage.invalidTimeTitle'), t('pointage.invalidDepartureTime'));
+      showAlert(t('pointage.invalidTimeTitle'), t('pointage.invalidDepartureTime'));
       return;
     }
     if (effDeparture && validateTime(effDeparture)) {
       if (timeToMinutes(effDeparture) <= timeToMinutes(arrivalTime)) {
-        Alert.alert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrivalStrict'));
+        showAlert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrivalStrict'));
         return;
       }
     }
@@ -328,7 +330,7 @@ export default function PointageScreen() {
     );
     if (duplicate) {
       const confirmed = await new Promise<boolean>(resolve => {
-        Alert.alert(
+        showAlert(
           t('pointage.duplicateTitle'),
           t('pointage.duplicateText', { worker: trimmedName, company: company.name }),
           [
@@ -374,11 +376,11 @@ export default function PointageScreen() {
   async function handleSetDeparture() {
     if (!departureModal) return;
     if (!validateTime(depTime)) {
-      Alert.alert(t('pointage.invalidFormatTitle'), t('pointage.invalidDepartureFormat'));
+      showAlert(t('pointage.invalidFormatTitle'), t('pointage.invalidDepartureFormat'));
       return;
     }
     if (timeToMinutes(depTime) <= timeToMinutes(departureModal.arrivalTime)) {
-      Alert.alert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrival', { arrival: departureModal.arrivalTime }));
+      showAlert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrival', { arrival: departureModal.arrivalTime }));
       return;
     }
     await updateEntry(departureModal.id, { departureTime: depTime });
@@ -387,13 +389,13 @@ export default function PointageScreen() {
 
   async function handleBulkDeparture() {
     if (!validateTime(depTime)) {
-      Alert.alert(t('pointage.invalidFormatTitle'), t('pointage.invalidDepartureFormat'));
+      showAlert(t('pointage.invalidFormatTitle'), t('pointage.invalidDepartureFormat'));
       return;
     }
     const activeEntries = allDateEntries.filter(e => !e.departureTime);
     const conflicting = activeEntries.filter(e => timeToMinutes(depTime) <= timeToMinutes(e.arrivalTime));
     if (conflicting.length > 0) {
-      Alert.alert(
+      showAlert(
         t('pointage.timeConflictTitle'),
         t('pointage.bulkConflictText', { count: conflicting.length, time: depTime })
       );
@@ -404,7 +406,7 @@ export default function PointageScreen() {
   }
 
   function handleDelete(entry: TimeEntry) {
-    Alert.alert(t('common.delete'), t('pointage.deleteText', { worker: entry.workerName }), [
+    showAlert(t('common.delete'), t('pointage.deleteText', { worker: entry.workerName }), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => deleteEntry(entry.id) },
     ]);
@@ -430,7 +432,7 @@ export default function PointageScreen() {
     const weekEntries = entries.filter(e => weekDates.includes(e.date))
       .sort((a, b) => a.date.localeCompare(b.date) || a.arrivalTime.localeCompare(b.arrivalTime));
     if (weekEntries.length === 0) {
-      Alert.alert(t('pointage.noDataTitle'), t('pointage.noWeeklyData'));
+      showAlert(t('pointage.noDataTitle'), t('pointage.noWeeklyData'));
       return;
     }
     const header = t('pointage.csvHeader');
@@ -466,10 +468,10 @@ export default function PointageScreen() {
         if (canShare) {
           await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: t('pointage.exportWeeklyDialog') });
         } else {
-          Alert.alert(t('pointage.exportTitle'), t('pointage.fileSaved', { uri }));
+          showAlert(t('pointage.exportTitle'), t('pointage.fileSaved', { uri }));
         }
       } catch {
-        Alert.alert(t('common.error'), t('pointage.csvExportError'));
+        showAlert(t('common.error'), t('pointage.csvExportError'));
       }
     }
   }
@@ -505,6 +507,8 @@ export default function PointageScreen() {
         rightIcon={canEdit ? 'add-outline' : undefined}
         onRightPress={canEdit ? openAdd : undefined}
       />
+
+      <PageContainer maxWidth={1000}>
 
       {/* Date navigator */}
       <View style={styles.datePicker}>
@@ -869,6 +873,8 @@ export default function PointageScreen() {
           </View>
         )}
       </ScrollView>
+
+      </PageContainer>
 
       {/* Entry modal */}
       <Modal visible={modalVisible} transparent animationType="fade" onRequestClose={closeModal}>
@@ -1551,12 +1557,21 @@ const styles = StyleSheet.create({
   overlay: {
     flex: 1, backgroundColor: 'rgba(0,0,0,0.45)',
     justifyContent: 'flex-end',
+    // Sur web/desktop : boîte de dialogue centrée au lieu d'une bottom-sheet
+    // pleine largeur pensée pour mobile. Aucun changement sur natif.
+    ...(Platform.OS === 'web' ? { justifyContent: 'center' as const, padding: 20 } : null),
   },
   modalCard: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20,
     maxHeight: '90%',
+    ...(Platform.OS === 'web' ? {
+      borderRadius: 20,
+      width: '100%' as const,
+      maxWidth: 480,
+      alignSelf: 'center' as const,
+    } : null),
   },
   modalHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

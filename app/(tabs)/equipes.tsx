@@ -1,7 +1,9 @@
 import {
   View, Text, StyleSheet, ScrollView, Platform, TouchableOpacity,
-  Alert, Modal, TextInput, Linking, TextInput as RNTextInput,
+  Modal, TextInput, Linking, TextInput as RNTextInput,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { useState, useMemo, useRef } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -283,7 +285,7 @@ export default function EquipesScreen() {
     if (!workerModal) return;
     const n = parseInt(workerInput, 10);
     if (isNaN(n) || n < 0) {
-      Alert.alert(t('teamsScreen.invalidValueTitle'), t('teamsScreen.invalidValueText'));
+      showAlert(t('teamsScreen.invalidValueTitle'), t('teamsScreen.invalidValueText'));
       return;
     }
     const estimatedHours = n * standardDayHours;
@@ -307,7 +309,7 @@ export default function EquipesScreen() {
 
   function handleSaveAttendance() {
     const total = companies.reduce((a, c) => a + c.actualWorkers, 0);
-    Alert.alert(
+    showAlert(
       t('teamsScreen.saveAttendanceTitle'),
       t('teamsScreen.saveAttendanceMessage', { count: total }),
       [
@@ -316,7 +318,7 @@ export default function EquipesScreen() {
           text: t('teamsScreen.save'),
           onPress: async () => {
             await saveAttendanceSnapshot(companies, user?.name ?? t('teamsScreen.system'));
-            Alert.alert(t('teamsScreen.savedTitle'), t('teamsScreen.savedMessage'));
+            showAlert(t('teamsScreen.savedTitle'), t('teamsScreen.savedMessage'));
           },
         },
       ]
@@ -384,6 +386,8 @@ export default function EquipesScreen() {
           </View>
         )}
       </View>
+
+      <PageContainer maxWidth={1000}>
 
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
@@ -576,7 +580,18 @@ export default function EquipesScreen() {
                 {co.phone ? (
                   <TouchableOpacity
                     style={styles.qaBtnPhone}
-                    onPress={() => Linking.openURL(`tel:${co.phone}`)}
+                    onPress={() => {
+                      if (Platform.OS === 'web') {
+                        // Sur desktop, tel: n'a souvent aucune application associée :
+                        // on affiche le numéro (lisible/copiable) avec l'appel en option.
+                        showAlert(co.name, co.phone, [
+                          { text: t('common.cancel'), style: 'cancel' },
+                          { text: t('teamsScreen.call'), onPress: () => Linking.openURL(`tel:${co.phone}`) },
+                        ]);
+                      } else {
+                        Linking.openURL(`tel:${co.phone}`);
+                      }
+                    }}
                   >
                     <Ionicons name="call-outline" size={14} color={C.primary} />
                     <Text style={[styles.qaBtnText, { color: C.primary }]}>{t('teamsScreen.call')}</Text>
@@ -676,6 +691,8 @@ export default function EquipesScreen() {
           </TouchableOpacity>
         )}
       </ScrollView>
+
+      </PageContainer>
 
       {/* ══ Pointage Modal ══ */}
       <Modal visible={!!workerModal} transparent animationType="fade" onRequestClose={() => setWorkerModal(null)}>
