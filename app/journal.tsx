@@ -1,5 +1,7 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, Platform, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, ActivityIndicator, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
+import PageContainer from '@/components/PageContainer';
+import { showAlert } from '@/lib/appAlert';
 import { useState, useCallback, useEffect } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -58,20 +60,45 @@ function wmoCodesToLabel(wmo: number, t: (key: string, options?: any) => string)
   return getWeatherLabel(t, 'cloudy');
 }
 
+async function fetchOpenMeteo(
+  latitude: number,
+  longitude: number,
+  t: (key: string, options?: any) => string,
+): Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null> {
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}&current=weather_code,temperature_2m,wind_speed_10m&timezone=auto&forecast_days=1`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const wmo: number = data.current?.weather_code ?? 0;
+  const temp: number | null = data.current?.temperature_2m ?? null;
+  const wind: number | null = data.current?.wind_speed_10m ?? null;
+  return { label: wmoCodesToLabel(wmo, t), temp, wind, code: wmo };
+}
+
 async function fetchAutoWeather(t: (key: string, options?: any) => string): Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null> {
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return null;
     const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-    const { latitude, longitude } = loc.coords;
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${latitude.toFixed(4)}&longitude=${longitude.toFixed(4)}&current=weather_code,temperature_2m,wind_speed_10m&timezone=auto&forecast_days=1`;
-    const res = await fetch(url);
-    if (!res.ok) return null;
-    const data = await res.json();
-    const wmo: number = data.current?.weather_code ?? 0;
-    const temp: number | null = data.current?.temperature_2m ?? null;
-    const wind: number | null = data.current?.wind_speed_10m ?? null;
-    return { label: wmoCodesToLabel(wmo, t), temp, wind, code: wmo };
+    return await fetchOpenMeteo(loc.coords.latitude, loc.coords.longitude, t);
+  } catch {
+    return null;
+  }
+}
+
+// Branche web : la géolocalisation du navigateur + le même appel open-meteo
+// fonctionnent très bien sur navigateur (expo-location, lui, n'y est pas fiable).
+async function fetchAutoWeatherWeb(t: (key: string, options?: any) => string): Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null> {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.geolocation) return null;
+    const coords = await new Promise<{ latitude: number; longitude: number }>((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        err => reject(err),
+        { timeout: 15000, maximumAge: 60000 },
+      );
+    });
+    return await fetchOpenMeteo(coords.latitude, coords.longitude, t);
   } catch {
     return null;
   }
@@ -225,18 +252,16 @@ export default function JournalScreen() {
   };
 
   const handleAutoWeather = useCallback(async () => {
-    if (Platform.OS === 'web') {
-      Alert.alert(t('journal.unavailableTitle'), t('journal.weatherWebUnavailable'));
-      return;
-    }
     setFetchingWeather(true);
     try {
-      const result = await fetchAutoWeather(t);
+      const result = Platform.OS === 'web'
+        ? await fetchAutoWeatherWeb(t)
+        : await fetchAutoWeather(t);
       if (result) {
         setWeather(result.label);
         setWeatherDetail({ temp: result.temp, wind: result.wind, code: result.code });
       } else {
-        Alert.alert(t('journal.weatherUnavailableTitle'), t('journal.weatherUnavailableText'));
+        showAlert(t('journal.weatherUnavailableTitle'), t('journal.weatherUnavailableText'));
       }
     } finally {
       setFetchingWeather(false);
@@ -252,12 +277,12 @@ export default function JournalScreen() {
     setSubmitAttempted(true);
 
     if (!date || !isValidDateFR(date)) {
-      Alert.alert(t('journal.invalidDateTitle'), t('journal.invalidDateText'));
+      showAlert(t('journal.invalidDateTitle'), t('journal.invalidDateText'));
       return;
     }
 
     if (!workDone.trim()) {
-      Alert.alert(t('pointage.requiredField'), t('journal.workRequired'));
+      showAlert(t('pointage.requiredField'), t('journal.workRequired'));
       return;
     }
 
@@ -288,7 +313,7 @@ export default function JournalScreen() {
 
     const duplicateEntry = entries.find(e => e.date === date);
     if (duplicateEntry) {
-      Alert.alert(
+      showAlert(
         t('journal.duplicateTitle'),
         t('journal.duplicateText', { date }),
         [
@@ -304,14 +329,14 @@ export default function JournalScreen() {
 
   async function handleExportPDF() {
     if (!permissions.canExport) {
-      Alert.alert(t('documentsScreen.accessDenied'), t('journal.exportDenied'));
+      showAlert(t('documentsScreen.accessDenied'), t('journal.exportDenied'));
       return;
     }
     try {
       const html = buildJournalHTML(entries, projectName, t);
       await exportPDFHelper(html, buildPdfFilename(t('journal.pdf.filename'), [projectName]));
     } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message ?? t('journal.pdfError'));
+      showAlert(t('common.error'), e?.message ?? t('journal.pdfError'));
     }
   }
 
@@ -348,6 +373,7 @@ export default function JournalScreen() {
         onRightPress={permissions.canCreate ? () => { resetForm(); setShowNew(s => !s); } : undefined}
       />
 
+      <PageContainer maxWidth={800}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {permissions.canCreate && !hasTodayEntry && !showNew && (
@@ -500,7 +526,7 @@ export default function JournalScreen() {
                 <TouchableOpacity
                   style={styles.escalateBtn}
                   onPress={() => {
-                    Alert.alert(
+                    showAlert(
                       t('journal.createIncidentTitle'),
                       t('journal.createIncidentText'),
                       [
@@ -600,6 +626,7 @@ export default function JournalScreen() {
           </View>
         ))}
       </ScrollView>
+      </PageContainer>
       <BottomNavBar />
     </KeyboardAvoidingView>
   );

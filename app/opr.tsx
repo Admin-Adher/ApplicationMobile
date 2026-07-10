@@ -4,7 +4,6 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Alert,
   TextInput,
   Platform,
   Modal,
@@ -33,6 +32,8 @@ import { useSettings } from '@/context/SettingsContext';
 import { Opr, OprItem, OprSignatory, OprStatus, PhotoAnnotation, Reserve } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
+import PageContainer from '@/components/PageContainer';
+import { showAlert } from '@/lib/appAlert';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
@@ -747,7 +748,7 @@ export default function OprScreen() {
   }
 
   function removeSignatory(opr: Opr, sigId: string) {
-    Alert.alert(t('oprScreen.remove'), t('oprScreen.removeSignatoryText'), [
+    showAlert(t('oprScreen.remove'), t('oprScreen.removeSignatoryText'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('oprScreen.remove'), style: 'destructive', onPress: () =>
         updateOpr({ ...opr, signatories: (opr.signatories ?? []).filter(s => s.id !== sigId) })
@@ -827,9 +828,9 @@ export default function OprScreen() {
   }
 
   function createOpr() {
-    if (!title.trim()) { Alert.alert(t('oprScreen.requiredField'), t('oprScreen.titleRequired')); return; }
+    if (!title.trim()) { showAlert(t('oprScreen.requiredField'), t('oprScreen.titleRequired')); return; }
     const validLots = formLots.filter(l => l.name.trim());
-    if (validLots.length === 0) { Alert.alert(t('oprScreen.lotsRequired'), t('oprScreen.addAtLeastOneLot')); return; }
+    if (validLots.length === 0) { showAlert(t('oprScreen.lotsRequired'), t('oprScreen.addAtLeastOneLot')); return; }
     const items: OprItem[] = validLots.map(lot => ({
       id: genId(),
       lotName: lot.name.trim(),
@@ -870,7 +871,7 @@ export default function OprScreen() {
     const base = Platform.OS === 'web' ? window.location.origin : (process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : process.env.EXPO_PUBLIC_APP_URL ?? '');
     const url = `${base}/opr-session/${opr.id}`;
     if (Platform.OS === 'web') {
-      try { await navigator.clipboard.writeText(url); Alert.alert(t('oprScreen.linkCopied'), t('oprScreen.shareLinkHint')); } catch { Alert.alert(t('oprScreen.sessionLink'), url); }
+      try { await navigator.clipboard.writeText(url); showAlert(t('oprScreen.linkCopied'), t('oprScreen.shareLinkHint')); } catch { showAlert(t('oprScreen.sessionLink'), url); }
       return;
     }
     try {
@@ -883,7 +884,7 @@ export default function OprScreen() {
       const html = buildOprPDF(opr, projectName, t, i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('PV_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
-      Alert.alert(t('oprScreen.pdfError'), e?.message ?? '');
+      showAlert(t('oprScreen.pdfError'), e?.message ?? '');
     }
   }
 
@@ -892,7 +893,7 @@ export default function OprScreen() {
       const html = await buildPvLeveePDF(opr, enrichedReserves, projectName, i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('PV_Levee_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
-      Alert.alert(t('oprScreen.pdfError'), e?.message ?? '');
+      showAlert(t('oprScreen.pdfError'), e?.message ?? '');
     }
   }
 
@@ -901,7 +902,7 @@ export default function OprScreen() {
       const html = buildConvocationPDF(opr, projectName, user?.name ?? t('oprScreen.constructionManager'), i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('Convocation_OPR', [opr.id, opr.title, opr.level, projectName]));
     } catch (e: any) {
-      Alert.alert(t('oprScreen.pdfError'), e?.message ?? '');
+      showAlert(t('oprScreen.pdfError'), e?.message ?? '');
     }
   }
 
@@ -915,11 +916,11 @@ export default function OprScreen() {
   async function confirmSign() {
     if (!signModalOpr) return;
     if (!signConducteurName.trim()) {
-      Alert.alert(t('oprScreen.nameRequired'), t('oprScreen.managerNameRequired'));
+      showAlert(t('oprScreen.nameRequired'), t('oprScreen.managerNameRequired'));
       return;
     }
     if (!signMoName.trim()) {
-      Alert.alert(t('oprScreen.nameRequired'), t('oprScreen.ownerNameRequired'));
+      showAlert(t('oprScreen.nameRequired'), t('oprScreen.ownerNameRequired'));
       return;
     }
 
@@ -927,12 +928,12 @@ export default function OprScreen() {
     const moSig = moPadRef.current?.isEmpty() ? undefined : moPadRef.current?.getSVGData() ?? undefined;
 
     if (!conducteurSig) {
-      Alert.alert(t('oprScreen.managerSignatureRequired'), t('oprScreen.managerSignatureRequiredText'));
+      showAlert(t('oprScreen.managerSignatureRequired'), t('oprScreen.managerSignatureRequiredText'));
       setSignStep('conducteur');
       return;
     }
     if (!moSig) {
-      Alert.alert(t('oprScreen.ownerSignatureRequired'), t('oprScreen.ownerSignatureRequiredText'));
+      showAlert(t('oprScreen.ownerSignatureRequired'), t('oprScreen.ownerSignatureRequiredText'));
       return;
     }
 
@@ -986,7 +987,7 @@ export default function OprScreen() {
       item.id === itemId ? { ...item, verifiedAt: now, verifiedBy: user?.name ?? t('oprScreen.constructionManager') } : item
     );
     updateOpr({ ...opr, items: updated });
-    Alert.alert(t('oprScreen.closureVerifiedTitle'), t('oprScreen.closureVerifiedText'));
+    showAlert(t('oprScreen.closureVerifiedTitle'), t('oprScreen.closureVerifiedText'));
   }
 
   const STATUS_CFG: Record<OprStatus, { label: string; color: string }> = {
@@ -1005,6 +1006,7 @@ export default function OprScreen() {
         onRightPress={permissions.canCreate ? () => setShowNew(v => !v) : undefined}
       />
 
+      <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {showNew && (
           <View style={styles.formCard}>
@@ -1722,7 +1724,7 @@ export default function OprScreen() {
                   )}
                   {permissions.canDelete && (
                     <TouchableOpacity
-                      onPress={() => Alert.alert(t('oprScreen.deletePvTitle'), t('oprScreen.deletePvText', { title: opr.title }), [
+                      onPress={() => showAlert(t('oprScreen.deletePvTitle'), t('oprScreen.deletePvText', { title: opr.title }), [
                         { text: t('common.cancel'), style: 'cancel' },
                         { text: t('common.delete'), style: 'destructive', onPress: () => deleteOpr(opr.id) },
                       ])}
@@ -1792,6 +1794,7 @@ export default function OprScreen() {
           })
         )}
       </ScrollView>
+      </PageContainer>
 
       <BottomNavBar />
 
@@ -1924,7 +1927,7 @@ export default function OprScreen() {
         onRequestClose={() => {
           const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
           if (hasSig) {
-            Alert.alert(
+            showAlert(
               t('oprScreen.closeWithoutSavingTitle'),
               t('oprScreen.closeWithoutSavingText'),
               [
@@ -2016,11 +2019,11 @@ export default function OprScreen() {
                   style={styles.nextStepBtn}
                   onPress={() => {
                     if (!signConducteurName.trim()) {
-                      Alert.alert(t('oprScreen.nameRequired'), t('oprScreen.fullNameRequiredBeforeContinue'));
+                      showAlert(t('oprScreen.nameRequired'), t('oprScreen.fullNameRequiredBeforeContinue'));
                       return;
                     }
                     if (conducteurPadRef.current?.isEmpty()) {
-                      Alert.alert(t('oprScreen.signatureRequiredTitle'), t('oprScreen.signatureRequiredBeforeNextStep'));
+                      showAlert(t('oprScreen.signatureRequiredTitle'), t('oprScreen.signatureRequiredBeforeNextStep'));
                       return;
                     }
                     setSignStep('mo');
@@ -2079,7 +2082,7 @@ export default function OprScreen() {
                 onPress={() => {
                   const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
                   if (hasSig) {
-                    Alert.alert(
+                    showAlert(
                       t('oprScreen.cancelSignatureTitle'),
                       t('oprScreen.cancelSignatureText'),
                       [

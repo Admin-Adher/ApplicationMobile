@@ -3,6 +3,7 @@ import {
   View,
   Text,
   TextInput,
+  Platform,
   StyleProp,
   StyleSheet,
   TouchableOpacity,
@@ -222,14 +223,16 @@ export default function DateInput({
       <Modal
         visible={calendarOpen}
         transparent
-        animationType="slide"
+        // Sur web desktop, le calendrier est une boîte de dialogue centrée
+        // (le slide + la feuille collée en bas est une ergonomie mobile).
+        animationType={IS_WEB ? 'fade' : 'slide'}
         onRequestClose={() => setCalendarOpen(false)}
         statusBarTranslucent
       >
-        <Pressable style={styles.overlay} onPress={() => setCalendarOpen(false)}>
-          <Pressable style={styles.modal} onPress={e => e.stopPropagation()}>
+        <Pressable style={[styles.overlay, IS_WEB && styles.overlayWeb]} onPress={() => setCalendarOpen(false)}>
+          <Pressable style={[styles.modal, IS_WEB && styles.modalWeb]} onPress={e => e.stopPropagation()}>
 
-            <View style={styles.modalHandle} />
+            {!IS_WEB && <View style={styles.modalHandle} />}
 
             <Text style={styles.modalTitle}>{t('dateInput.chooseDate')}</Text>
 
@@ -320,6 +323,7 @@ export default function DateInput({
 }
 
 const CELL_SIZE = 42;
+const IS_WEB = Platform.OS === 'web';
 
 const styles = StyleSheet.create({
   container: { marginBottom: 2 },
@@ -371,6 +375,13 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'flex-end',
   },
+  // Web desktop : dialogue centré et de largeur plafonnée au lieu d'une
+  // feuille pleine largeur ancrée en bas (présentation mobile).
+  overlayWeb: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
   modal: {
     backgroundColor: C.surface,
     borderTopLeftRadius: 24,
@@ -378,6 +389,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 32,
     paddingTop: 12,
+  },
+  modalWeb: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 24,
+    paddingTop: 20,
+    paddingBottom: 24,
   },
   modalHandle: {
     width: 40,

@@ -564,12 +564,17 @@ export async function exportPDF(html: string, filename: string = 'buildtrack-exp
   const pdfFilename = ensurePdfFilename(filename);
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(html);
-      win.document.close();
-      win.document.title = pdfFilename.replace(/\.pdf$/i, '');
-      win.focus();
+    // Popup bloquée par le navigateur : sans cette erreur, le clic sur le
+    // bouton PDF échouait en silence (aucun onglet, aucun message).
+    if (!win) {
+      throw new Error(
+        'Fenêtre bloquée par le navigateur — autorisez les popups pour ce site afin d\'ouvrir le PDF.',
+      );
     }
+    win.document.write(html);
+    win.document.close();
+    win.document.title = pdfFilename.replace(/\.pdf$/i, '');
+    win.focus();
     return;
   }
   try {
@@ -603,13 +608,18 @@ export async function printPDF(html: string, _filename: string = 'buildtrack-exp
   const pdfFilename = ensurePdfFilename(_filename);
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');
-    if (win) {
-      win.document.write(html);
-      win.document.close();
-      win.document.title = pdfFilename.replace(/\.pdf$/i, '');
-      win.focus();
-      setTimeout(() => { try { win.print(); } catch {} }, 500);
+    // Popup bloquée par le navigateur : sans cette erreur, le clic sur le
+    // bouton d'impression échouait en silence (aucun onglet, aucun message).
+    if (!win) {
+      throw new Error(
+        'Fenêtre bloquée par le navigateur — autorisez les popups pour ce site afin d\'ouvrir le PDF.',
+      );
     }
+    win.document.write(html);
+    win.document.close();
+    win.document.title = pdfFilename.replace(/\.pdf$/i, '');
+    win.focus();
+    setTimeout(() => { try { win.print(); } catch {} }, 500);
     return;
   }
   try {
