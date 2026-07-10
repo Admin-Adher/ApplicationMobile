@@ -1,7 +1,9 @@
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Alert, Modal,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, ActivityIndicator, Modal,
   TextInput, KeyboardAvoidingView,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -81,7 +83,7 @@ export default function SuperAdminScreen() {
     if (!editModal) return;
     const trimmed = editOrgName.trim();
     if (!trimmed) {
-      Alert.alert(t('superAdminScreen.nameRequiredTitle'), t('superAdminScreen.nameRequiredEdit'));
+      showAlert(t('superAdminScreen.nameRequiredTitle'), t('superAdminScreen.nameRequiredEdit'));
       return;
     }
     if (trimmed === editModal.org.name) {
@@ -95,7 +97,7 @@ export default function SuperAdminScreen() {
     if (result.success) {
       setEditModal(null);
     } else {
-      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.updateOrgError'));
+      showAlert(t('common.error'), result.error ?? t('superAdminScreen.updateOrgError'));
     }
   }
 
@@ -107,18 +109,18 @@ export default function SuperAdminScreen() {
     if (result.success) {
       setStatusModal(null);
     } else {
-      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.updateStatusError'));
+      showAlert(t('common.error'), result.error ?? t('superAdminScreen.updateStatusError'));
     }
   }
 
   async function handleCreateOrg() {
     const name = newOrgName.trim();
     if (!name) {
-      Alert.alert(t('superAdminScreen.nameRequiredTitle'), t('superAdminScreen.nameRequiredCreate'));
+      showAlert(t('superAdminScreen.nameRequiredTitle'), t('superAdminScreen.nameRequiredCreate'));
       return;
     }
     if (newAdminEmail && !newAdminEmail.includes('@')) {
-      Alert.alert(t('superAdminScreen.invalidEmailTitle'), t('superAdminScreen.invalidEmailText'));
+      showAlert(t('superAdminScreen.invalidEmailTitle'), t('superAdminScreen.invalidEmailText'));
       return;
     }
     setCreating(true);
@@ -128,7 +130,7 @@ export default function SuperAdminScreen() {
       setCreateModal(false);
       setNewOrgName('');
       setNewAdminEmail('');
-      Alert.alert(
+      showAlert(
         t('superAdminScreen.orgCreatedTitle'),
         newAdminEmail.trim()
           ? t('superAdminScreen.orgCreatedWithInvite', { name, email: newAdminEmail.trim() })
@@ -136,14 +138,14 @@ export default function SuperAdminScreen() {
         [{ text: t('common.close') }]
       );
     } else {
-      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.createOrgError'));
+      showAlert(t('common.error'), result.error ?? t('superAdminScreen.createOrgError'));
     }
   }
 
   async function handleDeleteOrg() {
     if (!deleteModal) return;
     if (deleteConfirmName.trim() !== deleteModal.org.name) {
-      Alert.alert(t('superAdminScreen.wrongNameTitle'), t('superAdminScreen.wrongNameText'));
+      showAlert(t('superAdminScreen.wrongNameTitle'), t('superAdminScreen.wrongNameText'));
       return;
     }
     setDeleting(true);
@@ -152,9 +154,9 @@ export default function SuperAdminScreen() {
     if (result.success) {
       setDeleteModal(null);
       setDeleteConfirmName('');
-      Alert.alert(t('superAdminScreen.orgDeletedTitle'), t('superAdminScreen.orgDeletedText', { name: deleteModal.org.name }));
+      showAlert(t('superAdminScreen.orgDeletedTitle'), t('superAdminScreen.orgDeletedText', { name: deleteModal.org.name }));
     } else {
-      Alert.alert(t('common.error'), result.error ?? t('superAdminScreen.deleteOrgError'));
+      showAlert(t('common.error'), result.error ?? t('superAdminScreen.deleteOrgError'));
     }
   }
 
@@ -199,6 +201,8 @@ export default function SuperAdminScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      <PageContainer maxWidth={1000}>
 
       {/* ── Onglet Organisations ── */}
       {activeTab === 'orgs' && (
@@ -380,6 +384,8 @@ export default function SuperAdminScreen() {
         </ScrollView>
       )}
 
+      </PageContainer>
+
       {/* ── Modal : Nouvelle organisation ── */}
       <Modal
         visible={createModal}
@@ -388,7 +394,7 @@ export default function SuperAdminScreen() {
         onRequestClose={() => !creating && setCreateModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0}>
+          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0} style={styles.modalKav}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeaderRow}>
                 <View style={styles.modalIconWrap}>
@@ -461,7 +467,7 @@ export default function SuperAdminScreen() {
         onRequestClose={() => !editSaving && setEditModal(null)}
       >
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0}>
+          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0} style={styles.modalKav}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeaderRow}>
                 <View style={[styles.modalIconWrap, { backgroundColor: '#F5F3FF' }]}>
@@ -555,7 +561,7 @@ export default function SuperAdminScreen() {
         onRequestClose={() => !deleting && (setDeleteModal(null), setDeleteConfirmName(''))}
       >
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0}>
+          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0} style={styles.modalKav}>
             <View style={styles.modalSheet}>
               <View style={styles.modalHeaderRow}>
                 <View style={[styles.modalIconWrap, { backgroundColor: '#FEF2F2' }]}>
@@ -633,7 +639,7 @@ export default function SuperAdminScreen() {
       {/* ── Modal : Changer le statut ── */}
       <Modal visible={!!statusModal} transparent animationType="slide" onRequestClose={() => !statusSaving && setStatusModal(null)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalSheet}>
+          <View style={[styles.modalSheet, styles.modalKav]}>
             <View style={styles.modalHeaderRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modalTitle}>{t('superAdminScreen.changeStatus')}</Text>
@@ -779,10 +785,19 @@ const styles = StyleSheet.create({
   },
   newOrgBtnTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  modalOverlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end',
+    // Sur web desktop : boîte centrée plutôt que feuille collée en bas pleine largeur.
+    ...(Platform.OS === 'web' ? { justifyContent: 'center', alignItems: 'center', padding: 20 } as any : {}),
+  },
+  modalKav: {
+    width: '100%',
+    ...(Platform.OS === 'web' ? { maxWidth: 480 } as any : {}),
+  },
   modalSheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, gap: 14,
+    ...(Platform.OS === 'web' ? { borderRadius: 20 } as any : {}),
     ...Platform.select({
       web: { boxShadow: '0 -4px 20px rgba(0,0,0,0.12)' } as any,
       default: { shadowColor: '#000', shadowOffset: { width: 0, height: -2 }, shadowOpacity: 0.12, shadowRadius: 12, elevation: 20 },

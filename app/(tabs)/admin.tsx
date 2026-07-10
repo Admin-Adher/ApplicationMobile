@@ -1,8 +1,10 @@
 ﻿import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  Alert, Modal, Platform, ActivityIndicator, Linking, KeyboardAvoidingView,
+  Modal, Platform, ActivityIndicator, Linking, KeyboardAvoidingView,
   Dimensions,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
@@ -313,7 +315,7 @@ export default function AdminScreen() {
     // Le rattachement entreprise est obligatoire pour les sous-traitants,
     // optionnel pour les autres rôles (sauf admin qui n'est jamais lié à une seule entreprise).
     if (inviteRole === 'sous_traitant' && !inviteCompanyId) {
-      Alert.alert(
+      showAlert(
         t('adminScreen.alerts.companyRequiredTitle'),
         t('adminScreen.alerts.companyRequiredMessage')
       );
@@ -329,13 +331,13 @@ export default function AdminScreen() {
       if (result.emailError) {
         // Invitation créée mais email non parti : l'admin doit le savoir pour
         // partager le lien manuellement au lieu de croire l'email envoyé.
-        Alert.alert(
+        showAlert(
           t('adminScreen.alerts.inviteEmailFailedTitle'),
           t('adminScreen.alerts.inviteEmailFailedMessage', { error: result.emailError })
         );
       }
     } else {
-      Alert.alert(t('adminScreen.alerts.inviteFailedTitle'), result.error ?? t('common.unknown'));
+      showAlert(t('adminScreen.alerts.inviteFailedTitle'), result.error ?? t('common.unknown'));
     }
   }
 
@@ -357,11 +359,11 @@ export default function AdminScreen() {
     };
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(inviteToken).then(flagCopied).catch(() => {
-        Alert.alert(t('adminScreen.inviteModal.token'), inviteToken);
+        showAlert(t('adminScreen.inviteModal.token'), inviteToken);
       });
     } else {
       Clipboard.setStringAsync(inviteToken).then(flagCopied).catch(() => {
-        Alert.alert(t('adminScreen.inviteModal.inviteToken'), inviteToken);
+        showAlert(t('adminScreen.inviteModal.inviteToken'), inviteToken);
       });
     }
   }
@@ -373,11 +375,11 @@ export default function AdminScreen() {
     };
     if (Platform.OS === 'web' && typeof navigator !== 'undefined' && navigator.clipboard) {
       navigator.clipboard.writeText(APK_DOWNLOAD_URL).then(flagCopied).catch(() => {
-        Alert.alert(t('adminScreen.apkLink'), APK_DOWNLOAD_URL);
+        showAlert(t('adminScreen.apkLink'), APK_DOWNLOAD_URL);
       });
     } else {
       Clipboard.setStringAsync(APK_DOWNLOAD_URL).then(flagCopied).catch(() => {
-        Alert.alert(t('adminScreen.apkLink'), APK_DOWNLOAD_URL);
+        showAlert(t('adminScreen.apkLink'), APK_DOWNLOAD_URL);
       });
     }
   }
@@ -387,7 +389,7 @@ export default function AdminScreen() {
     try {
       const result = await resendInvitation(inv.id);
       if (!result.success) {
-        Alert.alert(t('adminScreen.alerts.resendFailedTitle'), result.error ?? t('adminScreen.alerts.resendFailedMessage'));
+        showAlert(t('adminScreen.alerts.resendFailedTitle'), result.error ?? t('adminScreen.alerts.resendFailedMessage'));
       } else {
         const total = (inv.resendCount ?? 0) + 1;
         showToast(t('adminScreen.toasts.emailResent', { email: inv.email, count: total }));
@@ -405,13 +407,13 @@ export default function AdminScreen() {
       const since = Date.now() - new Date(inv.lastResentAt).getTime();
       if (since < 2 * 60 * 1000) {
         const seconds = Math.ceil((2 * 60 * 1000 - since) / 1000);
-        Alert.alert(t('adminScreen.alerts.tooSoonTitle'), t('adminScreen.alerts.tooSoonMessage', { seconds }));
+        showAlert(t('adminScreen.alerts.tooSoonTitle'), t('adminScreen.alerts.tooSoonMessage', { seconds }));
         return;
       }
     }
     // Spam guard: ask confirmation past 3 resends
     if (count >= 3) {
-      Alert.alert(
+      showAlert(
         t('adminScreen.alerts.spamRiskTitle'),
         t('adminScreen.alerts.spamRiskMessage', { count, email: inv.email }),
         [
@@ -425,7 +427,7 @@ export default function AdminScreen() {
   }
 
   function handleCancelInvitation(id: string, emailAddr: string) {
-    Alert.alert(
+    showAlert(
       t('adminScreen.alerts.cancelInviteTitle'),
       t('adminScreen.alerts.cancelInviteMessage', { email: emailAddr }),
       [
@@ -443,12 +445,12 @@ export default function AdminScreen() {
 
   function handleDeleteUser(u: { id: string; name: string; role: string }) {
     if (u.id === user?.id) {
-      Alert.alert(t('adminScreen.alerts.actionImpossibleTitle'), t('adminScreen.alerts.cannotDeleteSelf'));
+      showAlert(t('adminScreen.alerts.actionImpossibleTitle'), t('adminScreen.alerts.cannotDeleteSelf'));
       return;
     }
     const isPaidSeat = !FREE_ROLES.includes(u.role as UserRole);
     const seatNote = isPaidSeat ? `\n\n${t('adminScreen.alerts.seatWillBeFreed')}` : '';
-    Alert.alert(
+    showAlert(
       t('adminScreen.alerts.removeUserTitle'),
       t('adminScreen.alerts.removeUserMessage', { name: u.name, seatNote }),
       [
@@ -485,7 +487,7 @@ export default function AdminScreen() {
   function tryCloseCompanyModal() {
     const isDirty = (companyModal?.mode === 'add' && isCompanyFormDirty) || isEditDirty;
     if (isDirty) {
-      Alert.alert(
+      showAlert(
         t('adminScreen.alerts.discardChangesTitle'),
         companyModal?.mode === 'edit' ? t('adminScreen.alerts.unsavedChangesLost') : t('adminScreen.alerts.enteredDataLost'),
         [
@@ -500,17 +502,17 @@ export default function AdminScreen() {
 
   function handleSaveCompany() {
     if (!nom.trim() || !nomCourt.trim() || !effectif.trim()) {
-      Alert.alert(t('adminScreen.alerts.requiredFieldsTitle'), t('adminScreen.alerts.companyRequiredFields'));
+      showAlert(t('adminScreen.alerts.requiredFieldsTitle'), t('adminScreen.alerts.companyRequiredFields'));
       return;
     }
     const planned = parseInt(effectif, 10);
     if (isNaN(planned) || planned < 0) {
-      Alert.alert(t('adminScreen.alerts.invalidValueTitle'), t('adminScreen.alerts.invalidWorkerCount'));
+      showAlert(t('adminScreen.alerts.invalidValueTitle'), t('adminScreen.alerts.invalidWorkerCount'));
       return;
     }
     const heuresToFloat = parseFloat(String(heures).replace(',', '.'));
     if (heures.trim() && (isNaN(heuresToFloat) || heuresToFloat < 0)) {
-      Alert.alert(t('adminScreen.alerts.invalidValueTitle'), t('adminScreen.alerts.invalidHours'));
+      showAlert(t('adminScreen.alerts.invalidValueTitle'), t('adminScreen.alerts.invalidHours'));
       return;
     }
     const hrs = isNaN(heuresToFloat) ? 0 : Math.max(0, heuresToFloat);
@@ -519,15 +521,15 @@ export default function AdminScreen() {
       (companyModal?.mode === 'add' || c.id !== companyModal?.company?.id)
     );
     if (duplicate) {
-      Alert.alert(t('adminScreen.alerts.duplicateTitle'), t('adminScreen.alerts.duplicateCompany', { name: nom.trim() }));
+      showAlert(t('adminScreen.alerts.duplicateTitle'), t('adminScreen.alerts.duplicateCompany', { name: nom.trim() }));
       return;
     }
     if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) {
-      Alert.alert(t('adminScreen.alerts.invalidEmailTitle'), t('adminScreen.alerts.invalidContactEmail'));
+      showAlert(t('adminScreen.alerts.invalidEmailTitle'), t('adminScreen.alerts.invalidContactEmail'));
       return;
     }
     if (siret.trim() && !/^\d{14}$/.test(siret.trim().replace(/\s/g, ''))) {
-      Alert.alert(t('adminScreen.alerts.invalidSiretTitle'), t('adminScreen.alerts.invalidSiret'));
+      showAlert(t('adminScreen.alerts.invalidSiretTitle'), t('adminScreen.alerts.invalidSiret'));
       return;
     }
     if (companyModal?.mode === 'edit' && companyModal.company) {
@@ -573,7 +575,7 @@ export default function AdminScreen() {
     const linkedNote = linkedCount > 0
       ? `\n\n${t('adminScreen.alerts.companyLinkedUsersWarning', { count: linkedCount })}`
       : '';
-    Alert.alert(
+    showAlert(
       t('adminScreen.alerts.deleteCompanyTitle'),
       t('adminScreen.alerts.deleteCompanyMessage', { name: co.name, linkedNote }),
       [
@@ -584,6 +586,36 @@ export default function AdminScreen() {
         },
       ]
     );
+  }
+
+  function closeDeleteOrgModal() {
+    if (deletingOrg) return;
+    setDeleteOrgModalVisible(false);
+    setDeleteOrgConfirmName('');
+  }
+
+  async function handleDeleteOrganization() {
+    if (!selectedOrg || deletingOrg) return;
+    if (deleteOrgConfirmName.trim() !== selectedOrg.name) {
+      showAlert(t('superAdminScreen.wrongNameTitle'), t('superAdminScreen.wrongNameText'));
+      return;
+    }
+    setDeletingOrg(true);
+    const result = await deleteOrganization(selectedOrg.id);
+    setDeletingOrg(false);
+    if (result.success) {
+      setDeleteOrgModalVisible(false);
+      setDeleteOrgConfirmName('');
+      // L'organisation supprimée était la sélection courante : on réinitialise
+      // pour que l'effet re-sélectionne la première organisation restante.
+      setSelectedOrgId(null);
+      showAlert(
+        t('superAdminScreen.orgDeletedTitle'),
+        t('superAdminScreen.orgDeletedText', { name: selectedOrg.name })
+      );
+    } else {
+      showAlert(t('common.error'), result.error ?? t('superAdminScreen.deleteOrgError'));
+    }
   }
 
   function handleWorkerCount(co: Company, delta: number) {
@@ -704,6 +736,8 @@ export default function AdminScreen() {
           </TouchableOpacity>
         </ScrollView>
       </View>
+
+      <PageContainer maxWidth={1050}>
 
       {/* ─── ONGLET UTILISATEURS ─── */}
       {activeTab === 'users' && (
@@ -1305,9 +1339,43 @@ export default function AdminScreen() {
               {t('adminScreen.licenseDetails.managedByGroup')}
             </Text>
           </View>
+
+          {/* Zone dangereuse : suppression de l'organisation (super_admin uniquement,
+              deleteOrganization est refusé côté contexte pour tout autre rôle) */}
+          {isSuperAdmin && selectedOrg && (
+            <View style={styles.dangerZone}>
+              <View style={styles.dangerZoneHeader}>
+                <Ionicons name="warning-outline" size={16} color="#DC2626" />
+                <Text style={styles.dangerZoneTitle}>
+                  {t('adminScreen.dangerZone.title', { defaultValue: 'Zone dangereuse' })}
+                </Text>
+              </View>
+              <Text style={styles.dangerZoneText}>
+                {t('adminScreen.dangerZone.description', {
+                  defaultValue: 'La suppression de l’organisation « {{name}} » efface définitivement ses membres, entreprises, invitations et données.',
+                  name: selectedOrg.name,
+                })}
+              </Text>
+              <TouchableOpacity
+                style={styles.dangerZoneBtn}
+                onPress={() => { setDeleteOrgConfirmName(''); setDeleteOrgModalVisible(true); }}
+                accessibilityRole="button"
+                accessibilityLabel={t('adminScreen.dangerZone.deleteOrgA11y', {
+                  defaultValue: 'Supprimer l’organisation {{name}}',
+                  name: selectedOrg.name,
+                })}
+              >
+                <Ionicons name="trash-outline" size={15} color="#fff" />
+                <Text style={styles.dangerZoneBtnTxt}>
+                  {t('adminScreen.dangerZone.deleteOrg', { defaultValue: 'Supprimer l’organisation' })}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </ScrollView>
       )}
 
+      </PageContainer>
 
       {/* ─── MODAL SÉLECTEUR D'ORGANISATION (super_admin) ─── */}
       <Modal visible={orgPickerVisible} transparent animationType="slide" onRequestClose={() => setOrgPickerVisible(false)}>
@@ -1686,6 +1754,79 @@ export default function AdminScreen() {
           </TouchableOpacity>
         </SafeKAV>
       </Modal>
+
+      {/* ─── MODAL SUPPRESSION D'ORGANISATION (super_admin) ─── */}
+      <Modal
+        visible={deleteOrgModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeDeleteOrgModal}
+      >
+        <SafeKAV>
+          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={closeDeleteOrgModal}>
+            <TouchableOpacity activeOpacity={1} style={styles.sheet}>
+              <View style={styles.sheetHandle} />
+              <Text style={styles.sheetTitle}>{t('superAdminScreen.deleteModalTitle')}</Text>
+              <Text style={styles.sheetSubtitle} numberOfLines={1}>{selectedOrg?.name ?? ''}</Text>
+
+              <View style={styles.dangerWarningBox}>
+                <Ionicons name="warning-outline" size={18} color="#EF4444" />
+                <Text style={styles.dangerWarningTxt}>
+                  {t('superAdminScreen.deleteWarningBefore')}
+                  <Text style={{ fontFamily: 'Inter_700Bold' }}>{t('superAdminScreen.irreversible')}</Text>
+                  {t('superAdminScreen.deleteWarningAfter')}
+                </Text>
+              </View>
+
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>
+                  {t('superAdminScreen.typePrefix')}
+                  <Text style={{ fontFamily: 'Inter_700Bold', color: C.text }}>{selectedOrg?.name ?? ''}</Text>
+                  {t('superAdminScreen.typeSuffix')}
+                </Text>
+                <TextInput
+                  style={[
+                    styles.fieldInput,
+                    deleteOrgConfirmName.length > 0 && deleteOrgConfirmName.trim() !== selectedOrg?.name
+                      ? { borderColor: '#EF4444' }
+                      : {},
+                  ]}
+                  value={deleteOrgConfirmName}
+                  onChangeText={setDeleteOrgConfirmName}
+                  placeholder={selectedOrg?.name ?? ''}
+                  placeholderTextColor={C.textMuted}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  editable={!deletingOrg}
+                />
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.deleteOrgConfirmBtn,
+                  (deleteOrgConfirmName.trim() !== selectedOrg?.name || deletingOrg) && { opacity: 0.5 },
+                ]}
+                onPress={handleDeleteOrganization}
+                disabled={deleteOrgConfirmName.trim() !== selectedOrg?.name || deletingOrg}
+                accessibilityRole="button"
+                accessibilityLabel={t('superAdminScreen.deleteForever')}
+              >
+                {deletingOrg ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={16} color="#fff" />
+                    <Text style={styles.saveBtnText}>{t('superAdminScreen.deleteForever')}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelBtn} onPress={closeDeleteOrgModal} disabled={deletingOrg}>
+                <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </SafeKAV>
+      </Modal>
     </View>
   );
 }
@@ -2012,10 +2153,15 @@ const styles = StyleSheet.create({
   inviteCompanyPillText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: '#374151' },
   inviteExpiry: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  overlay: {
+    flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end',
+    // Sur web desktop : boîte centrée plutôt que feuille collée en bas pleine largeur.
+    ...(Platform.OS === 'web' ? { justifyContent: 'center', alignItems: 'center', padding: 20 } as any : {}),
+  },
   sheet: {
     backgroundColor: C.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, paddingBottom: Platform.OS === 'ios' ? 36 : 24, gap: 10, maxHeight: '90%',
+    ...(Platform.OS === 'web' ? { width: '100%', maxWidth: 520, borderRadius: 20 } as any : {}),
   },
   sheetHandle: {
     width: 36, height: 4, backgroundColor: C.border, borderRadius: 2,
@@ -2139,4 +2285,27 @@ const styles = StyleSheet.create({
   memberPreviewBadge: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 2 },
   memberPreviewBadgeTxt: { fontSize: 10, fontFamily: 'Inter_600SemiBold' },
   memberPreviewMore: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginTop: 2 },
+
+  dangerZone: {
+    backgroundColor: '#FEF2F2', borderRadius: 12, padding: 14, gap: 10,
+    borderWidth: 1, borderColor: '#FECACA', marginTop: 6,
+  },
+  dangerZoneHeader: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  dangerZoneTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#DC2626', textTransform: 'uppercase', letterSpacing: 0.5 },
+  dangerZoneText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#991B1B', lineHeight: 17 },
+  dangerZoneBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#DC2626', borderRadius: 10, paddingVertical: 11, alignSelf: 'stretch',
+  },
+  dangerZoneBtnTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  dangerWarningBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 10,
+    backgroundColor: '#FEF2F2', borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: '#FECACA',
+  },
+  dangerWarningTxt: { flex: 1, fontSize: 13, fontFamily: 'Inter_400Regular', color: '#991B1B', lineHeight: 18 },
+  deleteOrgConfirmBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: '#DC2626', borderRadius: 12, paddingVertical: 14, marginTop: 4,
+  },
 });
