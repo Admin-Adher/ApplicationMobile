@@ -348,9 +348,14 @@ export function buildIndividualReserveHtml(payload: any): string {
       <div style="display:flex;gap:8px">
         ${photosToShow.map((p: any) => {
           const isDefect = p.kind === 'defect';
+          // Boîte moulée sur l'image (height:auto, pas d'object-fit) pour que
+          // le calque d'annotations en % reste aligné sur la photo.
           return `<div style="flex:1;min-width:0;text-align:center">
-            <img src="${escHtml(p.uri)}" onerror="this.style.opacity='0.15'"
-              style="width:100%;height:auto;max-height:240px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block"/>
+            <div style="position:relative">
+              <img src="${escHtml(p.uri)}" onerror="this.style.opacity='0.15'"
+                style="width:100%;height:auto;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block"/>
+              ${buildReservePhotoAnnotationsSvg(p.annotations)}
+            </div>
             <span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'}">
               ● ${isDefect ? copy.defect : copy.resolved}
             </span>

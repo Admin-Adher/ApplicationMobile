@@ -95,7 +95,7 @@ export function getRemoteReservePhotosForPdf(
   reserve: Pick<Reserve, 'id' | 'createdAt' | 'photoUri' | 'photos'>,
   limit: number,
 ): {
-  photos: Array<{ uri: string; kind?: ReservePhoto['kind'] }>;
+  photos: Array<{ uri: string; kind?: ReservePhoto['kind']; annotations?: PhotoAnnotation[] | null }>;
   localOnlyCount: number;
   totalCount: number;
 } {
@@ -103,7 +103,9 @@ export function getRemoteReservePhotosForPdf(
   const remotePhotos = allPhotos
     .filter(photo => isRemotePdfAssetUri(photo.uri))
     .slice(0, limit)
-    .map(photo => ({ uri: photo.uri, kind: photo.kind }));
+    // annotations incluses : elles voyagent jusqu'au générateur PDF serveur
+    // (rapports envoyés par email) qui les rend en surimpression SVG.
+    .map(photo => ({ uri: photo.uri, kind: photo.kind, annotations: photo.annotations }));
 
   return {
     photos: remotePhotos,

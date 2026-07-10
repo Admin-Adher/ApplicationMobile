@@ -205,7 +205,7 @@ export interface PdfReportPayload {
     planId?: string;
     planX?: number;
     planY?: number;
-    photos: Array<{ uri: string }>;
+    photos: Array<{ uri: string; kind?: string; annotations?: unknown[] | null }>;
   }>;
   recipients: string[];
   sendByEmail: boolean;
@@ -249,7 +249,7 @@ export interface GlobalReservesPayload {
     priority: string;
     deadline?: string;
     description?: string;
-    photos: Array<{ uri: string }>;
+    photos: Array<{ uri: string; kind?: string; annotations?: unknown[] | null }>;
   }>;
   recipients: string[];
   sendByEmail: boolean;
@@ -299,7 +299,7 @@ export interface IndividualReservePayload {
     description?: string;
     createdAt?: string;
     closedAt?: string;
-    photos?: Array<{ uri: string; kind?: string }>;
+    photos?: Array<{ uri: string; kind?: string; annotations?: unknown[] | null }>;
     photoUri?: string;
     history?: Array<{ id: string; action: string; author: string; createdAt: string; oldValue?: string; newValue?: string }>;
   };

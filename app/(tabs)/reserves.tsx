@@ -1042,7 +1042,7 @@ export default function ReservesScreen() {
           priority: r.priority,
           deadline: r.deadline ?? undefined,
           description: getReserveDescriptionText(r.description, r.title, ''),
-          photos: remotePhotos.photos.map(p => ({ uri: p.uri })),
+          photos: remotePhotos.photos.map(p => ({ uri: p.uri, kind: p.kind, annotations: p.annotations })),
         };
       });
       const result = await generateAndSendReservesReport({

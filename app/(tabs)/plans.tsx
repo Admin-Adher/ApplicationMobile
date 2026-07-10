@@ -1828,7 +1828,7 @@ export default function PlansScreen() {
           planId: r.planId ?? undefined,
           planX: r.planX ?? undefined,
           planY: r.planY ?? undefined,
-          photos: remotePhotos.photos.map(p => ({ uri: p.uri })),
+          photos: remotePhotos.photos.map(p => ({ uri: p.uri, kind: p.kind, annotations: p.annotations })),
         };
       });
 
