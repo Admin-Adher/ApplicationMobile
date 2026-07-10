@@ -2517,6 +2517,10 @@ export default function BuildTrackWebPage() {
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
+  // Réserve (déjà créée, sans épingle) en cours de localisation : depuis sa
+  // fiche, l'utilisateur bascule sur l'onglet Plans et le prochain clic sur le
+  // plan pose sa pastille (via moveReservePinWeb). null = pas de placement.
+  const [placementReserveId, setPlacementReserveId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
   // Suivi des messages lus par canal (ISO de la dernière lecture), persisté en
   // localStorage par utilisateur — alimente le badge non-lus de la sidebar et
@@ -3237,6 +3241,41 @@ export default function BuildTrackWebPage() {
       reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, ...savedReserve } : item),
     }));
     return true;
+  }
+
+  // Démarre le flux « Placer sur le plan » depuis la fiche d'une réserve sans
+  // épingle : on choisit le plan le plus pertinent (même bâtiment/niveau si
+  // possible), on bascule sur l'onglet Plans et on arme le mode placement.
+  function locateReserveOnPlanWeb(reserve: any) {
+    if (!canMovePins(profile) || !reserve?.id) return;
+    const reserveChantierId = String(reserve.chantier_id ?? reserve.chantierId ?? '');
+    const candidatePlans = data.sitePlans.filter((plan: any) => {
+      if (!reserveChantierId) return true;
+      const planChantierId = String(plan?.chantier_id ?? plan?.chantierId ?? '');
+      return !planChantierId || planChantierId === reserveChantierId;
+    });
+    if (candidatePlans.length === 0) {
+      setError("Aucun plan disponible pour localiser cette réserve. Importez d'abord un plan dans l'onglet Plans.");
+      return;
+    }
+    const score = (plan: any) => {
+      let s = 0;
+      const rb = String(reserve.building_id ?? reserve.buildingId ?? '');
+      const pb = String(plan?.building_id ?? plan?.buildingId ?? '');
+      if (rb && pb && rb === pb) s += 2;
+      else if (reserve.building && getPlanBuildingName(plan) === reserve.building) s += 1;
+      const rl = String(reserve.level_id ?? reserve.levelId ?? '');
+      const pl = String(plan?.level_id ?? plan?.levelId ?? '');
+      if (rl && pl && rl === pl) s += 4;
+      else if (reserve.level && getPlanLevelName(plan) === reserve.level) s += 2;
+      return s;
+    };
+    const best = [...candidatePlans].sort((a, b) => score(b) - score(a))[0];
+    setError('');
+    setSelectedReserveId(reserve.id);
+    setPlacementReserveId(reserve.id);
+    setSelectedPlanId(best.id);
+    setActiveTab('plans');
   }
 
   async function updatePlanAnnotationsWeb(plan: any, annotations: WebPlanDrawing[]) {
@@ -5095,6 +5134,11 @@ export default function BuildTrackWebPage() {
   const selectedReserve = reserveSelectionPool.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedPlan = data.sitePlans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
+  // Le mode « placement de pastille » ne vit que dans l'onglet Plans : dès que
+  // l'utilisateur en sort, on l'annule pour éviter un placement fantôme au retour.
+  useEffect(() => {
+    if (activeTab !== 'plans' && placementReserveId) setPlacementReserveId(null);
+  }, [activeTab, placementReserveId]);
   const selectedChannel = data.channels.find(c => c.id === selectedChannelId) ?? data.channels[0] ?? null;
   const selectedChannelMessages = useMemo(() => selectedChannel
     ? data.messages
@@ -5397,6 +5441,8 @@ export default function BuildTrackWebPage() {
                 canDeleteReserve={canDelete(profile)}
                 canPermanentlyDeleteReserve={canPermanentlyDeleteReserve(profile)}
                 canExport={canExport(profile)}
+                canMovePins={canMovePins(profile)}
+                onLocateOnPlan={locateReserveOnPlanWeb}
                 canViewTrash={canViewReserveTrash}
                 saving={saving}
               />
@@ -5413,6 +5459,8 @@ export default function BuildTrackWebPage() {
                 setSelectedPlanId={setSelectedPlanId}
                 setSelectedReserveId={setSelectedReserveId}
                 setTab={setActiveTab}
+                placementReserve={placementReserveId ? (projectScoped.reserves.find((r: any) => r.id === placementReserveId) ?? null) : null}
+                onPlacementDone={() => setPlacementReserveId(null)}
                 onCreateReserve={(plan: any) => openReserveCreate({ plan })}
                 onCreateReserveAtPin={(plan: any, pin: ReservePinDraft) => openReserveCreate({ plan, pin })}
                 onMoveReservePin={moveReservePinWeb}
@@ -6295,6 +6343,8 @@ function ReservesView(props: {
   canDeleteReserve: boolean;
   canPermanentlyDeleteReserve: boolean;
   canExport: boolean;
+  canMovePins?: boolean;
+  onLocateOnPlan?: (reserve: any) => void;
   canViewTrash: boolean;
   saving: boolean;
 }) {
@@ -7311,6 +7361,16 @@ function ReservesView(props: {
             {props.editable && !isTrashView && (
               <div className={styles.actionBar}>
                 <button type="button" onClick={() => props.onEdit(detailReserve)}>Modifier</button>
+                {props.canMovePins && !detailReserve.plan_id && props.onLocateOnPlan && (
+                  <button
+                    type="button"
+                    className={styles.reserveLocateButton}
+                    onClick={() => props.onLocateOnPlan?.(detailReserve)}
+                    title="Placer une pastille sur un plan pour localiser cette réserve"
+                  >
+                    📍 Placer sur le plan
+                  </button>
+                )}
                 {STATUS_OPTIONS.map(([value, label]) => (
                   <button type="button" key={value} disabled={props.saving || detailReserve.status === value} onClick={() => props.onStatus(detailReserve.id, value)}>
                     {label}
@@ -7533,6 +7593,8 @@ function WebPdfPlan({
   canAnnotate,
   annotations,
   placementPreview,
+  placementActive,
+  onPlacePin,
   onCreateReserveAtPin,
   onPinMove,
   onAnnotationsChange,
@@ -7549,6 +7611,8 @@ function WebPdfPlan({
   canAnnotate?: boolean;
   annotations?: WebPlanDrawing[];
   placementPreview?: PinPlacementPreview | null;
+  placementActive?: boolean;
+  onPlacePin?: (x: number, y: number) => void;
   onCreateReserveAtPin?: (x: number, y: number) => void;
   onPinMove?: (reserveId: string, x: number, y: number) => PinMoveResult;
   onAnnotationsChange?: (annotations: WebPlanDrawing[]) => void;
@@ -7795,6 +7859,12 @@ function WebPdfPlan({
     }
     if (annotationMode) return;
     const { x, y } = pagePointFromEvent(event);
+    // Mode « placement » d'une réserve existante sans épingle : le clic pose la
+    // pastille (le parent gère l'aperçu puis l'enregistrement).
+    if (placementActive) {
+      onPlacePin?.(x, y);
+      return;
+    }
     if (moveMode && canMovePins && focusedReserveId) {
       setMoveMode(false);
       const moveResult = await Promise.resolve(onPinMove?.(focusedReserveId, x, y));
@@ -8034,6 +8104,8 @@ function PlansView({
   setSelectedPlanId,
   setSelectedReserveId,
   setTab,
+  placementReserve,
+  onPlacementDone,
   onCreateReserve,
   onCreateReserveAtPin,
   onMoveReservePin,
@@ -8462,6 +8534,39 @@ function PlansView({
       onCreateReserveAtPin(selectedPlan, { planId: selectedPlan.id, x: nextX, y: nextY });
     }, 520);
   };
+  // Mode « placement » : localiser une réserve EXISTANTE sans épingle. Un clic
+  // sur le plan pose sa pastille (aperçu bref, puis enregistrement via
+  // onMoveReservePin qui écrit plan_id/plan_x/plan_y).
+  const placementActive = Boolean(placementReserve && planCanMovePins && selectedPlan);
+  const placeExistingPinAt = (x: number, y: number) => {
+    if (!selectedPlan || !placementReserve) return;
+    const nextX = Number(clampPercent(x).toFixed(2));
+    const nextY = Number(clampPercent(y).toFixed(2));
+    const preview: PinPlacementPreview = {
+      id: `place-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      planId: selectedPlan.id,
+      x: nextX,
+      y: nextY,
+      label: 'Pastille placée',
+    };
+    setPinPlacementPreview(preview);
+    if (pinPlacementTimerRef.current) window.clearTimeout(pinPlacementTimerRef.current);
+    const target = placementReserve;
+    const targetPlan = selectedPlan;
+    pinPlacementTimerRef.current = window.setTimeout(async () => {
+      setPinPlacementPreview(null);
+      // On sort du mode placement AVANT l'enregistrement async : un nouveau clic
+      // pendant la sauvegarde ne peut donc pas relancer un second write. En cas
+      // d'échec, moveReservePinWeb annule l'optimistic update et affiche l'erreur
+      // (la réserve reste sans épingle, l'utilisateur peut relancer le flux).
+      onPlacementDone?.();
+      const ok = await onMoveReservePin?.(target, targetPlan, nextX, nextY);
+      if (ok !== false) {
+        setFocusedPlanReserveId(target.id);
+        setSelectedPlanReserveId(target.id);
+      }
+    }, 450);
+  };
   const planPins = displayPlanReserves
     .map((reserve: any) => {
       const rawX = Number(reserve.plan_x);
@@ -8845,6 +8950,18 @@ function PlansView({
                 </div>
               </div>
             )}
+            {placementActive && (
+              <div className={styles.planPlacementBanner}>
+                <span className={styles.planPlacementBadge}>📍</span>
+                <div className={styles.planPlacementText}>
+                  <strong>{placementReserve.id} — {placementReserve.title}</strong>
+                  <small>Cliquez sur le plan pour placer sa pastille{selectedPlan?.name ? ` sur « ${selectedPlan.name} »` : ''}.</small>
+                </div>
+                <button type="button" className={styles.planPlacementCancel} onClick={() => onPlacementDone?.()}>
+                  Annuler
+                </button>
+              </div>
+            )}
             <div className={`${styles.planWorkArea} ${planReservePanelOpen ? styles.planWorkAreaWithReservePanel : styles.planWorkAreaReserveCollapsed}`}>
               <div className={styles.planCanvas}>
                 {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
@@ -8860,6 +8977,8 @@ function PlansView({
                     canAnnotate={planCanCreate}
                     annotations={Array.isArray(selectedPlan.annotations) ? selectedPlan.annotations : []}
                     placementPreview={activePlacementPreview}
+                    placementActive={placementActive}
+                    onPlacePin={placeExistingPinAt}
                     onCreateReserveAtPin={assignOrCreatePinAt}
                     onPinMove={(reserveId, x, y) => {
                       const reserve = planReserves.find((item: any) => item.id === reserveId);
@@ -8877,21 +8996,21 @@ function PlansView({
                 ) : (
                   <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
                 )}
-                {selectedPlan.file_type !== 'pdf' && planCanCreate && (
+                {selectedPlan.file_type !== 'pdf' && (planCanCreate || placementActive) && (
                   <button
                     type="button"
                     className={`${styles.pinClickLayer} ${styles.pinCreateLayer}`}
-                    aria-label="Cliquer pour créer une réserve à cet endroit"
+                    aria-label={placementActive ? 'Cliquer pour placer la pastille de la réserve' : 'Cliquer pour créer une réserve à cet endroit'}
                     onClick={event => {
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const px = ((event.clientX - rect.left) / rect.width) * 100;
+                      const py = ((event.clientY - rect.top) / rect.height) * 100;
+                      if (placementActive) { placeExistingPinAt(px, py); return; }
                       if (focusedPlanReserveId) {
                         setFocusedPlanReserveId(null);
                         return;
                       }
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      assignOrCreatePinAt(
-                        ((event.clientX - rect.left) / rect.width) * 100,
-                        ((event.clientY - rect.top) / rect.height) * 100,
-                      );
+                      assignOrCreatePinAt(px, py);
                     }}
                   />
                 )}

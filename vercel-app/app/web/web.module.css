@@ -4913,6 +4913,74 @@
   color: #b42318;
 }
 
+/* Bouton « Placer sur le plan » — fiche d'une réserve sans épingle */
+.actionBar .reserveLocateButton {
+  background: #fffbeb;
+  border-color: #f2d99a;
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* Bannière du mode « placement de pastille » sur l'onglet Plans */
+.planPlacementBanner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #003082 0%, #1a6fd8 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(0, 48, 130, 0.22);
+}
+
+.planPlacementBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.18);
+  font-size: 15px;
+  flex-shrink: 0;
+}
+
+.planPlacementText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.planPlacementText strong {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.planPlacementText small {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+.planPlacementCancel {
+  flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  color: #fff;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.planPlacementCancel:hover {
+  background: rgba(255, 255, 255, 0.26);
+}
+
 .historyBlock {
   margin-top: 18px;
 }
