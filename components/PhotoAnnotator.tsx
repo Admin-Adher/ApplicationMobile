@@ -1,8 +1,9 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, Modal, TouchableOpacity, Image,
   Platform, TextInput, ScrollView, Alert,
 } from 'react-native';
+import Svg, { Polyline } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
@@ -22,6 +23,8 @@ const MARKER_COLORS = [
 
 type AnnotationTool = 'point' | 'text' | 'arrow' | 'rect' | 'measure' | 'pen';
 type AnnotationPoint = { x: number; y: number };
+type Size = { w: number; h: number };
+type Rect = { x: number; y: number; w: number; h: number };
 
 const TOOLS: { key: AnnotationTool; icon: string }[] = [
   { key: 'point', icon: 'ellipse' },
@@ -33,6 +36,112 @@ const TOOLS: { key: AnnotationTool; icon: string }[] = [
 ];
 
 const STROKE_WIDTHS = [2, 8, 18];
+
+/**
+ * Rectangle réellement occupé par l'image dans son conteneur selon le mode
+ * d'ajustement (letterbox pour contain, débordement pour cover). Tant que la
+ * taille naturelle est inconnue, on retombe sur le conteneur entier.
+ */
+export function fitRect(container: Size, natural: Size | null, mode: 'contain' | 'cover'): Rect {
+  if (!natural || natural.w <= 0 || natural.h <= 0 || container.w <= 0 || container.h <= 0) {
+    return { x: 0, y: 0, w: Math.max(1, container.w), h: Math.max(1, container.h) };
+  }
+  const scale = mode === 'contain'
+    ? Math.min(container.w / natural.w, container.h / natural.h)
+    : Math.max(container.w / natural.w, container.h / natural.h);
+  const w = natural.w * scale;
+  const h = natural.h * scale;
+  return { x: (container.w - w) / 2, y: (container.h - h) / 2, w, h };
+}
+
+export function useNaturalSize(uri: string): Size | null {
+  const [size, setSize] = useState<Size | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setSize(null);
+    if (!uri) return;
+    Image.getSize(
+      uri,
+      (w, h) => { if (alive && w > 0 && h > 0) setSize({ w, h }); },
+      () => {},
+    );
+    return () => { alive = false; };
+  }, [uri]);
+  return size;
+}
+
+const isImageSpace = (m: PhotoAnnotation) => m.coordSpace === 'image';
+
+/**
+ * Traits crayon en polylignes continues (l'ancien rendu en pastilles laissait
+ * des trous dès que le geste était rapide). viewBox 0-100 étiré sur le calque,
+ * non-scaling-stroke pour une épaisseur uniforme en pixels écran.
+ */
+function PenStrokesSvg({ strokes, widthScale = 1, minWidth = 2, maxWidth = 18 }: {
+  strokes: PhotoAnnotation[];
+  widthScale?: number;
+  minWidth?: number;
+  maxWidth?: number;
+}) {
+  if (strokes.length === 0) return null;
+  return (
+    <Svg
+      style={StyleSheet.absoluteFill}
+      viewBox="0 0 100 100"
+      preserveAspectRatio="none"
+      pointerEvents="none"
+    >
+      {strokes.map(s => (
+        <Polyline
+          key={s.id}
+          points={(s.points ?? []).map(p => `${p.x},${p.y}`).join(' ')}
+          fill="none"
+          stroke={s.color}
+          strokeWidth={Math.max(minWidth, Math.min(maxWidth, (s.strokeWidth ?? 8) * widthScale))}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      ))}
+    </Svg>
+  );
+}
+
+function getMarkerShape(m: PhotoAnnotation) {
+  if (m.tool === 'text') {
+    return (
+      <View style={[styles.textMarker, { backgroundColor: m.color + 'CC', borderColor: m.color }]}>
+        <Text style={[styles.textMarkerLabel, { color: m.color === '#FFFFFF' ? '#000' : '#fff' }]} numberOfLines={2}>{m.label}</Text>
+      </View>
+    );
+  }
+  if (m.tool === 'rect') {
+    return (
+      <View style={[styles.rectMarker, { borderColor: m.color }]}>
+        <Text style={[styles.rectMarkerText, { color: m.color }]}>□</Text>
+      </View>
+    );
+  }
+  if (m.tool === 'arrow') {
+    return (
+      <View style={[styles.arrowMarker, { backgroundColor: m.color }]}>
+        <Text style={styles.markerText}>↗</Text>
+      </View>
+    );
+  }
+  if (m.tool === 'measure') {
+    return (
+      <View style={[styles.measureMarker, { backgroundColor: m.color + 'DD' }]}>
+        <Text style={styles.measureText}>⟷</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={[styles.marker, { backgroundColor: m.color }]}>
+      <Text style={styles.markerText}>{m.label.length <= 2 ? m.label : m.label.slice(0, 2)}</Text>
+    </View>
+  );
+}
 
 interface Props {
   photoUri: string;
@@ -63,16 +172,29 @@ export function PhotoAnnotationOverlay({
   const [editLabel, setEditLabel] = useState('');
   const [pendingText, setPendingText] = useState('');
   const [pendingTextPos, setPendingTextPos] = useState<{ x: number; y: number } | null>(null);
-  const containerRef = useRef<View>(null);
-  const [containerSize, setContainerSize] = useState({ w: 300, h: 220 });
+  const [containerSize, setContainerSize] = useState<Size>({ w: 300, h: 220 });
+  const naturalSize = useNaturalSize(photoUri);
+  // Instantané de départ pour détecter un travail non enregistré à la fermeture.
+  const initialSnapshotRef = useRef(JSON.stringify(annotations ?? []));
+  // Suivi du geste en cours pour distinguer un tap d'un glissement.
+  const gestureRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
 
-  function eventToPoint(evt: any): AnnotationPoint {
+  const imageRect = fitRect(containerSize, naturalSize, 'contain');
+
+  /**
+   * Convertit un événement tactile en % du rectangle réel de l'image (et non
+   * du conteneur letterboxé — les bandes noires faussaient toutes les
+   * coordonnées). Retourne null tant que la taille naturelle est inconnue.
+   */
+  function eventToImagePoint(evt: any): { x: number; y: number; inside: boolean } | null {
+    if (!naturalSize) return null;
     const { locationX, locationY } = evt.nativeEvent;
-    const xPct = (locationX / Math.max(1, containerSize.w)) * 100;
-    const yPct = (locationY / Math.max(1, containerSize.h)) * 100;
+    const rawX = ((locationX - imageRect.x) / Math.max(1, imageRect.w)) * 100;
+    const rawY = ((locationY - imageRect.y) / Math.max(1, imageRect.h)) * 100;
     return {
-      x: Math.max(1, Math.min(99, xPct)),
-      y: Math.max(1, Math.min(99, yPct)),
+      x: Math.max(0.5, Math.min(99.5, rawX)),
+      y: Math.max(0.5, Math.min(99.5, rawY)),
+      inside: rawX >= -0.5 && rawX <= 100.5 && rawY >= -0.5 && rawY <= 100.5,
     };
   }
 
@@ -82,9 +204,12 @@ export function PhotoAnnotationOverlay({
     return Math.hypot(point.x - last.x, point.y - last.y) >= 0.35;
   }
 
-  function handlePenStart(evt: any) {
-    if (!editable || activeTool !== 'pen') return;
-    const point = eventToPoint(evt);
+  function handleTouchStart(evt: any) {
+    const { locationX, locationY } = evt.nativeEvent;
+    gestureRef.current = { startX: locationX, startY: locationY, moved: false };
+    if (activeTool !== 'pen') return;
+    const point = eventToImagePoint(evt);
+    if (!point || !point.inside) return;
     const stroke: PhotoAnnotation = {
       id: genId(),
       x: point.x,
@@ -92,44 +217,54 @@ export function PhotoAnnotationOverlay({
       color: selectedColor,
       label: t('photoAnnotator.tools.pen'),
       tool: 'pen',
-      points: [point],
+      points: [{ x: point.x, y: point.y }],
       strokeWidth: selectedStrokeWidth,
+      coordSpace: 'image',
     };
     currentStrokeRef.current = stroke;
     setCurrentStroke(stroke);
   }
 
-  function handlePenMove(evt: any) {
-    if (!editable || activeTool !== 'pen') return;
-    const point = eventToPoint(evt);
+  function handleTouchMove(evt: any) {
+    const g = gestureRef.current;
+    if (g) {
+      const { locationX, locationY } = evt.nativeEvent;
+      if (Math.hypot(locationX - g.startX, locationY - g.startY) > 8) g.moved = true;
+    }
+    if (activeTool !== 'pen' || !currentStrokeRef.current) return;
+    const point = eventToImagePoint(evt);
+    if (!point) return;
     setCurrentStroke(prev => {
       if (!prev) return prev;
       const points = prev.points ?? [];
       if (!shouldAppendPoint(points, point)) return prev;
-      const next = { ...prev, points: [...points, point] };
+      const next = { ...prev, points: [...points, { x: point.x, y: point.y }] };
       currentStrokeRef.current = next;
       return next;
     });
   }
 
-  function handlePenEnd() {
-    const stroke = currentStrokeRef.current;
-    if (!stroke) return;
-    if ((stroke.points?.length ?? 0) > 1) {
-      setMarkers(prev => [...prev, stroke]);
+  function handleTouchEnd(evt: any) {
+    const g = gestureRef.current;
+    gestureRef.current = null;
+    if (activeTool === 'pen') {
+      const stroke = currentStrokeRef.current;
+      currentStrokeRef.current = null;
+      setCurrentStroke(null);
+      // Un seul point = pastille (l'ancien code jetait le trait, un tap ne
+      // dessinait jamais rien).
+      if (stroke) setMarkers(prev => [...prev, stroke]);
+      return;
     }
-    currentStrokeRef.current = null;
-    setCurrentStroke(null);
+    if (g && !g.moved) handleImageTap(evt);
   }
 
   function handleImageTap(evt: any) {
     if (!editable) return;
-    if (activeTool === 'pen') return;
-    const point = eventToPoint(evt);
-    const xPct = point.x;
-    const yPct = point.y;
-    const x = Math.max(2, Math.min(98, xPct));
-    const y = Math.max(2, Math.min(98, yPct));
+    const point = eventToImagePoint(evt);
+    if (!point || !point.inside) return;
+    const x = Math.max(2, Math.min(98, point.x));
+    const y = Math.max(2, Math.min(98, point.y));
 
     if (activeTool === 'text') {
       setPendingTextPos({ x, y });
@@ -146,6 +281,7 @@ export function PhotoAnnotationOverlay({
       pen: 'pen',
     };
 
+    const autoCount = markers.filter(m => m.tool !== 'text' && m.tool !== 'measure' && m.tool !== 'pen').length;
     const newMarker: PhotoAnnotation = {
       id: genId(),
       x,
@@ -153,8 +289,9 @@ export function PhotoAnnotationOverlay({
       color: selectedColor,
       label: activeTool === 'measure'
         ? t('photoAnnotator.measureLabel', { count: markers.filter(m => m.tool === 'measure').length + 1 })
-        : String(markers.length + 1),
+        : String(autoCount + 1),
       tool: toolToType[activeTool],
+      coordSpace: 'image',
     };
     setMarkers(prev => [...prev, newMarker]);
   }
@@ -171,19 +308,47 @@ export function PhotoAnnotationOverlay({
       color: selectedColor,
       label: pendingText.trim(),
       tool: 'text',
+      coordSpace: 'image',
     };
     setMarkers(prev => [...prev, newMarker]);
     setPendingTextPos(null);
     setPendingText('');
   }
 
-  function handleRemoveMarker(id: string) {
-    Alert.alert(t('photoAnnotator.removeAnnotationTitle'), '', [
+  // Alert.alert n'affiche rien sur le build web : window.confirm en secours.
+  function confirmDestructive(title: string, confirmLabel: string, onConfirm: () => void) {
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm(title)) onConfirm();
+      return;
+    }
+    Alert.alert(title, '', [
       { text: t('common.cancel'), style: 'cancel' },
-      { text: t('common.delete'), style: 'destructive', onPress: () => {
-        setMarkers(prev => prev.filter(m => m.id !== id).map((m, i) => ({ ...m, label: m.tool === 'text' || m.tool === 'measure' ? m.label : String(i + 1) })));
-      }},
+      { text: confirmLabel, style: 'destructive', onPress: onConfirm },
     ]);
+  }
+
+  function handleRemoveMarker(id: string) {
+    confirmDestructive(t('photoAnnotator.removeAnnotationTitle'), t('common.delete'), () => {
+      setMarkers(prev => {
+        const remaining = prev.filter(m => m.id !== id);
+        // Seuls les labels auto-générés (purement numériques) sont renumérotés :
+        // les renommages personnalisés et le label des traits sont préservés.
+        let n = 0;
+        return remaining.map(m => {
+          if (m.tool === 'text' || m.tool === 'measure' || m.tool === 'pen') return m;
+          n += 1;
+          return /^\d+$/.test(m.label) ? { ...m, label: String(n) } : m;
+        });
+      });
+    });
+  }
+
+  function handleClearAll() {
+    confirmDestructive(t('photoAnnotator.clearAllTitle'), t('photoAnnotator.clear'), () => {
+      setMarkers([]);
+      currentStrokeRef.current = null;
+      setCurrentStroke(null);
+    });
   }
 
   function handleMarkerPress(m: PhotoAnnotation) {
@@ -198,96 +363,98 @@ export function PhotoAnnotationOverlay({
     setEditLabel('');
   }
 
-  function getMarkerIcon(tool?: PhotoAnnotation['tool']): string {
-    switch (tool) {
-      case 'arrow': return '↗';
-      case 'rect': return '□';
-      case 'measure': return '↔';
-      case 'text': return 'T';
-      default: return '';
+  function handleRequestClose() {
+    if (!editable) { onClose?.(); return; }
+    const dirty = JSON.stringify(markers) !== initialSnapshotRef.current;
+    if (!dirty) { onClose?.(); return; }
+    if (Platform.OS === 'web') {
+      if (typeof window === 'undefined') { onClose?.(); return; }
+      if (window.confirm(t('photoAnnotator.unsavedMessage'))) { onSave?.(markers); onClose?.(); }
+      else if (window.confirm(t('photoAnnotator.discardConfirm'))) { onClose?.(); }
+      return;
     }
+    Alert.alert(t('photoAnnotator.unsavedTitle'), t('photoAnnotator.unsavedMessage'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('photoAnnotator.discard'), style: 'destructive', onPress: () => onClose?.() },
+      { text: t('photoAnnotator.saveAndClose'), onPress: () => { onSave?.(markers); onClose?.(); } },
+    ]);
   }
 
-  function getMarkerShape(m: PhotoAnnotation) {
-    if (m.tool === 'text') {
-      return (
-        <View style={[styles.textMarker, { backgroundColor: m.color + 'CC', borderColor: m.color }]}>
-          <Text style={[styles.textMarkerLabel, { color: m.color === '#FFFFFF' ? '#000' : '#fff' }]} numberOfLines={2}>{m.label}</Text>
-        </View>
-      );
-    }
-    if (m.tool === 'rect') {
-      return (
-        <View style={[styles.rectMarker, { borderColor: m.color }]}>
-          <Text style={[styles.rectMarkerText, { color: m.color }]}>□</Text>
-        </View>
-      );
-    }
-    if (m.tool === 'arrow') {
-      return (
-        <View style={[styles.arrowMarker, { backgroundColor: m.color }]}>
-          <Text style={styles.markerText}>↗</Text>
-        </View>
-      );
-    }
-    if (m.tool === 'measure') {
-      return (
-        <View style={[styles.measureMarker, { backgroundColor: m.color + 'DD' }]}>
-          <Text style={styles.measureText}>⟷</Text>
-        </View>
-      );
-    }
-    return (
-      <View style={[styles.marker, { backgroundColor: m.color }]}>
-        <Text style={styles.markerText}>{m.label.length <= 2 ? m.label : m.label.slice(0, 2)}</Text>
-      </View>
-    );
-  }
+  const penActive = editable && activeTool === 'pen';
 
-  const penResponderProps: any = editable && activeTool === 'pen'
+  // Les props responder doivent vivre sur une View : TouchableOpacity les
+  // jette (liste blanche du render RN) — c'est ce qui rendait le crayon inerte.
+  const responderProps = editable
     ? {
         onStartShouldSetResponder: () => true,
-        onMoveShouldSetResponder: () => true,
-        onResponderGrant: handlePenStart,
-        onResponderMove: handlePenMove,
-        onResponderRelease: handlePenEnd,
-        onResponderTerminate: handlePenEnd,
+        onMoveShouldSetResponder: () => penActive && !!currentStrokeRef.current,
+        onResponderGrant: handleTouchStart,
+        onResponderMove: handleTouchMove,
+        onResponderRelease: handleTouchEnd,
+        onResponderTerminate: handleTouchEnd,
+        onResponderTerminationRequest: () => !penActive,
       }
     : {};
 
-  function renderPenStroke(m: PhotoAnnotation, thumbnail = false) {
-    const points = m.points?.length ? m.points : [{ x: m.x, y: m.y }];
-    const dotSize = Math.max(thumbnail ? 2 : 3, Math.min(thumbnail ? 8 : 18, (m.strokeWidth ?? 8) * (thumbnail ? 0.45 : 1)));
+  function renderAnnotationSet(list: PhotoAnnotation[], stroke: PhotoAnnotation | null) {
+    const pens = stroke ? [...list.filter(m => m.tool === 'pen'), stroke] : list.filter(m => m.tool === 'pen');
+    const lines = pens.filter(p => (p.points?.length ?? 0) >= 2);
+    const dots = pens.filter(p => (p.points?.length ?? 1) <= 1);
     return (
-      <View key={m.id} style={StyleSheet.absoluteFill} pointerEvents="none">
-        {points.map((point, index) => (
-          <View
-            key={`${m.id}-${index}`}
-            style={[
-              styles.penPoint,
-              thumbnail && styles.thumbPenPoint,
-              {
-                left: `${point.x}%` as any,
-                top: `${point.y}%` as any,
-                width: dotSize,
-                height: dotSize,
-                borderRadius: dotSize / 2,
+      <>
+        <PenStrokesSvg strokes={lines} />
+        {dots.map(m => {
+          const p = m.points?.[0] ?? { x: m.x, y: m.y };
+          const size = Math.max(3, Math.min(18, m.strokeWidth ?? 8));
+          return (
+            <View
+              key={m.id}
+              pointerEvents="none"
+              style={[styles.penPoint, {
+                left: `${p.x}%` as any,
+                top: `${p.y}%` as any,
+                width: size,
+                height: size,
+                borderRadius: size / 2,
                 backgroundColor: m.color,
-                marginLeft: -dotSize / 2,
-                marginTop: -dotSize / 2,
-              },
-            ]}
-          />
-        ))}
-      </View>
+                marginLeft: -size / 2,
+                marginTop: -size / 2,
+              }]}
+            />
+          );
+        })}
+        {/* Crayon actif : les marqueurs ne doivent pas capturer le début des traits. */}
+        <View style={StyleSheet.absoluteFill} pointerEvents={penActive ? 'none' : 'box-none'}>
+          {list.filter(m => m.tool !== 'pen').map(m => (
+            <TouchableOpacity
+              key={m.id}
+              style={[styles.markerWrap, { left: `${m.x}%` as any, top: `${m.y}%` as any }]}
+              onPress={editable ? () => handleMarkerPress(m) : undefined}
+              onLongPress={editable ? () => handleRemoveMarker(m.id) : undefined}
+            >
+              {getMarkerShape(m)}
+            </TouchableOpacity>
+          ))}
+        </View>
+      </>
     );
   }
 
+  const imageMarkers = markers.filter(isImageSpace);
+  const legacyMarkers = markers.filter(m => !isImageSpace(m));
+
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      // En édition, pas de pageSheet : le swipe de fermeture iOS court-circuite
+      // la confirmation et perdait silencieusement le travail en cours.
+      presentationStyle={editable ? 'fullScreen' : 'pageSheet'}
+      onRequestClose={handleRequestClose}
+    >
       <View style={[styles.container, { paddingBottom: insets.bottom }]}>
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
+          <TouchableOpacity onPress={handleRequestClose} style={styles.closeBtn}>
             <Ionicons name="close" size={22} color={C.text} />
           </TouchableOpacity>
           <Text style={styles.title}>
@@ -340,12 +507,7 @@ export function PhotoAnnotationOverlay({
               ))}
               <View style={{ flex: 1 }} />
               {markers.length > 0 && (
-                <TouchableOpacity onPress={() => {
-                  Alert.alert(t('photoAnnotator.clearAllTitle'), '', [
-                    { text: t('common.cancel'), style: 'cancel' },
-                    { text: t('photoAnnotator.clear'), style: 'destructive', onPress: () => { setMarkers([]); currentStrokeRef.current = null; setCurrentStroke(null); } },
-                  ]);
-                }} style={styles.clearBtn}>
+                <TouchableOpacity onPress={handleClearAll} style={styles.clearBtn}>
                   <Ionicons name="trash-outline" size={16} color={C.open} />
                 </TouchableOpacity>
               )}
@@ -370,38 +532,32 @@ export function PhotoAnnotationOverlay({
         )}
 
         <View style={styles.imageWrap}>
-          <TouchableOpacity
-            activeOpacity={editable ? 0.95 : 1}
-            onPress={editable ? handleImageTap : undefined}
+          <View
             style={styles.imageTouchable}
             onLayout={e => setContainerSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
-            {...penResponderProps}
+            {...responderProps}
           >
             <Image
               source={{ uri: photoUri }}
-              style={styles.image}
+              // pointerEvents en style : l'image ne doit jamais être la cible
+              // du toucher pour que locationX/Y restent relatifs au conteneur.
+              style={[styles.image, { pointerEvents: 'none' } as any]}
               resizeMode="contain"
             />
-            {[...markers, ...(currentStroke ? [currentStroke] : [])]
-              .filter(m => m.tool === 'pen')
-              .map(m => renderPenStroke(m))}
-            {markers.filter(m => m.tool !== 'pen').map(m => (
-              <TouchableOpacity
-                key={m.id}
-                style={[
-                  styles.markerWrap,
-                  {
-                    left: `${m.x}%` as any,
-                    top: `${m.y}%` as any,
-                  },
-                ]}
-                onPress={editable ? (e => { e.stopPropagation(); handleMarkerPress(m); }) : undefined}
-                onLongPress={editable ? () => handleRemoveMarker(m.id) : undefined}
-              >
-                {getMarkerShape(m)}
-              </TouchableOpacity>
-            ))}
-          </TouchableOpacity>
+            {/* Calque legacy : annotations historiques en % du conteneur, rendues
+                telles quelles pour ne pas déplacer les données existantes. */}
+            <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+              {renderAnnotationSet(legacyMarkers, null)}
+            </View>
+            {/* Calque image : annotations coordSpace 'image', calées sur le
+                rectangle réellement affiché de la photo (hors bandes noires). */}
+            <View
+              style={{ position: 'absolute', left: imageRect.x, top: imageRect.y, width: imageRect.w, height: imageRect.h }}
+              pointerEvents="box-none"
+            >
+              {renderAnnotationSet(imageMarkers, currentStroke)}
+            </View>
+          </View>
         </View>
 
         {editable && (
@@ -508,68 +664,99 @@ export function PhotoWithAnnotations({
   annotations,
   style,
   onPress,
+  resizeMode = 'cover',
+  variant = 'thumb',
+  showBadge = true,
 }: {
   uri: string;
   annotations: PhotoAnnotation[];
   style?: any;
   onPress?: () => void;
+  resizeMode?: 'cover' | 'contain';
+  variant?: 'thumb' | 'viewer';
+  showBadge?: boolean;
 }) {
-  function renderThumbnailPenStroke(m: PhotoAnnotation) {
-    const points = m.points?.length ? m.points : [{ x: m.x, y: m.y }];
-    const dotSize = Math.max(2, Math.min(8, (m.strokeWidth ?? 8) * 0.45));
+  const [containerSize, setContainerSize] = useState<Size>({ w: 0, h: 0 });
+  const natural = useNaturalSize(uri);
+  const imageRect = fitRect(containerSize, natural, resizeMode);
+  const viewer = variant === 'viewer';
+
+  function renderSet(list: PhotoAnnotation[]) {
+    const pens = list.filter(m => m.tool === 'pen');
+    const lines = pens.filter(p => (p.points?.length ?? 0) >= 2);
+    const dots = pens.filter(p => (p.points?.length ?? 1) <= 1);
+    const widthScale = viewer ? 1 : 0.45;
     return (
-      <View key={m.id} style={StyleSheet.absoluteFill} pointerEvents="none">
-        {points.map((point, index) => (
-          <View
-            key={`${m.id}-${index}`}
-            style={[
-              styles.penPoint,
-              styles.thumbPenPoint,
-              {
-                left: `${point.x}%` as any,
-                top: `${point.y}%` as any,
-                width: dotSize,
-                height: dotSize,
-                borderRadius: dotSize / 2,
+      <>
+        <PenStrokesSvg strokes={lines} widthScale={widthScale} minWidth={viewer ? 2 : 1.5} maxWidth={viewer ? 18 : 8} />
+        {dots.map(m => {
+          const p = m.points?.[0] ?? { x: m.x, y: m.y };
+          const size = Math.max(viewer ? 3 : 2, Math.min(viewer ? 18 : 8, (m.strokeWidth ?? 8) * widthScale));
+          return (
+            <View
+              key={m.id}
+              style={[styles.penPoint, !viewer && styles.thumbPenPoint, {
+                left: `${p.x}%` as any,
+                top: `${p.y}%` as any,
+                width: size,
+                height: size,
+                borderRadius: size / 2,
                 backgroundColor: m.color,
-                marginLeft: -dotSize / 2,
-                marginTop: -dotSize / 2,
+                marginLeft: -size / 2,
+                marginTop: -size / 2,
+              }]}
+            />
+          );
+        })}
+        {list.filter(m => m.tool !== 'pen').map(m => viewer ? (
+          <View key={m.id} style={[styles.markerWrap, { left: `${m.x}%` as any, top: `${m.y}%` as any }]}>
+            {getMarkerShape(m)}
+          </View>
+        ) : (
+          <View
+            key={m.id}
+            style={[
+              styles.thumbMarker,
+              {
+                left: `${m.x}%` as any,
+                top: `${m.y}%` as any,
+                backgroundColor: m.tool === 'rect' ? 'transparent' : m.color,
+                borderColor: m.color,
+                borderWidth: m.tool === 'rect' ? 2 : 1.5,
               },
             ]}
-          />
+          >
+            <Text style={styles.thumbMarkerText}>
+              {m.tool === 'text' ? 'T' : m.tool === 'arrow' ? '↗' : m.tool === 'rect' ? '□' : m.tool === 'measure' ? '⟷' : m.label.slice(0, 2)}
+            </Text>
+          </View>
         ))}
-      </View>
+      </>
     );
   }
+
+  const imageSpace = annotations.filter(isImageSpace);
+  const legacy = annotations.filter(m => !isImageSpace(m));
 
   return (
     <TouchableOpacity
       onPress={onPress}
       activeOpacity={onPress ? 0.85 : 1}
+      disabled={!onPress}
       style={[{ position: 'relative', overflow: 'hidden' }, style]}
+      onLayout={e => setContainerSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
     >
-      <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode="cover" />
-      {annotations.filter(m => m.tool === 'pen').map(renderThumbnailPenStroke)}
-      {annotations.filter(m => m.tool !== 'pen').map(m => (
-        <View
-          key={m.id}
-          style={[
-            styles.thumbMarker,
-            {
-              left: `${m.x}%` as any,
-              top: `${m.y}%` as any,
-              backgroundColor: m.tool === 'rect' ? 'transparent' : m.color,
-              borderColor: m.color,
-              borderWidth: m.tool === 'rect' ? 2 : 1.5,
-            },
-          ]}
-        >
-          <Text style={styles.thumbMarkerText}>
-            {m.tool === 'text' ? 'T' : m.tool === 'arrow' ? '↗' : m.tool === 'rect' ? '□' : m.tool === 'measure' ? '⟷' : m.label.slice(0, 2)}
-          </Text>
-        </View>
-      ))}
-      {annotations.length > 0 && (
+      <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode={resizeMode} />
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        {renderSet(legacy)}
+      </View>
+      <View
+        style={{ position: 'absolute', left: imageRect.x, top: imageRect.y, width: imageRect.w, height: imageRect.h }}
+        pointerEvents="none"
+      >
+        {renderSet(imageSpace)}
+      </View>
+      {showBadge && annotations.length > 0 && (
         <View style={styles.thumbBadge}>
           <Ionicons name="pencil" size={9} color="#fff" />
           <Text style={styles.thumbBadgeText}>{annotations.length}</Text>

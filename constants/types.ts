@@ -347,6 +347,12 @@ export interface PhotoAnnotation {
   fontSize?: number;
   points?: PhotoAnnotationPoint[];
   strokeWidth?: number;
+  /**
+   * 'image' : x/y/points sont des % du rectangle réel de l'image (dimensions
+   * naturelles). Absent : legacy — % du conteneur d'affichage d'origine,
+   * rendu tel quel pour ne pas déplacer les annotations existantes.
+   */
+  coordSpace?: 'image';
 }
 
 export interface ReservePhoto {
