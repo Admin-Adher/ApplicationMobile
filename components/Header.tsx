@@ -12,6 +12,8 @@ interface Props {
   subtitle?: string;
   showBack?: boolean;
   onBack?: () => void;
+  /** Destination de repli quand aucune page précédente n'existe (web : URL directe / refresh). */
+  backFallback?: string;
   rightIcon?: string;
   onRightPress?: () => void;
   rightLabel?: string;
@@ -22,7 +24,7 @@ interface Props {
 }
 
 export default function Header({
-  title, subtitle, showBack, onBack, rightIcon, onRightPress,
+  title, subtitle, showBack, onBack, backFallback = '/(tabs)/', rightIcon, onRightPress,
   rightLabel, rightElement, rightActions, showSearch, onSearchPress,
 }: Props) {
   const { t } = useTranslation();
@@ -50,8 +52,12 @@ export default function Header({
   }, [pulseAnim, stuckCount]);
 
   function handleBack() {
-    if (onBack) onBack();
-    else router.back();
+    if (onBack) { onBack(); return; }
+    // Sur web, router.back() est un no-op quand l'historique de navigation est
+    // vide (URL ouverte directement, rafraîchissement, lien partagé) : le bouton
+    // retour paraissait mort. On retombe alors sur une destination sûre.
+    if (router.canGoBack()) router.back();
+    else router.navigate(backFallback as any);
   }
 
   function handleSearch() {

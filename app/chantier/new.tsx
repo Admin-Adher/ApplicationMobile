@@ -5,6 +5,7 @@ import {
 import { showAlert } from '@/lib/appAlert';
 import PageContainer from '@/components/PageContainer';
 import { useRouter } from 'expo-router';
+import { goBack } from '@/lib/nav';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
@@ -46,7 +47,7 @@ export default function NewChantierScreen() {
           {t('chantierForm.createDenied')}
         </Text>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => goBack()}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: '#1D4ED8', borderRadius: 10 }}
         >
           <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('chantierForm.back')}</Text>
@@ -110,7 +111,7 @@ export default function NewChantierScreen() {
         t('chantierForm.createdMessage', { name: name.trim() }),
         // style 'cancel' : sur web, fermer la boîte par le fond déclenche
         // aussi ce bouton — le retour arrière survient dans tous les cas.
-        [{ text: 'OK', style: 'cancel', onPress: () => router.back() }]
+        [{ text: 'OK', style: 'cancel', onPress: () => goBack() }]
       );
     } catch {
       showAlert(t('common.error'));

@@ -3,6 +3,7 @@ import {
   Platform, Image, ActivityIndicator, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/nav';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -123,7 +124,7 @@ export default function NewIncidentScreen() {
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
           {t('incidentForm.restrictedCreateText')}
         </Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
+        <TouchableOpacity onPress={() => goBack()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
           <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>
@@ -135,13 +136,13 @@ export default function NewIncidentScreen() {
       setStep(s => s - 1);
       return;
     }
-    if (!isDirty) { router.back(); return; }
+    if (!isDirty) { goBack(); return; }
     showAlert(
       t('incidentForm.abandonTitle'),
       t('incidentForm.abandonText'),
       [
         { text: t('incidentForm.continueEditing'), style: 'cancel' },
-        { text: t('incidentForm.abandon'), style: 'destructive', onPress: () => router.back() },
+        { text: t('incidentForm.abandon'), style: 'destructive', onPress: () => goBack() },
       ]
     );
   }
@@ -195,7 +196,7 @@ export default function NewIncidentScreen() {
         chantierId: activeChantierId ?? undefined,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      router.back();
+      goBack();
     } finally {
       setSaving(false);
     }
@@ -206,7 +207,7 @@ export default function NewIncidentScreen() {
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
         <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, textAlign: 'center' }}>{t('incidentForm.accessDenied')}</Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}>
+        <TouchableOpacity onPress={() => goBack()} style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}>
           <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>

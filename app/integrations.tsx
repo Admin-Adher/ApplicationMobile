@@ -13,6 +13,7 @@ import BottomNavBar from '@/components/BottomNavBar';
 import { BTPIntegration } from '@/constants/types';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'expo-router';
+import { goBack } from '@/lib/nav';
 
 const INTEGRATION_CATEGORIES = ['project', 'bim', 'regulatory', 'geolocation', 'forms', 'dms', 'signature', 'weather', 'hr'] as const;
 type IntegrationCategory = typeof INTEGRATION_CATEGORIES[number];
@@ -179,7 +180,7 @@ export default function IntegrationsScreen() {
           {t('integrationsScreen.restrictedText')}
         </Text>
         <TouchableOpacity
-          onPress={() => router.back()}
+          onPress={() => goBack()}
           style={{ marginTop: 24, paddingHorizontal: 20, paddingVertical: 10, backgroundColor: C.primary, borderRadius: 10 }}
         >
           <Text style={{ color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 }}>{t('common.back')}</Text>

@@ -3,6 +3,7 @@ import {
   Platform, Image, ActivityIndicator, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { goBack } from '@/lib/nav';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -90,7 +91,7 @@ export default function EditIncidentScreen() {
         <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
           {t('incidentForm.restrictedViewText')}
         </Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
+        <TouchableOpacity onPress={() => goBack()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
           <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>
@@ -101,7 +102,7 @@ export default function EditIncidentScreen() {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg }}>
         <Text style={{ fontSize: 15, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>{t('incidentForm.notFound')}</Text>
-        <TouchableOpacity onPress={() => router.back()} style={{ marginTop: 16 }}>
+        <TouchableOpacity onPress={() => goBack()} style={{ marginTop: 16 }}>
           <Text style={{ color: C.primary, fontFamily: 'Inter_600SemiBold' }}>{t('incidentForm.back')}</Text>
         </TouchableOpacity>
       </View>
@@ -136,7 +137,7 @@ export default function EditIncidentScreen() {
           text: t('common.delete'), style: 'destructive', onPress: async () => {
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
             await deleteIncident(incident.id);
-            router.back();
+            goBack();
           },
         },
       ]
@@ -172,7 +173,7 @@ export default function EditIncidentScreen() {
         closedBy,
       });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      router.back();
+      goBack();
     } finally {
       setSaving(false);
     }
@@ -338,7 +339,7 @@ export default function EditIncidentScreen() {
             </TouchableOpacity>
           )}
 
-          <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
+          <TouchableOpacity style={styles.cancelBtn} onPress={() => goBack()}>
             <Text style={styles.cancelBtnText}>{t('incidentForm.cancel')}</Text>
           </TouchableOpacity>
 

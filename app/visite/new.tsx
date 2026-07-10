@@ -3,6 +3,7 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Image, Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { goBack } from '@/lib/nav';
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -594,7 +595,7 @@ export default function NewVisiteScreen() {
       count > 1
         ? t('visits.new.createdSeries', { title: title.trim(), count })
         : t('visits.new.createdSingle', { title: title.trim() }),
-      [{ text: 'OK', style: 'cancel', onPress: () => router.back() }]
+      [{ text: 'OK', style: 'cancel', onPress: () => goBack() }]
     );
   }
 

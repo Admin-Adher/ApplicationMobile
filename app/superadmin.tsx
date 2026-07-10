@@ -60,7 +60,7 @@ export default function SuperAdminScreen() {
       <View style={[styles.container, styles.center]}>
         <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
         <Text style={styles.accessDenied}>{t('superAdminScreen.accessDenied')}</Text>
-        <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backLink} onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}>
           <Text style={styles.backLinkTxt}>{t('common.back')}</Text>
         </TouchableOpacity>
       </View>
@@ -163,7 +163,7 @@ export default function SuperAdminScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Ionicons name="arrow-back" size={22} color={C.text} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>

@@ -658,7 +658,7 @@ export default function AdminScreen() {
 
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backBtn} hitSlop={8}>
+          <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)} style={styles.backBtn} hitSlop={8}>
             <Ionicons name="chevron-back" size={22} color={C.text} />
           </TouchableOpacity>
           <View style={{ flex: 1 }}>
