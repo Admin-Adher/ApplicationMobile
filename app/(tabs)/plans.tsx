@@ -39,6 +39,7 @@ import LevelPickerSheet, { type LevelItem } from '@/components/LevelPickerSheet'
 import { ensurePlanCached } from '@/lib/planCache';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 import {
+  buildReservePhotoStackHtml,
   countLocalOnlyReservePhotos,
   enrichReservesForPdf as enrichReserveListForPdf,
   getRemoteReservePhotosForPdf,
@@ -285,19 +286,32 @@ async function exportPlanPDF(
     color: getReservePinColor(r, companiesForColor),
   }));
 
-  // Photos: same limit logic as exportGlobalReport (≤150 total, max 2 per reserve)
+  // Photos embarquées façon « rapport de pendientes » : empilées dans la
+  // colonne Observation de chaque ligne (≤150 au total, max 3 par réserve).
   const MAX_TOTAL_PHOTOS = 150;
   const maxPhotosPerReserve = reserves.length === 0
     ? 0
-    : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / reserves.length));
+    : Math.min(3, Math.floor(MAX_TOTAL_PHOTOS / reserves.length));
 
   const rowsAndPhotos = await Promise.all(reserves.map(async (r) => {
     const n = numberMap.get(r.id) ?? '-';
     const color = getReservePinColor(r, companiesForColor);
     const companyLabel = getReserveCompanyLabel(r);
-    const row = `<tr>
+    const rawPhotos = getReservePdfPhotos(r);
+    const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
+    const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+    const photoStack = buildReservePhotoStackHtml(
+      photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+      {
+        omittedNote: rawPhotos.length > photosToShow.length
+          ? `+${rawPhotos.length - photosToShow.length} ${tOr(t, 'plansScreen.pdfReport.photos', 'Photos').toLowerCase()}`
+          : null,
+        resolvedLabel: tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved'),
+      },
+    );
+    const row = `<tr class="obs-row">
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
-      <td style="font-weight:600;">${escapeHtml(r.title)}</td>
+      <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${photoStack}</td>
       <td>${escapeHtml(companyLabel)}</td>
       <td>${escapeHtml(r.building || displayBuilding || '-')}</td>
       <td>${escapeHtml(r.level || displayLevel || '-')}</td>
@@ -305,43 +319,17 @@ async function exportPlanPDF(
       <td>${escapeHtml(reservePriorityLabelForPdf(r.priority, t))}</td>
       <td>${escapeHtml(r.deadline || '-')}</td>
     </tr>`;
-    const rawPhotos = getReservePdfPhotos(r);
-    const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
-    let photoHtml = '';
-    if (photosToShow.length > 0) {
-      const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
-      photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
-        <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
-          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-          ${escapeHtml(r.title)} - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.photos', 'Photos'))} (${photosToShow.length}${rawPhotos.length > maxPhotosPerReserve ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotos.length}` : ''})
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:nowrap;">
-          ${photosToShow.map((p, idx) => {
-            const src = resolvedSrcs[idx] ?? p.uri;
-            const isDefect = p.kind === 'defect';
-            return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
-              <img src="${escapeHtml(src)}" onerror="this.style.opacity='0.15'"
-                style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
-              <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
-                background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                ${isDefect ? tOr(t, 'plansScreen.pdfReport.defectPhoto', 'Defect') : tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved')}
-              </span>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`;
-    }
-    return { row, photoHtml, rawPhotoCount: rawPhotos.length, shownPhotoCount: photosToShow.length };
+    return { row, rawPhotoCount: rawPhotos.length, shownPhotoCount: photosToShow.length };
   }));
   const rows = rowsAndPhotos.map(rp => rp.row).join('');
-  const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
   const rawPhotoCount = rowsAndPhotos.reduce((sum, rp) => sum + rp.rawPhotoCount, 0);
   const shownPhotoCount = rowsAndPhotos.reduce((sum, rp) => sum + rp.shownPhotoCount, 0);
-  const photosBlock = photosSection
-    ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;margin-top:4px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservePhotos', 'Issue photos'))} (${shownPhotoCount}${rawPhotoCount > shownPhotoCount ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotoCount}` : ''})</div>${photosSection}`
-    : rawPhotoCount > 0
-      ? `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.photosOmitted', '{{count}} linked photo(s) were not included in this export to keep the PDF lightweight.', { count: rawPhotoCount }))}</div>`
-    : `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.noPhotos', 'No photo linked to the issues on this plan.'))}</div>`;
+  // Notice résiduelle sous le tableau : photos omises (budget dépassé) ou aucune photo.
+  const photosBlock = shownPhotoCount === 0 && rawPhotoCount > 0
+    ? `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.photosOmitted', '{{count}} linked photo(s) were not included in this export to keep the PDF lightweight.', { count: rawPhotoCount }))}</div>`
+    : rawPhotoCount === 0
+      ? `<div style="margin-top:12px;padding:12px 16px;border:1px dashed #DDE4EE;border-radius:8px;background:#F8FAFC;color:#64748B;font-size:11px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.noPhotos', 'No photo linked to the issues on this plan.'))}</div>`
+      : '';
 
   // Convert plan URI to a data URL on all platforms.
   // On mobile, file:// paths are inaccessible from Print.printAsync's sandboxed WebView,
@@ -453,13 +441,13 @@ document.head.appendChild(s);
   const safeChantierName = escapeHtml(chantierName);
   const html = `<!DOCTYPE html>
 <html lang="${locale.split('-')[0]}"><head><meta charset="UTF-8"><title>${escapeHtml(tOr(t, 'plansScreen.pdfReport.planTitle', 'Plan'))}: ${safePlanName}</title>
-<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:middle;}tr:nth-child(even) td{background:#f8fafc;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
+<style>*{box-sizing:border-box;margin:0;padding:0;}body{font-family:Arial,sans-serif;padding:28px;color:#111;background:#fff;}.hdr{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;}.hdr-l h1{color:#003082;font-size:20px;margin-bottom:4px;}.hdr-l .meta{color:#666;font-size:12px;}.hdr-r{text-align:right;font-size:11px;color:#999;}.sec{margin-bottom:24px;}.leg{font-size:11px;color:#888;margin-top:6px;}table{width:100%;border-collapse:collapse;font-size:12px;}th{background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;}td{padding:7px 10px;border-bottom:1px solid #f0f0f0;vertical-align:top;}tr:nth-child(even) td{background:#f8fafc;}.obs-row{page-break-inside:auto;}.stitle{font-size:13px;font-weight:700;color:#003082;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px;border-bottom:2px solid #003082;padding-bottom:4px;}.footer{margin-top:28px;font-size:10px;color:#bbb;text-align:center;border-top:1px solid #eee;padding-top:12px;}@media print{body{padding:0;}@page{margin:16mm;}}</style>
 </head><body>
 <div class="hdr"><div class="hdr-l"><h1>${escapeHtml(tOr(t, 'plansScreen.pdfReport.planTitle', 'Plan'))}: ${safePlanName}</h1><div class="meta">${escapeHtml(tOr(t, 'plansScreen.pdfReport.project', 'Project'))}: <strong>${safeChantierName}</strong> &nbsp;&middot;&nbsp; ${escapeHtml(countLabel(t, 'plansScreen.pdfReport.reserveCount', reserves.length, 'issue', 'issues'))}</div>${planLocationHtml}</div>
 <div class="hdr-r">${escapeHtml(tOr(t, 'plansScreen.pdfReport.exportedOn', 'Exported on {{date}}', { date: new Date().toLocaleDateString(locale) }))}<br>BuildTrack</div></div>
 ${planAnnotatedSection}
 <div class="stitle">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reserveList', 'Issue list'))}</div>
-<table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.itemTitle', 'Title'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.building', 'Building'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead>
+<table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.observation', 'Observation'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.building', 'Building'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead>
 <tbody>${rows || `<tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.noReserveOnPlan', 'No issue on this plan'))}</td></tr>`}</tbody></table>
 ${photosBlock}
 <div class="footer">BuildTrack - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.tagline', 'Digital construction management'))} - ${new Date().toLocaleDateString(locale)}</div>
@@ -526,13 +514,14 @@ async function exportGlobalReport(
   // Photos are now compressed via loadPhotoAsDataUrlForPdf (800px / JPEG 0.55)
   // before being embedded → ~40–80 KB each instead of 500 KB–2 MB.
   // Target at most 150 compressed photos total (≈ 6–12 MB HTML, safe on all devices).
-  //   1–75 reserves  → 2 photos each   (total ≤ 150)
+  //   1–50 reserves   → 3 photos each  (total ≤ 150)
+  //   51–75 reserves  → 2 photos each  (total ≤ 150)
   //   76–150 reserves → 1 photo each   (total ≤ 150)
   //   151+ reserves   → 0 photos       (plan pin-overlay images still identify reserves)
   const MAX_TOTAL_PHOTOS = 150;
   const maxPhotosPerReserve = filteredReserves.length === 0
     ? 0
-    : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / filteredReserves.length));
+    : Math.min(3, Math.floor(MAX_TOTAL_PHOTOS / filteredReserves.length));
 
   // 2. Group reserves by planId — reserves with no planId are "orphans"
   const reservesByPlan = new Map<string, Reserve[]>();
@@ -638,53 +627,37 @@ async function exportGlobalReport(
         }
       }
 
-      // Build reserve rows (numbered 1..N per plan) + photo strips per reserve
+      // Build reserve rows (numbered 1..N per plan) — photos stacked inside the
+      // observation cell (mise en page « rapport de pendientes »).
       const MAX_PHOTOS_GLOBAL = maxPhotosPerReserve;
-      const rowsAndPhotos = await Promise.all(planReserves.map(async (r, i) => {
+      const rows = (await Promise.all(planReserves.map(async (r, i) => {
         const n = i + 1;
         const color = getReservePinColor(r, companiesForColor);
         const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
         const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
         const companyLabel = getReserveCompanyLabel(r);
-        const row = `<tr>
+        const rawPhotos = getReservePdfPhotos(r);
+        const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
+        const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+        const photoStack = buildReservePhotoStackHtml(
+          photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+          {
+            omittedNote: rawPhotos.length > photosToShow.length
+              ? `+${rawPhotos.length - photosToShow.length} ${tOr(t, 'plansScreen.pdfReport.photos', 'Photos').toLowerCase()}`
+              : null,
+            resolvedLabel: tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved'),
+          },
+        );
+        return `<tr class="obs-row">
           <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
-          <td style="font-weight:600;">${escapeHtml(r.title)}</td>
+          <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${photoStack}</td>
           <td>${escapeHtml(companyLabel)}</td>
           <td>${escapeHtml(r.level || '-')}</td>
           <td><span style="color:${statusColor};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(r.status, t))}</span></td>
           <td><span style="color:${priorityColor};font-weight:600;">${escapeHtml(reservePriorityLabelForPdf(r.priority, t))}</span></td>
           <td>${escapeHtml(r.deadline || '-')}</td>
         </tr>`;
-        const rawPhotos = getReservePdfPhotos(r);
-        const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
-        let photoHtml = '';
-        if (photosToShow.length > 0) {
-          const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
-          photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
-            <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
-              <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-              ${escapeHtml(r.title)} - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.photos', 'Photos'))} (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_GLOBAL ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotos.length}` : ''})
-            </div>
-            <div style="display:flex;gap:8px;flex-wrap:nowrap;">
-              ${photosToShow.map((p, idx) => {
-                const src = resolvedSrcs[idx] ?? p.uri;
-                const isDefect = p.kind === 'defect';
-                return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
-                  <img src="${src}" onerror="this.style.opacity='0.15'"
-                    style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
-                  <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
-                    background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                    ${isDefect ? tOr(t, 'plansScreen.pdfReport.defectPhoto', 'Defect') : tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved')}
-                  </span>
-                </div>`;
-              }).join('')}
-            </div>
-          </div>`;
-        }
-        return { row, photoHtml };
-      }));
-      const rows = rowsAndPhotos.map(rp => rp.row).join('');
-      const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
+      }))).join('');
 
       const levelBadge = plan.level
         ? `<span style="font-size:11px;font-weight:600;background:#e2e8f0;color:#64748b;padding:2px 8px;border-radius:10px;margin-left:6px;">${plan.level}</span>`
@@ -694,8 +667,7 @@ async function exportGlobalReport(
         <div class="plan-section">
           <div class="plan-header">${escapeHtml(plan.name)}${levelBadge}<span style="margin-left:auto;font-size:11px;color:#94a3b8;">${escapeHtml(countLabel(t, 'plansScreen.pdfReport.reserveCount', planReserves.length, 'issue', 'issues'))}</span></div>
           ${planImgHtml}
-          <table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.itemTitle', 'Title'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead><tbody>${rows}</tbody></table>
-          ${photosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservePhotos', 'Issue photos'))}</div>${photosSection}` : ''}
+          <table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.observation', 'Observation'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead><tbody>${rows}</tbody></table>
         </div>`);
     }
 
@@ -717,15 +689,27 @@ async function exportGlobalReport(
   let orphanSectionHtml = '';
   if (orphanReserves.length > 0) {
     const MAX_PHOTOS_ORPHAN = maxPhotosPerReserve;
-    const orphanRowsAndPhotos = await Promise.all(orphanReserves.map(async (r, i) => {
+    const orphanRows = (await Promise.all(orphanReserves.map(async (r, i) => {
       const n = i + 1;
       const color = getReservePinColor(r, companiesForColor);
       const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
       const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
       const companyLabel = getReserveCompanyLabel(r);
-      const row = `<tr>
+      const rawPhotos = getReservePdfPhotos(r);
+      const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
+      const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+      const photoStack = buildReservePhotoStackHtml(
+        photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+        {
+          omittedNote: rawPhotos.length > photosToShow.length
+            ? `+${rawPhotos.length - photosToShow.length} ${tOr(t, 'plansScreen.pdfReport.photos', 'Photos').toLowerCase()}`
+            : null,
+          resolvedLabel: tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved'),
+        },
+      );
+      return `<tr class="obs-row">
         <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
-        <td style="font-weight:600;">${escapeHtml(r.title)}</td>
+        <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${photoStack}</td>
         <td>${escapeHtml(companyLabel)}</td>
         <td>${escapeHtml(r.building || '-')}</td>
         <td>${escapeHtml(r.level || '-')}</td>
@@ -733,36 +717,7 @@ async function exportGlobalReport(
         <td><span style="color:${priorityColor};font-weight:600;">${escapeHtml(reservePriorityLabelForPdf(r.priority, t))}</span></td>
         <td>${escapeHtml(r.deadline || '-')}</td>
       </tr>`;
-      const rawPhotos = getReservePdfPhotos(r);
-      const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
-      let photoHtml = '';
-      if (photosToShow.length > 0) {
-        const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
-        photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
-          <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
-            <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">${n}</span>
-            ${escapeHtml(r.title)} - ${escapeHtml(tOr(t, 'plansScreen.pdfReport.photos', 'Photos'))} (${photosToShow.length}${rawPhotos.length > MAX_PHOTOS_ORPHAN ? ` ${escapeHtml(tOr(t, 'plansScreen.pdfReport.of', 'of'))} ${rawPhotos.length}` : ''})
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:nowrap;">
-            ${photosToShow.map((p, idx) => {
-              const src = resolvedSrcs[idx] ?? p.uri;
-              const isDefect = p.kind === 'defect';
-              return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
-                <img src="${src}" onerror="this.style.opacity='0.15'"
-                  style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
-                <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
-                  background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                  ${isDefect ? tOr(t, 'plansScreen.pdfReport.defectPhoto', 'Defect') : tOr(t, 'plansScreen.pdfReport.resolvedPhoto', 'Resolved')}
-                </span>
-              </div>`;
-            }).join('')}
-          </div>
-        </div>`;
-      }
-      return { row, photoHtml };
-    }));
-    const orphanRows = orphanRowsAndPhotos.map(rp => rp.row).join('');
-    const orphanPhotosSection = orphanRowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
+    }))).join('');
     orphanSectionHtml = `
       <div class="building-section">
         <div class="building-header" style="background:linear-gradient(135deg,#475569 0%,#64748b 100%);">
@@ -772,8 +727,7 @@ async function exportGlobalReport(
         </div>
         <div class="plan-section" style="border-radius:0 0 8px 8px;">
           <div class="plan-header" style="color:#64748b;font-style:italic;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.orphanHint', 'These issues are not positioned on a plan'))}</div>
-          <table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.itemTitle', 'Title'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.building', 'Building'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead><tbody>${orphanRows}</tbody></table>
-          ${orphanPhotosSection ? `<div style="padding:8px 16px 4px 16px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:10px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:0.5px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservePhotos', 'Issue photos'))}</div>${orphanPhotosSection}` : ''}
+          <table><thead><tr><th>#</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.observation', 'Observation'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.company', 'Company'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.building', 'Building'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.level', 'Level'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.status', 'Status'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.priority', 'Priority'))}</th><th>${escapeHtml(tOr(t, 'reservesScreen.report.deadline', 'Due date'))}</th></tr></thead><tbody>${orphanRows}</tbody></table>
         </div>
       </div>`;
   }
@@ -840,7 +794,8 @@ body{background:#fff;color:#1a1a2e;}
 table{width:100%;border-collapse:collapse;font-size:12px;}
 thead th{background:#f8fafc;color:#475569;font-weight:600;text-align:left;padding:8px 10px;border-bottom:2px solid #e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:0.4px;}
 tbody tr{border-bottom:1px solid #f1f5f9;}
-tbody td{padding:7px 10px;vertical-align:middle;}
+tbody td{padding:7px 10px;vertical-align:top;}
+.obs-row{page-break-inside:auto;}
 .summary-section{page-break-before:always;break-before:page;padding:36px 28px;}
 .summary-title{font-size:22px;font-weight:700;color:#1E3A5F;margin-bottom:24px;padding-bottom:12px;border-bottom:2px solid #e2e8f0;}
 .summary-table thead th{font-size:11px;}
@@ -900,7 +855,13 @@ export default function PlansScreen() {
   const pdfLocale = useMemo(() => localeFromLanguage(i18n.language), [i18n.language]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { focusPlanId: focusPlanIdParam, focusReserveId: focusReserveIdParam } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string }>();
+  const {
+    focusPlanId: focusPlanIdParam,
+    focusReserveId: focusReserveIdParam,
+    placeReserveId: placeReserveIdParam,
+    placePlanId: placePlanIdParam,
+    placeNonce: placeNonceParam,
+  } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string; placeReserveId?: string; placePlanId?: string; placeNonce?: string }>();
   const {
     reserves, companies, sitePlans, photos, activeChantierId, activeChantier, isLoading,
     addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
@@ -948,6 +909,17 @@ export default function PlansScreen() {
   const [selectedBuilding, setSelectedBuilding] = useState<string>('all');
   const [selectedLevel, setSelectedLevel] = useState<string>('all');
   const [selected, setSelected] = useState<Reserve | null>(null);
+  // ── Mode « placement de pastille » ──────────────────────────────────────────
+  // Réserve existante SANS pin en cours de localisation : l'utilisateur touche
+  // le plan pour poser une pastille provisoire, la déplace en re-touchant,
+  // puis valide (updateReserveFields) ou annule. Déclenché par la puce « Plan »
+  // des cartes de réserves (params placeReserveId/placePlanId) ou par le bouton
+  // « Épingler sur ce plan » de la fiche réserve.
+  const [placementReserveId, setPlacementReserveId] = useState<string | null>(null);
+  // La position provisoire mémorise AUSSI le plan sur lequel elle a été posée :
+  // si le plan affiché change (chips bâtiment/niveau, deep-link…), la pastille
+  // provisoire ne doit ni se téléporter ni être validable sur le mauvais plan.
+  const [placementDraft, setPlacementDraft] = useState<{ x: number; y: number; planId: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');
@@ -1563,8 +1535,13 @@ export default function PlansScreen() {
     const map = new Map<string, number>();
     const sorted = [...allPlanReserves].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
     sorted.forEach((r, i) => map.set(r.id, i + 1));
+    // Pastille provisoire du mode placement : numéro suivant (celui qu'elle
+    // recevra une fois validée) plutôt qu'un « ? » disgracieux.
+    if (placementReserveId && !map.has(placementReserveId)) {
+      map.set(placementReserveId, sorted.length + 1);
+    }
     return map;
-  }, [allPlanReserves]);
+  }, [allPlanReserves, placementReserveId]);
 
   const planReserves = useMemo(() => {
     let list = allPlanReserves;
@@ -1573,6 +1550,29 @@ export default function PlansScreen() {
     if (levelFilter !== 'all') list = list.filter(r => r.level === levelFilter || r.id === focusedPinId);
     return list;
   }, [allPlanReserves, statusFilter, companyFilter, levelFilter, focusedPinId]);
+
+  // ── Pastille provisoire du mode placement ───────────────────────────────────
+  const placementReserve = useMemo(
+    () => (placementReserveId ? reserves.find(r => r.id === placementReserveId) ?? null : null),
+    [reserves, placementReserveId],
+  );
+  // Position provisoire valable pour le plan actuellement affiché uniquement.
+  const placementDraftOnPlan = placementDraft && currentPlanId && placementDraft.planId === currentPlanId
+    ? placementDraft
+    : null;
+  // Liste de pins affichée par les viewers : en mode placement avec une position
+  // provisoire posée sur CE plan, on injecte la réserve à localiser comme si
+  // elle était épinglée — elle suit chaque tap.
+  const planReservesForViewer = useMemo(() => {
+    if (!placementReserve || !placementDraftOnPlan || !currentPlanId) return planReserves;
+    const draftPin: Reserve = {
+      ...placementReserve,
+      planId: currentPlanId,
+      planX: placementDraftOnPlan.x,
+      planY: placementDraftOnPlan.y,
+    };
+    return [...planReserves.filter(r => r.id !== placementReserve.id), draftPin];
+  }, [planReserves, placementReserve, placementDraftOnPlan, currentPlanId]);
 
   // PDF export: groupings & filtered list based on chosen mode
   const pdfGroupedByCompany = useMemo(() => {
@@ -1901,8 +1901,8 @@ export default function PlansScreen() {
   const dynH = planDimensions.height;
 
   const pinClusters = useMemo(
-    () => computeClusters(planReserves, displayScale, pinNumberMap, focusedPinId),
-    [planReserves, displayScale, pinNumberMap, focusedPinId]
+    () => computeClusters(planReservesForViewer, displayScale, pinNumberMap, focusedPinId),
+    [planReservesForViewer, displayScale, pinNumberMap, focusedPinId]
   );
   const ghostReserves = useMemo(() => {
     const activeIds = new Set(planReserves.map(r => r.id));
@@ -2089,6 +2089,11 @@ export default function PlansScreen() {
 
     handledFocusParamsRef.current = key;
 
+    // Un deep-link de focus supplante un éventuel mode placement en cours :
+    // l'utilisateur est reparti consulter une autre réserve.
+    setPlacementReserveId(null);
+    setPlacementDraft(null);
+
     // Switch to the target plan
     setActivePlanId(focusPlanIdParam);
     setCompanyFilter('all');
@@ -2131,6 +2136,65 @@ export default function PlansScreen() {
       }
     }
   }, [focusPlanIdParam, focusReserveIdParam, chantierPlans, chantierHierarchyBuildingsEarly, reserves, holdFocusedPinUntilPlanReady, releaseFocusedPinWhenPlanReady]);
+
+  // Deep-link « placement de pastille » depuis l'onglet Réserves :
+  // placeReserveId (réserve à localiser) + placePlanId (plan choisi dans la
+  // feuille « Localiser sur un plan »). On ouvre le plan cible puis on active
+  // le mode placement — le prochain tap sur le plan pose la pastille provisoire.
+  const handledPlaceParamsRef = useRef<string>('');
+  React.useEffect(() => {
+    if (!placeReserveIdParam) return;
+    const key = `${placeReserveIdParam}|${placePlanIdParam ?? ''}|${placeNonceParam ?? ''}`;
+    if (handledPlaceParamsRef.current === key) return;
+    if (reserves.length === 0) return; // pas encore chargé
+    const targetReserve = reserves.find(r => r.id === placeReserveIdParam);
+    if (!targetReserve) return;
+
+    const targetPlan = placePlanIdParam ? chantierPlans.find(p => p.id === placePlanIdParam) : null;
+    if (placePlanIdParam) {
+      if (chantierPlans.length === 0) return; // plans pas encore chargés (ou changement de chantier en cours)
+      // Le plan cible n'est pas (encore) dans le chantier actif : la feuille
+      // « Localiser sur un plan » vient peut-être de déclencher un changement de
+      // chantier — on attend que chantierPlans se rafraîchisse avant d'activer.
+      if (!targetPlan) return;
+      const planNeedsBuilding = targetPlan.buildingId || targetPlan.building;
+      if (planNeedsBuilding && chantierHierarchyBuildingsEarly.length === 0) return;
+    }
+
+    handledPlaceParamsRef.current = key;
+
+    if (placePlanIdParam) {
+      setActivePlanId(placePlanIdParam);
+      setCompanyFilter('all');
+      setLevelFilter('all');
+      setStatusFilter('all');
+
+      if (targetPlan?.buildingId) {
+        setSelectedBuilding(targetPlan.buildingId);
+      } else if (targetPlan?.building) {
+        const bldg = chantierHierarchyBuildingsEarly.find(b => b.name === targetPlan.building);
+        setSelectedBuilding(bldg?.id ?? 'all');
+      } else {
+        setSelectedBuilding('all');
+      }
+      if (targetPlan?.levelId) {
+        setSelectedLevel(targetPlan.levelId);
+      } else if (targetPlan?.level) {
+        let resolvedLevelId: string | null = null;
+        for (const b of chantierHierarchyBuildingsEarly) {
+          const lvl = b.levels?.find(l => l.name === targetPlan.level);
+          if (lvl) { resolvedLevelId = lvl.id; break; }
+        }
+        setSelectedLevel(resolvedLevelId ?? 'all');
+      } else {
+        setSelectedLevel('all');
+      }
+    }
+
+    setSelected(null);
+    setPlacementDraft(null);
+    setPlacementReserveId(placeReserveIdParam);
+  }, [placeReserveIdParam, placePlanIdParam, placeNonceParam, chantierPlans, chantierHierarchyBuildingsEarly, reserves]);
 
   // Auto-load DXF when plan has fileType=dxf and is not yet parsed in memory
   React.useEffect(() => {
@@ -2306,18 +2370,55 @@ export default function PlansScreen() {
     ]).start();
   }
 
+  // ── Mode placement : pose / déplacement / validation de la pastille ────────
+  // Un tap pose (ou déplace) la pastille provisoire ; « Valider » l'enregistre.
+  // NB : on n'utilise PAS le mécanisme focusedPinId pour la pastille provisoire —
+  // les viewers interceptent le tap suivant pour « défocaliser » (un tap sur
+  // deux serait avalé pendant l'ajustement).
+  function handlePlacementTap(px: number, py: number) {
+    if (!currentPlanId) return;
+    setPlacementDraft({ x: px, y: py, planId: currentPlanId });
+    if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
+  }
+
+  function confirmPlacement() {
+    if (!placementReserve || !placementDraftOnPlan) return;
+    updateReserveFields({
+      ...placementReserve,
+      planId: placementDraftOnPlan.planId,
+      planX: Math.round(placementDraftOnPlan.x),
+      planY: Math.round(placementDraftOnPlan.y),
+    });
+    const placedId = placementReserve.id;
+    setPlacementReserveId(null);
+    setPlacementDraft(null);
+    setHighlightedReserveId(placedId);
+    startFocusedPinTimer(placedId, 6000);
+    if (Platform.OS !== 'web') {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    }
+  }
+
+  function cancelPlacement() {
+    setPlacementReserveId(null);
+    setPlacementDraft(null);
+    setFocusedPinId(null);
+  }
+
   function handlePlanTap(e: any) {
     if (suppressNextPlanTapRef.current) { suppressNextPlanTapRef.current = false; return; }
     if (Date.now() < suppressPlanTapUntilRef.current) return;
     if (isDraggingRef.current) return;
-    if (focusedPinId) { setFocusedPinId(null); return; }
-    if (!permissions.canCreate) return;
     const { locationX, locationY, pageX, pageY } = e.nativeEvent;
     const totalMove = Math.abs((pageX ?? 0) - touchStartXRef.current) + Math.abs((pageY ?? 0) - touchStartYRef.current);
     if (totalMove > 8) return;
     if (locationX === undefined || locationY === undefined) return;
     const px = Math.min(100, Math.max(0, Math.round((locationX / dynW) * 100)));
     const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
+    // Mode placement : le tap pose la pastille provisoire au lieu de créer une réserve.
+    if (placementReserveId) { handlePlacementTap(px, py); return; }
+    if (focusedPinId) { setFocusedPinId(null); return; }
+    if (!permissions.canCreate) return;
     router.push({
       pathname: '/reserve/new',
       params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' },
@@ -2328,14 +2429,16 @@ export default function PlansScreen() {
     if (suppressNextPlanTapRef.current) { suppressNextPlanTapRef.current = false; return; }
     if (Date.now() < suppressPlanTapUntilRef.current) return;
     if (isDraggingRef.current) return;
-    if (focusedPinId) { setFocusedPinId(null); return; }
-    if (!permissions.canCreate) return;
     const rect = e.currentTarget?.getBoundingClientRect?.();
     if (!rect) return;
     const locationX = e.clientX - rect.left;
     const locationY = e.clientY - rect.top;
     const px = Math.min(100, Math.max(0, Math.round((locationX / dynW) * 100)));
     const py = Math.min(100, Math.max(0, Math.round((locationY / dynH) * 100)));
+    // Mode placement : le clic pose la pastille provisoire au lieu de créer une réserve.
+    if (placementReserveId) { handlePlacementTap(px, py); return; }
+    if (focusedPinId) { setFocusedPinId(null); return; }
+    if (!permissions.canCreate) return;
     router.push({
       pathname: '/reserve/new',
       params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(px), planY: String(py), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' },
@@ -2350,6 +2453,9 @@ export default function PlansScreen() {
       focusedPinTimerRef.current = null;
     }
     setFocusedPinId(null);
+    // Changement de plan pendant le placement : le mode reste actif (l'utilisateur
+    // peut préférer un autre niveau) mais la position provisoire repart de zéro.
+    setPlacementDraft(null);
     setActivePlanId(planId);
     setDisplayScale(1);
     lastScale.current = 1;
@@ -3486,19 +3592,40 @@ export default function PlansScreen() {
                 isImagePlan={isImagePlan}
                 annotations={currentPlan!.annotations ?? []}
                 onAnnotationsChange={(drawings) => updateSitePlan({ ...currentPlan!, annotations: drawings })}
-                reserves={planReserves}
+                reserves={planReservesForViewer}
                 ghostReserves={ghostReserves}
                 pinNumberMap={pinNumberMap}
                 onReserveSelect={(r) => {
+                  // En mode placement, un tap sur la pastille provisoire ne doit
+                  // pas ouvrir la fiche — la position se règle par tap sur le plan.
+                  if (placementReserveId && r.id === placementReserveId) return;
                   if (isTablet) { setHighlightedReserveId(r.id); setPanelView('detail'); }
                   else { setSelected(r); }
                 }}
                 onPlanTap={(px, py) => {
+                  if (placementReserveId) {
+                    handlePlacementTap(
+                      Math.min(100, Math.max(0, Math.round(px))),
+                      Math.min(100, Math.max(0, Math.round(py))),
+                    );
+                    return;
+                  }
                   if (focusedPinId) { setFocusedPinId(null); return; }
                   if (!permissions.canCreate) return;
                   router.push({ pathname: '/reserve/new', params: { planId: currentPlanId ?? '', chantierId: activeChantierId ?? '', planX: String(Math.round(px)), planY: String(Math.round(py)), building: currentPlan?.building ?? '', level: currentPlan?.level ?? '', buildingId: currentPlan?.buildingId ?? '', levelId: currentPlan?.levelId ?? '' } } as any);
                 }}
                 onPinMove={(reserveId, planX, planY) => {
+                  // Pastille provisoire : le glisser ajuste la position candidate,
+                  // sans rien enregistrer tant que l'utilisateur n'a pas validé.
+                  if (placementReserveId && reserveId === placementReserveId) {
+                    if (!currentPlanId) return;
+                    setPlacementDraft({
+                      x: Math.min(100, Math.max(0, Math.round(planX))),
+                      y: Math.min(100, Math.max(0, Math.round(planY))),
+                      planId: currentPlanId,
+                    });
+                    return;
+                  }
                   const reserve = reservesRef.current.find(r => r.id === reserveId);
                   if (reserve) updateReserveFieldsRef.current({ ...reserve, planX: Math.round(planX), planY: Math.round(planY) });
                 }}
@@ -3512,7 +3639,10 @@ export default function PlansScreen() {
                 pinSizes={pinSizes}
                 focusedPinId={focusedPinId}
                 canAnnotate={permissions.canCreate}
-                canCreate={permissions.canCreate}
+                // En mode placement, les taps doivent traverser le viewer même
+                // pour les profils sans droit de création (le placement est
+                // gouverné par canEdit/canMovePins, pas par canCreate).
+                canCreate={permissions.canCreate || !!placementReserveId}
                 canMovePins={canMovePins}
                 pinSize={pinSize}
                 onZoomChange={(z) => setPdfZoomPct(Math.round(z * 100))}
@@ -3650,12 +3780,18 @@ export default function PlansScreen() {
                             ]).start();
                           } else {
                             const reserve = cluster.items[0];
+                            // Pastille provisoire du mode placement : sa position se
+                            // règle par tap sur le plan, pas en ouvrant la fiche.
+                            if (placementReserveId && reserve.id === placementReserveId) return;
                             if (isTablet) { setHighlightedReserveId(reserve.id); setPanelView('detail'); }
                             else { setSelected(reserve); }
                           }
                         }}
                         onLongPress={() => {
                           if (!isCluster) {
+                            // Pastille provisoire : pas de drag natif — la position
+                            // s'ajuste par tap, puis « Valider » l'enregistre.
+                            if (placementReserveId && cluster.items[0]?.id === placementReserveId) return;
                             suppressNextPlanTapRef.current = true;
                             // Block plan tap for 1.2s so Android double touch-end doesn't clear focus
                             suppressPlanTapUntilRef.current = Date.now() + 1200;
@@ -3740,7 +3876,7 @@ export default function PlansScreen() {
             )}
 
             {/* Dismissible hint overlay — uniquement si un fichier est importé */}
-            {!hintSeen && permissions.canCreate && !fullscreen && !!currentPlan?.uri && !isPlanFile && (
+            {!hintSeen && permissions.canCreate && !fullscreen && !!currentPlan?.uri && !isPlanFile && !placementReserveId && (
               <View style={styles.hintOverlay}>
                 <View style={styles.hintBanner}>
                   <Ionicons name="finger-print-outline" size={14} color={C.textMuted} />
@@ -3749,6 +3885,60 @@ export default function PlansScreen() {
                     <Ionicons name="close" size={14} color={C.textMuted} />
                   </TouchableOpacity>
                 </View>
+              </View>
+            )}
+
+            {/* Bannière du mode « placement de pastille » */}
+            {placementReserveId && (
+              <View style={[styles.placementOverlay, fullscreen && { top: insets.top + 10 }]} pointerEvents="box-none">
+                <View style={styles.placementBanner}>
+                  <View style={[styles.placementIconWrap, placementDraftOnPlan && styles.placementIconWrapReady]}>
+                    <Ionicons name={placementDraftOnPlan ? 'checkmark' : 'location'} size={15} color="#fff" />
+                  </View>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text style={styles.placementTitle} numberOfLines={1}>
+                      {placementReserve
+                        ? `${placementReserve.id} — ${placementReserve.title}`
+                        : t('plansScreen.placement.fallbackTitle')}
+                    </Text>
+                    <Text style={styles.placementHint} numberOfLines={2}>
+                      {placementDraftOnPlan
+                        ? t('plansScreen.placement.draftHint')
+                        : t('plansScreen.placement.tapHint')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={cancelPlacement}
+                    hitSlop={8}
+                    style={styles.placementCancelBtn}
+                    accessibilityRole="button"
+                    accessibilityLabel={t('common.cancel')}
+                  >
+                    <Ionicons name="close" size={16} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+                {placementDraftOnPlan && (
+                  <View style={styles.placementActionsRow}>
+                    <TouchableOpacity
+                      style={styles.placementValidateBtn}
+                      onPress={confirmPlacement}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('plansScreen.placement.validateA11y')}
+                    >
+                      <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                      <Text style={styles.placementValidateText}>{t('plansScreen.placement.validate')}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.placementRetryBtn}
+                      onPress={() => { setPlacementDraft(null); setFocusedPinId(null); }}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('plansScreen.placement.retryA11y')}
+                    >
+                      <Ionicons name="refresh" size={14} color={C.primary} />
+                      <Text style={styles.placementRetryText}>{t('plansScreen.placement.retry')}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             )}
 
@@ -4437,16 +4627,35 @@ export default function PlansScreen() {
               <View style={styles.modalActionStack}>
                 {(() => {
                   const hasPin = !!selected.planId && selected.planX != null && selected.planY != null;
+                  // Sans pin : si l'utilisateur peut placer des pastilles, le
+                  // bouton devient « Épingler sur ce plan » et lance le mode
+                  // placement sur le plan courant au lieu d'un bouton mort.
+                  const canPinHere = !hasPin && permissions.canEdit && canMovePins && !!currentPlanId;
                   return (
                     <TouchableOpacity
-                      style={[styles.modalPlanBtn, !hasPin && styles.modalPlanBtnDisabled]}
-                      onPress={() => focusReserveOnPlanFromModal(selected)}
-                      disabled={!hasPin}
-                      accessibilityLabel={hasPin ? t('plansScreen.reserveModal.viewOnPlanA11y') : t('plansScreen.reserveModal.noPinA11y')}
+                      style={[styles.modalPlanBtn, !hasPin && !canPinHere && styles.modalPlanBtnDisabled]}
+                      onPress={() => {
+                        if (hasPin) { focusReserveOnPlanFromModal(selected); return; }
+                        if (!canPinHere) return;
+                        const reserveId = selected.id;
+                        setSelected(null);
+                        setPlacementDraft(null);
+                        setPlacementReserveId(reserveId);
+                      }}
+                      disabled={!hasPin && !canPinHere}
+                      accessibilityLabel={hasPin
+                        ? t('plansScreen.reserveModal.viewOnPlanA11y')
+                        : canPinHere
+                          ? t('plansScreen.placement.pinFromModalA11y')
+                          : t('plansScreen.reserveModal.noPinA11y')}
                     >
-                      <Ionicons name={hasPin ? 'map-outline' : 'location-outline'} size={15} color={hasPin ? '#fff' : C.textMuted} />
-                      <Text style={[styles.modalPlanText, !hasPin && styles.modalPlanTextDisabled]}>
-                        {hasPin ? t('plansScreen.reserveModal.viewOnPlan') : t('plansScreen.reserveModal.noPin')}
+                      <Ionicons name={hasPin ? 'map-outline' : 'location-outline'} size={15} color={hasPin || canPinHere ? '#fff' : C.textMuted} />
+                      <Text style={[styles.modalPlanText, !hasPin && !canPinHere && styles.modalPlanTextDisabled]}>
+                        {hasPin
+                          ? t('plansScreen.reserveModal.viewOnPlan')
+                          : canPinHere
+                            ? t('plansScreen.placement.pinFromModal')
+                            : t('plansScreen.reserveModal.noPin')}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -4967,6 +5176,47 @@ const styles = StyleSheet.create({
   hintOverlay: { position: 'absolute', bottom: 64, left: 0, right: 0, alignItems: 'center', zIndex: 10, pointerEvents: 'box-none' as any },
   hintBanner: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(15,17,23,0.85)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 9, borderWidth: 1, borderColor: C.border },
   hintText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, flex: 1 },
+
+  // ── Mode « placement de pastille » ─────────────────────────────────────────
+  placementOverlay: { position: 'absolute', top: 10, left: 10, right: 54, zIndex: 40, gap: 8, pointerEvents: 'box-none' as any },
+  placementBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: 'rgba(0,48,130,0.94)', borderRadius: 14,
+    paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
+    ...Platform.select({
+      web: { boxShadow: '0px 4px 14px rgba(0,0,0,0.25)' } as any,
+      default: { shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.25, shadowRadius: 8, elevation: 6 },
+    }),
+  },
+  placementIconWrap: {
+    width: 28, height: 28, borderRadius: 14, backgroundColor: '#F59E0B',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  placementIconWrapReady: { backgroundColor: '#22C55E' },
+  placementTitle: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#fff' },
+  placementHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: 'rgba(255,255,255,0.85)', marginTop: 1 },
+  placementCancelBtn: {
+    width: 26, height: 26, borderRadius: 13, backgroundColor: 'rgba(255,255,255,0.16)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  placementActionsRow: { flexDirection: 'row', gap: 8 },
+  placementValidateBtn: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    backgroundColor: '#16A34A', borderRadius: 12, paddingVertical: 11,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
+    ...Platform.select({
+      web: { boxShadow: '0px 3px 10px rgba(22,163,74,0.35)' } as any,
+      default: { shadowColor: '#16A34A', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 6, elevation: 4 },
+    }),
+  },
+  placementValidateText: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
+  placementRetryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
+    backgroundColor: C.surface, borderRadius: 12, paddingVertical: 11, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: C.primary + '40',
+  },
+  placementRetryText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.primary },
 
   zoomOverlay: { position: 'absolute', bottom: 12, left: 12, zIndex: 20, pointerEvents: 'box-none' as any },
   zoomOverlayGroup: { flexDirection: 'row', alignItems: 'center', gap: 2, backgroundColor: 'rgba(15,17,23,0.82)', borderRadius: 10, paddingHorizontal: 4, paddingVertical: 4, borderWidth: 1, borderColor: C.border },

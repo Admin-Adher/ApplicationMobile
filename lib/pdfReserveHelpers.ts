@@ -117,3 +117,61 @@ export function countLocalOnlyReservePhotos(reserves: Array<Pick<Reserve, 'id' |
     total + getReservePdfPhotos(reserve).filter(photo => photo.uri && !isRemotePdfAssetUri(photo.uri)).length
   ), 0);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Colonne « Observation » façon rapport de pendientes : les photos de chaque
+// réserve sont empilées verticalement DANS la cellule du tableau, sous le
+// texte, au lieu d'une section « bande de photos » séparée après le tableau.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type ResolvedReservePdfPhoto = {
+  /** Data-URL (ou URI de secours) déjà résolue pour l'embed PDF. */
+  src: string;
+  kind?: ReservePhoto['kind'];
+};
+
+/**
+ * Pile verticale de miniatures pour la cellule « Observation » d'un tableau de
+ * réserves (miniatures ~110 px, coins arrondis, bord discret — même rendu que
+ * le rapport de référence). Les libellés sont passés déjà traduits pour que le
+ * helper reste indépendant d'i18n. Retourne '' sans photo.
+ */
+export function buildReservePhotoStackHtml(
+  photos: ResolvedReservePdfPhoto[],
+  opts?: {
+    /** Note « +N photo(s) non incluses », déjà traduite. */
+    omittedNote?: string | null;
+    /** Badge sous chaque photo de levée (ex. « Levée ») ; les constats n'ont pas de badge. */
+    resolvedLabel?: string | null;
+    /** Largeur des miniatures en px (défaut 110, comme le rapport de référence). */
+    width?: number;
+  },
+): string {
+  const width = opts?.width ?? 110;
+  const imgs = (photos ?? []).filter(p => p?.src).map(p => {
+    const badge = p.kind === 'resolution' && opts?.resolvedLabel
+      ? `<div style="margin-top:1px;"><span style="display:inline-block;padding:0 6px;border-radius:7px;font-size:8px;font-weight:700;background:#ECFDF5;color:#059669;">${escapePdfHtml(opts.resolvedLabel)}</span></div>`
+      : '';
+    return `<div style="margin-top:6px;page-break-inside:avoid;">
+      <img src="${escapePdfHtml(p.src)}" onerror="this.style.opacity='0.15'"
+        style="width:${width}px;max-width:100%;height:auto;max-height:150px;object-fit:cover;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB;" />${badge}
+    </div>`;
+  }).join('');
+
+  if (!imgs) return '';
+
+  const omitted = opts?.omittedNote
+    ? `<div style="margin-top:4px;font-size:9px;color:#94A3B8;">${escapePdfHtml(opts.omittedNote)}</div>`
+    : '';
+
+  return `${imgs}${omitted}`;
+}
+
+/** Échappement HTML minimal local (évite un import circulaire avec pdfBase). */
+function escapePdfHtml(value: string): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}

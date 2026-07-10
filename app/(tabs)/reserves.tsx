@@ -16,7 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
-import { Reserve, ReserveStatus, ReservePriority, ReserveKind } from '@/constants/types';
+import { Reserve, ReserveStatus, ReservePriority, ReserveKind, SitePlan as SitePlanType } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
 import DictationTextInput from '@/components/DictationTextInput';
@@ -24,6 +24,7 @@ import { isOverdue, isDueSoon, formatDate, genReserveId, compareLevels, validate
 import { genId } from '@/lib/utils';
 import { PDF_BASE_CSS, PDF_BRAND_COLOR, PDF_MUTED, PDF_TEXT, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml, loadPhotoAsDataUrlForPdf } from '@/lib/pdfBase';
 import {
+  buildReservePhotoStackHtml,
   countLocalOnlyReservePhotos,
   enrichReservesForPdf as enrichReserveListForPdf,
   formatReserveLocation,
@@ -40,7 +41,7 @@ import {
   RESERVE_STATUS_COLORS as STATUS_COLORS,
   RESERVE_STATUS_LABELS as STATUS_LABELS,
 } from '@/lib/reserveLabels';
-import { getReserveDescriptionText, isReserveDescriptionMissing } from '@/lib/reserveDescription';
+import { getReserveDescriptionText, hasCustomReserveDescription, isReserveDescriptionMissing } from '@/lib/reserveDescription';
 import { detectTextLanguage, TEXT_ASSIST_LANGUAGES, textAssistAdvancedCacheKey, TextAssistContext, TextAssistLanguage } from '@/lib/textAssist';
 import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
 import {
@@ -136,73 +137,66 @@ async function generateReportPDF(action: 'share' | 'print',
       </tr>`;
     }).join('');
 
+  // Mise en page façon « rapport de pendientes » : les photos de chaque réserve
+  // sont empilées DANS la colonne Observation, sous le titre/la description,
+  // au lieu d'une section photos séparée en fin de rapport.
   const MAX_TOTAL_PHOTOS = 150;
   const sortedReserves = [...reserves].sort(
     (a, b) => STATUS_ORDER_MAP[a.status] - STATUS_ORDER_MAP[b.status] || PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority],
   );
   const maxPhotosPerReserve = sortedReserves.length === 0
     ? 0
-    : Math.min(2, Math.floor(MAX_TOTAL_PHOTOS / sortedReserves.length));
+    : Math.min(3, Math.floor(MAX_TOTAL_PHOTOS / sortedReserves.length));
 
-  const rowsAndPhotos = await Promise.all(sortedReserves.map(async (r) => {
+  const reserveRows = (await Promise.all(sortedReserves.map(async (r) => {
     const overdue = isOverdue(r.deadline, r.status);
     const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
     const lotLabel = lot ? escapeHtml(lot.number ? t('reservesScreen.report.lotPrefix', { number: lot.number, name: lot.name }) : lot.name) : '—';
     const coNames = (r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']);
-    const row = `<tr style="${overdue ? 'background:#FFF1F2' : ''}">
-      <td style="font-weight:bold;color:${PDF_BRAND_COLOR}">${escapeHtml(r.id)}</td>
-      <td>${escapeHtml(r.title)}</td>
-      <td>${lotLabel}</td>
-      <td>${escapeHtml(formatReserveLocation(r))}</td>
-      <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
-      <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${escapeHtml(reserveStatusLabel(t, r.status))}</span></td>
-      <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold">${escapeHtml(reservePriorityLabel(t, r.priority))}</span></td>
-      <td style="${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
-    </tr>`;
 
     const rawPhotos = getReservePdfPhotos(r);
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
-    let photoHtml = '';
-    if (photosToShow.length > 0) {
-      const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
-      const statusColor = STATUS_COLORS[r.status] ?? PDF_BRAND_COLOR;
-      photoHtml = `<div style="padding:8px 16px 12px 16px;border-bottom:1px solid #f1f5f9;background:#fff;">
-        <div style="font-size:10px;font-weight:700;color:#64748b;margin-bottom:6px;">
-          <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:${statusColor};color:#fff;font-weight:700;font-size:9px;margin-right:5px;">●</span>
-          ${escapeHtml(r.title)} — ${escapeHtml(t('reservesScreen.report.photosCount', {
-            shown: photosToShow.length,
-            total: rawPhotos.length > maxPhotosPerReserve ? t('reservesScreen.report.photosTotal', { count: rawPhotos.length }) : '',
-          }))}
-        </div>
-        <div style="display:flex;gap:8px;flex-wrap:nowrap;">
-          ${photosToShow.map((p, idx) => {
-            const src = resolvedSrcs[idx] ?? p.uri;
-            const isDefect = p.kind === 'defect';
-            return `<div style="flex:1;min-width:0;text-align:center;max-width:200px;">
-              <img src="${src}" onerror="this.style.opacity='0.15'"
-                style="width:100%;height:auto;max-height:160px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block;" />
-              <span style="display:inline-block;margin-top:3px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
-                background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'};">
-                ${escapeHtml(isDefect ? t('reservesScreen.report.defect') : t('reservesScreen.report.resolved'))}
-              </span>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>`;
-    }
-    return { row, photoHtml };
-  }));
+    const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
+    const photoStack = buildReservePhotoStackHtml(
+      photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+      {
+        omittedNote: rawPhotos.length > photosToShow.length
+          ? t('reservesScreen.report.morePhotos', { count: rawPhotos.length - photosToShow.length })
+          : null,
+        resolvedLabel: t('reservesScreen.report.resolved'),
+      },
+    );
+    // hasCustomReserveDescription : ne répète pas le titre quand la description
+    // est vide, un placeholder, ou identique au titre (même garde que rapports.tsx).
+    const description = hasCustomReserveDescription(r.description, r.title)
+      ? String(r.description ?? '').trim()
+      : '';
+    const descriptionHtml = description
+      ? `<div style="color:${PDF_MUTED};margin-top:2px;">${escapeHtml(description.length > 260 ? `${description.slice(0, 260)}…` : description)}</div>`
+      : '';
 
-  const reserveRows = rowsAndPhotos.map(rp => rp.row).join('');
-  const photosSection = rowsAndPhotos.map(rp => rp.photoHtml).filter(Boolean).join('');
+    return `<tr class="obs-row" style="${overdue ? 'background:#FFF1F2' : ''}">
+      <td style="font-weight:bold;color:${PDF_BRAND_COLOR};white-space:nowrap;">${escapeHtml(r.id)}</td>
+      <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold;white-space:nowrap;">${escapeHtml(reserveStatusLabel(t, r.status))}</span></td>
+      <td>${lotLabel}</td>
+      <td>${escapeHtml(formatReserveLocation(r))}</td>
+      <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
+      <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${descriptionHtml}${photoStack}</td>
+      <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold;white-space:nowrap;">${escapeHtml(reservePriorityLabel(t, r.priority))}</span></td>
+      <td style="white-space:nowrap;${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
+    </tr>`;
+  }))).join('');
 
   const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${escapeHtml(t('reservesScreen.report.title'))}</title>
   <style>
     ${PDF_BASE_CSS}
     table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
     th { background: ${PDF_BRAND_COLOR}; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; }
-    td { padding: 7px 10px; border-bottom: 1px solid #DDE4EE; font-size: 11px; vertical-align: middle; }
+    td { padding: 7px 10px; border-bottom: 1px solid #DDE4EE; font-size: 11px; vertical-align: top; }
     tr:hover { background: #F4F7FB; }
+    /* Les lignes avec photos empilées peuvent être hautes : autoriser la coupure
+       de page à l'intérieur pour éviter les grandes zones vides en bas de page. */
+    .obs-row { page-break-inside: auto; }
     .stat-grid { display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
     .stat-card { flex: 1; min-width: 100px; background: #F4F7FB; border-radius: 10px; padding: 12px 16px; border: 1px solid #DDE4EE; }
     .stat-val { font-size: 24px; font-weight: bold; color: ${PDF_BRAND_COLOR}; }
@@ -238,11 +232,10 @@ async function generateReportPDF(action: 'share' | 'print',
 
     <h2>${escapeHtml(t('reservesScreen.report.detailedList', { count: totalCount }))}</h2>
     <table>
-      <thead><tr><th>${escapeHtml(t('reservesScreen.report.id'))}</th><th>${escapeHtml(t('reservesScreen.report.itemTitle'))}</th><th>${escapeHtml(t('reservesScreen.report.lot'))}</th><th>${escapeHtml(t('reservesScreen.report.location'))}</th><th>${escapeHtml(t('reservesScreen.report.company'))}</th><th>${escapeHtml(t('reservesScreen.report.status'))}</th><th>${escapeHtml(t('reservesScreen.report.priority'))}</th><th>${escapeHtml(t('reservesScreen.report.deadline'))}</th></tr></thead>
+      <thead><tr><th>${escapeHtml(t('reservesScreen.report.id'))}</th><th>${escapeHtml(t('reservesScreen.report.status'))}</th><th>${escapeHtml(t('reservesScreen.report.lot'))}</th><th>${escapeHtml(t('reservesScreen.report.location'))}</th><th>${escapeHtml(t('reservesScreen.report.company'))}</th><th>${escapeHtml(t('reservesScreen.report.observation'))}</th><th>${escapeHtml(t('reservesScreen.report.priority'))}</th><th>${escapeHtml(t('reservesScreen.report.deadline'))}</th></tr></thead>
       <tbody>${reserveRows}</tbody>
     </table>
     ${overdueCount > 0 ? `<p style="color:${C.open};font-size:11px">${escapeHtml(t('reservesScreen.report.overdueNote'))}</p>` : ''}
-    ${photosSection ? `<h2>${escapeHtml(t('reservesScreen.report.photosTitle'))}</h2><div style="border:1px solid #DDE4EE;border-radius:8px;overflow:hidden;">${photosSection}</div>` : ''}
   </div></body></html>`;
 
   const fileBase = t('reservesScreen.report.fileName');
@@ -258,8 +251,14 @@ export default function ReservesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
-  const { reserves, deletedReserves, companies, isLoading, chantiers, activeChantierId, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, restoreReserve, permanentlyDeleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
+  const { reserves, deletedReserves, companies, isLoading, chantiers, activeChantierId, setActiveChantier, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, restoreReserve, permanentlyDeleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
   const { permissions, user } = useAuth();
+  // Droit de positionner/déplacer des pastilles sur les plans (même règle que
+  // l'écran Plans : la permission est optionnelle et vaut true par défaut).
+  const canMovePins: boolean = Object.prototype.hasOwnProperty.call(permissions, 'canMovePins')
+    ? (permissions as any).canMovePins
+    : true;
+  const canPinReserves = permissions.canEdit && canMovePins;
 
   const isSousTraitant = user?.role === 'sous_traitant';
   const canUseReserveAssistant = user?.role === 'admin' || user?.role === 'super_admin';
@@ -486,6 +485,54 @@ export default function ReservesScreen() {
     () => new Set(sitePlans.map(p => p.chantierId).filter(Boolean)),
     [sitePlans]
   );
+
+  // ── Flux « Localiser sur un plan » ─────────────────────────────────────────
+  // Réserve dont l'utilisateur veut placer la pastille (feuille de choix du plan).
+  const [pinSheetReserve, setPinSheetReserve] = useState<Reserve | null>(null);
+
+  // Plans proposés pour la réserve à épingler, les plans du même
+  // bâtiment/niveau d'abord (suggestion), puis par nom.
+  const pinSheetPlans = useMemo(() => {
+    if (!pinSheetReserve) return [] as Array<{ plan: SitePlanType; suggested: boolean; pinCount: number }>;
+    const targetChantierId = pinSheetReserve.chantierId ?? activeChantierId;
+    const pinCountByPlan = new Map<string, number>();
+    for (const r of reserves) {
+      if (r.planId && r.planX != null && r.planY != null) {
+        pinCountByPlan.set(r.planId, (pinCountByPlan.get(r.planId) ?? 0) + 1);
+      }
+    }
+    const score = (p: SitePlanType): number => {
+      let s = 0;
+      if ((p.buildingId && p.buildingId === pinSheetReserve.buildingId) ||
+          (p.building && p.building === pinSheetReserve.building)) s += 1;
+      if ((p.levelId && p.levelId === pinSheetReserve.levelId) ||
+          (p.level && p.level === pinSheetReserve.level)) s += 2;
+      return s;
+    };
+    return sitePlans
+      .filter(p => p.chantierId === targetChantierId && !p.deletedAt && p.isLatestRevision !== false)
+      .map(plan => ({ plan, suggested: score(plan) > 0, pinCount: pinCountByPlan.get(plan.id) ?? 0 }))
+      .sort((a, b) => {
+        const diff = score(b.plan) - score(a.plan);
+        if (diff !== 0) return diff;
+        return a.plan.name.localeCompare(b.plan.name, 'fr');
+      });
+  }, [pinSheetReserve, sitePlans, reserves, activeChantierId]);
+
+  // L'utilisateur a choisi un plan : on bascule sur le chantier de la réserve
+  // si besoin, puis on ouvre l'onglet Plans en mode « placement de pastille ».
+  const startPinPlacement = useCallback((reserve: Reserve, planId: string) => {
+    setPinSheetReserve(null);
+    if (reserve.chantierId && reserve.chantierId !== activeChantierId) {
+      setActiveChantier(reserve.chantierId);
+    }
+    router.push({
+      pathname: '/(tabs)/plans',
+      // placeNonce : chaque demande est unique, sinon annuler puis relancer le
+      // placement de la même réserve sur le même plan serait dédupliqué côté Plans.
+      params: { placeReserveId: reserve.id, placePlanId: planId, placeNonce: String(Date.now()) },
+    } as any);
+  }, [activeChantierId, setActiveChantier, router]);
 
   const activeSitePlans = useMemo(
     () => sitePlans.filter(p => p.chantierId === activeChantierId),
@@ -1388,6 +1435,7 @@ export default function ReservesScreen() {
             isFlashed={item.id === flashId}
             hasPlansAvailable={hasPlansAvailable}
             showEnterpriseTracking={canTrackEnterpriseWorkflow}
+            onRequestPin={canPinReserves && !showTrash && !isSelectMode ? r => setPinSheetReserve(r) : undefined}
           />
           {showTrash && (permissions.canEdit || canPermanentlyDeleteFromTrash) && (
             <View style={styles.trashInlineActions}>
@@ -2990,6 +3038,87 @@ export default function ReservesScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* « Localiser sur un plan » — la réserve n'a pas encore de pastille : on
+          propose de choisir un plan puis de placer la pastille dessus. */}
+      <Modal visible={!!pinSheetReserve} transparent animationType="slide" onRequestClose={() => setPinSheetReserve(null)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setPinSheetReserve(null)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.bottomSheet, { paddingBottom: insets.bottom + 24 }]}>
+            <View style={styles.sheetHandle} />
+            {pinSheetReserve && (
+              <>
+                <View style={styles.sheetTitleRow}>
+                  <Text style={styles.sheetTitle}>{t('reserveCard.pinSheet.title')}</Text>
+                  <TouchableOpacity onPress={() => setPinSheetReserve(null)} hitSlop={8} accessibilityLabel={t('common.close')}>
+                    <Ionicons name="close" size={20} color={C.textMuted} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.pinSheetHero}>
+                  <View style={styles.pinSheetHeroIcon}>
+                    <Ionicons name="location" size={22} color={C.primary} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={styles.pinSheetReserveRow}>
+                      <View style={styles.pinSheetIdWrap}>
+                        <Text style={styles.pinSheetId}>{pinSheetReserve.id}</Text>
+                      </View>
+                      <Text style={styles.pinSheetReserveTitle} numberOfLines={1}>{pinSheetReserve.title}</Text>
+                    </View>
+                    <Text style={styles.pinSheetSubtitle}>{t('reserveCard.pinSheet.subtitle')}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.pinSheetSectionLabel}>{t('reserveCard.pinSheet.choosePlan')}</Text>
+                <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                  {pinSheetPlans.length === 0 ? (
+                    <View style={styles.pinSheetEmpty}>
+                      <Ionicons name="map-outline" size={22} color={C.textMuted} />
+                      <Text style={styles.pinSheetEmptyText}>{t('reserveCard.pinSheet.noPlans')}</Text>
+                    </View>
+                  ) : (
+                    pinSheetPlans.map(({ plan, suggested, pinCount }) => (
+                      <TouchableOpacity
+                        key={plan.id}
+                        style={styles.pinSheetPlanItem}
+                        onPress={() => startPinPlacement(pinSheetReserve, plan.id)}
+                        accessibilityRole="button"
+                        accessibilityLabel={t('reserveCard.pinSheet.planA11y', { name: plan.name })}
+                      >
+                        <View style={styles.pinSheetPlanIcon}>
+                          <Ionicons name={plan.fileType === 'pdf' ? 'document-outline' : 'map-outline'} size={17} color={C.primary} />
+                        </View>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={styles.pinSheetPlanName} numberOfLines={1}>{plan.name}</Text>
+                            {suggested && (
+                              <View style={styles.pinSheetSuggestedBadge}>
+                                <Ionicons name="sparkles" size={9} color="#B45309" />
+                                <Text style={styles.pinSheetSuggestedText}>{t('reserveCard.pinSheet.suggested')}</Text>
+                              </View>
+                            )}
+                          </View>
+                          <Text style={styles.pinSheetPlanMeta} numberOfLines={1}>
+                            {[
+                              [plan.building, plan.level].filter(Boolean).join(' · '),
+                              pinCount > 0 ? t('reserveCard.pinSheet.pinCount', { count: pinCount }) : null,
+                            ].filter(Boolean).join('  ·  ') || t('reserveCard.pinSheet.noLocationMeta')}
+                          </Text>
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color={C.textMuted} />
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </ScrollView>
+
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setPinSheetReserve(null)}>
+                  <Text style={styles.cancelText}>{t('reserveCard.pinSheet.later')}</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Context Menu Modal */}
       <Modal visible={contextMenuVisible} transparent animationType="fade" onRequestClose={() => { setContextMenuVisible(false); setContextStatusSubVisible(false); }}>
         <TouchableOpacity
@@ -3800,6 +3929,48 @@ const styles = StyleSheet.create({
   sheetItemTextActive: { fontFamily: 'Inter_600SemiBold', color: C.primary },
   cancelBtn: { marginTop: 12, alignItems: 'center', paddingVertical: 14, backgroundColor: C.surface2, borderRadius: 12 },
   cancelText: { fontSize: 15, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+
+  // ── Feuille « Localiser sur un plan » ────────────────────────────────────
+  pinSheetHero: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: C.primaryBg, borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: C.primary + '25', marginBottom: 14,
+  },
+  pinSheetHeroIcon: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: C.surface,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: C.primary + '30',
+  },
+  pinSheetReserveRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  pinSheetIdWrap: { backgroundColor: C.surface, paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: C.primary + '30' },
+  pinSheetId: { fontSize: 10, fontFamily: 'Inter_700Bold', color: C.primary, letterSpacing: 0.4 },
+  pinSheetReserveTitle: { flex: 1, fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.text },
+  pinSheetSubtitle: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
+  pinSheetSectionLabel: {
+    fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8,
+  },
+  pinSheetPlanItem: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: C.border, backgroundColor: C.surface,
+    marginBottom: 8,
+  },
+  pinSheetPlanIcon: {
+    width: 36, height: 36, borderRadius: 10, backgroundColor: C.primaryBg,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: C.primary + '20',
+  },
+  pinSheetPlanName: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, flexShrink: 1 },
+  pinSheetPlanMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textMuted, marginTop: 2 },
+  pinSheetSuggestedBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    backgroundColor: '#FFFBEB', paddingHorizontal: 6, paddingVertical: 2,
+    borderRadius: 8, borderWidth: 1, borderColor: '#D97706' + '40',
+  },
+  pinSheetSuggestedText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#B45309' },
+  pinSheetEmpty: { alignItems: 'center', gap: 8, paddingVertical: 24 },
+  pinSheetEmptyText: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center' },
   sheetSectionLabel: {
     fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textMuted,
     textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 14, marginBottom: 8,

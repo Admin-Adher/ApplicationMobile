@@ -24,9 +24,16 @@ interface Props {
   isFlashed?: boolean;
   hasPlansAvailable?: boolean;
   showEnterpriseTracking?: boolean;
+  /**
+   * Appelé quand l'utilisateur touche la puce « Plan » d'une réserve NON
+   * épinglée. Permet à l'écran parent d'ouvrir le flux guidé « Localiser sur
+   * un plan » (choix du plan → placement de la pastille). Sans ce callback,
+   * la puce retombe sur l'ancienne navigation brute vers l'onglet Plans.
+   */
+  onRequestPin?: (reserve: Reserve) => void;
 }
 
-export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed, hasPlansAvailable, showEnterpriseTracking }: Props) {
+export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRight, onSwipeLeft, selected, isFlashed, hasPlansAvailable, showEnterpriseTracking, onRequestPin }: Props) {
   const isArchived = !!reserve.archivedAt;
   const router = useRouter();
   const { t } = useTranslation();
@@ -259,7 +266,8 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
               style={styles.planUnpinnedBtn}
               onPress={(event) => {
                 event.stopPropagation();
-                router.push('/(tabs)/plans' as any);
+                if (onRequestPin) onRequestPin(reserve);
+                else router.push('/(tabs)/plans' as any);
               }}
               hitSlop={8}
               accessibilityRole="button"
