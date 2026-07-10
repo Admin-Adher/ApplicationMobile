@@ -1,4 +1,6 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import { useRouter } from 'expo-router';
@@ -178,14 +180,14 @@ export default function AnalyticsScreen() {
 
   async function handleExportPDF() {
     if (!permissions.canExport) {
-      Alert.alert(t('analyticsScreen.exportDeniedTitle'), t('analyticsScreen.exportDeniedText'));
+      showAlert(t('analyticsScreen.exportDeniedTitle'), t('analyticsScreen.exportDeniedText'));
       return;
     }
     try {
       const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName, t, i18n.resolvedLanguage ?? i18n.language);
       await exportPDFHelper(html, buildPdfFilename('Tableau_Bord_Analytique', [projectName]));
     } catch (e: any) {
-      Alert.alert(t('common.error'), e?.message ?? t('analyticsScreen.pdfError'));
+      showAlert(t('common.error'), e?.message ?? t('analyticsScreen.pdfError'));
     }
   }
 
@@ -199,6 +201,7 @@ export default function AnalyticsScreen() {
         onRightPress={permissions.canExport ? handleExportPDF : undefined}
       />
 
+      <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {/* KPI CARDS */}
@@ -434,6 +437,7 @@ export default function AnalyticsScreen() {
         })()}
 
       </ScrollView>
+      </PageContainer>
       <BottomNavBar />
     </View>
   );
@@ -477,7 +481,12 @@ const styles = StyleSheet.create({
   legendDot: { width: 10, height: 10, borderRadius: 2 },
   legendLabel: { fontSize: 11, fontFamily: 'Inter_400Regular', color: C.textSub },
 
-  chartArea: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', height: 130 },
+  // maxWidth : sur desktop, borne le graphique pour que les barres de 8px
+  // ne se perdent pas dans des colonnes démesurément étirées.
+  chartArea: {
+    flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
+    height: 130, width: '100%', maxWidth: 520, alignSelf: 'center',
+  },
   weekCol: { flex: 1, alignItems: 'center' },
   weekNum: { fontSize: 9, fontFamily: 'Inter_400Regular', color: C.textMuted, marginBottom: 2 },
   barsContainer: { height: 80, justifyContent: 'flex-end' },

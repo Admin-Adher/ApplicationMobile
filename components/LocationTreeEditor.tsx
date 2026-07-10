@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import {
-  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert,
+  View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { showAlert } from '@/lib/appAlert';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { ChantierBuilding, ChantierLevel, ChantierZone } from '@/constants/types';
@@ -38,7 +39,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const name = newBuildingName.trim();
     if (!name) return;
     const exists = buildings.some(b => b.name.toLowerCase() === name.toLowerCase());
-    if (exists) { Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.buildingExists')); return; }
+    if (exists) { showAlert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.buildingExists')); return; }
     const newBuilding: ChantierBuilding = {
       id: genId(), name,
       levels: generateLevels(basements, floors),
@@ -49,7 +50,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
   }
 
   function removeBuilding(id: string) {
-    Alert.alert(t('locationTreeEditor.deleteTitle'), t('locationTreeEditor.deleteBuildingMessage'), [
+    showAlert(t('locationTreeEditor.deleteTitle'), t('locationTreeEditor.deleteBuildingMessage'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () => {
         onChange(buildings.filter(b => b.id !== id));
@@ -73,7 +74,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     if (current.name === trimmed) return;
     const exists = buildings.some(b => b.id !== bId && b.name.toLowerCase() === trimmed.toLowerCase());
     if (exists) {
-      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.otherBuildingExists'));
+      showAlert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.otherBuildingExists'));
       return;
     }
     onChange(buildings.map(b => b.id !== bId ? b : { ...b, name: trimmed }));
@@ -92,7 +93,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const building = buildings.find(b => b.id === bId);
     if (!building) return;
     if (building.levels.some(l => l.name.toLowerCase() === name.toLowerCase())) {
-      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.levelExists'));
+      showAlert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.levelExists'));
       return;
     }
     const newLevel: ChantierLevel = { id: genId(), name, zones: [] };
@@ -108,7 +109,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const level = building?.levels.find(l => l.id === lId);
     if (!level) return;
     if (level.zones.some(z => z.name.toLowerCase() === name.toLowerCase())) {
-      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.zoneExists'));
+      showAlert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.zoneExists'));
       return;
     }
     const newZone: ChantierZone = { id: genId(), name };
@@ -137,7 +138,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
     const current = level.zones.find(z => z.id === zId);
     if (!current || current.name === trimmed) return;
     if (level.zones.some(z => z.id !== zId && z.name.toLowerCase() === trimmed.toLowerCase())) {
-      Alert.alert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.otherZoneExists'));
+      showAlert(t('locationTreeEditor.duplicateTitle'), t('locationTreeEditor.otherZoneExists'));
       return;
     }
     onChange(buildings.map(b => b.id !== bId ? b : {
@@ -278,7 +279,7 @@ export default function LocationTreeEditor({ buildings, onChange }: Props) {
               <TouchableOpacity
                 style={styles.resetLevelsBtn}
                 onPress={() => {
-                  Alert.alert(
+                  showAlert(
                     t('locationTreeEditor.resetLevelsTitle'),
                     t('locationTreeEditor.resetLevelsMessage', { building: building.name, basements, floors }),
                     [

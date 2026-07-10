@@ -1,7 +1,9 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, Platform, KeyboardAvoidingView,
+  Platform, KeyboardAvoidingView,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -60,21 +62,21 @@ export default function NewChantierScreen() {
   async function handleSubmit() {
     if (isSubmitting) return;
     if (!name.trim()) {
-      Alert.alert(t('chantierForm.requiredField'), t('chantierForm.nameRequired'));
+      showAlert(t('chantierForm.requiredField'), t('chantierForm.nameRequired'));
       return;
     }
     if (buildings.length === 0) {
-      Alert.alert(t('chantierForm.structureRequired'), t('chantierForm.structureRequiredMessage'));
+      showAlert(t('chantierForm.structureRequired'), t('chantierForm.structureRequiredMessage'));
       return;
     }
     const emptyBuilding = buildings.find(b => !b.name.trim());
     if (emptyBuilding) {
-      Alert.alert(t('chantierForm.missingName'), t('chantierForm.missingNameMessage'));
+      showAlert(t('chantierForm.missingName'), t('chantierForm.missingNameMessage'));
       return;
     }
     const buildingWithoutLevel = buildings.find(b => b.levels.length === 0);
     if (buildingWithoutLevel) {
-      Alert.alert(
+      showAlert(
         t('chantierForm.missingLevel'),
         t('chantierForm.missingLevelMessage', { building: buildingWithoutLevel.name })
       );
@@ -103,13 +105,18 @@ export default function NewChantierScreen() {
       await addChantier(newChantier, []);
       // Fix 14: set the new chantier as active immediately after creation
       setActiveChantier(chantierId);
-      Alert.alert(
+      showAlert(
         t('chantierForm.createdTitle'),
         t('chantierForm.createdMessage', { name: name.trim() }),
-        [{ text: 'OK', onPress: () => router.back() }]
+        // style 'cancel' : sur web, fermer la boîte par le fond déclenche
+        // aussi ce bouton — le retour arrière survient dans tous les cas.
+        [{ text: 'OK', style: 'cancel', onPress: () => router.back() }]
       );
     } catch {
-      // Fix 5: reset isSubmitting so the button isn't stuck disabled
+      showAlert(t('common.error'));
+    } finally {
+      // Fix 5: reset isSubmitting dans tous les cas (succès, erreur ou
+      // fermeture de la boîte par le fond) pour ne pas figer le bouton.
       setIsSubmitting(false);
     }
   }
@@ -118,6 +125,7 @@ export default function NewChantierScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header title={t('chantierForm.newTitle')} showBack rightLabel={t('chantierForm.create')} onRightPress={handleSubmit} />
 
+      <PageContainer maxWidth={800}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         <View style={styles.card}>
@@ -218,6 +226,7 @@ export default function NewChantierScreen() {
           </View>
         )}
       </ScrollView>
+      </PageContainer>
     </KeyboardAvoidingView>
   );
 }

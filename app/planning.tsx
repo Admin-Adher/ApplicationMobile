@@ -1,8 +1,10 @@
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, TextInput, RefreshControl,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, RefreshControl, Platform,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { Ionicons } from '@expo/vector-icons';
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useRef, useEffect } from 'react';
 import * as Haptics from 'expo-haptics';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
@@ -486,6 +488,27 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
   const hasMilestones = milestonesWithX.length > 0;
   const headerH = G_HEADER_H + (hasMilestones ? G_MILESTONE_H : 0);
 
+  // Web desktop : la molette verticale fait défiler la timeline horizontalement
+  // (sinon il faut deviner Shift+molette ou saisir la fine barre de défilement).
+  const timelineRef = useRef<ScrollView>(null);
+  const timelineX = useRef(0);
+  const wheelHostRef = useRef<View>(null);
+  const isEmpty = grouped.length === 0;
+  useEffect(() => {
+    if (Platform.OS !== 'web' || isEmpty) return;
+    const node = wheelHostRef.current as unknown as HTMLElement | null;
+    if (!node || typeof node.addEventListener !== 'function') return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      e.preventDefault();
+      const next = Math.max(0, timelineX.current + e.deltaY);
+      timelineX.current = next;
+      timelineRef.current?.scrollTo({ x: next, animated: false });
+    };
+    node.addEventListener('wheel', onWheel, { passive: false });
+    return () => node.removeEventListener('wheel', onWheel);
+  }, [isEmpty]);
+
   const timelineContentH = headerH + grouped.reduce((h, g) => {
     return h + G_CO_H + (collapsed.has(g.key) ? 0 : g.items.length * G_TASK_H);
   }, 0);
@@ -526,7 +549,10 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
         <Text style={gStyles.scrollHint}>{t('planningScreen.scrollHint')}</Text>
       </View>
 
-      <View style={{ flexDirection: 'row', borderWidth: 1, borderColor: C.border, borderRadius: 10, overflow: 'hidden' }}>
+      <View
+        ref={wheelHostRef}
+        style={{ flexDirection: 'row', borderWidth: 1, borderColor: C.border, borderRadius: 10, overflow: 'hidden' }}
+      >
         {/* Fixed left label column */}
         <View style={{ width: G_LABEL, borderRightWidth: 1, borderRightColor: C.border, backgroundColor: C.surface }}>
           <View style={[gStyles.leftHeader, { height: headerH }]}>
@@ -564,7 +590,15 @@ function GanttView({ tasks, onTaskPress }: { tasks: Task[]; onTaskPress: (id: st
         </View>
 
         {/* Scrollable timeline */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={true} style={{ flex: 1 }} bounces={false}>
+        <ScrollView
+          ref={timelineRef}
+          horizontal
+          showsHorizontalScrollIndicator={true}
+          style={{ flex: 1 }}
+          bounces={false}
+          scrollEventThrottle={16}
+          onScroll={e => { timelineX.current = e.nativeEvent.contentOffset.x; }}
+        >
           <View style={{ width: totalW + 20, minHeight: timelineContentH, position: 'relative', backgroundColor: C.surface }}>
             {/* Today vertical line */}
             {todayX >= 0 && todayX <= totalW && (
@@ -816,7 +850,7 @@ export default function PlanningScreen() {
 
 
   function handleDelete(id: string, title: string) {
-    Alert.alert(t('taskDetail.deleteTaskTitle'), t('taskDetail.deleteTaskText', { title }), [
+    showAlert(t('taskDetail.deleteTaskTitle'), t('taskDetail.deleteTaskText', { title }), [
       { text: t('common.cancel'), style: 'cancel' },
       {
         text: t('common.delete'), style: 'destructive', onPress: () => {
@@ -843,6 +877,7 @@ export default function PlanningScreen() {
         onRightPress={permissions.canCreate && tasks.length > 0 ? () => router.push('/task/new' as any) : undefined}
       />
 
+      <PageContainer maxWidth={1100}>
       {/* View mode tabs + search toggle */}
       <View style={styles.viewToggle}>
         {VIEW_TABS.map(tab => (
@@ -866,6 +901,19 @@ export default function PlanningScreen() {
             color={(showSearch || search.length > 0) ? C.primary : C.textSub}
           />
         </TouchableOpacity>
+        {Platform.OS === 'web' && (
+          // Sur web, pas de pull-to-refresh à la souris : bouton d'actualisation explicite.
+          <TouchableOpacity
+            style={styles.searchToggleBtn}
+            onPress={onRefresh}
+            disabled={refreshing}
+            hitSlop={6}
+            accessibilityRole="button"
+            accessibilityLabel={t('planningScreen.refresh', { defaultValue: 'Actualiser' })}
+          >
+            <Ionicons name="refresh-outline" size={17} color={refreshing ? C.textMuted : C.textSub} />
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Search bar — dépliable */}
@@ -1011,6 +1059,7 @@ export default function PlanningScreen() {
           </View>
         )}
       </ScrollView>
+      </PageContainer>
       <BottomNavBar />
     </View>
   );

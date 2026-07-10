@@ -13,6 +13,7 @@ export const resources: Resource = {
         clear: 'Effacer',
         close: 'Fermer',
         continue: 'Continuer',
+        copy: 'Copier',
         delete: 'Supprimer',
         edit: 'Modifier',
         error: 'Erreur',
@@ -1005,6 +1006,12 @@ export const resources: Resource = {
       adminScreen: {
         headerTitle: 'Administration',
         headerSubtitle: 'Gestion des accès et des équipes',
+        dangerZone: {
+          title: 'Zone dangereuse',
+          description: "La suppression de l'organisation « {{name}} » efface définitivement ses membres, entreprises, invitations et données.",
+          deleteOrg: "Supprimer l'organisation",
+          deleteOrgA11y: "Supprimer l'organisation {{name}}",
+        },
         organization: 'Organisation',
         users: 'Utilisateurs',
         companies: 'Entreprises',
@@ -1341,6 +1348,7 @@ export const resources: Resource = {
       },
       planningScreen: {
         title: 'Planning',
+        refresh: 'Actualiser',
         totalTasks_one: '{{count}} tâche au total',
         totalTasks_other: '{{count}} tâches au total',
         newTask: '+ Nouvelle tâche',
@@ -4529,6 +4537,7 @@ export const resources: Resource = {
         clear: 'Clear',
         close: 'Close',
         continue: 'Continue',
+        copy: 'Copy',
         delete: 'Delete',
         edit: 'Edit',
         error: 'Error',
@@ -5521,6 +5530,12 @@ export const resources: Resource = {
       adminScreen: {
         headerTitle: 'Administration',
         headerSubtitle: 'Access and team management',
+        dangerZone: {
+          title: 'Danger zone',
+          description: 'Deleting the organization "{{name}}" permanently erases its members, companies, invitations and data.',
+          deleteOrg: 'Delete organization',
+          deleteOrgA11y: 'Delete organization {{name}}',
+        },
         organization: 'Organization',
         users: 'Users',
         companies: 'Companies',
@@ -5857,6 +5872,7 @@ export const resources: Resource = {
       },
       planningScreen: {
         title: 'Planning',
+        refresh: 'Refresh',
         totalTasks_one: '{{count}} task total',
         totalTasks_other: '{{count}} tasks total',
         newTask: '+ New task',
@@ -9045,6 +9061,7 @@ export const resources: Resource = {
         clear: 'Borrar',
         close: 'Cerrar',
         continue: 'Continuar',
+        copy: 'Copiar',
         delete: 'Eliminar',
         edit: 'Editar',
         error: 'Error',
@@ -10037,6 +10054,12 @@ export const resources: Resource = {
       adminScreen: {
         headerTitle: 'Administración',
         headerSubtitle: 'Gestión de accesos y equipos',
+        dangerZone: {
+          title: 'Zona peligrosa',
+          description: 'Eliminar la organización «{{name}}» borra definitivamente sus miembros, empresas, invitaciones y datos.',
+          deleteOrg: 'Eliminar la organización',
+          deleteOrgA11y: 'Eliminar la organización {{name}}',
+        },
         organization: 'Organización',
         users: 'Usuarios',
         companies: 'Empresas',
@@ -10373,6 +10396,7 @@ export const resources: Resource = {
       },
       planningScreen: {
         title: 'Planning',
+        refresh: 'Actualizar',
         totalTasks_one: '{{count}} tarea en total',
         totalTasks_other: '{{count}} tareas en total',
         newTask: '+ Nueva tarea',

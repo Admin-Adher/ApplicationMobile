@@ -1,7 +1,9 @@
 import {
-  View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Platform,
+  View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform,
   Modal, KeyboardAvoidingView, TextInput,
 } from 'react-native';
+import { showAlert } from '@/lib/appAlert';
+import PageContainer from '@/components/PageContainer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -52,7 +54,7 @@ export default function ManageChantiersScreen() {
   function handleDelete(id: string, name: string) {
     const planCount = sitePlans.filter(p => p.chantierId === id).length;
     const reserveCount = reserves.filter(r => r.chantierId === id).length;
-    Alert.alert(
+    showAlert(
       t('manageSitesScreen.deleteTitle'),
       t('manageSitesScreen.deleteMessage', { name, plans: planCount, reserves: reserveCount }),
       [
@@ -88,7 +90,7 @@ export default function ManageChantiersScreen() {
   function saveEdit() {
     if (!editModal) return;
     if (!editModal.name.trim()) {
-      Alert.alert(t('manageSitesScreen.requiredField'), t('manageSitesScreen.nameRequired'));
+      showAlert(t('manageSitesScreen.requiredField'), t('manageSitesScreen.nameRequired'));
       return;
     }
     updateChantier({
@@ -120,6 +122,7 @@ export default function ManageChantiersScreen() {
   return (
     <View style={styles.container}>
       <Header title={t('manageSitesScreen.title')} showBack />
+      <PageContainer maxWidth={800}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
         {chantiers.length === 0 ? (
@@ -258,6 +261,7 @@ export default function ManageChantiersScreen() {
           </>
         )}
       </ScrollView>
+      </PageContainer>
 
       {/* ─── MODAL STRUCTURE ─── */}
       <Modal
@@ -268,6 +272,7 @@ export default function ManageChantiersScreen() {
       >
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
           <View style={styles.modalContainer}>
+            <PageContainer maxWidth={800}>
             <View style={styles.modalHeader}>
               <TouchableOpacity onPress={() => setStructureModal(null)} style={styles.modalCloseBtn}>
                 <Ionicons name="close" size={22} color={C.text} />
@@ -303,6 +308,7 @@ export default function ManageChantiersScreen() {
                 />
               )}
             </ScrollView>
+            </PageContainer>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -315,6 +321,7 @@ export default function ManageChantiersScreen() {
         onRequestClose={() => setEditModal(null)}
       >
         <View style={{ flex: 1, backgroundColor: C.bg }}>
+          <PageContainer maxWidth={800}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setEditModal(null)} style={styles.modalCloseBtn}>
               <Ionicons name="close" size={22} color={C.text} />
@@ -444,6 +451,7 @@ export default function ManageChantiersScreen() {
                 )}
             </ScrollView>
           )}
+          </PageContainer>
         </View>
       </Modal>
     </View>
