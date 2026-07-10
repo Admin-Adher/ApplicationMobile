@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, Platform, Image, ActivityIndicator, KeyboardAvoidingView,
+  Platform, Image, ActivityIndicator, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,8 +15,10 @@ import { useIncidents } from '@/context/IncidentsContext';
 import { useApp } from '@/context/AppContext';
 import { IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import DateInput from '@/components/DateInput';
 import LocationPicker from '@/components/LocationPicker';
+import { showAlert } from '@/lib/appAlert';
 import { genId, formatDateFR } from '@/lib/utils';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; bg: string; icon: string }> = {
@@ -134,7 +136,7 @@ export default function NewIncidentScreen() {
       return;
     }
     if (!isDirty) { router.back(); return; }
-    Alert.alert(
+    showAlert(
       t('incidentForm.abandonTitle'),
       t('incidentForm.abandonText'),
       [
@@ -147,26 +149,26 @@ export default function NewIncidentScreen() {
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.galleryPermissionDenied')); return; }
+      if (status !== 'granted') { showAlert(t('incidentForm.permissionDenied'), t('incidentForm.galleryPermissionDenied')); return; }
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
   async function handleCamera() {
-    if (Platform.OS === 'web') { Alert.alert(t('incidentForm.info'), t('incidentForm.directCameraMobileOnly')); return; }
+    if (Platform.OS === 'web') { showAlert(t('incidentForm.info'), t('incidentForm.directCameraMobileOnly')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.cameraPermissionDenied')); return; }
+    if (status !== 'granted') { showAlert(t('incidentForm.permissionDenied'), t('incidentForm.cameraPermissionDenied')); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
   function handleNext() {
     if (step === 1) {
-      if (!title.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.titleRequired')); return; }
+      if (!title.trim()) { showAlert(t('incidentForm.requiredField'), t('incidentForm.titleRequired')); return; }
     }
     if (step === 2) {
-      if (!location.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.locationRequired')); return; }
+      if (!location.trim()) { showAlert(t('incidentForm.requiredField'), t('incidentForm.locationRequired')); return; }
     }
     setStep(s => s + 1);
   }
@@ -216,6 +218,7 @@ export default function NewIncidentScreen() {
   return (
     <View style={[styles.container, { paddingBottom: insets.bottom }]}>
       <Header title={t('incidentForm.newTitle')} showBack onBack={handleBack} />
+      <PageContainer maxWidth={800}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
           contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 40 }]}
@@ -245,10 +248,14 @@ export default function NewIncidentScreen() {
                   </View>
                 ) : (
                   <View style={styles.photoRow}>
-                    <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera}>
-                      <Ionicons name="camera" size={18} color={C.primary} />
-                      <Text style={styles.photoBtnText}>{t('incidentForm.camera')}</Text>
-                    </TouchableOpacity>
+                    {/* Pas de caméra directe sur web : seul l'import galerie (sélecteur
+                        de fichiers) est proposé, comme sur l'écran d'édition. */}
+                    {Platform.OS !== 'web' && (
+                      <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handleCamera}>
+                        <Ionicons name="camera" size={18} color={C.primary} />
+                        <Text style={styles.photoBtnText}>{t('incidentForm.camera')}</Text>
+                      </TouchableOpacity>
+                    )}
                     <TouchableOpacity style={[styles.photoBtn, { flex: 1 }]} onPress={handlePickPhoto}>
                       <Ionicons name="images-outline" size={18} color={C.inProgress} />
                       <Text style={[styles.photoBtnText, { color: C.inProgress }]}>{t('incidentForm.gallery')}</Text>
@@ -568,6 +575,7 @@ export default function NewIncidentScreen() {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      </PageContainer>
     </View>
   );
 }

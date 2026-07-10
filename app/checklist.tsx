@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useState, useCallback, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,8 +9,10 @@ import { useAuth } from '@/context/AuthContext';
 import { useApp } from '@/context/AppContext';
 import { useChecklists } from '@/hooks/queries/useChecklists';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import { Checklist, ChecklistItem } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { showAlert } from '@/lib/appAlert';
 import { genId, formatDateFR } from '@/lib/utils';
 
 const TEMPLATE_ITEM_KEYS = [
@@ -43,7 +45,7 @@ export default function ChecklistScreen() {
 
   const handleCreate = useCallback(() => {
     if (!newTitle.trim()) {
-      Alert.alert(t('checklistScreen.titleRequired'), t('checklistScreen.titleRequiredText'));
+      showAlert(t('checklistScreen.titleRequired'), t('checklistScreen.titleRequiredText'));
       return;
     }
     const items: ChecklistItem[] = newItems.map(label => ({
@@ -123,6 +125,7 @@ export default function ChecklistScreen() {
         onRightPress={permissions.canCreate ? () => setShowNew(s => !s) : undefined}
       />
 
+      <PageContainer maxWidth={800}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
         {showNew && (
@@ -221,7 +224,9 @@ export default function ChecklistScreen() {
                     <TouchableOpacity
                       key={item.id}
                       style={styles.itemRow}
-                      onPress={() => toggleItem(cl.id, item.id)}
+                      // stopPropagation : sur web, le clic remonterait au TouchableOpacity
+                      // de la carte et replierait la checklist au lieu de cocher l'item.
+                      onPress={e => { e.stopPropagation?.(); toggleItem(cl.id, item.id); }}
                       activeOpacity={0.7}
                     >
                       <Ionicons
@@ -238,6 +243,7 @@ export default function ChecklistScreen() {
           );
         })}
       </ScrollView>
+      </PageContainer>
       <BottomNavBar />
     </KeyboardAvoidingView>
   );

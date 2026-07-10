@@ -12,6 +12,8 @@ import { useIncidents } from '@/context/IncidentsContext';
 import { useApp } from '@/context/AppContext';
 import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
+import { showAlert } from '@/lib/appAlert';
 import { IncidentSkeletonCard as SkeletonCard } from '@/components/SkeletonCard';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; bg: string; icon: string }> = {
@@ -138,6 +140,7 @@ export default function IncidentsScreen() {
         }
       />
 
+      <PageContainer maxWidth={1000}>
       <View style={styles.searchWrap}>
         <Ionicons name="search-outline" size={15} color={C.textMuted} />
         <TextInput
@@ -251,7 +254,14 @@ export default function IncidentsScreen() {
                     <TouchableOpacity
                       onPress={e => {
                         e.stopPropagation?.();
-                        deleteIncident(incident.id);
+                        showAlert(
+                          t('incidentForm.deleteTitle'),
+                          t('incidentForm.deleteMessage', { title: incident.title }),
+                          [
+                            { text: t('incidentForm.cancel'), style: 'cancel' },
+                            { text: t('common.delete'), style: 'destructive', onPress: () => { deleteIncident(incident.id); } },
+                          ],
+                        );
                       }}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
@@ -326,6 +336,7 @@ export default function IncidentsScreen() {
           <Ionicons name="add" size={28} color="#fff" />
         </TouchableOpacity>
       )}
+      </PageContainer>
     </View>
   );
 }

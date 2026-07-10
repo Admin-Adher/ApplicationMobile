@@ -8,6 +8,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import BottomNavBar from '@/components/BottomNavBar';
@@ -116,6 +117,7 @@ export default function SearchScreen() {
     <View style={styles.container}>
       <Header title={t('searchScreen.title')} showBack />
 
+      <PageContainer maxWidth={1000}>
       <View style={styles.searchWrap}>
         <Ionicons name="search" size={18} color={q.length >= 2 ? C.primary : C.textMuted} />
         <TextInput
@@ -338,6 +340,7 @@ export default function SearchScreen() {
           <View style={{ height: 40 }} />
         </ScrollView>
       )}
+      </PageContainer>
       <BottomNavBar />
     </View>
   );
@@ -387,5 +390,6 @@ const styles = StyleSheet.create({
   statusPillText: { fontSize: 11, fontFamily: 'Inter_600SemiBold' },
   progressBar: { height: 3, backgroundColor: C.border, borderRadius: 2, marginTop: 8, overflow: 'hidden' },
   progressFill: { height: 3, borderRadius: 2 },
-  chevron: { position: 'absolute', right: 14, top: '50%' },
+  // translateY(-7) = moitié de la taille de l'icône (14) pour un vrai centrage vertical.
+  chevron: { position: 'absolute', right: 14, top: '50%', transform: [{ translateY: -7 }] },
 });

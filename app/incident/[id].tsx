@@ -1,6 +1,6 @@
 import {
   View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity,
-  Alert, Platform, Image, ActivityIndicator, KeyboardAvoidingView,
+  Platform, Image, ActivityIndicator, KeyboardAvoidingView,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -15,8 +15,10 @@ import { useIncidents } from '@/context/IncidentsContext';
 import { useApp } from '@/context/AppContext';
 import { IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import DateInput from '@/components/DateInput';
 import LocationPicker from '@/components/LocationPicker';
+import { showAlert } from '@/lib/appAlert';
 import { formatDateFR } from '@/lib/utils';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; bg: string; icon: string }> = {
@@ -109,23 +111,23 @@ export default function EditIncidentScreen() {
   async function handlePickPhoto() {
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.galleryPermissionDenied')); return; }
+      if (status !== 'granted') { showAlert(t('incidentForm.permissionDenied'), t('incidentForm.galleryPermissionDenied')); return; }
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
   async function handleCamera() {
-    if (Platform.OS === 'web') { Alert.alert(t('incidentForm.info'), t('incidentForm.directCameraMobileOnly')); return; }
+    if (Platform.OS === 'web') { showAlert(t('incidentForm.info'), t('incidentForm.directCameraMobileOnly')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') { Alert.alert(t('incidentForm.permissionDenied'), t('incidentForm.cameraPermissionDenied')); return; }
+    if (status !== 'granted') { showAlert(t('incidentForm.permissionDenied'), t('incidentForm.cameraPermissionDenied')); return; }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
   function handleDelete() {
     if (!incident) return;
-    Alert.alert(
+    showAlert(
       t('incidentForm.deleteTitle'),
       t('incidentForm.deleteMessage', { title: incident.title }),
       [
@@ -143,8 +145,8 @@ export default function EditIncidentScreen() {
 
   async function handleSave() {
     if (!incident) return;
-    if (!title.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.titleRequired')); return; }
-    if (!location.trim()) { Alert.alert(t('incidentForm.requiredField'), t('incidentForm.locationRequired')); return; }
+    if (!title.trim()) { showAlert(t('incidentForm.requiredField'), t('incidentForm.titleRequired')); return; }
+    if (!location.trim()) { showAlert(t('incidentForm.requiredField'), t('incidentForm.locationRequired')); return; }
     setSaving(true);
     try {
       const isNowResolved = status === 'resolved';
@@ -189,6 +191,7 @@ export default function EditIncidentScreen() {
           ) : undefined
         }
       />
+      <PageContainer maxWidth={800}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <ScrollView
           contentContainerStyle={styles.content}
@@ -342,6 +345,7 @@ export default function EditIncidentScreen() {
           <View style={{ height: 32 }} />
         </ScrollView>
       </KeyboardAvoidingView>
+      </PageContainer>
     </View>
   );
 }

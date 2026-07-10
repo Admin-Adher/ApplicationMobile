@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, Platform, Linking } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Platform, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useState, useMemo } from 'react';
@@ -9,7 +9,9 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Reserve, Company, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
+import PageContainer from '@/components/PageContainer';
 import BottomNavBar from '@/components/BottomNavBar';
+import { showAlert } from '@/lib/appAlert';
 import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 
 const STATUS_CFG: Record<string, { labelKey: string; color: string }> = {
@@ -185,6 +187,7 @@ export default function SousTraitantScreen() {
         showBack
       />
 
+      <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.companySection}>
           <Text style={styles.sectionLabel}>{t('subcontractorScreen.company').toUpperCase()}</Text>
@@ -233,7 +236,24 @@ export default function SousTraitantScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.companyName}>{displayCompany.name}</Text>
                 {displayCompany.phone ? (
-                  <TouchableOpacity onPress={() => Linking.openURL(`tel:${displayCompany.phone}`)}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (Platform.OS === 'web') {
+                        // Sur desktop, tel: n'a souvent aucune application associée :
+                        // on propose la copie du numéro, avec l'appel en option.
+                        showAlert(displayCompany.name, displayCompany.phone, [
+                          { text: t('common.cancel'), style: 'cancel' },
+                          {
+                            text: t('common.copy', { defaultValue: 'Copier' }),
+                            onPress: () => { void Clipboard.setStringAsync(displayCompany.phone!); },
+                          },
+                          { text: t('teamsScreen.call'), onPress: () => Linking.openURL(`tel:${displayCompany.phone}`) },
+                        ]);
+                      } else {
+                        Linking.openURL(`tel:${displayCompany.phone}`);
+                      }
+                    }}
+                  >
                     <Text style={[styles.companyContact, { color: C.primary }]}>{displayCompany.phone}</Text>
                   </TouchableOpacity>
                 ) : null}
@@ -309,7 +329,7 @@ export default function SousTraitantScreen() {
 
               async function copyLink() {
                 await Clipboard.setStringAsync(portalUrl);
-                Alert.alert(t('subcontractorScreen.linkCopiedTitle'), t('subcontractorScreen.linkCopiedText'));
+                showAlert(t('subcontractorScreen.linkCopiedTitle'), t('subcontractorScreen.linkCopiedText'));
               }
 
               return (
@@ -390,6 +410,7 @@ export default function SousTraitantScreen() {
           </View>
         )}
       </ScrollView>
+      </PageContainer>
 
       <BottomNavBar />
     </View>
