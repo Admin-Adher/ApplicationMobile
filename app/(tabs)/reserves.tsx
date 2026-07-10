@@ -158,7 +158,7 @@ async function generateReportPDF(action: 'share' | 'print',
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
     const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
     const photoStack = buildReservePhotoStackHtml(
-      photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+      photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind, annotations: p.annotations })),
       {
         omittedNote: rawPhotos.length > photosToShow.length
           ? t('reservesScreen.report.morePhotos', { count: rawPhotos.length - photosToShow.length })

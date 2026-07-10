@@ -301,7 +301,7 @@ async function exportPlanPDF(
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
     const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
     const photoStack = buildReservePhotoStackHtml(
-      photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+      photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind, annotations: p.annotations })),
       {
         omittedNote: rawPhotos.length > photosToShow.length
           ? `+${rawPhotos.length - photosToShow.length} ${tOr(t, 'plansScreen.pdfReport.photos', 'Photos').toLowerCase()}`
@@ -640,7 +640,7 @@ async function exportGlobalReport(
         const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
         const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
         const photoStack = buildReservePhotoStackHtml(
-          photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+          photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind, annotations: p.annotations })),
           {
             omittedNote: rawPhotos.length > photosToShow.length
               ? `+${rawPhotos.length - photosToShow.length} ${tOr(t, 'plansScreen.pdfReport.photos', 'Photos').toLowerCase()}`
@@ -699,7 +699,7 @@ async function exportGlobalReport(
       const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
       const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
       const photoStack = buildReservePhotoStackHtml(
-        photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind })),
+        photosToShow.map((p, idx) => ({ src: resolvedSrcs[idx] ?? p.uri, kind: p.kind, annotations: p.annotations })),
         {
           omittedNote: rawPhotos.length > photosToShow.length
             ? `+${rawPhotos.length - photosToShow.length} ${tOr(t, 'plansScreen.pdfReport.photos', 'Photos').toLowerCase()}`
@@ -4923,7 +4923,7 @@ export default function PlansScreen() {
             reserves={[]}
             ghostReserves={[]}
             pinNumberMap={new Map()}
-            annotations={[]}
+            annotations={sitePlans.find(p => p.id === preRenderState.planId)?.annotations ?? []}
             onPlanTap={() => {}}
             onReserveSelect={() => {}}
             onAnnotationsChange={() => {}}

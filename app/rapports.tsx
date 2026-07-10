@@ -23,6 +23,7 @@ import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import {
+  buildPhotoAnnotationsOverlayHtml,
   enrichReservesForPdf as enrichReserveListForPdf,
   formatReserveLocation,
   getReservePdfPhotos,
@@ -349,14 +350,14 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
   const thS = 'background:#003082;color:#fff;padding:8px 10px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px';
   const tdS = 'padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;vertical-align:top';
 
-  const photoMap: Record<string, string> = {};
+  const photoMap: Record<string, { src: string; annotations?: any[] | null }> = {};
   await Promise.all(
     companyReserves.map(async (r: any) => {
       const pdfPhotos = getReservePdfPhotos(r);
       const firstPhoto = pdfPhotos.find((p: any) => p.kind === 'defect') ?? pdfPhotos[0];
       if (firstPhoto?.uri) {
         const src = await loadPhotoAsDataUrlForPdf(firstPhoto.uri);
-        if (src) photoMap[r.id] = src;
+        if (src) photoMap[r.id] = { src, annotations: firstPhoto.annotations };
       }
     })
   );
@@ -366,7 +367,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
     return `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="${tdS};font-weight:700;white-space:nowrap;vertical-align:middle">${escapeHtml(r.id)}</td>
       <td style="${tdS}">
-        ${photo ? `<img src="${photo}" style="width:64px;height:auto;max-height:64px;object-fit:contain;background:#F9FAFB;border-radius:5px;border:1px solid #DDE4EE;float:left;margin-right:8px;margin-bottom:2px;display:block" />` : ''}
+        ${photo ? `<div style="position:relative;display:inline-block;float:left;margin-right:8px;margin-bottom:2px;"><img src="${photo.src}" style="width:64px;height:auto;background:#F9FAFB;border-radius:5px;border:1px solid #DDE4EE;display:block" />${buildPhotoAnnotationsOverlayHtml(photo.annotations)}</div>` : ''}
         <span style="font-weight:600">${escapeHtml(r.title)}</span>
         ${hasCustomReserveDescription(r.description, r.title) ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${escapeHtml(getReserveDescriptionText(r.description, r.title).slice(0, 80))}${getReserveDescriptionText(r.description, r.title).length > 80 ? '…' : ''}</div>` : ''}
       </td>

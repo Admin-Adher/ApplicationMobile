@@ -5,6 +5,8 @@ import * as FileSystem from 'expo-file-system';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { preRenderPdfPageToDataUrlImpl } from '@/lib/pdfPreRender';
 import { ensurePdfFilename } from '@/lib/pdfFilename';
+import { buildPhotoAnnotationsOverlayHtml } from '@/lib/pdfReserveHelpers';
+import type { PhotoAnnotation } from '@/constants/types';
 
 /**
  * Escapes user-supplied strings so they are safe to embed in HTML.
@@ -296,6 +298,7 @@ export function buildPhotoGrid(
     badge?: string;
     badgeColor?: string;
     badgeTextColor?: string;
+    annotations?: PhotoAnnotation[] | null;
   }>,
   sectionTitle?: string,
 ): string {
@@ -304,9 +307,14 @@ export function buildPhotoGrid(
   return `
     <div class="section-header">${escapeHtml(title)}</div>
     <div class="photo-grid">
-      ${photos.map(p => `
+      ${photos.map(p => {
+        // Photo annotée : boîte moulée sur l'image (max-height désactivé) pour
+        // que le calque en % reste aligné ; photo nue : rendu inchangé.
+        const overlay = buildPhotoAnnotationsOverlayHtml(p.annotations);
+        const img = `<img class="photo-img" src="${p.src}" onerror="this.style.opacity='0.2'"${overlay ? ' style="max-height:none;object-fit:unset;"' : ''} />`;
+        return `
         <div class="photo-item">
-          <img class="photo-img" src="${p.src}" onerror="this.style.opacity='0.2'" />
+          ${overlay ? `<div style="position:relative;display:inline-block;max-width:100%;">${img}${overlay}</div>` : img}
           ${p.badge
             ? `<span class="photo-badge" style="background:${p.badgeColor ?? PDF_BG};color:${p.badgeTextColor ?? PDF_TEXT}">${escapeHtml(p.badge)}</span>`
             : ''}
@@ -314,7 +322,8 @@ export function buildPhotoGrid(
             ? `<div class="photo-caption">${escapeHtml(p.caption)}</div>`
             : ''}
         </div>
-      `).join('')}
+      `;
+      }).join('')}
     </div>
   `;
 }

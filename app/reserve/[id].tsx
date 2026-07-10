@@ -10,7 +10,7 @@ import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
-import { Reserve, ReservePriority, ReserveStatus, ReservePhoto, SitePlan } from '@/constants/types';
+import { PhotoAnnotation, PlanDrawing, Reserve, ReservePriority, ReserveStatus, ReservePhoto, SitePlan } from '@/constants/types';
 import {
   loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf,
   loadFileAsDataUrl,
@@ -43,6 +43,7 @@ import {
   isOverdue, formatDate, validateDeadline, toIsoDeadline,
 } from '@/lib/reserveUtils';
 import {
+  buildPhotoAnnotationsOverlayHtml,
   enrichReserveForPdf,
   getRemoteReservePhotosForPdf,
   getReservePdfPhotos,
@@ -58,7 +59,7 @@ import {
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import LocationPicker from '@/components/LocationPicker';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
-import { PhotoAnnotationOverlay } from '@/components/PhotoAnnotator';
+import { PhotoAnnotationOverlay, PhotoWithAnnotations } from '@/components/PhotoAnnotator';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 const LIFT_REQUEST_STATUSES: ReserveStatus[] = ['open', 'in_progress', 'waiting'];
@@ -323,9 +324,14 @@ function buildReservePDF(
           ${photosToShow.map((p, i) => {
             const src = resolvedPhotoSrcs?.[i] ?? p.uri;
             const isDefect = p.kind === 'defect';
+            // Boîte moulée sur l'image (height:auto, pas d'object-fit) pour que
+            // le calque d'annotations en % reste aligné sur la photo.
+            const overlay = buildPhotoAnnotationsOverlayHtml(p.annotations);
             return `<div style="flex:1;min-width:0;text-align:center">
-              <img src="${src}" onerror="this.style.opacity='0.15'"
-                style="width:100%;height:auto;max-height:260px;object-fit:contain;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block" />
+              <div style="position:relative;">
+                <img src="${src}" onerror="this.style.opacity='0.15'"
+                  style="width:100%;height:auto;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block" />${overlay}
+              </div>
               <span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                 background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'}">
                 ● ${isDefect ? copy.defect : copy.resolved}
@@ -634,6 +640,7 @@ export default function ReserveDetailScreen() {
   const captureResolveRef = useRef<((url: string | null) => void) | null>(null);
   const [captureViewerUri, setCaptureViewerUri] = useState<string | null>(null);
   const [captureViewerIsImage, setCaptureViewerIsImage] = useState(false);
+  const [captureViewerAnnotations, setCaptureViewerAnnotations] = useState<PlanDrawing[]>([]);
 
   const statusLabels = useMemo<Record<ReserveStatus, string>>(() => ({
     open: t('reserveLabels.status.open'),
@@ -661,10 +668,11 @@ export default function ReserveDetailScreen() {
     }, 400);
   }, []);
 
-  function captureHiddenPlan(uri: string, fileType: 'pdf' | 'image' | 'dxf' | undefined): Promise<string | null> {
+  function captureHiddenPlan(uri: string, fileType: 'pdf' | 'image' | 'dxf' | undefined, annotations: PlanDrawing[] = []): Promise<string | null> {
     return new Promise((resolve) => {
       captureResolveRef.current = resolve;
       setCaptureViewerIsImage(fileType !== 'pdf');
+      setCaptureViewerAnnotations(annotations);
       setCaptureViewerUri(uri);
       setTimeout(() => {
         if (captureResolveRef.current) {
@@ -749,12 +757,14 @@ export default function ReserveDetailScreen() {
     setEditCompanies(reserve.companies ?? (reserve.company ? [reserve.company] : []));
     setEditPriority(reserve.priority);
     setEditDeadline(reserve.deadline === '—' ? '' : formatDate(reserve.deadline));
-    setEditPhotos(reserve.photos ?? (reserve.photoUri ? [{ id: 'legacy', uri: reserve.photoUri, kind: 'defect', takenAt: reserve.createdAt, takenBy: '' }] : []));
+    // Base d'édition = photos réellement stockées, jamais la version enrichie
+    // pour PDF (qui matérialiserait la photo héritée et les copies de galerie).
+    setEditPhotos(storedReserve?.photos ?? (storedReserve?.photoUri ? [{ id: 'legacy', uri: storedReserve.photoUri, kind: 'defect', takenAt: storedReserve.createdAt, takenBy: '' }] : []));
     setEditModalVisible(true);
   }
 
   function handleSignatureSave() {
-    if (!reserve) return;
+    if (!reserve || !storedReserve) return;
     // Même règle que le web : l'accusé de réception doit être enregistré avant la signature.
     if (!reserve.enterpriseAcknowledgedAt) {
       Alert.alert(t('reserveDetail.acknowledgement'), t('reserveDetail.availableAfterAck'));
@@ -780,8 +790,9 @@ export default function ReserveDetailScreen() {
     let updated: Reserve;
     if (signingForCompany && reserveCompanyNames.length > 1) {
       const existing = reserve.companySignatures ?? {};
+      // Base d'écriture = réserve stockée (jamais la version enrichie pour PDF).
       updated = {
-        ...reserve,
+        ...storedReserve,
         companySignatures: {
           ...existing,
           [signingForCompany]: { signature: dataUrl, signataire, signedAt: today },
@@ -795,7 +806,7 @@ export default function ReserveDetailScreen() {
       };
     } else {
       updated = {
-        ...reserve,
+        ...storedReserve,
         enterpriseSignature: dataUrl,
         enterpriseSignataire: signataire,
         history: [...reserve.history, {
@@ -814,7 +825,8 @@ export default function ReserveDetailScreen() {
   }
 
   function handleEnterpriseAck() {
-    if (!reserve) return;
+    if (!reserve || !storedReserve) return;
+    const base = storedReserve;
     Alert.alert(
       t('reserveDetail.alerts.acknowledgeTitle'),
       t('reserveDetail.alerts.acknowledgeText', { id: reserve.id }),
@@ -826,8 +838,8 @@ export default function ReserveDetailScreen() {
             const today = new Date().toISOString().slice(0, 10);
             const author = user?.name ?? 'Entreprise';
             const updated: Reserve = {
-              ...reserve,
-              enterpriseAcknowledgedAt: reserve.enterpriseAcknowledgedAt ?? today,
+              ...base,
+              enterpriseAcknowledgedAt: base.enterpriseAcknowledgedAt ?? today,
               history: [...reserve.history, {
                 id: genId(),
                 action: 'Réception accusée',
@@ -844,12 +856,23 @@ export default function ReserveDetailScreen() {
     );
   }
 
-  function handleAnnotationSave(photoId: string, annotations: any[]) {
-    if (!reserve) return;
-    const updatedPhotos: ReservePhoto[] = allPhotos.map(p =>
-      p.id === photoId ? { ...p, annotations } : p
-    );
-    updateReserveFields({ ...reserve, photos: updatedPhotos });
+  function handleAnnotationSave(photoId: string, annotations: PhotoAnnotation[]) {
+    if (!storedReserve) return;
+    // Écriture basée sur la réserve STOCKÉE, jamais sur la version enrichie
+    // pour PDF : persister l'objet enrichi matérialisait l'entrée legacy
+    // synthétique et des copies figées des photos de galerie.
+    const stored = storedReserve.photos ?? [];
+    let updatedPhotos: ReservePhoto[];
+    if (stored.some(p => p.id === photoId)) {
+      updatedPhotos = stored.map(p => p.id === photoId ? { ...p, annotations } : p);
+    } else {
+      // Photo héritée ou photo de galerie liée : on ne matérialise que
+      // celle-ci, avec ses annotations, sans embarquer le reste.
+      const source = allPhotos.find(p => p.id === photoId);
+      if (!source) { setAnnotatorPhoto(null); return; }
+      updatedPhotos = [...stored, { ...source, annotations }];
+    }
+    updateReserveFields({ ...storedReserve, photos: updatedPhotos });
     setAnnotatorPhoto(null);
   }
 
@@ -997,7 +1020,7 @@ export default function ReserveDetailScreen() {
   }
 
   async function handleSubmitLiftRequest() {
-    if (!reserve || liftSubmitting || liftPhotoUploading) return;
+    if (!reserve || !storedReserve || liftSubmitting || liftPhotoUploading) return;
     if (!LIFT_REQUEST_STATUSES.includes(reserve.status)) return;
 
     setLiftSubmitting(true);
@@ -1017,7 +1040,7 @@ export default function ReserveDetailScreen() {
             },
           ]
         : reserve.comments ?? [];
-      const nextPhotos = liftPhoto ? [...(reserve.photos ?? []), liftPhoto] : reserve.photos;
+      const nextPhotos = liftPhoto ? [...(storedReserve.photos ?? []), liftPhoto] : storedReserve.photos;
       const statusHistoryEntry = {
         id: genId(),
         action: t('syncAlerts.statusChangedAction'),
@@ -1037,11 +1060,11 @@ export default function ReserveDetailScreen() {
         ].filter(Boolean).join(', ') || t('reserveDetail.historyLiftNoCommentPhoto'),
       };
       const updated: Reserve = {
-        ...reserve,
+        ...storedReserve,
         status: 'verification',
         comments,
-        history: [...(reserve.history ?? []), statusHistoryEntry, liftHistoryEntry],
-        photoUri: reserve.photoUri ?? liftPhoto?.uri,
+        history: [...(storedReserve.history ?? []), statusHistoryEntry, liftHistoryEntry],
+        photoUri: storedReserve.photoUri ?? liftPhoto?.uri,
         photos: nextPhotos,
         closedAt: undefined,
         closedBy: undefined,
@@ -1089,7 +1112,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleSaveEdit() {
-    if (!reserve) return;
+    if (!reserve || !storedReserve) return;
     if (!editTitle.trim()) {
       Alert.alert(t('reserveDetail.alerts.requiredTitle'), t('reserveDetail.alerts.requiredTitleText'));
       return;
@@ -1122,7 +1145,7 @@ export default function ReserveDetailScreen() {
       newValue: changes.length > 0 ? changes.map(c => c.newVal).join(', ') : undefined,
     };
     const updated: Reserve = {
-      ...reserve,
+      ...storedReserve,
       title: editTitle.trim(),
       description: getReserveDescriptionText(editDescription, editTitle, ''),
       building: editBuilding.trim(),
@@ -1134,11 +1157,14 @@ export default function ReserveDetailScreen() {
       deadline: editDeadline ? toIsoDeadline(editDeadline) : '—',
       photoUri: editPhotos[0]?.uri ?? undefined,
       photos: editPhotos.length > 0 ? editPhotos : undefined,
-      history: changes.length > 0 ? [...reserve.history, historyEntry] : reserve.history,
+      history: changes.length > 0 ? [...storedReserve.history, historyEntry] : storedReserve.history,
     };
     updateReserveFields(updated);
     const existingPhotoIds = new Set(allPhotos.map(p => p.id));
-    editPhotos.filter(p => p.id !== 'legacy' && !existingPhotoIds.has(p.id)).forEach(p => {
+    // startsWith couvre l'ancien id 'legacy' ET les entrées synthétiques
+    // 'legacy-<idRéserve>' produites par getReservePdfPhotos (l'ancien test
+    // d'égalité stricte ne filtrait jamais ces dernières).
+    editPhotos.filter(p => !p.id.startsWith('legacy') && !existingPhotoIds.has(p.id)).forEach(p => {
       addPhoto({
         id: genId(),
         comment: `Photo réserve ${reserve.id} — ${editTitle.trim()}`,
@@ -1181,7 +1207,7 @@ export default function ReserveDetailScreen() {
               const rendered = await preRenderPdfPageToDataUrl(resolvedPlanUri, 520);
               if (rendered) preRenderedDataUrl = rendered;
             } else {
-              const captured = await captureHiddenPlan(resolvedPlanUri, 'pdf');
+              const captured = await captureHiddenPlan(resolvedPlanUri, 'pdf', matchedPlan.annotations ?? []);
               if (captured) preRenderedDataUrl = captured;
             }
           }
@@ -1515,7 +1541,7 @@ export default function ReserveDetailScreen() {
             planUri={captureViewerUri}
             planId="__capture__"
             isImagePlan={captureViewerIsImage}
-            annotations={[]}
+            annotations={captureViewerAnnotations}
             onAnnotationsChange={() => {}}
             reserves={[]}
             pinNumberMap={new Map()}
@@ -1587,12 +1613,17 @@ export default function ReserveDetailScreen() {
                       onPress={() => { setSelectedPhotoIndex(idx); setPhotoFullScreen(true); }}
                       activeOpacity={0.85}
                     >
-                      <Image source={{ uri: photo.uri }} style={styles.photoThumbImg} resizeMode="cover" onError={() => {}} />
+                      <PhotoWithAnnotations
+                        uri={photo.uri}
+                        annotations={photo.annotations ?? []}
+                        style={styles.photoThumbImg}
+                        showBadge={false}
+                      />
                       <View style={[styles.photoKindBadge, { backgroundColor: photo.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
                         <Text style={styles.photoKindBadgeText}>{photo.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')}</Text>
                       </View>
                     </TouchableOpacity>
-                    {permissions.canEdit && photo.id !== 'legacy' && (
+                    {permissions.canEdit && (
                       <TouchableOpacity style={styles.annotateBtn} onPress={() => setAnnotatorPhoto(photo)}>
                         <Ionicons name="pencil" size={11} color="#fff" />
                       </TouchableOpacity>
@@ -2295,11 +2326,13 @@ export default function ReserveDetailScreen() {
           </TouchableOpacity>
           {allPhotos.length > 0 && (
             <>
-              <Image
-                source={{ uri: allPhotos[selectedPhotoIndex]?.uri }}
+              <PhotoWithAnnotations
+                uri={allPhotos[selectedPhotoIndex]?.uri ?? ''}
+                annotations={allPhotos[selectedPhotoIndex]?.annotations ?? []}
                 style={styles.photoFull}
                 resizeMode="contain"
-                onError={() => {}}
+                variant="viewer"
+                showBadge={false}
               />
               <View style={[styles.photoNavRow, { bottom: insets.bottom + 24 }]}>
                 <TouchableOpacity

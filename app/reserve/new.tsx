@@ -12,7 +12,8 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
-import { ChantierBuilding, Reserve, ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
+import { ChantierBuilding, PhotoAnnotation, Reserve, ReserveKind, ReservePriority, ReserveStatus, ReservePhoto } from '@/constants/types';
+import { PhotoAnnotationOverlay } from '@/components/PhotoAnnotator';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import BottomSheetPicker from '@/components/BottomSheetPicker';
@@ -139,6 +140,7 @@ export default function NewReserveScreen() {
   );
   const [photos, setPhotos] = useState<ReservePhoto[]>([]);
   const [photoUploading, setPhotoUploading] = useState(false);
+  const [annotatorPhoto, setAnnotatorPhoto] = useState<ReservePhoto | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [draftPin, setDraftPin] = useState<DraftPin | null>(initialDraftPin);
@@ -614,6 +616,14 @@ export default function NewReserveScreen() {
     setPhotos(prev => prev.filter(p => p.id !== id));
   }
 
+  // Annotation possible dès la création : les annotations voyagent dans
+  // l'état local `photos` puis dans le payload d'addReserve, aucune
+  // dépendance à une réserve déjà persistée.
+  function handleAnnotationSave(annotations: PhotoAnnotation[]) {
+    setPhotos(prev => prev.map(p => (annotatorPhoto && p.id === annotatorPhoto.id) ? { ...p, annotations } : p));
+    setAnnotatorPhoto(null);
+  }
+
   function togglePhotoKind(id: string) {
     setPhotos(prev => prev.map(p => p.id === id ? { ...p, kind: p.kind === 'defect' ? 'resolution' : 'defect' } : p));
   }
@@ -796,6 +806,12 @@ export default function NewReserveScreen() {
                         <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
                           <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')}</Text>
                         </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.photoAnnotateBtn} onPress={() => setAnnotatorPhoto(p)}>
+                        <Ionicons name="pencil" size={11} color="#fff" />
+                        {(p.annotations?.length ?? 0) > 0 && (
+                          <Text style={styles.photoAnnotateCount}>{p.annotations!.length}</Text>
+                        )}
                       </TouchableOpacity>
                       <TouchableOpacity style={styles.photoRemoveBtn} onPress={() => removePhoto(p.id)}>
                         <Ionicons name="close" size={11} color="#fff" />
@@ -1245,6 +1261,18 @@ export default function NewReserveScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Annotation d'une photo avant même la création de la réserve */}
+      {annotatorPhoto && (
+        <PhotoAnnotationOverlay
+          photoUri={annotatorPhoto.uri}
+          annotations={annotatorPhoto.annotations ?? []}
+          editable
+          visible
+          onSave={handleAnnotationSave}
+          onClose={() => setAnnotatorPhoto(null)}
+        />
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -1284,6 +1312,8 @@ const styles = StyleSheet.create({
   photoKindBadge: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingVertical: 3, alignItems: 'center' },
   photoKindBadgeText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
   photoRemoveBtn: { position: 'absolute', top: 3, right: 3, width: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' },
+  photoAnnotateBtn: { position: 'absolute', top: 3, left: 3, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: 'rgba(0,0,0,0.65)', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3, gap: 2 },
+  photoAnnotateCount: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff' },
   gpsIndicator: { position: 'absolute', top: 3, left: 3, width: 16, height: 16, borderRadius: 8, backgroundColor: '#059669CC', alignItems: 'center', justifyContent: 'center' },
   uploadRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   uploadText: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub },

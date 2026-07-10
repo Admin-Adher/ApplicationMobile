@@ -757,6 +757,7 @@ function buildVisitePDF(
               badgeColor: (rawPhotos[i]?.kind === 'resolution') ? '#ECFDF5' : '#FEF2F2',
               badgeTextColor: (rawPhotos[i]?.kind === 'resolution') ? '#059669' : '#DC2626',
               caption: [rawPhotos[i]?.label, rawPhotos[i]?.takenBy, rawPhotos[i]?.takenAt].filter(Boolean).join(' · '),
+              annotations: rawPhotos[i]?.annotations,
             })), copy.photoGridTitle(Math.min(srcs.length, 4)))}
           </div>`;
         }).join('')}`

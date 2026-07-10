@@ -30,7 +30,7 @@ import {
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { Opr, OprItem, OprSignatory, OprStatus, Reserve } from '@/constants/types';
+import { Opr, OprItem, OprSignatory, OprStatus, PhotoAnnotation, Reserve } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
@@ -38,6 +38,7 @@ import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
 import LocationPicker from '@/components/LocationPicker';
 import {
+  buildPhotoAnnotationsOverlayHtml,
   enrichReservesForPdf as enrichReserveListForPdf,
   formatReserveLocation,
   getReservePdfPhotos,
@@ -452,7 +453,8 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
   const leveed = linked.filter(({ reserve }) => reserve?.status === 'closed');
   const pending = linked.filter(({ reserve }) => !reserve || reserve.status !== 'closed');
 
-  const photoData: Record<string, { defect?: string; resolution?: string }> = {};
+  type OprPdfPhoto = { src: string; annotations?: PhotoAnnotation[] | null };
+  const photoData: Record<string, { defect?: OprPdfPhoto; resolution?: OprPdfPhoto }> = {};
   await Promise.all(
     leveed.map(async ({ reserve }) => {
       const reservePhotos = reserve ? getReservePdfPhotos(reserve) : [];
@@ -463,7 +465,10 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
         defectPhoto ? loadPhotoAsDataUrlForPdf(defectPhoto.uri) : Promise.resolve(''),
         resolutionPhoto ? loadPhotoAsDataUrlForPdf(resolutionPhoto.uri) : Promise.resolve(''),
       ]);
-      photoData[reserve.id] = { defect: dSrc || undefined, resolution: rSrc || undefined };
+      photoData[reserve.id] = {
+        defect: dSrc ? { src: dSrc, annotations: defectPhoto?.annotations } : undefined,
+        resolution: rSrc ? { src: rSrc, annotations: resolutionPhoto?.annotations } : undefined,
+      };
     })
   );
 
@@ -494,8 +499,8 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
       return `<div style="margin-bottom:20px;page-break-inside:avoid">
         <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:8px;background:#F4F7FB;padding:6px 10px;border-radius:6px">${escapeHtml(item.lotName)} — ${escapeHtml(reserve.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(formatReserveLocation(reserve))}</span></div>
         <div style="display:flex;gap:16px;flex-wrap:wrap">
-          ${photos.defect ? `<div style="text-align:center"><img src="${photos.defect}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#FFF5F5;border-radius:8px;border:2px solid #FCA5A5;display:block" /><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">${escapeHtml(copy.initialFinding)}</div></div>` : ''}
-          ${photos.resolution ? `<div style="text-align:center"><img src="${photos.resolution}" style="width:200px;height:auto;max-height:240px;object-fit:contain;background:#F0FFF4;border-radius:8px;border:2px solid #6EE7B7;display:block" /><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">${escapeHtml(copy.closedFinding)}</div></div>` : ''}
+          ${photos.defect ? `<div style="text-align:center"><div style="position:relative;display:inline-block;max-width:100%;"><img src="${photos.defect.src}" style="width:200px;height:auto;background:#FFF5F5;border-radius:8px;border:2px solid #FCA5A5;display:block" />${buildPhotoAnnotationsOverlayHtml(photos.defect.annotations)}</div><div style="font-size:10px;color:#DC2626;font-weight:700;margin-top:4px">${escapeHtml(copy.initialFinding)}</div></div>` : ''}
+          ${photos.resolution ? `<div style="text-align:center"><div style="position:relative;display:inline-block;max-width:100%;"><img src="${photos.resolution.src}" style="width:200px;height:auto;background:#F0FFF4;border-radius:8px;border:2px solid #6EE7B7;display:block" />${buildPhotoAnnotationsOverlayHtml(photos.resolution.annotations)}</div><div style="font-size:10px;color:#059669;font-weight:700;margin-top:4px">${escapeHtml(copy.closedFinding)}</div></div>` : ''}
         </div>
       </div>`;
     }).join('')}

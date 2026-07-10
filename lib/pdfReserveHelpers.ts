@@ -1,4 +1,4 @@
-import { Photo, Reserve, ReservePhoto } from '@/constants/types';
+import { Photo, PhotoAnnotation, Reserve, ReservePhoto } from '@/constants/types';
 
 type ReserveLocationSource = Pick<Reserve, 'building' | 'level' | 'zone'>;
 
@@ -128,7 +128,56 @@ export type ResolvedReservePdfPhoto = {
   /** Data-URL (ou URI de secours) déjà résolue pour l'embed PDF. */
   src: string;
   kind?: ReservePhoto['kind'];
+  /** Annotations dessinées sur la photo, rendues en surimpression dans le PDF. */
+  annotations?: PhotoAnnotation[] | null;
 };
+
+/**
+ * Calque d'annotations à superposer sur une photo de PDF. Valable quand la
+ * boîte de l'<img> épouse l'image (width fixe + height:auto) : les positions
+ * en % s'appliquent alors indifféremment aux annotations coordSpace 'image'
+ * et aux annotations legacy (% du conteneur d'origine, rendues pleine boîte
+ * partout ailleurs). Traits crayon en SVG (non-scaling-stroke), marqueurs en
+ * <div> positionnés pour éviter la distorsion du viewBox étiré.
+ */
+export function buildPhotoAnnotationsOverlayHtml(annotations?: PhotoAnnotation[] | null): string {
+  const list = (annotations ?? []).filter(a => a && typeof a.x === 'number' && typeof a.y === 'number');
+  if (list.length === 0) return '';
+
+  const rnd = (v: number) => Math.round(v * 100) / 100;
+  const svgParts: string[] = [];
+  const divParts: string[] = [];
+
+  for (const a of list) {
+    const color = escapePdfHtml(a.color || '#EF4444');
+    if (a.tool === 'pen') {
+      const pts = a.points?.length ? a.points : [{ x: a.x, y: a.y }];
+      if (pts.length >= 2) {
+        svgParts.push(`<polyline points="${pts.map(p => `${rnd(p.x)},${rnd(p.y)}`).join(' ')}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" vector-effect="non-scaling-stroke" />`);
+      } else {
+        divParts.push(`<div style="position:absolute;left:${rnd(pts[0].x)}%;top:${rnd(pts[0].y)}%;width:6px;height:6px;border-radius:3px;background:${color};transform:translate(-50%,-50%);"></div>`);
+      }
+      continue;
+    }
+    const x = rnd(a.x);
+    const y = rnd(a.y);
+    if (a.tool === 'text') {
+      divParts.push(`<div style="position:absolute;left:${x}%;top:${y}%;transform:translate(-50%,-50%);max-width:75%;background:${color}CC;border:1px solid ${color};border-radius:4px;padding:1px 4px;color:${a.color === '#FFFFFF' ? '#000' : '#fff'};font-size:7px;font-weight:700;line-height:1.25;">${escapePdfHtml(a.label ?? '')}</div>`);
+    } else if (a.tool === 'measure') {
+      divParts.push(`<div style="position:absolute;left:${x}%;top:${y}%;transform:translate(-50%,-50%);background:${color}DD;border-radius:6px;padding:1px 4px;color:#fff;font-size:7px;font-weight:700;white-space:nowrap;">⟷ ${escapePdfHtml(a.label ?? '')}</div>`);
+    } else if (a.tool === 'rect') {
+      divParts.push(`<div style="position:absolute;left:${x}%;top:${y}%;transform:translate(-50%,-50%);width:18px;height:13px;border:2px solid ${color};border-radius:2px;"></div>`);
+    } else {
+      const sym = a.tool === 'arrow' ? '↗' : escapePdfHtml((a.label ?? '').slice(0, 2) || '•');
+      divParts.push(`<div style="position:absolute;left:${x}%;top:${y}%;transform:translate(-50%,-50%);min-width:12px;height:12px;border-radius:7px;background:${color};border:1px solid #fff;color:#fff;font-size:7px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 2px;">${sym}</div>`);
+    }
+  }
+
+  const svg = svgParts.length
+    ? `<svg viewBox="0 0 100 100" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;">${svgParts.join('')}</svg>`
+    : '';
+  return `${svg}${divParts.join('')}`;
+}
 
 /**
  * Pile verticale de miniatures pour la cellule « Observation » d'un tableau de
@@ -152,9 +201,14 @@ export function buildReservePhotoStackHtml(
     const badge = p.kind === 'resolution' && opts?.resolvedLabel
       ? `<div style="margin-top:1px;"><span style="display:inline-block;padding:0 6px;border-radius:7px;font-size:8px;font-weight:700;background:#ECFDF5;color:#059669;">${escapePdfHtml(opts.resolvedLabel)}</span></div>`
       : '';
+    // Pas de max-height/object-fit : la boîte doit épouser l'image pour que
+    // le calque d'annotations en % reste aligné sur son contenu.
+    const overlay = buildPhotoAnnotationsOverlayHtml(p.annotations);
     return `<div style="margin-top:6px;page-break-inside:avoid;">
-      <img src="${escapePdfHtml(p.src)}" onerror="this.style.opacity='0.15'"
-        style="width:${width}px;max-width:100%;height:auto;max-height:150px;object-fit:cover;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB;" />${badge}
+      <div style="position:relative;display:inline-block;max-width:100%;">
+        <img src="${escapePdfHtml(p.src)}" onerror="this.style.opacity='0.15'"
+          style="width:${width}px;max-width:100%;height:auto;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB;" />${overlay}
+      </div>${badge}
     </div>`;
   }).join('');
 

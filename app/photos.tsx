@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { C } from '@/constants/colors';
@@ -31,6 +32,27 @@ export default function PhotosScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [authorFilter, setAuthorFilter] = useState('');
   const [pendingGps, setPendingGps] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'loading' | 'unavailable'>('idle');
+
+  // Capture GPS au moment de la prise : pendingGps n'était jamais alimenté
+  // (bandeau « en cours » permanent, coordonnées jamais enregistrées).
+  async function captureGps() {
+    if (Platform.OS === 'web') { setGpsStatus('unavailable'); return; }
+    setGpsStatus('loading');
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') { setGpsStatus('unavailable'); return; }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setPendingGps({
+        lat: pos.coords.latitude,
+        lon: pos.coords.longitude,
+        accuracy: Math.round(pos.coords.accuracy ?? 0),
+      });
+      setGpsStatus('idle');
+    } catch {
+      setGpsStatus('unavailable');
+    }
+  }
 
   function openShareModal(photo: Photo) {
     setSharePhoto(photo);
@@ -115,7 +137,9 @@ export default function PhotosScreen() {
     setPendingUri(uri);
     setCommentInput('');
     setLocationInput('');
+    setPendingGps(null);
     setModalVisible(true);
+    captureGps();
   }
 
   async function blobUriToDataUri(blobUri: string): Promise<string> {
@@ -164,6 +188,7 @@ export default function PhotosScreen() {
         takenBy: user?.name ?? t('photosScreen.teamFallback'),
         colorCode: C.closed,
         uri: finalUri,
+        ...(pendingGps ? { gpsLat: pendingGps.lat, gpsLon: pendingGps.lon, gpsAccuracy: pendingGps.accuracy } : {}),
       };
       addPhoto(newPhoto);
       if (storageUrl) {
@@ -199,6 +224,8 @@ export default function PhotosScreen() {
   function cancelModal() {
     setModalVisible(false);
     setPendingUri(null);
+    setPendingGps(null);
+    setGpsStatus('idle');
   }
 
   async function handlePickPhoto() {
@@ -537,7 +564,7 @@ export default function PhotosScreen() {
                   {t('photosScreen.gpsCaptured', { lat: pendingGps.lat.toFixed(5), lon: pendingGps.lon.toFixed(5), accuracy: pendingGps.accuracy })}
                 </Text>
               </View>
-            ) : Platform.OS !== 'web' ? (
+            ) : gpsStatus === 'loading' ? (
               <View style={[styles.gpsIndicator, { backgroundColor: C.surface2, borderColor: C.border }]}>
                 <Ionicons name="locate-outline" size={12} color={C.textMuted} />
                 <Text style={[styles.gpsIndicatorText, { color: C.textMuted }]}>{t('photosScreen.gpsLoading')}</Text>
