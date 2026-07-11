@@ -308,10 +308,11 @@ export function buildPhotoGrid(
     <div class="section-header">${escapeHtml(title)}</div>
     <div class="photo-grid">
       ${photos.map(p => {
-        // Photo annotée : boîte moulée sur l'image (max-height désactivé) pour
-        // que le calque en % reste aligné ; photo nue : rendu inchangé.
+        // Photo annotée : dimensions auto plafonnées — la boîte épouse l'image
+        // (calque en % aligné) sans pouvoir dépasser les bornes de la grille ;
+        // photo nue : rendu inchangé.
         const overlay = buildPhotoAnnotationsOverlayHtml(p.annotations);
-        const img = `<img class="photo-img" src="${p.src}" onerror="this.style.opacity='0.2'"${overlay ? ' style="max-height:none;object-fit:unset;"' : ''} />`;
+        const img = `<img class="photo-img" src="${p.src}" onerror="this.style.opacity='0.2'"${overlay ? ' style="width:auto;height:auto;max-width:190px;max-height:240px;object-fit:unset;"' : ''} />`;
         return `
         <div class="photo-item">
           ${overlay ? `<div style="position:relative;display:inline-block;max-width:100%;">${img}${overlay}</div>` : img}

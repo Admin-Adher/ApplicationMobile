@@ -81,9 +81,9 @@ function buildReservePhotoStackHtml(
   if (usable.length === 0) return '';
   const imgs = usable.map(p =>
     `<div style="margin-top:6px;page-break-inside:avoid">
-      <div style="position:relative;width:${width}px;max-width:100%">
+      <div style="position:relative;display:inline-block;max-width:100%">
         <img src="${escapeHtml(p.uri as string)}" onerror="this.style.opacity='0.15'"
-          style="width:100%;height:auto;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB"/>
+          style="width:auto;height:auto;max-width:${width}px;max-height:150px;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB"/>
         ${buildReservePhotoAnnotationsSvg(p.annotations)}
       </div>
     </div>`,
@@ -348,12 +348,13 @@ export function buildIndividualReserveHtml(payload: any): string {
       <div style="display:flex;gap:8px">
         ${photosToShow.map((p: any) => {
           const isDefect = p.kind === 'defect';
-          // Boîte moulée sur l'image (height:auto, pas d'object-fit) pour que
-          // le calque d'annotations en % reste aligné sur la photo.
-          return `<div style="flex:1;min-width:0;text-align:center">
-            <div style="position:relative">
+          // Dimensions auto plafonnées : la boîte épouse toujours l'image
+          // (calque d'annotations en % aligné) ET une photo portrait ne peut
+          // plus envahir la page ni se faire couper par un saut de page.
+          return `<div style="flex:1;min-width:0;text-align:center;page-break-inside:avoid">
+            <div style="position:relative;display:inline-block;max-width:100%">
               <img src="${escHtml(p.uri)}" onerror="this.style.opacity='0.15'"
-                style="width:100%;height:auto;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block"/>
+                style="width:auto;height:auto;max-width:100%;max-height:240px;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block"/>
               ${buildReservePhotoAnnotationsSvg(p.annotations)}
             </div>
             <span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'}">

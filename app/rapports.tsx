@@ -369,7 +369,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
     return `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="${tdS};font-weight:700;white-space:nowrap;vertical-align:middle">${escapeHtml(r.id)}</td>
       <td style="${tdS}">
-        ${photo ? `<div style="position:relative;display:inline-block;float:left;margin-right:8px;margin-bottom:2px;"><img src="${photo.src}" style="width:64px;height:auto;background:#F9FAFB;border-radius:5px;border:1px solid #DDE4EE;display:block" />${buildPhotoAnnotationsOverlayHtml(photo.annotations)}</div>` : ''}
+        ${photo ? `<div style="position:relative;display:inline-block;float:left;margin-right:8px;margin-bottom:2px;"><img src="${photo.src}" style="width:auto;height:auto;max-width:64px;max-height:64px;background:#F9FAFB;border-radius:5px;border:1px solid #DDE4EE;display:block" />${buildPhotoAnnotationsOverlayHtml(photo.annotations)}</div>` : ''}
         <span style="font-weight:600">${escapeHtml(r.title)}</span>
         ${hasCustomReserveDescription(r.description, r.title) ? `<div style="color:#6B7280;font-size:10px;margin-top:2px;clear:both">${escapeHtml(getReserveDescriptionText(r.description, r.title).slice(0, 80))}${getReserveDescriptionText(r.description, r.title).length > 80 ? '…' : ''}</div>` : ''}
       </td>

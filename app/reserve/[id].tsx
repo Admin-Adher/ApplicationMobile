@@ -324,13 +324,14 @@ function buildReservePDF(
           ${photosToShow.map((p, i) => {
             const src = resolvedPhotoSrcs?.[i] ?? p.uri;
             const isDefect = p.kind === 'defect';
-            // Boîte moulée sur l'image (height:auto, pas d'object-fit) pour que
-            // le calque d'annotations en % reste aligné sur la photo.
+            // Dimensions auto plafonnées : la boîte épouse toujours l'image
+            // (calque d'annotations en % aligné) ET une photo portrait ne peut
+            // plus envahir la page ni se faire couper par un saut de page.
             const overlay = buildPhotoAnnotationsOverlayHtml(p.annotations);
-            return `<div style="flex:1;min-width:0;text-align:center">
-              <div style="position:relative;">
+            return `<div style="flex:1;min-width:0;text-align:center;page-break-inside:avoid">
+              <div style="position:relative;display:inline-block;max-width:100%;">
                 <img src="${src}" onerror="this.style.opacity='0.15'"
-                  style="width:100%;height:auto;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block" />${overlay}
+                  style="width:auto;height:auto;max-width:100%;max-height:260px;background:#F9FAFB;border-radius:6px;border:1.5px solid #DDE4EE;display:block" />${overlay}
               </div>
               <span style="display:inline-block;margin-top:4px;padding:1px 7px;border-radius:8px;font-size:9px;font-weight:700;
                 background:${isDefect ? '#FEF2F2' : '#ECFDF5'};color:${isDefect ? '#DC2626' : '#059669'}">

@@ -203,13 +203,14 @@ export function buildReservePhotoStackHtml(
     const badge = p.kind === 'resolution' && opts?.resolvedLabel
       ? `<div style="margin-top:1px;"><span style="display:inline-block;padding:0 6px;border-radius:7px;font-size:8px;font-weight:700;background:#ECFDF5;color:#059669;">${escapePdfHtml(opts.resolvedLabel)}</span></div>`
       : '';
-    // Pas de max-height/object-fit : la boîte doit épouser l'image pour que
-    // le calque d'annotations en % reste aligné sur son contenu.
+    // Dimensions auto plafonnées (jamais de largeur fixe sans plafond de
+    // hauteur) : la boîte épouse toujours l'image — le calque d'annotations
+    // en % reste aligné — et une photo portrait ne s'étire plus démesurément.
     const overlay = buildPhotoAnnotationsOverlayHtml(p.annotations);
     return `<div style="margin-top:6px;page-break-inside:avoid;">
       <div style="position:relative;display:inline-block;max-width:100%;">
         <img src="${escapePdfHtml(p.src)}" onerror="this.style.opacity='0.15'"
-          style="width:${width}px;max-width:100%;height:auto;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB;" />${overlay}
+          style="width:auto;height:auto;max-width:${width}px;max-height:150px;display:block;border-radius:4px;border:1px solid #DDE4EE;background:#F9FAFB;" />${overlay}
       </div>${badge}
     </div>`;
   }).join('');
