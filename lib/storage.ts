@@ -29,10 +29,14 @@ async function readFileAsBlob(uri: string): Promise<{ data: Blob; mimeType: stri
   }
 }
 
-// Délai max pour tout l'upload (lecture + envoi + réponse Supabase).
-// 30 s couvre les réseaux mobiles lents (chantier, zones rurales). Si le délai
-// est dépassé, on renvoie null et l'appelant bascule sur la file de sync.
-const PHOTO_UPLOAD_TIMEOUT_MS = 30_000;
+// Délai max pour tout l'upload (lecture + envoi + réponse Supabase). Si le
+// délai est dépassé, on renvoie null et l'appelant bascule sur la file de sync.
+// 30 s ne suffisait pas sur les connexions de chantier (uplink lent) : chaque
+// photo un peu lourde expirait avec « Délai dépassé (upload photo native > 30s) »
+// à CHAQUE passe de sync, et la file ne convergeait jamais. 120 s laisse une
+// vraie chance à l'upload tout en restant sous le plafond par opération de la
+// passe de sync (UPLOAD_STEP_TIMEOUT_MS = 150 s dans NetworkContext).
+const PHOTO_UPLOAD_TIMEOUT_MS = 120_000;
 
 // Documents (PDFs, DXF) peuvent être beaucoup plus lourds que des photos —
 // on alloue 120 s pour couvrir les connexions chantier vraiment lentes.
@@ -311,14 +315,6 @@ async function _uploadPhotoWithError(
     if (presigned) {
       const ok = await putFileToR2(presigned, uri, contentType, PHOTO_UPLOAD_TIMEOUT_MS, '[uploadPhoto]');
       if (ok) {
-        if (Platform.OS !== 'web') {
-          try {
-            const docDir = FileSystem.documentDirectory ?? '';
-            if (docDir && uri.startsWith(docDir)) {
-              await FileSystem.deleteAsync(uri, { idempotent: true });
-            }
-          } catch {}
-        }
         return { url: presigned.publicUrl, error: null };
       }
       console.warn('[uploadPhoto] R2 échoué — repli sur Supabase Storage');
@@ -375,20 +371,15 @@ async function _uploadPhotoWithError(
       publicUrl = urlData.publicUrl;
     }
 
-    // ── Delete the local copy after a successful upload ───────────────────────
-    // Photos are copied to documentDirectory/photos/ via persistLocalPhoto()
-    // for offline resilience. Once the upload succeeds the remote URL is the
-    // source of truth — the local file must be deleted to prevent device
-    // storage from filling up over time.
-    if (Platform.OS !== 'web') {
-      try {
-        const docDir = FileSystem.documentDirectory ?? '';
-        if (docDir && uri.startsWith(docDir)) {
-          await FileSystem.deleteAsync(uri, { idempotent: true });
-        }
-      } catch {}
-    }
-
+    // NOTE: the local documentDirectory/photos/ copy is intentionally NOT
+    // deleted here. A successful upload does not mean the photo is safe: the
+    // database write that references it (RPC create_reserve_with_photos, row
+    // update…) can still fail afterwards — e.g. `42501` while the session is
+    // expired — and the app cache then keeps pointing at the local URI. Deleting
+    // the file at this point turned those photos into permanently blank/white
+    // images. purgeOrphanedPhotoFiles() reclaims unreferenced files after a
+    // clean sync pass (with a 7-day age guard), so device storage is still
+    // bounded without risking the only remaining copy of the user's photo.
     return { url: publicUrl, error: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
@@ -687,9 +678,12 @@ export async function purgeOrphanedPhotoFiles(
       try {
         const info = await FileSystem.getInfoAsync(fullPath, { md5: false });
         if (!info.exists) continue;
-        // modificationTime is seconds since epoch on iOS/Android
+        // modificationTime is seconds since epoch on iOS/Android. If the
+        // platform does not report it, KEEP the file: deleting a photo whose
+        // age we cannot prove risks destroying the only copy of user data.
         const mtime = (info as any).modificationTime;
-        const ageMs = typeof mtime === 'number' ? now - mtime * 1000 : maxAgeMs + 1;
+        if (typeof mtime !== 'number') continue;
+        const ageMs = now - mtime * 1000;
         if (ageMs < maxAgeMs) continue; // too recent — keep
         await FileSystem.deleteAsync(fullPath, { idempotent: true });
         deleted += 1;

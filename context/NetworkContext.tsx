@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestRpc, supabaseRestSelect } from '@/lib/supabaseRest';
+import { isSessionExpired } from '@/lib/sessionExpiry';
 import { forceRefreshSession, getSessionFromStorage, writeCache } from '@/lib/offlineCache';
 import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { useAuth } from '@/context/AuthContext';
@@ -171,6 +172,13 @@ interface NetworkContextValue {
    * processed (success or failure) so far. Both are 0 outside an active sync.
    */
   syncProgress: { done: number; total: number };
+  /**
+   * `true` when the last sync pass was skipped because no authenticated
+   * session is available (expired/revoked refresh token). Replaying would go
+   * out with the read-only anon key and every op would burn a `42501` failure,
+   * so the queue is held intact until the user logs in again.
+   */
+  syncAuthBlocked: boolean;
   conflicts: StatusConflict[];
   enqueueOperation: (op: Omit<QueuedOperation, 'id' | 'queuedAt'>) => void;
   resolveConflict: (conflictId: string, chosenStatus: string) => Promise<void>;
@@ -188,6 +196,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   queueLoaded: true,
   syncStatus: 'idle',
   syncProgress: { done: 0, total: 0 },
+  syncAuthBlocked: false,
   conflicts: [],
   enqueueOperation: () => {},
   resolveConflict: async () => {},
@@ -521,6 +530,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('idle');
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number }>({ done: 0, total: 0 });
+  const [syncAuthBlocked, setSyncAuthBlocked] = useState(false);
   const [conflicts, setConflicts] = useState<StatusConflict[]>([]);
 
   const prevOnlineRef = useRef(true);
@@ -908,7 +918,27 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // RLS, resulting in the endless "32 échecs" cycle the user sees.
     // We always refresh here (cheap no-op if the token is still valid). Borné
     // pour qu'un rafraîchissement bloqué ne gèle pas la passe avant la boucle.
-    try { await withTimeoutMs(getSupabaseRestAccessToken(), TOKEN_REFRESH_TIMEOUT_MS); } catch {}
+    let accessToken: string | null = null;
+    try { accessToken = await withTimeoutMs(getSupabaseRestAccessToken(), TOKEN_REFRESH_TIMEOUT_MS); } catch {}
+
+    // ── Session-validity gate ──────────────────────────────────────────────────
+    // getSupabaseRestAccessToken degrades to the ANON key when no user session
+    // can be obtained (expired/revoked refresh token, dead cached session after
+    // an app restart…). Replaying the queue in that state is worse than useless:
+    // every write goes out as role `anon`, RLS/grants reject it with
+    // `42501 permission denied` (e.g. create_reserve_with_photos), photo uploads
+    // may still land in storage while their reserve row never materialises, and
+    // each op accumulates scary failures the user is then tempted to « Vider ».
+    // Hold the queue intact instead — AuthContext surfaces the re-login prompt
+    // (SessionExpiredModal / bouton « Se reconnecter »), and the cold-start
+    // effect replays automatically once a fresh token lands.
+    if (!accessToken || accessToken === SUPABASE_KEY || isSessionExpired()) {
+      console.warn('[queue] aucune session authentifiée valide — passe de sync reportée jusqu\'à la reconnexion');
+      setSyncAuthBlocked(true);
+      setSyncStatus('idle');
+      return;
+    }
+    setSyncAuthBlocked(false);
 
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
@@ -985,7 +1015,28 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               UPLOAD_STEP_TIMEOUT_MS,
             );
             if (!prep.allOk) {
-              fail(op, prep.uploadErrors?.join(' | ') || i18n.t('networkQueue.uploadReservePhotosFailed'));
+              // Conserver le progrès partiel : les photos déjà uploadées gardent
+              // leur URL distante dans l'op ré-enfilée ET dans le cache. Sans
+              // cela, chaque passe ré-uploade TOUTES les photos depuis zéro —
+              // sur une connexion de chantier lente la file ne converge jamais
+              // (« Délai dépassé (upload photo native > 30s) » en boucle).
+              const partialReserve = prep.data ?? rawReserve;
+              let partialRetryOp = op;
+              if (partialReserve?.id) {
+                partialRetryOp = {
+                  ...op,
+                  data: partialReserve,
+                  rpc: { ...op.rpc, args: { ...args, p_reserve: partialReserve } },
+                };
+                if (prep.hadLocal) {
+                  await applySyncedReservePhotoPayloadToCache(
+                    userId,
+                    String(partialReserve.id),
+                    partialReserve,
+                  );
+                }
+              }
+              fail(partialRetryOp, prep.uploadErrors?.join(' | ') || i18n.t('networkQueue.uploadReservePhotosFailed'));
               continue;
             }
             const preparedReserve = prep.data ?? rawReserve;
@@ -998,6 +1049,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               ),
             };
             retryRpcOp = { ...op, data: preparedReserve, rpc: { ...op.rpc, args } };
+            // Bascule le cache sur les URLs distantes DÈS que l'upload a réussi,
+            // sans attendre le succès du RPC. Si le RPC échoue ensuite (session
+            // expirée, RLS…), l'UI continuerait sinon d'afficher des URIs
+            // locales potentiellement mortes → photos blanches / « disparues ».
+            if (prep.hadLocal && preparedReserve?.id) {
+              await applySyncedReservePhotoPayloadToCache(
+                userId,
+                String(preparedReserve.id),
+                preparedReserve,
+              );
+            }
           } else if (op.rpc.fn === 'create_site_plan_revision_with_reserve_migration') {
             const rawPlan = hydrateQueuedOrganizationId(
               'site_plans',
@@ -1228,6 +1290,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             if (prep.data) {
               data = prep.data;
               retryData = prep.data;
+            }
+            // Même logique que pour le RPC de création : dès que des photos
+            // locales d'une réserve sont uploadées, refléter les URLs distantes
+            // dans le cache sans attendre le succès de la mutation. Exclut les
+            // photoPatch, dont le payload ne contient qu'une liste partielle qui
+            // écraserait la galerie complète en cache.
+            if (op.table === 'reserves' && !op.photoPatch && prep.hadLocal && prep.allOk) {
+              const reserveId = data?.id ?? op.filter?.value;
+              if (reserveId) {
+                await applySyncedReservePhotoPayloadToCache(userId, String(reserveId), data ?? {});
+              }
             }
             if (!prep.allOk) {
               const errDetail = prep.uploadErrors?.join(' | ') ?? '';
@@ -1728,6 +1801,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       queueLoaded,
       syncStatus,
       syncProgress,
+      syncAuthBlocked,
       conflicts,
       enqueueOperation,
       resolveConflict,

@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DictationTextInput from '@/components/DictationTextInput';
 import { Photo, Channel } from '@/constants/types';
-import { uploadPhoto } from '@/lib/storage';
+import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
 import { showAlert } from '@/lib/appAlert';
@@ -205,6 +205,15 @@ export default function PhotosScreen() {
       const storageUrl = await uploadPhoto(pendingUri, filename);
 
       let finalUri: string | undefined = storageUrl ?? pendingUri;
+
+      // Upload raté / hors-ligne : ne JAMAIS garder l'URI du cache ImagePicker
+      // (file:///…/cache/ImagePicker/…) dans un enregistrement durable —
+      // Android purge ce dossier sous pression de stockage et la photo serait
+      // définitivement perdue avant la synchro. Copie vers documentDirectory,
+      // comme le font déjà tous les écrans réserve.
+      if (!storageUrl && Platform.OS !== 'web' && finalUri) {
+        finalUri = await persistLocalPhoto(finalUri);
+      }
 
       if (!storageUrl && Platform.OS === 'web' && finalUri?.startsWith('blob:')) {
         try {

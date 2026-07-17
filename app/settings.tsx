@@ -78,11 +78,13 @@ export default function SettingsScreen() {
   const { companies } = useApp();
   const { user, logout, permissions, reconnectExpiredSession } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
-  const { queue, queueCount, isOnline, syncStatus, syncProgress, clearQueue, retrySync } = useNetwork();
+  const { queue, queueCount, isOnline, syncStatus, syncProgress, syncAuthBlocked, clearQueue, retrySync } = useNetwork();
   // Stuck operations whose error points to an expired/invalid session: writes
   // went out with the read-only anon key and RLS rejected them. The cure is a
   // fresh login, not a retry — so we surface a "reconnect" affordance.
-  const queueHasAuthError = queue.some(op => {
+  // `syncAuthBlocked` covers the same situation before any failure is recorded
+  // (the sync engine now holds the queue instead of replaying as anon).
+  const queueHasAuthError = syncAuthBlocked || queue.some(op => {
     const e = (op.lastError ?? '').toLowerCase();
     return e.includes('42501')
       || e.includes('permission denied')
