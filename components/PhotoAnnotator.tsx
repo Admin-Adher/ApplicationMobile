@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { PhotoAnnotation } from '@/constants/types';
 import { genId } from '@/lib/utils';
+import { useNetwork } from '@/context/NetworkContext';
 
 const MARKER_COLORS = [
   { value: '#EF4444' },
@@ -680,6 +681,23 @@ export function PhotoWithAnnotations({
   const natural = useNaturalSize(uri);
   const imageRect = fitRect(containerSize, natural, resizeMode);
   const viewer = variant === 'viewer';
+  const { isOnline } = useNetwork();
+
+  // Échec de chargement (fichier local purgé/perdu, URL distante injoignable
+  // hors connexion…) : sans état d'erreur, RN <Image> ne peint rien et la
+  // vignette devient un rectangle blanc muet surmonté des badges — le bug
+  // « photos toutes blanches ». On affiche un placeholder identifiable à la
+  // place, et on retente le chargement quand la connexion revient.
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [retryToken, setRetryToken] = useState(0);
+  useEffect(() => { setLoadFailed(false); }, [uri]);
+  useEffect(() => {
+    if (isOnline && loadFailed) {
+      setLoadFailed(false);
+      setRetryToken(n => n + 1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOnline]);
 
   function renderSet(list: PhotoAnnotation[]) {
     const pens = list.filter(m => m.tool === 'pen');
@@ -746,16 +764,35 @@ export function PhotoWithAnnotations({
       style={[{ position: 'relative', overflow: 'hidden' }, style]}
       onLayout={e => setContainerSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
     >
-      <Image source={{ uri }} style={StyleSheet.absoluteFill} resizeMode={resizeMode} />
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        {renderSet(legacy)}
-      </View>
-      <View
-        style={{ position: 'absolute', left: imageRect.x, top: imageRect.y, width: imageRect.w, height: imageRect.h }}
-        pointerEvents="none"
-      >
-        {renderSet(imageSpace)}
-      </View>
+      <Image
+        key={`${uri}#${retryToken}`}
+        source={{ uri }}
+        style={StyleSheet.absoluteFill}
+        resizeMode={resizeMode}
+        onError={() => setLoadFailed(true)}
+        onLoad={() => setLoadFailed(false)}
+      />
+      {loadFailed && (
+        <View style={styles.imageFallback} pointerEvents="none">
+          <Ionicons name="image-outline" size={viewer ? 42 : 20} color="#9CA3AF" />
+          {!isOnline && (
+            <Ionicons name="cloud-offline-outline" size={viewer ? 20 : 12} color="#9CA3AF" />
+          )}
+        </View>
+      )}
+      {!loadFailed && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          {renderSet(legacy)}
+        </View>
+      )}
+      {!loadFailed && (
+        <View
+          style={{ position: 'absolute', left: imageRect.x, top: imageRect.y, width: imageRect.w, height: imageRect.h }}
+          pointerEvents="none"
+        >
+          {renderSet(imageSpace)}
+        </View>
+      )}
       {showBadge && annotations.length > 0 && (
         <View style={styles.thumbBadge}>
           <Ionicons name="pencil" size={9} color="#fff" />
@@ -905,4 +942,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 3,
   },
   thumbBadgeText: { fontSize: 9, fontFamily: 'Inter_600SemiBold', color: '#fff' },
+  imageFallback: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.surface2,
+    gap: 2,
+  },
 });
