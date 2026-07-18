@@ -38,6 +38,12 @@ async function readFileAsBlob(uri: string): Promise<{ data: Blob; mimeType: stri
 // passe de sync (UPLOAD_STEP_TIMEOUT_MS = 150 s dans NetworkContext).
 const PHOTO_UPLOAD_TIMEOUT_MS = 120_000;
 
+// Pour les uploads INTERACTIFS (l'utilisateur attend derrière un spinner :
+// galerie photos, pièce jointe de message, photo de levée…) on garde un délai
+// court : en cas d'échec, l'appelant bascule immédiatement sur le stockage
+// local + file de sync, qui elle bénéficie du délai long ci-dessus.
+export const INTERACTIVE_UPLOAD_TIMEOUT_MS = 30_000;
+
 // Documents (PDFs, DXF) peuvent être beaucoup plus lourds que des photos —
 // on alloue 120 s pour couvrir les connexions chantier vraiment lentes.
 const DOCUMENT_UPLOAD_TIMEOUT_MS = 120_000;
@@ -296,6 +302,7 @@ async function resolveStorageAccessToken(tag: string): Promise<string> {
 async function _uploadPhotoWithError(
   uri: string,
   filename: string,
+  timeoutMs: number = PHOTO_UPLOAD_TIMEOUT_MS,
 ): Promise<{ url: string | null; error: string | null }> {
   if (!isSupabaseConfigured) return { url: null, error: 'Supabase non configuré' };
   if (await localFileMissing(uri)) {
@@ -313,7 +320,7 @@ async function _uploadPhotoWithError(
     // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ─────────────
     const presigned = await requestPresignedUpload('photo', filename, '[uploadPhoto]');
     if (presigned) {
-      const ok = await putFileToR2(presigned, uri, contentType, PHOTO_UPLOAD_TIMEOUT_MS, '[uploadPhoto]');
+      const ok = await putFileToR2(presigned, uri, contentType, timeoutMs, '[uploadPhoto]');
       if (ok) {
         return { url: presigned.publicUrl, error: null };
       }
@@ -338,7 +345,7 @@ async function _uploadPhotoWithError(
             'Content-Type': contentType,
           },
         }),
-        PHOTO_UPLOAD_TIMEOUT_MS,
+        timeoutMs,
         'upload photo native',
       );
 
@@ -359,7 +366,7 @@ async function _uploadPhotoWithError(
         supabase.storage
           .from('photos')
           .upload(path, fileData, { contentType, upsert: false }),
-        PHOTO_UPLOAD_TIMEOUT_MS,
+        timeoutMs,
         'upload photo web',
       );
       if (error) {
@@ -388,9 +395,17 @@ async function _uploadPhotoWithError(
   }
 }
 
-export async function uploadPhoto(uri: string, filename: string): Promise<string | null> {
-  const { url } = await _uploadPhotoWithError(uri, filename);
-  return url;
+export async function uploadPhoto(
+  uri: string,
+  filename: string,
+  timeoutMs?: number,
+): Promise<string | null> {
+  const { url } = await _uploadPhotoWithError(uri, filename, timeoutMs);
+  // La sentinelle « fichier local disparu » ne doit jamais fuiter comme une
+  // URL vers les appelants directs : ils la stockeraient telle quelle dans un
+  // enregistrement (URI de photo inutilisable). Seul uploadLocalPhotosInPayload
+  // la consomme, via _uploadPhotoWithError.
+  return url === (MISSING_LOCAL_FILE as any) ? null : url;
 }
 
 export async function uploadDocument(

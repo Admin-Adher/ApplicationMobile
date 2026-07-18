@@ -12,7 +12,7 @@ import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DictationTextInput from '@/components/DictationTextInput';
 import { Photo, Channel } from '@/constants/types';
-import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
+import { uploadPhoto, persistLocalPhoto, INTERACTIVE_UPLOAD_TIMEOUT_MS } from '@/lib/storage';
 import { genId, formatDateFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
 import { showAlert } from '@/lib/appAlert';
@@ -202,18 +202,15 @@ export default function PhotosScreen() {
     setLoading(true);
     try {
       const filename = `photo_${Date.now()}.jpg`;
-      const storageUrl = await uploadPhoto(pendingUri, filename);
+      // Copier D'ABORD la photo hors du cache éphémère d'ImagePicker : Android
+      // peut purger ce dossier à tout moment (y compris pendant l'upload), et
+      // une URI de cache stockée dans un enregistrement durable finit en photo
+      // définitivement perdue. Le fichier persistant sert à la fois de source
+      // d'upload et de repli hors-ligne — comme sur les écrans réserve.
+      const sourceUri = Platform.OS !== 'web' ? await persistLocalPhoto(pendingUri) : pendingUri;
+      const storageUrl = await uploadPhoto(sourceUri, filename, INTERACTIVE_UPLOAD_TIMEOUT_MS);
 
-      let finalUri: string | undefined = storageUrl ?? pendingUri;
-
-      // Upload raté / hors-ligne : ne JAMAIS garder l'URI du cache ImagePicker
-      // (file:///…/cache/ImagePicker/…) dans un enregistrement durable —
-      // Android purge ce dossier sous pression de stockage et la photo serait
-      // définitivement perdue avant la synchro. Copie vers documentDirectory,
-      // comme le font déjà tous les écrans réserve.
-      if (!storageUrl && Platform.OS !== 'web' && finalUri) {
-        finalUri = await persistLocalPhoto(finalUri);
-      }
+      let finalUri: string | undefined = storageUrl ?? sourceUri;
 
       if (!storageUrl && Platform.OS === 'web' && finalUri?.startsWith('blob:')) {
         try {

@@ -16,7 +16,7 @@ import { useIncidents } from '@/context/IncidentsContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { Message } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import { persistLocalPhoto, uploadPhoto } from '@/lib/storage';
+import { persistLocalPhoto, uploadPhoto, INTERACTIVE_UPLOAD_TIMEOUT_MS } from '@/lib/storage';
 import { getMessageTimeMs, isSameUserName } from '@/lib/mappers';
 import { getDmDisplayName } from '@/hooks/queries/useChannels';
 import MessageBubble, { getAvatarColor } from '@/components/channel/MessageBubble';
@@ -555,7 +555,7 @@ export default function ChannelScreen() {
 
     setAttachmentUploading(true);
     try {
-      const url = await uploadPhoto(persistentUri, `msg_${Date.now()}.jpg`);
+      const url = await uploadPhoto(persistentUri, `msg_${Date.now()}.jpg`, INTERACTIVE_UPLOAD_TIMEOUT_MS);
       if (!url) {
         Alert.alert(t('channel.sendPhotoErrorTitle'), t('channel.sendPhotoErrorText'));
         return;
