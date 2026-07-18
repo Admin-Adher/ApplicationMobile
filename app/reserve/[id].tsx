@@ -35,7 +35,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { generateAndSendIndividualReserve } from '@/lib/email/client';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { uploadPhoto, persistLocalPhoto } from '@/lib/storage';
+import { uploadPhoto, persistLocalPhoto, INTERACTIVE_UPLOAD_TIMEOUT_MS } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { genId, formatDateFR, formatTimestampFR } from '@/lib/utils';
 import {
@@ -905,7 +905,7 @@ export default function ReserveDetailScreen() {
       let storageUrl: string | null = null;
       if (isOnline) {
         try {
-          storageUrl = await uploadPhoto(uri, filename);
+          storageUrl = await uploadPhoto(uri, filename, INTERACTIVE_UPLOAD_TIMEOUT_MS);
         } catch {
           // Échec réseau imprévu — fallback persistance locale.
         }
@@ -987,7 +987,7 @@ export default function ReserveDetailScreen() {
       let storageUrl: string | null = null;
       if (isOnline) {
         try {
-          storageUrl = await uploadPhoto(uri, filename);
+          storageUrl = await uploadPhoto(uri, filename, INTERACTIVE_UPLOAD_TIMEOUT_MS);
         } catch {
           // Fallback local si le reseau coupe pendant l'envoi.
         }

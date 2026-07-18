@@ -435,6 +435,30 @@ async function applySyncedReservePhotoPayloadToCache(
   }
 }
 
+function countLocalPhotoUris(data: Record<string, any> | null | undefined): number {
+  if (!data) return 0;
+  let n = 0;
+  if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) n += 1;
+  if (Array.isArray(data.photos)) {
+    for (const p of data.photos) {
+      if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) n += 1;
+    }
+  }
+  if (typeof data.uri === 'string' && isLocalUri(data.uri)) n += 1;
+  return n;
+}
+
+/**
+ * Plafond de temps pour l'étape d'upload d'une opération, proportionnel au
+ * nombre de photos locales restant à envoyer : les uploads sont séquentiels et
+ * chacun peut légitimement prendre jusqu'à ~120 s sur une connexion de
+ * chantier. Un plafond fixe de 150 s condamnait toute réserve à 2-3 photos à
+ * expirer en boucle (« timeout after 150000ms ») en perdant son progrès.
+ */
+function uploadStepTimeoutMs(data: Record<string, any> | null | undefined): number {
+  return UPLOAD_STEP_TIMEOUT_MS * Math.max(1, countLocalPhotoUris(data));
+}
+
 function queueReplayPriority(op: QueuedOperation): number {
   if (op.op === 'rpc' && op.rpc?.fn === 'create_reserve_with_photos') return 10;
   if (op.op === 'rpc' && op.rpc?.fn === 'create_site_plan_revision_with_reserve_migration') return 15;
@@ -680,6 +704,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     setQueue([]);
     loadQueue();
   }, [userId, loadQueue]);
+
+  // Changement d'utilisateur (déconnexion / re-connexion) : repartir d'un état
+  // « non bloqué ». Sans cela le drapeau ne serait réinitialisé que par une
+  // passe de sync réussie — inaccessible quand la file est vide — et la
+  // bannière « se reconnecter » resterait affichée après le re-login.
+  useEffect(() => {
+    setSyncAuthBlocked(false);
+  }, [userId]);
 
   // Once the queue finishes loading, force every gated query to re-evaluate
   // its queryFn so they can finally fetch from the server safely.
@@ -929,12 +961,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // `42501 permission denied` (e.g. create_reserve_with_photos), photo uploads
     // may still land in storage while their reserve row never materialises, and
     // each op accumulates scary failures the user is then tempted to « Vider ».
-    // Hold the queue intact instead — AuthContext surfaces the re-login prompt
-    // (SessionExpiredModal / bouton « Se reconnecter »), and the cold-start
-    // effect replays automatically once a fresh token lands.
-    if (!accessToken || accessToken === SUPABASE_KEY || isSessionExpired()) {
-      console.warn('[queue] aucune session authentifiée valide — passe de sync reportée jusqu\'à la reconnexion');
-      setSyncAuthBlocked(true);
+    // Hold the queue intact instead — the pass is retried by the ping/foreground
+    // triggers, and the cold-start effect replays automatically after re-login.
+    // Un jeton utilisateur VALIDE passe outre un éventuel verrou d'expiration
+    // périmé (latch posé puis session rétablie sans notifySessionRecovered).
+    if (!accessToken || accessToken === SUPABASE_KEY) {
+      const terminal = isSessionExpired();
+      console.warn(`[queue] jeton utilisateur indisponible (${terminal ? 'session expirée' : 'échec transitoire'}) — passe de sync reportée`);
+      // Bannière « se reconnecter » uniquement sur expiration terminale avérée :
+      // un raté transitoire (timeout, 5xx, cooldown de refresh) ne doit pas
+      // pousser l'utilisateur vers une déconnexion inutile.
+      setSyncAuthBlocked(terminal);
       setSyncStatus('idle');
       return;
     }
@@ -1012,7 +1049,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             }
             const prep = await withTimeoutMs(
               uploadLocalPhotosInPayload('reserves', rawReserve),
-              UPLOAD_STEP_TIMEOUT_MS,
+              uploadStepTimeoutMs(rawReserve),
             );
             if (!prep.allOk) {
               // Conserver le progrès partiel : les photos déjà uploadées gardent
@@ -1270,7 +1307,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           try {
             const prep = await withTimeoutMs(
               uploadLocalPhotosInPayload(op.table, data),
-              UPLOAD_STEP_TIMEOUT_MS,
+              uploadStepTimeoutMs(data),
             );
             if (op.table === 'site_plans') {
               console.log(`[SYNC:site_plans] upload résultat — allOk:${prep.allOk} hadLocal:${prep.hadLocal}`);
@@ -1305,7 +1342,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             if (!prep.allOk) {
               const errDetail = prep.uploadErrors?.join(' | ') ?? '';
               if (op.photoPatch) {
-                fail(op, errDetail || 'Échec upload photo. Nouvelle tentative au prochain passage.');
+                // Ré-enfiler avec le progrès partiel (photos déjà uploadées en
+                // URL distante) plutôt que le payload d'origine, sinon chaque
+                // passe ré-uploade tout depuis zéro.
+                fail(retryData ? { ...op, data: retryData } : op, errDetail || 'Échec upload photo. Nouvelle tentative au prochain passage.');
                 continue;
               }
 
@@ -1673,27 +1713,54 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       setSyncStatus('done');
       reloadHandlerRef.current?.();
       setTimeout(() => { if (isCurrentGeneration()) setSyncStatus('idle'); }, 4000);
-
-      // ── Purge orphaned local photo files after a clean sync ───────────────
-      // When all operations synced successfully there are no remaining local
-      // URIs that need to be preserved. Collect any local URIs still referenced
-      // by the (now-empty) queue — should be none — and delete everything else
-      // in documentDirectory/photos/ that is older than 7 days.
-      // This prevents device storage from filling with undeleted photo copies.
-      const referencedUris = new Set<string>();
-      for (const op of leftover) {
-        const d = op.data;
-        if (!d) continue;
-        if (typeof d.photo_uri === 'string' && isLocalUri(d.photo_uri)) referencedUris.add(d.photo_uri);
-        if (Array.isArray(d.photos)) {
-          for (const p of d.photos) {
-            if (p?.uri && isLocalUri(p.uri)) referencedUris.add(p.uri);
-          }
-        }
-        if (typeof d.uri === 'string' && isLocalUri(d.uri)) referencedUris.add(d.uri);
-      }
-      purgeOrphanedPhotoFiles(referencedUris).catch(() => {});
     }
+
+    // ── Purge des fichiers photo locaux orphelins ──────────────────────────
+    // S'exécute après CHAQUE passe — plus seulement les passes 100 % propres,
+    // sinon une file durablement en échec (op terminale, session expirée…)
+    // empêche toute récupération d'espace, d'autant que les fichiers uploadés
+    // ne sont plus supprimés immédiatement après upload. Sans risque pour les
+    // données : seuls les fichiers de plus de 7 jours ET non référencés sont
+    // supprimés. Sont protégées les URIs des opérations restantes de la file
+    // courante, mais aussi celles des files persistées des AUTRES comptes de
+    // l'appareil et des sauvegardes de file (« Vider ») — le dossier
+    // documentDirectory/photos/ est partagé entre tous les comptes.
+    void (async () => {
+      try {
+        const referencedUris = new Set<string>();
+        const collect = (d: Record<string, any> | null | undefined) => {
+          if (!d) return;
+          if (typeof d.photo_uri === 'string' && isLocalUri(d.photo_uri)) referencedUris.add(d.photo_uri);
+          if (Array.isArray(d.photos)) {
+            for (const p of d.photos) {
+              if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) referencedUris.add(p.uri);
+            }
+          }
+          if (typeof d.uri === 'string' && isLocalUri(d.uri)) referencedUris.add(d.uri);
+        };
+        const collectOps = (ops: any[] | null | undefined) => {
+          if (!Array.isArray(ops)) return;
+          for (const op of ops) {
+            collect(op?.data);
+            collect(op?.rpc?.args?.p_reserve);
+          }
+        };
+        collectOps(leftover);
+        const allKeys = await AsyncStorage.getAllKeys();
+        for (const key of allKeys) {
+          const isQueueKey = key.startsWith(OFFLINE_QUEUE_PREFIX) && key !== offlineQueueKey;
+          const isBackupKey = key.startsWith(OFFLINE_QUEUE_BACKUP_PREFIX);
+          if (!isQueueKey && !isBackupKey) continue;
+          try {
+            const raw = await AsyncStorage.getItem(key);
+            if (!raw) continue;
+            const parsed = JSON.parse(raw);
+            collectOps(Array.isArray(parsed) ? parsed : parsed?.queue);
+          } catch {}
+        }
+        await purgeOrphanedPhotoFiles(referencedUris);
+      } catch {}
+    })();
     } finally {
       // Ne relâcher le verrou / réinitialiser la progression que si nous sommes
       // toujours la passe courante (une passe préemptée ne doit pas toucher
@@ -1784,6 +1851,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const clearQueue = useCallback(async () => {
     await backupQueue(queueRef.current, 'manual-clear');
     setQueue([]);
+    // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
+    setSyncAuthBlocked(false);
     try { await AsyncStorage.removeItem(offlineQueueKey); } catch {}
     try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
   }, [backupQueue, offlineQueueKey]);
