@@ -2,7 +2,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Animated } f
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
-import { useRef, useEffect } from 'react';
+import { useRef, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Reserve } from '@/constants/types';
 import { C } from '@/constants/colors';
@@ -37,7 +37,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
   const isArchived = !!reserve.archivedAt;
   const router = useRouter();
   const { t } = useTranslation();
-  const { lots } = useApp();
+  const { lots, photos } = useApp();
   const { isOnline } = useNetwork();
   const swipeRef = useRef<Swipeable>(null);
   const flashAnim = useRef(new Animated.Value(0)).current;
@@ -55,7 +55,20 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
   const nearDeadline = !overdue && !isArchived && reserve.status !== 'closed' && daysLeft !== null && daysLeft <= 3;
   const lot = reserve.lotId ? lots.find(l => l.id === reserve.lotId) : null;
   const isObservation = reserve.kind === 'observation';
-  const firstPhotoUri = reserve.photos?.[0]?.uri ?? reserve.photoUri ?? null;
+  // Certaines réserves n'ont ni `photos` ni `photo_uri` sur leur ligne mais
+  // des photos liées dans la table `photos` (champ reserveId) — la fiche
+  // détail les affiche via enrichReserveForPdf. Sans ce repli, la liste ne
+  // montre aucune miniature alors que la fiche affiche bien des images.
+  const linkedPhotoUri = useMemo(() => {
+    if (reserve.photos?.[0]?.uri || reserve.photoUri) return null;
+    return photos.find(p => p.reserveId === reserve.id && !!p.uri)?.uri ?? null;
+  }, [photos, reserve.id, reserve.photos, reserve.photoUri]);
+  const firstPhotoUri = reserve.photos?.[0]?.uri ?? reserve.photoUri ?? linkedPhotoUri;
+  // URI morte (fichier local purgé, URL distante hors connexion sans cache) :
+  // sans état d'erreur, la miniature rend un carré blanc muet — on affiche un
+  // placeholder à la place, réinitialisé quand l'URI change.
+  const [thumbFailed, setThumbFailed] = useState(false);
+  useEffect(() => { setThumbFailed(false); }, [firstPhotoUri]);
   // True when at least one photo attached to this reserve still points to a
   // local file URI (camera cache, picker temp), meaning it has NOT yet been
   // uploaded to Supabase Storage and so won't be visible on other devices.
@@ -221,7 +234,13 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
 
         {firstPhotoUri ? (
           <View style={styles.photoThumbWrap}>
-            <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" accessibilityLabel={t('reserveCard.reservePhoto')} />
+            {thumbFailed ? (
+              <View style={[styles.photoThumb, styles.photoThumbFallback]} accessibilityLabel={t('reserveCard.reservePhoto')}>
+                <Ionicons name="image-outline" size={18} color={C.textMuted} />
+              </View>
+            ) : (
+              <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" onError={() => setThumbFailed(true)} accessibilityLabel={t('reserveCard.reservePhoto')} />
+            )}
             {hasUnsyncedPhoto && (
               <View style={[styles.syncDot, isOnline ? styles.syncDotPending : styles.syncDotOffline]} accessibilityLabel={syncPhotoLabel}>
                 <Ionicons name={syncPhotoIcon} size={10} color="#fff" />
@@ -496,6 +515,11 @@ const styles = StyleSheet.create({
   photoThumbWrap: {
     position: 'relative',
     flexShrink: 0,
+  },
+  photoThumbFallback: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: C.surface2,
   },
   photoThumbPlaceholder: {
     backgroundColor: C.surface2,
