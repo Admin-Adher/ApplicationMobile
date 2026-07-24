@@ -64,7 +64,17 @@ export function useRealtimeSync() {
         .on('postgres_changes', orgFilter('reserves'), () => {
           queryClient.invalidateQueries({ queryKey: queryKeys.reserves() });
         })
-        .subscribe();
+        .subscribe(status => {
+          if (status !== 'SUBSCRIBED') return;
+          // Realtime does not replay changes missed while its database
+          // connection was down. Reconcile the full server snapshot whenever
+          // the channel (re)subscribes so delayed offline inserts cannot remain
+          // hidden behind an older local cache.
+          void queryClient.refetchQueries({
+            queryKey: queryKeys.reserves(),
+            type: 'active',
+          });
+        });
       channels.push(reserveSub);
 
       const taskSub = supabase

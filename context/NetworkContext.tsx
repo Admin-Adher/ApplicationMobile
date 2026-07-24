@@ -37,6 +37,8 @@ const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
 const UPLOAD_STEP_TIMEOUT_MS = 150_000;
 const SYNC_KICK_DELAY_MS = 250;
 const SYNC_AUTH_RETRY_DELAY_MS = 5_000;
+const SYNC_INFRA_BACKOFF_BASE_MS = 30_000;
+const SYNC_INFRA_BACKOFF_MAX_MS = 5 * 60_000;
 
 // Borne pour le rafraîchissement du token et le refetch post-sync, afin qu'un
 // appel réseau bloqué en fin de passe ne laisse pas la file verrouillée.
@@ -50,6 +52,49 @@ const REFETCH_TIMEOUT_MS = 30_000;
 // jours, bouton de sync gelé sur « 0/1 »). Largement supérieur à la durée d'une
 // passe légitime, donc jamais déclenché en fonctionnement normal.
 const SYNC_STUCK_RECOVERY_MS = 10 * 60 * 1000;
+
+function syncErrorStatus(error: any): number {
+  const message = String(error?.message ?? error ?? '').toLowerCase();
+  const explicitStatus = Number(error?.status);
+  const messageStatus = Number(message.match(/\bhttp\s+(\d{3})/)?.[1]);
+  return Number.isFinite(explicitStatus) && explicitStatus > 0
+    ? explicitStatus
+    : messageStatus;
+}
+
+function isAuthenticationSyncFailure(error: any): boolean {
+  const message = String(error?.message ?? error ?? '').toLowerCase();
+  const code = String(error?.code ?? '').toUpperCase();
+  return (
+    syncErrorStatus(error) === 401
+    || code === 'PGRST301'
+    || /jwt.*(?:expired|invalid)/.test(message)
+    || /invalid.*jwt/.test(message)
+  );
+}
+
+function isInfrastructureSyncFailure(error: any): boolean {
+  const message = String(error?.message ?? error ?? '').toLowerCase();
+  const code = String(error?.code ?? '').toUpperCase();
+  const status = syncErrorStatus(error);
+
+  return (
+    code === 'REST_TIMEOUT'
+    || status === 429
+    || status === 544
+    || status === 502
+    || status === 503
+    || status === 504
+    || status === 520
+    || status === 522
+    || status === 524
+    || status === 530
+    || /database.*tim(?:ed|e)\s*out/.test(message)
+    || /statement timeout/.test(message)
+    || /connection.*timeout/.test(message)
+    || /connection terminated/.test(message)
+  );
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -259,18 +304,14 @@ async function checkInternetReachable(): Promise<boolean> {
 async function checkSupabaseReachable(): Promise<boolean> {
   if (!isSupabaseConfigured || !SUPABASE_URL || !SUPABASE_KEY) return true;
   try {
-    const res = await withTimeoutMs(fetch(`${SUPABASE_URL}/rest/v1/`, {
+    const res = await withTimeoutMs(fetch(`${SUPABASE_URL}/auth/v1/health`, {
       method: 'GET',
       cache: 'no-cache',
       headers: {
         apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
       },
     }), 12000);
-    // Any HTTP response means DNS/TLS/server routing worked. Auth/RLS failures
-    // are not offline signals; live queries should still be allowed to run and
-    // report their own typed errors.
-    return true;
+    return res.ok;
   } catch {
     return false;
   }
@@ -373,6 +414,7 @@ function hydrateQueuedOrganizationId(
 
 function reservePhotoRowsForRpcPayload(source: Record<string, any>, author?: string | null): any[] {
   const rows = new Map<string, any>();
+  const seenUris = new Set<string>();
   const reserveId = String(source.id ?? '');
   const location = [source.building, source.level, source.zone].filter(Boolean).join(' - ');
   const takenAt = source.created_at ?? new Date().toISOString().split('T')[0];
@@ -382,6 +424,8 @@ function reservePhotoRowsForRpcPayload(source: Record<string, any>, author?: str
     const uri = typeof photo?.uri === 'string' ? photo.uri : '';
     if (!uri) return;
     const id = String(photo?.id ?? `${reserveId}-photo-${index + 1}`);
+    if (seenUris.has(uri) || rows.has(id)) return;
+    seenUris.add(uri);
     rows.set(id, {
       id,
       uri,
@@ -393,11 +437,11 @@ function reservePhotoRowsForRpcPayload(source: Record<string, any>, author?: str
     });
   };
 
-  if (typeof source.photo_uri === 'string' && source.photo_uri) {
-    add({ id: `${reserveId}-cover`, uri: source.photo_uri }, 0);
-  }
   if (Array.isArray(source.photos)) {
     source.photos.forEach(add);
+  }
+  if (typeof source.photo_uri === 'string' && source.photo_uri) {
+    add({ id: `${reserveId}-cover`, uri: source.photo_uri }, rows.size);
   }
 
   return Array.from(rows.values());
@@ -617,6 +661,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // Throttle: track when the last sync attempt started so ping-driven retries
   // don't hammer the server (max one attempt per 20 seconds).
   const lastSyncAttemptRef = useRef<number>(0);
+  const syncBackoffUntilRef = useRef<number>(0);
+  const syncInfrastructureFailureCountRef = useRef<number>(0);
 
   const scheduleSync = useCallback((delayMs = SYNC_KICK_DELAY_MS) => {
     if (!isSupabaseConfigured) return;
@@ -772,6 +818,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // bannière « se reconnecter » resterait affichée après le re-login.
   useEffect(() => {
     setSyncAuthBlocked(false);
+    syncBackoffUntilRef.current = 0;
+    syncInfrastructureFailureCountRef.current = 0;
+    if (syncKickTimerRef.current) {
+      clearTimeout(syncKickTimerRef.current);
+      syncKickTimerRef.current = null;
+    }
   }, [userId]);
 
   // Once the queue finishes loading, force every gated query to re-evaluate
@@ -981,6 +1033,19 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // ping interval, etc.).
     if (queueRef.current.length === 0 || !isSupabaseConfigured) return;
 
+    const backoffRemainingMs = syncBackoffUntilRef.current - Date.now();
+    if (backoffRemainingMs > 0) {
+      scheduleSync(Math.max(backoffRemainingMs, SYNC_KICK_DELAY_MS));
+      return;
+    }
+    if (isSessionExpired()) {
+      // A rejected refresh token requires an explicit login. Keep the queue
+      // untouched and do not probe one 401 every few seconds indefinitely.
+      setSyncAuthBlocked(true);
+      setSyncStatus('idle');
+      return;
+    }
+
     // ── Garde-fou anti-blocage définitif ──────────────────────────────────────
     // On ne lance pas de passe concurrente TANT QUE la passe en cours progresse.
     // Mais si elle n'a fait aucun progrès depuis trop longtemps, c'est qu'un
@@ -1060,6 +1125,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
+    let circuitOpened = false;
+    let circuitDelayMs = 0;
     // Snapshot the queue from the ref (always current, not a stale closure)
     const currentQueue = [...queueRef.current].sort((a, b) => {
       const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
@@ -1091,10 +1158,33 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         terminal: Boolean(options?.terminalStatus) || op.terminal,
         terminalStatus: options?.terminalStatus ?? op.terminalStatus,
       });
+
+      if (!circuitOpened && isAuthenticationSyncFailure(err)) {
+        // Stop after the first rejected authenticated request. Replaying every
+        // queued operation with the same unusable JWT only burns retries and
+        // can trigger one refresh attempt per row.
+        circuitOpened = true;
+        circuitDelayMs = SYNC_AUTH_RETRY_DELAY_MS;
+        syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+        setSyncAuthBlocked(isSessionExpired());
+      } else if (!circuitOpened && isInfrastructureSyncFailure(err)) {
+        circuitOpened = true;
+        const failures = syncInfrastructureFailureCountRef.current + 1;
+        syncInfrastructureFailureCountRef.current = failures;
+        const exponential = Math.min(
+          SYNC_INFRA_BACKOFF_MAX_MS,
+          SYNC_INFRA_BACKOFF_BASE_MS * (2 ** Math.min(failures - 1, 4)),
+        );
+        circuitDelayMs = Math.round(exponential * (0.8 + Math.random() * 0.4));
+        syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+      }
     };
 
     let processed = 0;
     for (const op of currentQueue) {
+      // A project-wide timeout means all remaining operations would fail for
+      // the same reason. Leave them untouched for the delayed retry.
+      if (circuitOpened) break;
       // Si une passe plus récente nous a préemptés (nous étions gelés puis
       // réveillés), on cesse immédiatement tout travail : la passe courante
       // possède la file et a déjà rejoué (ou est en train de rejouer) ces ops.
@@ -1787,7 +1877,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // perdues silencieusement (et jamais synchronisées). queueRef est mis à jour
     // avant React et AsyncStorage pour rester insensible au batching et aux
     // courses avec un enqueue concurrent.
-    const processedIds = new Set(currentQueue.map(o => o.id));
+    const processedIds = new Set(currentQueue.slice(0, processed).map(o => o.id));
     const nextQueue = [
       ...remaining,
       ...queueRef.current.filter(o => !processedIds.has(o.id)),
@@ -1800,9 +1890,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const leftover = nextQueue;
 
     // Borné : un refetch bloqué ne doit pas laisser le verrou pris.
-    await withTimeoutMs(refetchActiveQueries('queue-processed'), REFETCH_TIMEOUT_MS).catch(() => {});
+    if (!circuitOpened) {
+      await withTimeoutMs(refetchActiveQueries('queue-processed'), REFETCH_TIMEOUT_MS).catch(() => {});
+      syncInfrastructureFailureCountRef.current = 0;
+      syncBackoffUntilRef.current = 0;
+    }
 
-    if (pendingConflicts.length > 0) {
+    if (circuitOpened) {
+      setSyncStatus('error');
+      reloadHandlerRef.current?.();
+      scheduleSync(circuitDelayMs);
+    } else if (pendingConflicts.length > 0) {
       setConflicts(pendingConflicts);
       setSyncStatus('conflict');
     } else if (failedOps.length > 0) {
@@ -1980,6 +2078,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     reloadHandlerRef.current = fn;
   }, []);
 
+  const retrySync = useCallback(async () => {
+    // An explicit user retry is a fresh health probe and must not be swallowed
+    // by the automatic circuit-breaker delay.
+    syncBackoffUntilRef.current = 0;
+    syncInfrastructureFailureCountRef.current = 0;
+    if (syncKickTimerRef.current) {
+      clearTimeout(syncKickTimerRef.current);
+      syncKickTimerRef.current = null;
+    }
+    await processSyncQueueRef.current();
+  }, []);
+
   return (
     <NetworkContext.Provider value={{
       isOnline,
@@ -1996,7 +2106,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       dismissConflicts,
       registerReloadHandler,
       clearQueue,
-      retrySync: processSyncQueue,
+      retrySync,
     }}>
       {children}
     </NetworkContext.Provider>

@@ -108,7 +108,18 @@ const FETCH_TIMEOUT_AUTH_MS = 12_000;     // /auth/v1/* — petits payloads, ret
 const FETCH_TIMEOUT_REST_MS = 15_000;     // /rest/v1/* — requêtes JSON, + 1 retry si GET
 const FETCH_TIMEOUT_STORAGE_MS = 120_000; // /storage/v1/* — uploads de photos sur réseau lent
 
-let storedAuthCache: { token: string; expiresAt: number; checkedUntil: number } | null = null;
+type StoredAuthSnapshot = {
+  token: string;
+  expiresAt: number;
+  userId: string;
+  issuedAt: number;
+};
+
+let storedAuthCache: (StoredAuthSnapshot & { checkedUntil: number }) | null = null;
+
+export function clearSupabaseStoredAuthCache(): void {
+  storedAuthCache = null;
+}
 
 function supabaseStorageKey(): string | null {
   try {
@@ -120,11 +131,36 @@ function supabaseStorageKey(): string | null {
   }
 }
 
-async function getValidStoredAccessToken(): Promise<string | null> {
+type JwtAuthClaims = {
+  subject: string;
+  issuedAt: number;
+  expiresAt: number;
+};
+
+function jwtAuthClaims(token: string | null | undefined): JwtAuthClaims | null {
+  if (!token || typeof globalThis.atob !== 'function') return null;
+  try {
+    const payload = token.split('.')[1];
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const decoded = JSON.parse(globalThis.atob(padded));
+    if (typeof decoded?.sub !== 'string') return null;
+    return {
+      subject: decoded.sub,
+      issuedAt: typeof decoded.iat === 'number' ? decoded.iat : 0,
+      expiresAt: typeof decoded.exp === 'number' ? decoded.exp : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function getValidStoredAuth(): Promise<StoredAuthSnapshot | null> {
   const nowMs = Date.now();
   const nowSec = Math.floor(nowMs / 1000);
   if (storedAuthCache && storedAuthCache.checkedUntil > nowMs && storedAuthCache.expiresAt - 10 > nowSec) {
-    return storedAuthCache.token;
+    return storedAuthCache;
   }
 
   const key = supabaseStorageKey();
@@ -133,14 +169,20 @@ async function getValidStoredAccessToken(): Promise<string | null> {
     const raw = await SsrSafeStorage.getItem(key);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (!parsed?.access_token || typeof parsed.expires_at !== 'number') return null;
+    const claims = jwtAuthClaims(parsed?.access_token);
+    const userId = typeof parsed?.user?.id === 'string'
+      ? parsed.user.id
+      : claims?.subject;
+    if (!parsed?.access_token || typeof parsed.expires_at !== 'number' || !userId) return null;
     if (parsed.expires_at - 10 <= nowSec) return null;
     storedAuthCache = {
       token: parsed.access_token,
       expiresAt: parsed.expires_at,
+      userId,
+      issuedAt: claims?.issuedAt ?? 0,
       checkedUntil: nowMs + 2_000,
     };
-    return parsed.access_token;
+    return storedAuthCache;
   } catch {
     return null;
   }
@@ -153,11 +195,29 @@ async function initWithStoredAuthIfNeeded(url: string, init?: any, input?: any):
   const headers = new Headers(init?.headers ?? input?.headers ?? {});
   const authorization = headers.get('authorization');
   const usingPublishableAuth = !authorization || authorization === `Bearer ${SUPABASE_KEY}`;
-  if (!usingPublishableAuth) return init;
+  const stored = await getValidStoredAuth();
+  if (!stored) return init;
 
-  const token = await getValidStoredAccessToken();
-  if (!token) return init;
-  headers.set('authorization', `Bearer ${token}`);
+  const suppliedToken = authorization?.replace(/^Bearer\s+/i, '') ?? null;
+  const suppliedClaims = jwtAuthClaims(suppliedToken);
+  const suppliedTokenIsOlder =
+    !!suppliedClaims &&
+    (
+      (suppliedClaims.expiresAt > 0 && suppliedClaims.expiresAt - 10 <= Math.floor(Date.now() / 1000))
+      || (stored.issuedAt > 0 && suppliedClaims.issuedAt > 0 && stored.issuedAt > suppliedClaims.issuedAt)
+    );
+  const staleTokenForSameUser =
+    !!suppliedToken &&
+    suppliedToken !== SUPABASE_KEY &&
+    suppliedToken !== stored.token &&
+    suppliedClaims?.subject === stored.userId &&
+    suppliedTokenIsOlder;
+
+  // A raw refresh can update AsyncStorage while supabase-js still holds the
+  // expired access token in memory. Heal only requests belonging to the same
+  // user; never swap credentials across an account change or a late mutation.
+  if (!usingPublishableAuth && !staleTokenForSameUser) return init;
+  headers.set('authorization', `Bearer ${stored.token}`);
   return { ...(init ?? {}), headers };
 }
 

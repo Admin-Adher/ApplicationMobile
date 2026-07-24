@@ -21,6 +21,26 @@ let memoryToken: { accessToken: string; expiresAt: number } | null = null;
 let lastRefreshFailureAt = 0;
 let lastSessionFailureAt = 0;
 
+export function clearSupabaseRestTokenCache(): void {
+  memoryToken = null;
+  lastRefreshFailureAt = 0;
+  lastSessionFailureAt = 0;
+}
+
+async function rememberRefreshedToken(accessToken: string): Promise<void> {
+  let expiresAt = Math.floor(Date.now() / 1000) + 300;
+  try {
+    const cached = await getSessionFromStorage();
+    if (
+      cached?.access_token === accessToken &&
+      typeof cached.expires_at === 'number'
+    ) {
+      expiresAt = cached.expires_at;
+    }
+  } catch {}
+  memoryToken = { accessToken, expiresAt };
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`${label} timeout after ${ms}ms`)), ms);
@@ -68,10 +88,7 @@ export async function getSupabaseRestAccessToken(): Promise<string> {
       if (nowMs - lastRefreshFailureAt > TOKEN_FAILURE_COOLDOWN_MS) {
         const refreshed = await forceRefreshSession();
         if (refreshed) {
-          memoryToken = {
-            accessToken: refreshed,
-            expiresAt: Math.floor(Date.now() / 1000) + 3600,
-          };
+          await rememberRefreshedToken(refreshed);
           return refreshed;
         }
         lastRefreshFailureAt = Date.now();
@@ -134,17 +151,36 @@ async function restRequest<T = any>(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, {
+    const send = (accessToken: string) => fetch(url, {
       ...init,
       headers: {
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${token || SUPABASE_KEY}`,
+        apikey: SUPABASE_KEY!,
+        Authorization: `Bearer ${accessToken || SUPABASE_KEY}`,
         Accept: 'application/json',
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...(init.headers ?? {}),
       },
       signal: controller.signal,
     });
+
+    let response = await send(token);
+
+    // A cached JWT can become invalid before its local expiry (logout, account
+    // switch, server-side revocation). Invalidate it immediately and perform at
+    // most one bounded refresh/retry. The queue remains intact if that retry
+    // also fails.
+    if (response.status === 401 && token && token !== SUPABASE_KEY) {
+      memoryToken = null;
+      if (Date.now() - lastRefreshFailureAt > TOKEN_FAILURE_COOLDOWN_MS) {
+        const refreshed = await forceRefreshSession().catch(() => null);
+        if (refreshed) {
+          await rememberRefreshedToken(refreshed);
+          response = await send(refreshed);
+        } else if (!refreshed) {
+          lastRefreshFailureAt = Date.now();
+        }
+      }
+    }
 
     const body = await readBody(response);
     if (!response.ok) {

@@ -59,6 +59,90 @@ function photoPatchFromPayload(payload: Record<string, any>): Record<string, any
   return Object.keys(patch).length > 0 ? patch : null;
 }
 
+function reserveUpdatePayload(reserve: Reserve): Record<string, any> {
+  const title = reserve.title.trim();
+  const companies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
+  const deadline = !reserve.deadline || reserve.deadline === '—'
+    ? null
+    : toIsoDeadline(reserve.deadline);
+  return {
+    title,
+    description: getReserveDescriptionText(reserve.description, title, ''),
+    building: reserve.building ?? '',
+    zone: reserve.zone ?? '',
+    level: reserve.level ?? '',
+    company: companies[0] ?? '',
+    companies,
+    priority: reserve.priority,
+    status: reserve.status,
+    deadline,
+    comments: reserve.comments ?? [],
+    history: reserve.history ?? [],
+    plan_x: reserve.planX ?? null,
+    plan_y: reserve.planY ?? null,
+    photo_uri: reserve.photoUri ?? null,
+    lot_id: reserve.lotId ?? null,
+    kind: reserve.kind ?? null,
+    chantier_id: reserve.chantierId ?? null,
+    plan_id: reserve.planId ?? null,
+    building_id: reserve.buildingId ?? null,
+    level_id: reserve.levelId ?? null,
+    visite_id: reserve.visiteId ?? null,
+    linked_task_id: reserve.linkedTaskId ?? null,
+    photos: reserve.photos ?? null,
+    photo_annotations: reserve.photoAnnotations ?? null,
+    enterprise_signature: reserve.enterpriseSignature ?? null,
+    enterprise_signataire: reserve.enterpriseSignataire ?? null,
+    enterprise_acknowledged_at: reserve.enterpriseAcknowledgedAt ?? null,
+    company_signatures: reserve.companySignatures ?? null,
+    closed_at: reserve.closedAt ?? null,
+    closed_by: reserve.closedBy ?? null,
+    archived_at: reserve.archivedAt ?? null,
+    archived_by: reserve.archivedBy ?? null,
+    deleted_at: reserve.deletedAt ?? null,
+    deleted_by: reserve.deletedBy ?? null,
+  };
+}
+
+function patchValueEquals(left: any, right: any): boolean {
+  if (Object.is(left, right)) return true;
+  if (left === null || right === null || left === undefined || right === undefined) return false;
+  if (typeof left !== 'object' || typeof right !== 'object') return false;
+  try {
+    return JSON.stringify(left) === JSON.stringify(right);
+  } catch {
+    return false;
+  }
+}
+
+function reserveScalarPatchSince(
+  payload: Record<string, any>,
+  previousPayload: Record<string, any> | null,
+): Record<string, any> {
+  const scalarPatch = reservePatchForVersionedRpc(payload);
+  if (!previousPayload) return scalarPatch;
+  const previousScalar = reservePatchForVersionedRpc(previousPayload);
+  return Object.fromEntries(
+    Object.entries(scalarPatch).filter(([key, value]) =>
+      !patchValueEquals(value, previousScalar[key])
+    ),
+  );
+}
+
+function reservePhotoPatchSince(
+  payload: Record<string, any>,
+  previousPayload: Record<string, any> | null,
+): Record<string, any> | null {
+  const photoPatch = photoPatchFromPayload(payload);
+  if (!photoPatch || !previousPayload) return photoPatch;
+  const changed = Object.fromEntries(
+    Object.entries(photoPatch).filter(([key, value]) =>
+      !patchValueEquals(value, previousPayload[key])
+    ),
+  );
+  return Object.keys(changed).length > 0 ? changed : null;
+}
+
 function pendingReserveDeletionPayloads(queue: any[] | undefined | null): Map<string, any> {
   const payloads = new Map<string, any>();
   for (const op of queue ?? []) {
@@ -165,6 +249,39 @@ export function useReserves() {
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
+  const serverRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverRetryFailuresRef = useRef(0);
+
+  const clearServerRetry = useCallback(() => {
+    if (serverRetryTimerRef.current) {
+      clearTimeout(serverRetryTimerRef.current);
+      serverRetryTimerRef.current = null;
+    }
+    serverRetryFailuresRef.current = 0;
+  }, []);
+
+  const scheduleServerRetry = useCallback(() => {
+    if (serverRetryTimerRef.current) return;
+    const failures = Math.min(serverRetryFailuresRef.current + 1, 6);
+    serverRetryFailuresRef.current = failures;
+    const baseDelay = Math.min(5_000 * (2 ** (failures - 1)), 120_000);
+    const jitter = Math.floor(Math.random() * Math.min(2_000, baseDelay * 0.2));
+    serverRetryTimerRef.current = setTimeout(() => {
+      serverRetryTimerRef.current = null;
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.reserves(),
+        refetchType: 'active',
+      });
+    }, baseDelay + jitter);
+  }, [queryClient]);
+
+  useEffect(() => () => {
+    if (serverRetryTimerRef.current) clearTimeout(serverRetryTimerRef.current);
+  }, []);
+
+  useEffect(() => {
+    clearServerRetry();
+  }, [clearServerRetry, userId]);
 
   useEffect(() => {
     if (!userId || !queueLoaded) return;
@@ -184,35 +301,6 @@ export function useReserves() {
       writeCache(RESERVES_CACHE_KEY, queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [], userId);
     }
   }, [queue, queueLoaded, queryClient, userId]);
-
-  // ── On mount: clean stale ghost items from the RQ persisted cache ──────────
-  // The RQ persisted cache (restored by PersistQueryClientProvider on startup)
-  // can contain items that were already deleted — because the app was closed
-  // before the 1-second throttled save completed after a deleteReserve().
-  // The manual AsyncStorage cache (RESERVES_CACHE_KEY) is always written
-  // synchronously on every mutation, so it is the ground truth.
-  // We compare both on mount and drop any ghost items from the RQ cache
-  // BEFORE the queryFn fires — this eliminates the startup flash entirely.
-  useEffect(() => {
-    if (!userId) return;
-    readCache<Reserve>(RESERVES_CACHE_KEY, userId).then(manualCached => {
-      if (!manualCached?.length) return;
-      const rqCurrent = queryClient.getQueryData<Reserve[]>(queryKeys.reserves());
-      if (!rqCurrent?.length) {
-        queryClient.setQueryData<Reserve[]>(queryKeys.reserves(), manualCached);
-        return;
-      }
-      const manualIds = new Set(manualCached.map(r => r.id));
-      const hasGhosts = rqCurrent.some(r => !manualIds.has(r.id));
-      if (hasGhosts) {
-        queryClient.setQueryData<Reserve[]>(
-          queryKeys.reserves(),
-          rqCurrent.filter(r => manualIds.has(r.id)),
-        );
-      }
-    });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
 
   const query = useQuery({
     queryKey: queryKeys.reserves(),
@@ -238,7 +326,10 @@ export function useReserves() {
 
       // Don't fetch with a missing/expired JWT — Supabase returns [] under
       // RLS, which would silently overwrite the local cache.
-      if (!(await isSupabaseSessionValid())) return cached ?? [];
+      if (!(await isSupabaseSessionValid())) {
+        scheduleServerRetry();
+        return cached ?? [];
+      }
 
       // Don't fetch until the offline queue has been hydrated. Otherwise an
       // empty fetch (RLS denied, network blip) combined with an empty queue
@@ -269,10 +360,12 @@ export function useReserves() {
         const pendingIds = pendingIdsForTable(currentQueue, 'reserves');
         const merged = mergeWithCache<Reserve>(fresh, cached, pendingIds, { queueLoaded });
         await writeCache(RESERVES_CACHE_KEY, merged, userId);
+        clearServerRetry();
         return merged;
       } catch (err) {
         // If fetch fails (offline), fall back to cache.
         console.warn(`[useReserves] fetch failed, using cache`, err);
+        scheduleServerRetry();
         return cached ?? [];
       }
     },
@@ -656,6 +749,8 @@ export function useReserves() {
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist, applyUploadedPhotoPayload]);
 
   const updateReserve = useCallback(async (r: Reserve) => {
+    const previousReserve = (queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [])
+      .find(item => item.id === r.id) ?? null;
     const reserve: Reserve = {
       ...r,
       title: r.title.trim(),
@@ -665,36 +760,11 @@ export function useReserves() {
       (old ?? []).map(x => x.id === reserve.id ? reserve : x)
     );
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
-    // Fix 16: derive companies first, then company from companies[0] for consistency
-    const companies = reserve.companies ?? (reserve.company ? [reserve.company] : []);
-    const deadlineValue = !reserve.deadline || reserve.deadline === '—' ? null : toIsoDeadline(reserve.deadline);
-    const payload = {
-      title: reserve.title,
-      description: reserve.description ?? '',
-      building: reserve.building ?? '',
-      zone: reserve.zone ?? '',
-      level: reserve.level ?? '',
-      company: companies[0] ?? '',
-      companies,
-      priority: reserve.priority, status: reserve.status, deadline: deadlineValue,
-      comments: reserve.comments ?? [], history: reserve.history ?? [],
-      plan_x: reserve.planX ?? null, plan_y: reserve.planY ?? null,
-      photo_uri: reserve.photoUri ?? null, lot_id: reserve.lotId ?? null, kind: reserve.kind ?? null,
-      chantier_id: reserve.chantierId ?? null, plan_id: reserve.planId ?? null,
-      building_id: reserve.buildingId ?? null, level_id: reserve.levelId ?? null,
-      visite_id: reserve.visiteId ?? null, linked_task_id: reserve.linkedTaskId ?? null,
-      photos: reserve.photos ?? null, photo_annotations: reserve.photoAnnotations ?? null,
-      enterprise_signature: reserve.enterpriseSignature ?? null,
-      enterprise_signataire: reserve.enterpriseSignataire ?? null,
-      enterprise_acknowledged_at: reserve.enterpriseAcknowledgedAt ?? null,
-      company_signatures: reserve.companySignatures ?? null,
-      closed_at: reserve.closedAt ?? null, closed_by: reserve.closedBy ?? null,
-      archived_at: reserve.archivedAt ?? null, archived_by: reserve.archivedBy ?? null,
-      deleted_at: reserve.deletedAt ?? null, deleted_by: reserve.deletedBy ?? null,
-    };
+    const payload = reserveUpdatePayload(reserve);
+    const previousPayload = previousReserve ? reserveUpdatePayload(previousReserve) : null;
     const queuePatch = (patch: Record<string, any>) => {
       const versioned = typeof reserve.version === 'number';
-      const scalarPatch = versioned ? reservePatchForVersionedRpc(patch) : patch;
+      const scalarPatch = versioned ? reserveScalarPatchSince(patch, previousPayload) : patch;
       if (hasPatchFields(scalarPatch)) {
         enqueueOperation({
           table: 'reserves',
@@ -704,7 +774,7 @@ export function useReserves() {
           baseVersion: reserve.version ?? null,
         });
       }
-      const photoPatch = versioned ? photoPatchFromPayload(patch) : null;
+      const photoPatch = versioned ? reservePhotoPatchSince(patch, previousPayload) : null;
       if (photoPatch) {
         enqueueOperation({
           table: 'reserves',
@@ -733,8 +803,14 @@ export function useReserves() {
       }
       if (prep.hadLocal && prep.data) applyUploadedPhotoPayload(reserve.id, prep.data);
       if (typeof reserve.version === 'number') {
-        const scalarPatch = reservePatchForVersionedRpc(prep.data!);
-        const photoPatch = photoPatchFromPayload(prep.data!);
+        const scalarPatch = reserveScalarPatchSince(prep.data!, previousPayload);
+        const photoPatch = reservePhotoPatchSince(prep.data!, previousPayload);
+        if (!hasPatchFields(scalarPatch)) {
+          // A photo-only edit must not increment the reserve version or create
+          // a full-row audit/Realtime event before its dedicated photo merge.
+          queuePatch(prep.data!);
+          return;
+        }
         const rpcResult = await applyReservePatchOperation({
           operationId: newOperationId(),
           reserveId: reserve.id,

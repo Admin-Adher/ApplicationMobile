@@ -1,7 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured, resetAuthLock } from '@/lib/supabase';
+import {
+  supabase,
+  isSupabaseConfigured,
+  resetAuthLock,
+  clearSupabaseStoredAuthCache,
+} from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import type { AppLanguage } from '@/constants/language';
 import { ROLE_LABELS } from '@/constants/roles';
@@ -11,6 +16,7 @@ import { markIntentionalLogout } from '@/lib/authIntent';
 import { setPersisterUserId } from '@/lib/queryPersister';
 import { deleteCurrentPushToken } from '@/lib/push/deviceRegistration';
 import { subscribeSessionExpiry, isSessionExpired, notifySessionRecovered } from '@/lib/sessionExpiry';
+import { clearSupabaseRestTokenCache } from '@/lib/supabaseRest';
 import i18n from '@/lib/i18n';
 
 /**
@@ -674,6 +680,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let fetchingProfileTimer: ReturnType<typeof setTimeout> | null = null;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
+      // Never reuse a REST bearer token across logout/login, token refresh, or
+      // account-switch events.
+      clearSupabaseRestTokenCache();
+      clearSupabaseStoredAuthCache();
       debugLog(`[AuthContext] onAuthStateChange → event=${_event} session=${session ? session.user?.email : 'null'}`);
       if (isSeedingRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (seeding en cours)'); return; }
       if (isRegisteringRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (register en cours)'); return; }
@@ -1367,6 +1377,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // supabase-js when a token refresh fails — and it would wipe data the
     // user still wants to see offline.
     markIntentionalLogout();
+    clearSupabaseRestTokenCache();
+    clearSupabaseStoredAuthCache();
     const currentUserId = user?.id;
     try {
       await deleteCurrentPushToken(currentUserId);
