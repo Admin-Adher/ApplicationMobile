@@ -30,11 +30,13 @@ const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
 
 // Délai max pour l'étape d'upload de fichiers (photos / plan) d'UNE opération.
-// Chaque fichier a déjà sa propre borne (30 s photo, 120 s document) côté
-// storage.ts, mais une opération peut enchaîner plusieurs fichiers : on borne
-// l'étape complète pour qu'un upload gelé fasse échouer proprement l'opération
+// Chaque fichier a déjà sa propre borne (120 s photo/document) côté storage.ts,
+// mais une opération peut enchaîner plusieurs fichiers : on borne l'étape
+// complète pour qu'un upload gelé fasse échouer proprement l'opération
 // (réessayée au passage suivant) au lieu de figer toute la file.
 const UPLOAD_STEP_TIMEOUT_MS = 150_000;
+const SYNC_KICK_DELAY_MS = 250;
+const SYNC_AUTH_RETRY_DELAY_MS = 5_000;
 
 // Borne pour le rafraîchissement du token et le refetch post-sync, afin qu'un
 // appel réseau bloqué en fin de passe ne laisse pas la file verrouillée.
@@ -580,6 +582,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // handlers captured the initial empty queue and never saw later updates.
   const queueRef = useRef<QueuedOperation[]>([]);
   useEffect(() => { queueRef.current = queue; }, [queue]);
+  const queueLoadedRef = useRef(false);
+  useEffect(() => { queueLoadedRef.current = queueLoaded; }, [queueLoaded]);
 
   const isOnlineRef = useRef(true);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -606,10 +610,32 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // processSyncQueue on every render, so stale closures can safely call
   // processSyncQueueRef.current() and get the correct behaviour.
   const processSyncQueueRef = useRef<() => Promise<void>>(async () => {});
+  const syncKickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  const queueHydrationGenerationRef = useRef(0);
 
   // Throttle: track when the last sync attempt started so ping-driven retries
   // don't hammer the server (max one attempt per 20 seconds).
   const lastSyncAttemptRef = useRef<number>(0);
+
+  const scheduleSync = useCallback((delayMs = SYNC_KICK_DELAY_MS) => {
+    if (!isSupabaseConfigured) return;
+    if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
+    syncKickTimerRef.current = setTimeout(() => {
+      syncKickTimerRef.current = null;
+      if (
+        queueLoadedRef.current &&
+        isOnlineRef.current &&
+        queueRef.current.length > 0
+      ) {
+        void processSyncQueueRef.current();
+      }
+    }, delayMs);
+  }, []);
+
+  useEffect(() => () => {
+    if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
+  }, []);
 
   // ── Queue persistence ──────────────────────────────────────────────────────
 
@@ -625,12 +651,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
   }, [offlineQueueBackupKey]);
 
-  const saveQueue = useCallback(async (q: QueuedOperation[]) => {
-    try {
-      await AsyncStorage.setItem(offlineQueueKey, JSON.stringify(q));
-    } catch (err) {
-      console.warn('[queue] failed to persist offline queue:', (err as any)?.message ?? err);
-    }
+  const saveQueue = useCallback((q: QueuedOperation[]) => {
+    const key = offlineQueueKey;
+    const serialized = JSON.stringify(q);
+    // Serialiser les écritures : deux enqueue rapprochés ne doivent jamais
+    // permettre à une ancienne version de la file de finir après la plus récente.
+    queueWriteChainRef.current = queueWriteChainRef.current
+      .catch(() => {})
+      .then(() => AsyncStorage.setItem(key, serialized))
+      .catch((err) => {
+        console.warn('[queue] failed to persist offline queue:', (err as any)?.message ?? err);
+      });
+    return queueWriteChainRef.current;
   }, [offlineQueueKey]);
 
   // Load the queue for the *current* user. We defer hydration until we know
@@ -640,7 +672,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // restoring. We also migrate any orphan `..._anon` queue (mutations enqueued
   // before authentication completed) into the per-user key so they can sync.
   const loadQueue = useCallback(async () => {
+    const myHydrationGeneration = ++queueHydrationGenerationRef.current;
     setQueueLoaded(false);
+    queueLoadedRef.current = false;
     const userKey = userId ? OFFLINE_QUEUE_PREFIX + userId : null;
     const anonKey = OFFLINE_QUEUE_PREFIX + 'anon';
     try {
@@ -687,22 +721,49 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         } catch {}
       }
 
-      setQueue(merged);
+      if (queueHydrationGenerationRef.current !== myHydrationGeneration) return;
+      // Des opérations peuvent être créées pendant la lecture AsyncStorage.
+      // Les fusionner avec l'instantané chargé évite qu'une hydratation lente ne
+      // remplace puis perde une saisie terrain toute fraîche.
+      const combined = [...merged];
+      for (const op of queueRef.current) {
+        if (op?.id && !seen.has(op.id)) {
+          seen.add(op.id);
+          combined.push(op);
+        }
+      }
+      queueRef.current = combined;
+      setQueue(combined);
+      await saveQueue(combined);
       lastLoadedKeyRef.current = userKey ?? anonKey;
     } catch {
-      setQueue([]);
+      // Conserver les opérations éventuellement créées pendant l'hydratation.
+      if (queueHydrationGenerationRef.current === myHydrationGeneration) {
+        setQueue([...queueRef.current]);
+      }
     } finally {
-      setQueueLoaded(true);
+      if (queueHydrationGenerationRef.current === myHydrationGeneration) {
+        queueLoadedRef.current = true;
+        setQueueLoaded(true);
+        if (queueRef.current.length > 0) scheduleSync();
+      }
     }
-  }, [userId]);
+  }, [userId, saveQueue, scheduleSync]);
 
   // ── Hydrate queue when user.id changes (cold start, login, switch) ─────────
   useEffect(() => {
     const targetKey = userId ? OFFLINE_QUEUE_PREFIX + userId : OFFLINE_QUEUE_PREFIX + 'anon';
     if (lastLoadedKeyRef.current === targetKey) return;
+    // Une passe lancée pour le compte précédent ne doit jamais repeupler l'état
+    // React du compte suivant lorsqu'un upload réseau se termine en retard.
+    syncGenerationRef.current += 1;
+    syncingRef.current = false;
+    queueHydrationGenerationRef.current += 1;
+    queueLoadedRef.current = false;
     setQueueLoaded(false);
+    queueRef.current = [];
     setQueue([]);
-    loadQueue();
+    void loadQueue();
   }, [userId, loadQueue]);
 
   // Changement d'utilisateur (déconnexion / re-connexion) : repartir d'un état
@@ -953,6 +1014,25 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     let accessToken: string | null = null;
     try { accessToken = await withTimeoutMs(getSupabaseRestAccessToken(), TOKEN_REFRESH_TIMEOUT_MS); } catch {}
 
+    // Le diagnostic peut encore voir une session persistée valide alors que le
+    // client auth en mémoire est resté gelé après une veille Android. Dans ce
+    // cas, ne pas simplement reporter la file indéfiniment : réparer la session
+    // puis relire immédiatement le jeton stocké avant d'abandonner cette passe.
+    if (!accessToken || accessToken === SUPABASE_KEY) {
+      try {
+        const healed = await withTimeoutMs(
+          healSupabaseSessionAfterWake(true),
+          TOKEN_REFRESH_TIMEOUT_MS,
+        );
+        if (healed) {
+          accessToken = await withTimeoutMs(
+            getSupabaseRestAccessToken(),
+            TOKEN_REFRESH_TIMEOUT_MS,
+          );
+        }
+      } catch {}
+    }
+
     // ── Session-validity gate ──────────────────────────────────────────────────
     // getSupabaseRestAccessToken degrades to the ANON key when no user session
     // can be obtained (expired/revoked refresh token, dead cached session after
@@ -973,6 +1053,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // pousser l'utilisateur vers une déconnexion inutile.
       setSyncAuthBlocked(terminal);
       setSyncStatus('idle');
+      if (!terminal) scheduleSync(SYNC_AUTH_RETRY_DELAY_MS);
       return;
     }
     setSyncAuthBlocked(false);
@@ -1048,7 +1129,32 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               rawReserve.deadline = null;
             }
             const prep = await withTimeoutMs(
-              uploadLocalPhotosInPayload('reserves', rawReserve),
+              uploadLocalPhotosInPayload('reserves', rawReserve, {
+                onProgress: async (partialReserve) => {
+                  if (!isCurrentGeneration()) return;
+                  const progressOp: QueuedOperation = {
+                    ...op,
+                    data: partialReserve,
+                    rpc: {
+                      ...op.rpc,
+                      fn: op.rpc!.fn,
+                      args: { ...args, p_reserve: partialReserve },
+                    },
+                  };
+                  retryRpcOp = progressOp;
+                  retryOpForCatch = progressOp;
+                  const index = queueRef.current.findIndex(item => item.id === op.id);
+                  if (index < 0) return;
+                  const next = [...queueRef.current];
+                  next[index] = progressOp;
+                  queueRef.current = next;
+                  setQueue(next);
+                  await saveQueue(next);
+                  // Une photo terminée est un vrai progrès : le watchdog ne doit
+                  // pas préempter une opération multi-photo qui converge.
+                  syncProgressAtRef.current = Date.now();
+                },
+              }),
               uploadStepTimeoutMs(rawReserve),
             );
             if (!prep.allOk) {
@@ -1678,21 +1784,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // pu être enfilées PENDANT la passe (ex. une réserve modifiée pendant
     // l'upload d'une autre). On préserve donc, en plus des opérations restantes,
     // toute opération ajoutée depuis le début de la passe — sinon elles seraient
-    // perdues silencieusement (et jamais synchronisées). On persiste DANS le
-    // updater (même motif que enqueueOperation) pour rester insensible au
-    // batching React et aux courses avec un enqueue concurrent.
+    // perdues silencieusement (et jamais synchronisées). queueRef est mis à jour
+    // avant React et AsyncStorage pour rester insensible au batching et aux
+    // courses avec un enqueue concurrent.
     const processedIds = new Set(currentQueue.map(o => o.id));
-    setQueue(prev => {
-      const next = [...remaining, ...prev.filter(o => !processedIds.has(o.id))];
-      void saveQueue(next);
-      return next;
-    });
-
-    // Décision de statut / purge : basée sur l'état le plus récent connu.
-    const leftover = [
+    const nextQueue = [
       ...remaining,
       ...queueRef.current.filter(o => !processedIds.has(o.id)),
     ];
+    queueRef.current = nextQueue;
+    setQueue(nextQueue);
+    await saveQueue(nextQueue);
+
+    // Décision de statut / purge : basée sur l'état le plus récent connu.
+    const leftover = nextQueue;
 
     // Borné : un refetch bloqué ne doit pas laisser le verrou pris.
     await withTimeoutMs(refetchActiveQueries('queue-processed'), REFETCH_TIMEOUT_MS).catch(() => {});
@@ -1709,6 +1814,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // nouvelle passe (cold-start / ping) les prendra en charge.
       setSyncStatus('idle');
       reloadHandlerRef.current?.();
+      scheduleSync();
     } else {
       setSyncStatus('done');
       reloadHandlerRef.current?.();
@@ -1841,19 +1947,32 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       id: genQueueId(),
       queuedAt: new Date().toISOString(),
     };
-    setQueue(prev => {
-      const updated = [...prev, newOp];
-      saveQueue(updated);
-      return updated;
-    });
-  }, [saveQueue]);
+    // queueRef est la source atomique : React peut différer le state updater et
+    // l'effet qui recopient la file. Sans cette mise à jour synchrone, le moteur
+    // lancé juste après l'enqueue voit encore [] et l'opération attend le prochain
+    // ping — voire indéfiniment après certaines reprises Android.
+    const updated = [...queueRef.current, newOp];
+    queueRef.current = updated;
+    setQueue(updated);
+    void saveQueue(updated);
+    scheduleSync();
+  }, [saveQueue, scheduleSync]);
 
   const clearQueue = useCallback(async () => {
     await backupQueue(queueRef.current, 'manual-clear');
+    if (syncKickTimerRef.current) {
+      clearTimeout(syncKickTimerRef.current);
+      syncKickTimerRef.current = null;
+    }
+    queueRef.current = [];
     setQueue([]);
     // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
     setSyncAuthBlocked(false);
-    try { await AsyncStorage.removeItem(offlineQueueKey); } catch {}
+    queueWriteChainRef.current = queueWriteChainRef.current
+      .catch(() => {})
+      .then(() => AsyncStorage.removeItem(offlineQueueKey))
+      .catch(() => {});
+    await queueWriteChainRef.current;
     try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
   }, [backupQueue, offlineQueueKey]);
 

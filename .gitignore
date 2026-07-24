@@ -23,3 +23,6 @@ expo-env.d.ts
 
 # TypeScript incremental build cache (regénéré à chaque tsc --noEmit)
 *.tsbuildinfo
+
+# Local diagnostic captures, device databases and Metro logs
+tmp/

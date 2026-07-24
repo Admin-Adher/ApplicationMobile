@@ -305,6 +305,9 @@ async function _uploadPhotoWithError(
   timeoutMs: number = PHOTO_UPLOAD_TIMEOUT_MS,
 ): Promise<{ url: string | null; error: string | null }> {
   if (!isSupabaseConfigured) return { url: null, error: 'Supabase non configuré' };
+  const startedAt = Date.now();
+  const remainingBudgetMs = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
+  const timeoutMessage = () => `Délai dépassé (upload photo complet > ${Math.round(timeoutMs / 1000)}s)`;
   if (await localFileMissing(uri)) {
     console.warn('[uploadPhoto] local file missing, dropping:', uri);
     return { url: MISSING_LOCAL_FILE as any, error: null };
@@ -320,7 +323,9 @@ async function _uploadPhotoWithError(
     // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ─────────────
     const presigned = await requestPresignedUpload('photo', filename, '[uploadPhoto]');
     if (presigned) {
-      const ok = await putFileToR2(presigned, uri, contentType, timeoutMs, '[uploadPhoto]');
+      const remainingForR2 = remainingBudgetMs();
+      if (remainingForR2 <= 0) return { url: null, error: timeoutMessage() };
+      const ok = await putFileToR2(presigned, uri, contentType, remainingForR2, '[uploadPhoto]');
       if (ok) {
         return { url: presigned.publicUrl, error: null };
       }
@@ -332,9 +337,17 @@ async function _uploadPhotoWithError(
     if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
       // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ───────────
       // Avoid the "Network request failed" caused by Blob bodies in RN's fetch.
-      const accessToken = await resolveStorageAccessToken('[uploadPhoto]');
+      const remainingForToken = remainingBudgetMs();
+      if (remainingForToken <= 0) return { url: null, error: timeoutMessage() };
+      const accessToken = await withTimeout(
+        resolveStorageAccessToken('[uploadPhoto]'),
+        remainingForToken,
+        'jeton upload photo',
+      );
 
       const uploadUrl = `${SUPABASE_URL}/storage/v1/object/photos/${path}`;
+      const remainingForUpload = remainingBudgetMs();
+      if (remainingForUpload <= 0) return { url: null, error: timeoutMessage() };
       const result = await withTimeout(
         FileSystem.uploadAsync(uploadUrl, uri, {
           httpMethod: 'POST',
@@ -345,7 +358,7 @@ async function _uploadPhotoWithError(
             'Content-Type': contentType,
           },
         }),
-        timeoutMs,
+        remainingForUpload,
         'upload photo native',
       );
 
@@ -361,12 +374,20 @@ async function _uploadPhotoWithError(
       publicUrl = urlData.publicUrl;
     } else {
       // ── Web path: Blob via Supabase JS SDK ───────────────────────────────────
-      const { data: fileData } = await readFileAsBlob(uri);
+      const remainingForRead = remainingBudgetMs();
+      if (remainingForRead <= 0) return { url: null, error: timeoutMessage() };
+      const { data: fileData } = await withTimeout(
+        readFileAsBlob(uri),
+        remainingForRead,
+        'lecture photo web',
+      );
+      const remainingForUpload = remainingBudgetMs();
+      if (remainingForUpload <= 0) return { url: null, error: timeoutMessage() };
       const { data, error } = await withTimeout(
         supabase.storage
           .from('photos')
           .upload(path, fileData, { contentType, upsert: false }),
-        timeoutMs,
+        remainingForUpload,
         'upload photo web',
       );
       if (error) {
@@ -728,6 +749,9 @@ export async function purgeOrphanedPhotoFiles(
 export async function uploadLocalPhotosInPayload(
   table: string,
   payload: Record<string, any> | null | undefined,
+  options?: {
+    onProgress?: (data: Record<string, any>) => void | Promise<void>;
+  },
 ): Promise<{ data: Record<string, any> | null | undefined; allOk: boolean; hadLocal: boolean; uploadErrors: string[] }> {
   if (!payload || !isSupabaseConfigured) {
     return { data: payload, allOk: true, hadLocal: false, uploadErrors: [] };
@@ -736,6 +760,13 @@ export async function uploadLocalPhotosInPayload(
   let allOk = true;
   let hadLocal = false;
   const uploadErrors: string[] = [];
+  const reportProgress = async (progressData: Record<string, any>) => {
+    try {
+      await options?.onProgress?.(progressData);
+    } catch (err) {
+      console.warn('[upload] impossible de persister la progression:', (err as any)?.message ?? err);
+    }
+  };
 
   if (table === 'reserves') {
     const uploadedLocalUris = new Map<string, Awaited<ReturnType<typeof _uploadPhotoWithError>>>();
@@ -753,15 +784,21 @@ export async function uploadLocalPhotosInPayload(
       if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
+      await reportProgress({ ...data });
     }
     if (Array.isArray(data.photos)) {
+      const sourcePhotos = data.photos;
       const newPhotos: any[] = [];
-      for (let i = 0; i < data.photos.length; i++) {
-        const p = data.photos[i];
+      for (let i = 0; i < sourcePhotos.length; i++) {
+        const p = sourcePhotos[i];
         if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) {
           hadLocal = true;
           const { url: remote, error: uploadErr } = await uploadReservePhotoOnce(p.uri, `reserve_photo_${Date.now()}_${nextUploadSeq()}_${i}.jpg`);
           if (remote === (MISSING_LOCAL_FILE as any)) {
+            await reportProgress({
+              ...data,
+              photos: [...newPhotos, ...sourcePhotos.slice(i + 1)],
+            });
             continue;
           }
           if (remote) newPhotos.push({ ...p, uri: remote });
@@ -769,6 +806,10 @@ export async function uploadLocalPhotosInPayload(
         } else {
           newPhotos.push(p);
         }
+        await reportProgress({
+          ...data,
+          photos: [...newPhotos, ...sourcePhotos.slice(i + 1)],
+        });
       }
       data.photos = newPhotos;
     }
