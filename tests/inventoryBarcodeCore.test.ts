@@ -85,6 +85,26 @@ describe('UPCitemdb fallback', () => {
     }, '3250614435225')).toBeNull();
   });
 
+  it('uses a clean separator and prefers an Android-compatible HTTPS photo', () => {
+    const match = parseUpcItemDbResponse({
+      items: [{
+        ean: '4003773033837',
+        title: 'Knipex 10" Pliers Wrenches 8603250',
+        model: '4000810690',
+        dimension: '10.8 X 2.5 X 0.8 inches',
+        images: [
+          'http://images.example/legacy.gif',
+          'https://images.example/knipex.jpg',
+        ],
+      }],
+    }, '4003773033837');
+
+    expect(match).toMatchObject({
+      designation: 'Knipex 10" Pliers Wrenches 8603250 — 4000810690 — 10.8 X 2.5 X 0.8 inches',
+      photoUrl: 'https://images.example/knipex.jpg',
+    });
+  });
+
   it('queries the no-key endpoint for a valid GTIN', async () => {
     const fetchMock = vi.fn<typeof fetch>(async input => {
       expect(String(input)).toContain('upc=3250614435225');

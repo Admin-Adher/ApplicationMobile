@@ -283,10 +283,16 @@ export function parseUpcItemDbResponse(payload: any, barcode: string): Inventory
     .filter((value): value is string => Boolean(value))
     .filter(value => !normalizedProductText(title).includes(normalizedProductText(value)))
     .slice(0, 2);
-  const designation = [title, ...details].join(' â€” ');
-  const image = Array.isArray(item.images)
-    ? item.images.map(safeWebUrl).find(Boolean)
-    : safeWebUrl(item.image ?? item.thumbnail);
+  const designation = [title, ...details].join(' \u2014 ');
+  const rawImageValues: unknown[] = Array.isArray(item.images)
+    ? item.images
+    : [item.image ?? item.thumbnail];
+  const imageCandidates = rawImageValues
+    .map(value => safeWebUrl(value))
+    .filter((value): value is string => Boolean(value));
+  // Android blocks plain HTTP images in production by default. Prefer an HTTPS
+  // catalogue image when providers return a mixed list of legacy image URLs.
+  const image = imageCandidates.find(value => value.startsWith('https://')) ?? imageCandidates[0];
 
   return {
     barcode,
