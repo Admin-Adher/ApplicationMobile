@@ -412,7 +412,17 @@ export default function InventoryMovementScreen() {
             </View>
           )}
           <Field label={copy.designation}>
-            <TextInput style={styles.input} value={designation} onChangeText={handleDesignationChange} editable={!selectedProduct} placeholder="Vanne DN25" placeholderTextColor={C.textMuted} />
+            <TextInput
+              style={[styles.input, styles.designationInput]}
+              value={designation}
+              onChangeText={handleDesignationChange}
+              editable={!selectedProduct}
+              placeholder="Vanne DN25"
+              placeholderTextColor={C.textMuted}
+              multiline
+              numberOfLines={2}
+              textAlignVertical="top"
+            />
           </Field>
           <Field label={copy.barcode} optional={copy.optional}>
             <TextInput style={styles.input} value={barcode} onChangeText={handleBarcodeChange} editable={!selectedProduct} placeholder="EAN, QR, Code 128…" placeholderTextColor={C.textMuted} autoCapitalize="none" autoCorrect={false} />
@@ -483,6 +493,7 @@ const styles = StyleSheet.create({
   sectionTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 16 },
   field: { gap: 6 }, fieldLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, fieldLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase' }, optional: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 10 },
   input: { minHeight: 47, backgroundColor: C.inputBg, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14 },
+  designationInput: { minHeight: 72, paddingTop: 11, paddingBottom: 11 },
   inputWithIcon: { minHeight: 47, flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.inputBg, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13 }, inputFlex: { flex: 1, color: C.text, fontFamily: 'Inter_600SemiBold', fontSize: 15, paddingVertical: 0 },
   foundBox: { flexDirection: 'row', alignItems: 'center', gap: 6 }, foundText: { color: C.closed, fontFamily: 'Inter_600SemiBold', fontSize: 11 },
   lookupStack: { gap: 8 },
