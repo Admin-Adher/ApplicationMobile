@@ -124,7 +124,7 @@ export default function InventoryMovementScreen() {
   );
 
   useEffect(() => {
-    if (selectedProduct || inventory.isLoading || lookupCode.length < 4) {
+    if (selectedProduct || lookupCode.length < 4) {
       if (selectedProduct || lookupCode.length < 4) setBarcodeLookup({ status: 'idle' });
       return;
     }
@@ -155,7 +155,7 @@ export default function InventoryMovementScreen() {
       active = false;
       clearTimeout(timer);
     };
-  }, [i18n.language, i18n.resolvedLanguage, inventory.isLoading, lookupCode, selectedProduct]);
+  }, [i18n.language, i18n.resolvedLanguage, lookupCode, selectedProduct]);
 
   const suggestions = useMemo(() => {
     const needle = reference.trim().toLowerCase();
