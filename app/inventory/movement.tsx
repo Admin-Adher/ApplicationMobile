@@ -131,23 +131,29 @@ export default function InventoryMovementScreen() {
 
     let active = true;
     const timer = setTimeout(() => {
+      const applyLookupMatch = (match: InventoryBarcodeMatch) => {
+        if (!active) return;
+        setBarcodeLookup({ status: 'found', match });
+        setDesignation(current => designationEdited.current ? current : match.designation);
+        if (match.brand) {
+          setSupplier(current => supplierEdited.current ? current : match.brand ?? current);
+        }
+        if (match.photoUrl) {
+          setPhotoUrl(current => current ?? match.photoUrl);
+        }
+      };
+
       setBarcodeLookup({ status: 'searching' });
       void lookupInventoryBarcode(lookupCode, {
         language: i18n.resolvedLanguage ?? i18n.language ?? 'fr',
+        onPartialMatch: applyLookupMatch,
       }).then(match => {
         if (!active) return;
         if (!match) {
           setBarcodeLookup({ status: 'not-found' });
           return;
         }
-        setBarcodeLookup({ status: 'found', match });
-        setDesignation(current => designationEdited.current || current.trim() ? current : match.designation);
-        if (match.brand) {
-          setSupplier(current => supplierEdited.current || current.trim() ? current : match.brand ?? current);
-        }
-        if (match.photoUrl) {
-          setPhotoUrl(current => current ?? match.photoUrl);
-        }
+        applyLookupMatch(match);
       }).catch(() => {
         if (active) setBarcodeLookup({ status: 'not-found' });
       });

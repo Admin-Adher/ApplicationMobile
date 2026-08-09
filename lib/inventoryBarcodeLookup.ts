@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   isSupabaseConfigured,
+  getValidStoredAccessToken,
   supabase,
   SUPABASE_KEY,
   SUPABASE_URL,
@@ -34,6 +35,7 @@ export interface InventoryBarcodeLookupOptions {
   apiBaseUrl?: string;
   accessToken?: string | null;
   useCache?: boolean;
+  onPartialMatch?: (match: InventoryBarcodeMatch) => void;
 }
 
 async function readCachedMatchWithinDeadline(code: string): Promise<InventoryBarcodeMatch | null> {
@@ -86,6 +88,8 @@ function defaultApiBaseUrl(): string {
 async function currentAccessToken(): Promise<string | null> {
   if (!isSupabaseConfigured) return null;
   try {
+    const storedToken = await getValidStoredAccessToken();
+    if (storedToken) return storedToken;
     const { data } = await (supabase as any).auth.getSession();
     return data?.session?.access_token ?? null;
   } catch {
@@ -116,9 +120,9 @@ async function lookupWebProvider(
   }
   if (base) endpoints.push({ url: `${base}/api/inventory-barcode-lookup` });
 
-  for (const endpoint of endpoints) {
+  async function requestEndpoint(endpoint: { url: string; apiKey?: string }): Promise<InventoryBarcodeMatch | null> {
     const controller = new AbortController();
-    const timeoutMs = options.webTimeoutMs ?? 7000;
+    const timeoutMs = options.webTimeoutMs ?? 5000;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const headers: Record<string, string> = {
@@ -145,8 +149,24 @@ async function lookupWebProvider(
     } finally {
       clearTimeout(timer);
     }
+    return null;
   }
-  return null;
+
+  const matches = await Promise.all(endpoints.map(requestEndpoint));
+  return matches.find((match): match is InventoryBarcodeMatch => Boolean(match)) ?? null;
+}
+
+function emitPartialMatch(
+  options: InventoryBarcodeLookupOptions,
+  match: InventoryBarcodeMatch | null,
+): InventoryBarcodeMatch | null {
+  if (!match || !options.onPartialMatch) return match;
+  try {
+    options.onPartialMatch(match);
+  } catch {
+    // A presentation callback must never break product resolution.
+  }
+  return match;
 }
 
 /**
@@ -162,19 +182,27 @@ export async function lookupInventoryBarcode(
 
   const cached = options.useCache === false ? null : await readCachedMatchWithinDeadline(code);
   if (cached?.variantComplete) return cached;
+  if (cached) emitPartialMatch(options, cached);
 
-  const openCatalogTimeoutMs = options.openCatalogTimeoutMs ?? 4000;
-  const openMatch = cached ?? (await Promise.all([
-    settleWithFallback(lookupOpenFactsCatalogs(code, {
+  let openMatch = cached;
+  if (!openMatch) {
+    const openCatalogTimeoutMs = options.openCatalogTimeoutMs ?? 4000;
+    const openFactsPromise = settleWithFallback(lookupOpenFactsCatalogs(code, {
       fetchImpl: options.fetchImpl,
       timeoutMs: openCatalogTimeoutMs,
       language: options.language,
-    }), openCatalogTimeoutMs + 500, null),
-    settleWithFallback(lookupUpcItemDb(code, {
+    }), openCatalogTimeoutMs + 500, null);
+    const upcItemDbPromise = settleWithFallback(lookupUpcItemDb(code, {
       fetchImpl: options.fetchImpl,
       timeoutMs: openCatalogTimeoutMs,
-    }), openCatalogTimeoutMs + 500, null),
-  ])).find(Boolean) ?? null;
+    }), openCatalogTimeoutMs + 500, null);
+    void openFactsPromise.then(match => emitPartialMatch(options, match));
+    void upcItemDbPromise.then(match => emitPartialMatch(options, match));
+    openMatch = (await Promise.all([
+      openFactsPromise,
+      upcItemDbPromise,
+    ])).find((match): match is InventoryBarcodeMatch => Boolean(match)) ?? null;
+  }
   if (openMatch) {
     if (options.useCache !== false) await writeCachedMatchWithinDeadline(code, openMatch);
     if (openMatch.variantComplete) return openMatch;

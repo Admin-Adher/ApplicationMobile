@@ -188,6 +188,11 @@ async function getValidStoredAuth(): Promise<StoredAuthSnapshot | null> {
   }
 }
 
+/** Reads the persisted, non-expired access token without entering auth-js' lock. */
+export async function getValidStoredAccessToken(): Promise<string | null> {
+  return (await getValidStoredAuth())?.token ?? null;
+}
+
 async function initWithStoredAuthIfNeeded(url: string, init?: any, input?: any): Promise<any> {
   if (!SUPABASE_URL || !SUPABASE_KEY || url.includes('/auth/v1/')) return init;
   if (!url.startsWith(SUPABASE_URL)) return init;
