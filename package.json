@@ -1,6 +1,6 @@
 {
   "name": "applicationmobile",
-  "version": "1.2.3",
+  "version": "1.2.4",
   "main": "expo-router/entry",
   "scripts": {
     "start": "node node_modules/expo/bin/cli start --web --localhost --port 5000",
@@ -8,6 +8,7 @@
     "android": "node node_modules/expo/bin/cli run:android",
     "ios": "node node_modules/expo/bin/cli run:ios",
     "web": "node node_modules/expo/bin/cli export --platform web",
+    "test": "vitest run",
     "postinstall": "node scripts/patch-expo-cors.js"
   },
   "dependencies": {
@@ -81,7 +82,8 @@
   "devDependencies": {
     "@babel/core": "^7.29.0",
     "@types/react": "~19.1.10",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "vitest": "^4.1.10"
   },
   "overrides": {
     "@xmldom/xmldom": "^0.8.13",

@@ -2,7 +2,7 @@
   "expo": {
     "name": "BuildTrack",
     "slug": "buildtrack",
-    "version": "1.2.3",
+    "version": "1.2.4",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "buildtrack",
@@ -21,7 +21,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "549",
+      "buildNumber": "550",
       "bundleIdentifier": "com.buildtrack.app",
       "infoPlist": {
         "NSCameraUsageDescription": "BuildTrack utilise votre caméra pour scanner les codes-barres et QR codes, lire les étiquettes du matériel et documenter le chantier.",
@@ -33,7 +33,7 @@
     },
     "android": {
       "package": "com.buildtrack.app",
-      "versionCode": 549,
+      "versionCode": 550,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#1B2B5E"

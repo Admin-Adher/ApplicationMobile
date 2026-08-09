@@ -1,0 +1,147 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import {
+  lookupOpenFactsCatalogs,
+  normalizeBarcodeLookupCode,
+  type InventoryBarcodeMatch,
+} from '@/lib/inventoryBarcodeCore';
+
+const CACHE_PREFIX = 'buildtrack_inventory_barcode_v1';
+const OPEN_CATALOG_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
+
+interface CachedBarcodeMatch {
+  expiresAt: number;
+  match: InventoryBarcodeMatch;
+}
+
+export interface InventoryBarcodeLookupOptions {
+  language?: string;
+  fetchImpl?: typeof fetch;
+  openCatalogTimeoutMs?: number;
+  webTimeoutMs?: number;
+  apiBaseUrl?: string;
+  accessToken?: string | null;
+  useCache?: boolean;
+}
+
+function cacheKey(code: string): string {
+  return `${CACHE_PREFIX}:${encodeURIComponent(code)}`;
+}
+
+async function readCachedMatch(code: string): Promise<InventoryBarcodeMatch | null> {
+  try {
+    const raw = await AsyncStorage.getItem(cacheKey(code));
+    if (!raw) return null;
+    const cached = JSON.parse(raw) as CachedBarcodeMatch;
+    if (!cached?.match?.designation || cached.expiresAt <= Date.now()) {
+      await AsyncStorage.removeItem(cacheKey(code));
+      return null;
+    }
+    return cached.match;
+  } catch {
+    return null;
+  }
+}
+
+async function writeCachedMatch(code: string, match: InventoryBarcodeMatch): Promise<void> {
+  if (match.source === 'web') return;
+  try {
+    const cached: CachedBarcodeMatch = {
+      expiresAt: Date.now() + OPEN_CATALOG_CACHE_MS,
+      match,
+    };
+    await AsyncStorage.setItem(cacheKey(code), JSON.stringify(cached));
+  } catch {
+    // Lookup remains functional even when device storage is unavailable.
+  }
+}
+
+function defaultApiBaseUrl(): string {
+  if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin;
+  return (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '').replace(/\/+$/, '');
+}
+
+async function currentAccessToken(): Promise<string | null> {
+  if (!isSupabaseConfigured) return null;
+  try {
+    const { data } = await (supabase as any).auth.getSession();
+    return data?.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function lookupWebProvider(
+  code: string,
+  options: InventoryBarcodeLookupOptions,
+): Promise<InventoryBarcodeMatch | null> {
+  const base = (options.apiBaseUrl ?? defaultApiBaseUrl()).replace(/\/+$/, '');
+  if (!base) return null;
+  const token = options.accessToken === undefined ? await currentAccessToken() : options.accessToken;
+  if (!token) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.webTimeoutMs ?? 7000);
+  try {
+    const response = await (options.fetchImpl ?? fetch)(`${base}/api/inventory-barcode-lookup`, {
+      method: 'POST',
+      headers: {
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ code, language: options.language ?? 'fr' }),
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    const payload = await response.json();
+    if (!payload?.match?.designation || payload.match.source !== 'web') return null;
+    return payload.match as InventoryBarcodeMatch;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * External resolution order after the calling screen has checked BuildTrack:
+ * open product catalogues, then an authenticated server-side web search.
+ */
+export async function lookupInventoryBarcode(
+  value: string,
+  options: InventoryBarcodeLookupOptions = {},
+): Promise<InventoryBarcodeMatch | null> {
+  const code = normalizeBarcodeLookupCode(value);
+  if (code.length < 4) return null;
+
+  const cached = options.useCache === false ? null : await readCachedMatch(code);
+  if (cached?.variantComplete) return cached;
+
+  const openMatch = cached ?? await lookupOpenFactsCatalogs(code, {
+    fetchImpl: options.fetchImpl,
+    timeoutMs: options.openCatalogTimeoutMs,
+    language: options.language,
+  });
+  if (openMatch) {
+    if (options.useCache !== false) await writeCachedMatch(code, openMatch);
+    if (openMatch.variantComplete) return openMatch;
+  }
+
+  const webMatch = await lookupWebProvider(code, options);
+  if (webMatch) {
+    return {
+      ...webMatch,
+      brand: webMatch.brand ?? openMatch?.brand,
+      photoUrl: webMatch.photoUrl ?? openMatch?.photoUrl,
+    };
+  }
+  return openMatch;
+}
+
+export function inventoryBarcodeWebSearchUrl(value: string): string {
+  const code = normalizeBarcodeLookupCode(value);
+  return `https://www.google.com/search?q=${encodeURIComponent(`"${code}" produit EAN GTIN`)}`;
+}
+
+export type { InventoryBarcodeMatch } from '@/lib/inventoryBarcodeCore';

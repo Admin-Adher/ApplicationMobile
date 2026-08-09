@@ -7,6 +7,7 @@ import { queryKeys } from '@/lib/queryKeys';
 import { readCache, writeCache, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { genId } from '@/lib/utils';
+import { canonicalizeGtin } from '@/lib/inventoryBarcodeCore';
 import type {
   InventoryMovement,
   InventoryMovementType,
@@ -584,9 +585,11 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
   const findProduct = useCallback((value: string) => {
     const needle = value.trim();
     const normalized = normalizeInventoryReference(needle);
+    const canonicalBarcode = canonicalizeGtin(needle);
     return products.find(product =>
       product.id === needle
       || (!!product.barcode && product.barcode === needle)
+      || (!!canonicalBarcode && canonicalizeGtin(product.barcode ?? '') === canonicalBarcode)
       || normalizeInventoryReference(product.reference) === normalized,
     );
   }, [products]);
