@@ -13,7 +13,7 @@ Après lecture du symbole par `expo-camera`, BuildTrack recherche la désignatio
 
 La référence interne et le code-barres restent modifiables. Une réponse distante ne remplace jamais une désignation que l’utilisateur a déjà saisie. Une sortie reste interdite si le produit identifié n’existe pas dans le stock BuildTrack du chantier.
 
-La désignation proposée conserve les informations distinctives disponibles : marque/famille, modèle, référence fabricant et poids, calibre, dimension ou conditionnement. Par exemple, une source qui renvoie `Nutella` et `400 g` produit la désignation `Nutella — 400 g`. Le GTIN reste enregistré dans le champ code-barres : deux variantes portant un nom proche ne sont donc pas fusionnées.
+La désignation proposée conserve les informations distinctives disponibles : marque/famille, modèle, référence fabricant et poids, calibre, dimension ou conditionnement. Par exemple, une source qui renvoie `Nutella` et `400 g` produit la désignation `Nutella — 400 g`. Si elle ne renvoie que `Nutella`, l'interface marque la variante comme incomplète et demande au magasinier de vérifier le conditionnement. Le GTIN reste enregistré dans le champ code-barres : deux variantes portant un nom proche ne sont donc pas fusionnées.
 
 Les GTIN-8, UPC-A, EAN-13 et GTIN-14 sont comparés dans leur représentation canonique à 14 chiffres. Cela permet de retrouver le même produit lorsqu’un lecteur renvoie un UPC-A et un autre son équivalent EAN-13.
 
@@ -21,14 +21,17 @@ Selon la [règle GS1 sur le contenu net déclaré](https://www.gs1.org/1/gtinrul
 
 ## Recherche web serveur
 
-La recherche web utilise l’endpoint authentifié :
+L'application mobile tente d'abord l'Edge Function Supabase authentifiée :
 
 ```text
-POST /api/inventory-barcode-lookup
+POST https://<project-ref>.supabase.co/functions/v1/inventory-barcode-lookup
 Authorization: Bearer <session Supabase>
+apikey: <clé publique Supabase>
 ```
 
-Le fournisseur actuellement supporté est Brave Search. Configurer exclusivement sur l’hébergement de l’API :
+L'endpoint `/api/inventory-barcode-lookup` du serveur BuildTrack reste disponible comme repli. L'Edge Function `inventory-barcode-lookup` est déployée avec `verify_jwt = true` : un appel sans session valide est rejeté avant d'atteindre le fournisseur de recherche.
+
+Le fournisseur actuellement supporté est Brave Search. Configurer la clé dans les secrets du projet Supabase et, si le serveur BuildTrack est utilisé, dans ses variables d'environnement :
 
 ```text
 BRAVE_SEARCH_API_KEY=<clé serveur>
@@ -40,7 +43,7 @@ Le serveur limite chaque utilisateur à 20 recherches par minute, exige une sess
 
 ## Vérification rapide
 
-- `3017620422003` : présent dans Open Food Facts et doit préremplir « Nutella — 400 g » (la valeur exacte dépend de la fiche source).
+- `3017620422003` : présent dans Open Food Facts. Si la fiche publique ne renvoie que « Nutella », BuildTrack doit préremplir ce nom tout en affichant l'avertissement de variante incomplète ; il ne doit pas inventer « 400 g ».
 - `3245064079709` : référence Legrand absente des catalogues ouverts au moment de l’implémentation ; elle permet de valider le repli vers la recherche web lorsque la clé serveur est configurée.
 - `ABC-12580` : référence interne ; elle est d’abord recherchée dans BuildTrack puis, si nécessaire, côté web.
 

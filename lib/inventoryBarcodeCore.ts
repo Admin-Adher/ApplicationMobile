@@ -276,6 +276,35 @@ function extractManufacturerReference(value: unknown, scannedCode: string): stri
   return match;
 }
 
+const VARIANT_DETAIL_PATTERNS = [
+  /\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)?\s*(?:mm|cm|m)?\b/gi,
+  /\b\d+(?:[.,]\d+)?\s*(?:mm²|mm2|cm²|cm2|m²|m2|kg|mg|g|ml|cl|l|mm|cm|m|kv|v|ka|a|kw|w|bar|kpa|mpa|hz)\b/gi,
+  /\bDN\s*[-:]?\s*\d+(?:[.,]\d+)?\b/gi,
+  /\b(?:IP|IK)\s*\d{2}\b/gi,
+  /\b(?:lot|pack|bo[iî]te|carton|sachet|conditionnement)\s*(?:de\s*)?\d+\b/gi,
+  /\b\d+\s*(?:pièces?|pcs?|unités?|pôles?|poles?)\b/gi,
+  /\b\d+\s*P(?:\s*\+\s*\d+\s*P?)?\b/gi,
+  /\b(?:M|Ø|diam(?:ètre)?|diameter)\s*[-:]?\s*\d+(?:[.,]\d+)?\b/gi,
+];
+
+/** Extracts visible pack, dimension and electrical/plumbing discriminators from a result snippet. */
+export function extractVariantDetails(value: unknown, scannedCode: string): string[] {
+  const escapedCode = scannedCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const text = cleanText(value, 500).replace(new RegExp(escapedCode, 'gi'), ' ');
+  const details: string[] = [];
+  for (const pattern of VARIANT_DETAIL_PATTERNS) {
+    pattern.lastIndex = 0;
+    for (const match of text.matchAll(pattern)) {
+      const detail = cleanText(match[0], 60);
+      if (!detail) continue;
+      const normalized = normalizedProductText(detail);
+      if (details.some(existing => normalizedProductText(existing) === normalized)) continue;
+      details.push(detail);
+    }
+  }
+  return details;
+}
+
 /**
  * Selects only a result whose title/snippet contains the exact scanned code.
  * This prevents a broad search result from silently becoming a product record.
@@ -306,6 +335,13 @@ export function selectWebSearchMatch(
     if (manufacturerReference
       && !searchableText(designation).includes(searchableText(manufacturerReference))) {
       designation = `${designation} — Réf. ${manufacturerReference}`;
+    }
+    let appendedDetails = 0;
+    for (const detail of extractVariantDetails(result.description, code)) {
+      if (normalizedProductText(designation).includes(normalizedProductText(detail))) continue;
+      designation = `${designation} — ${detail}`;
+      appendedDetails += 1;
+      if (appendedDetails >= 2) break;
     }
     return { result, url, score, designation };
   }).filter((candidate): candidate is NonNullable<typeof candidate> => !!candidate)

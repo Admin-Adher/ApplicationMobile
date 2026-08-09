@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   canonicalizeGtin,
   cleanWebProductTitle,
+  extractVariantDetails,
   extractGtin,
   isValidGtin,
   lookupOpenFactsCatalogs,
@@ -101,11 +102,31 @@ describe('web result safeguards', () => {
 
     expect(match).toMatchObject({
       barcode: '3245064079709',
-      designation: 'Disjoncteur Legrand DX3 1P D 13A — Réf. 407970',
+      designation: 'Disjoncteur Legrand DX3 1P D 13A — Réf. 407970 — 6000A',
       source: 'web',
       confidence: 'medium',
       variantComplete: true,
     });
+  });
+
+  it('adds an exact pack size found in the verified result snippet', () => {
+    const match = selectWebSearchMatch([{
+      title: 'Nutella | Ferrero',
+      description: 'Pot de pâte à tartiner 400 g — EAN 3017620422003.',
+      url: 'https://www.ferrero.example/nutella-400g',
+    }], '3017620422003');
+
+    expect(match).toMatchObject({
+      designation: 'Nutella — 400 g',
+      variantComplete: true,
+    });
+  });
+
+  it('extracts BTP dimensions and nominal sizes without treating the GTIN as a dimension', () => {
+    expect(extractVariantDetails(
+      'Vanne DN25, raccord 20 mm, code EAN 3245064079709.',
+      '3245064079709',
+    )).toEqual(expect.arrayContaining(['DN25', '20 mm']));
   });
 
   it('rejects broad and generic barcode-database results', () => {

@@ -673,6 +673,36 @@ function cleanInventoryWebTitle(value, code) {
   return title.length >= 4 ? title.slice(0, 180) : '';
 }
 
+function inventoryVariantDetails(value, code) {
+  const escaped = String(code).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const text = String(value || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(new RegExp(escaped, 'gi'), ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 500);
+  const normalized = field => String(field || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const patterns = [
+    /\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)?\s*(?:mm|cm|m)?\b/gi,
+    /\b\d+(?:[.,]\d+)?\s*(?:mm²|mm2|cm²|cm2|m²|m2|kg|mg|g|ml|cl|l|mm|cm|m|kv|v|ka|a|kw|w|bar|kpa|mpa|hz)\b/gi,
+    /\bDN\s*[-:]?\s*\d+(?:[.,]\d+)?\b/gi,
+    /\b(?:IP|IK)\s*\d{2}\b/gi,
+    /\b(?:lot|pack|bo[iî]te|carton|sachet|conditionnement)\s*(?:de\s*)?\d+\b/gi,
+    /\b\d+\s*(?:pièces?|pcs?|unités?|pôles?|poles?)\b/gi,
+    /\b\d+\s*P(?:\s*\+\s*\d+\s*P?)?\b/gi,
+    /\b(?:M|Ø|diam(?:ètre)?|diameter)\s*[-:]?\s*\d+(?:[.,]\d+)?\b/gi,
+  ];
+  const details = [];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const detail = match[0].replace(/\s+/g, ' ').trim();
+      if (!detail || details.some(existing => normalized(existing) === normalized(detail))) continue;
+      details.push(detail);
+    }
+  }
+  return details;
+}
+
 function selectInventoryWebMatch(results, code) {
   const blockedHosts = [
     'barcodefinder.', 'barcodelookup.', 'gtinhub.', 'go-upc.', 'upcitemdb.',
@@ -706,6 +736,13 @@ function selectInventoryWebMatch(results, code) {
       && normalized(manufacturerReference) !== needle
       && !normalized(designation).includes(normalized(manufacturerReference))) {
       designation = `${designation} — Ref. ${manufacturerReference}`;
+    }
+    let appendedDetails = 0;
+    for (const detail of inventoryVariantDetails(result.description, code)) {
+      if (normalized(designation).includes(normalized(detail))) continue;
+      designation = `${designation} — ${detail}`;
+      appendedDetails += 1;
+      if (appendedDetails >= 2) break;
     }
     if (designation) ranked.push({ designation, score, url: url.toString() });
   }
