@@ -1,10 +1,10 @@
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useBottomNavigationInset } from '@/hooks/useBottomNavigationInset';
 
 const TABS = [
   { key: 'dashboard', icon: 'grid', iconOff: 'grid-outline', route: '/(tabs)/' },
@@ -20,12 +20,12 @@ interface Props {
 
 export default function BottomNavBar({ activeTab = 'more' }: Props) {
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
+  const bottomInset = useBottomNavigationInset();
   const router = useRouter();
   const { unreadCount } = useApp();
 
-  const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom + 12;
-  const barHeight = Platform.OS === 'web' ? 90 : 72 + insets.bottom;
+  const bottomPad = Platform.OS === 'web' ? 34 : bottomInset + 12;
+  const barHeight = Platform.OS === 'web' ? 90 : 72 + bottomInset;
 
   const TAB_KEYS = ['dashboard', 'reserves', 'plans', 'messages', 'more'] as const;
   const activeIndex = TAB_KEYS.indexOf(activeTab);

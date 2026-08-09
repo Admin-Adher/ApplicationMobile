@@ -8,6 +8,7 @@ import { C } from '@/constants/colors';
 import { useAppTabBadges } from '@/context/AppContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
+import { useBottomNavigationInset } from '@/hooks/useBottomNavigationInset';
 
 const TAB_ITEMS = [
   { name: 'index',    titleKey: 'tabs.dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
@@ -118,9 +119,8 @@ function TabsNavigator() {
   const { incidents } = useIncidents();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
+  const bottomTabInset = useBottomNavigationInset();
   const isTablet = width >= 768;
-  const bottomTabInset = Platform.OS === 'web' ? 0 : insets.bottom;
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
