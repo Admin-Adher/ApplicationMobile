@@ -11,6 +11,8 @@ Après correction :
 - scénarios négatifs acceptés : **0/2** ;
 - faux titre « ACCESSOIRES 2026 » : rejeté.
 
+Un essai direct complémentaire du catalogue généraliste UPCitemdb a retrouvé **6/10** GTIN BTP (Hager, GROHE, KNIPEX, Wiha, Makita et Wera). Les six identités correspondaient exactement au GTIN demandé, mais plusieurs titres ne contenaient pas tous les détails de la fiche fabricant. Ils sont donc utilisés comme préremplissage à confiance moyenne, puis enrichis par la recherche web exacte quand celle-ci est configurée. Les quatre autres références (Legrand, Bosch Professional, HellermannTyton et Rawlplug) restent dépendantes de la recherche web ou de la saisie manuelle.
+
 Ce résultat mesure le moteur sur ce jeu représentatif, pas l’ensemble des produits commercialisés. Il ne constitue donc pas une promesse universelle de 100 %. Le test en conditions réelles dépend aussi de la présence du secret serveur `BRAVE_SEARCH_API_KEY`, de l’indexation de la page et de la qualité de son extrait.
 
 ## Jeu de références

@@ -242,6 +242,7 @@ export default function InventoryMovementScreen() {
   function lookupSourceLabel(match: InventoryBarcodeMatch): string {
     if (match.source === 'open-products-facts') return 'Open Products Facts';
     if (match.source === 'open-food-facts') return 'Open Food Facts';
+    if (match.source === 'upcitemdb') return 'UPCitemdb';
     return copy.internet;
   }
 

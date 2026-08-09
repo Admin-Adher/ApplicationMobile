@@ -6,8 +6,10 @@ import {
   extractGtin,
   isValidGtin,
   lookupOpenFactsCatalogs,
+  lookupUpcItemDb,
   normalizeBarcodeLookupCode,
   parseOpenFactsProduct,
+  parseUpcItemDbResponse,
   selectWebSearchMatch,
 } from '../lib/inventoryBarcodeCore';
 
@@ -29,6 +31,55 @@ describe('barcode normalization', () => {
   it('preserves an internal Code 128 reference for local and web lookup', () => {
     expect(normalizeBarcodeLookupCode(' ABC-12580 ')).toBe('ABC-12580');
     expect(extractGtin('ABC-12580')).toBeUndefined();
+  });
+});
+
+describe('UPCitemdb fallback', () => {
+  it('accepts only the item whose GTIN exactly matches and keeps it for verification', () => {
+    const match = parseUpcItemDbResponse({
+      items: [
+        { ean: '3250614435226', title: 'Near but incorrect item' },
+        {
+          ean: '3250614435225',
+          title: 'Hager MM509N motor starter 4.0-6.3A',
+          brand: 'Hager',
+          model: 'MM509N',
+          images: ['https://images.example/hager-mm509n.jpg'],
+        },
+      ],
+    }, '3250614435225');
+
+    expect(match).toMatchObject({
+      barcode: '3250614435225',
+      designation: 'Hager MM509N motor starter 4.0-6.3A',
+      brand: 'Hager',
+      photoUrl: 'https://images.example/hager-mm509n.jpg',
+      source: 'upcitemdb',
+      confidence: 'medium',
+      variantComplete: false,
+    });
+  });
+
+  it('rejects a response containing only a neighbouring GTIN', () => {
+    expect(parseUpcItemDbResponse({
+      items: [{ ean: '3250614435226', title: 'Hager MM509N' }],
+    }, '3250614435225')).toBeNull();
+  });
+
+  it('queries the no-key endpoint for a valid GTIN', async () => {
+    const fetchMock = vi.fn<typeof fetch>(async input => {
+      expect(String(input)).toContain('upc=3250614435225');
+      return Response.json({
+        items: [{ ean: '3250614435225', title: 'Hager MM509N', brand: 'Hager' }],
+      });
+    });
+
+    const match = await lookupUpcItemDb('3250614435225', {
+      fetchImpl: fetchMock,
+      timeoutMs: 500,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(match).toMatchObject({ source: 'upcitemdb', brand: 'Hager' });
   });
 });
 

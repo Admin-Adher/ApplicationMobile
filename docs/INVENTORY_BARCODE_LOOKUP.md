@@ -8,14 +8,17 @@ Après lecture du symbole par `expo-camera`, BuildTrack recherche la désignatio
 2. cache local du téléphone ;
 3. [Open Products Facts](https://world.openproductsfacts.org/) ;
 4. [Open Food Facts](https://world.openfoodfacts.org/) ;
-5. recherche web authentifiée côté serveur ;
-6. saisie manuelle ou photographie/OCR de l’étiquette.
+5. [UPCitemdb](https://www.upcitemdb.com/) pour un GTIN généraliste exact ;
+6. recherche web authentifiée côté serveur ;
+7. saisie manuelle ou photographie/OCR de l’étiquette.
 
 La référence interne et le code-barres restent modifiables. Une réponse distante ne remplace jamais une désignation que l’utilisateur a déjà saisie. Une sortie reste interdite si le produit identifié n’existe pas dans le stock BuildTrack du chantier.
 
 La désignation proposée conserve les informations distinctives disponibles : marque/famille, modèle, référence fabricant et poids, calibre, dimension ou conditionnement. Par exemple, une source qui renvoie `Nutella` et `400 g` produit la désignation `Nutella — 400 g`. Si elle ne renvoie que `Nutella`, l'interface marque la variante comme incomplète et demande au magasinier de vérifier le conditionnement. Le GTIN reste enregistré dans le champ code-barres : deux variantes portant un nom proche ne sont donc pas fusionnées.
 
 Les GTIN-8, UPC-A, EAN-13 et GTIN-14 sont comparés dans leur représentation canonique à 14 chiffres. Cela permet de retrouver le même produit lorsqu’un lecteur renvoie un UPC-A et un autre son équivalent EAN-13.
+
+UPCitemdb est interrogé directement par l’application mobile en parallèle des deux catalogues ouverts. Une fiche n’est acceptée que si son EAN, UPC ou GTIN correspond exactement au code scanné. Comme ses titres proviennent de sources généralistes, BuildTrack les préremplit avec une confiance moyenne et continue la recherche fabricant côté serveur lorsqu’elle est disponible. Le forfait sans clé est limité à 100 requêtes par jour et 6 recherches rapides par minute ; le cache local évite de recompter les scans répétés d’un même article.
 
 Selon la [règle GS1 sur le contenu net déclaré](https://www.gs1.org/1/gtinrules/en/rule/266/declared-net-content), une modification de poids, volume ou quantité déclarée impose un nouveau GTIN. Le code identifie donc bien la variante commerciale ; la désignation détaillée sert à rendre cette différence immédiatement lisible pour le magasinier.
 

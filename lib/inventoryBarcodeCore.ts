@@ -1,6 +1,7 @@
 export type InventoryBarcodeLookupSource =
   | 'open-products-facts'
   | 'open-food-facts'
+  | 'upcitemdb'
   | 'web';
 
 export interface InventoryBarcodeMatch {
@@ -18,6 +19,11 @@ export interface OpenFactsLookupOptions {
   fetchImpl?: typeof fetch;
   timeoutMs?: number;
   language?: string;
+}
+
+export interface UpcItemDbLookupOptions {
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
 }
 
 export interface WebSearchResult {
@@ -226,6 +232,73 @@ export async function lookupOpenFactsCatalogs(
     ),
   ]);
   return generic ?? food;
+}
+
+function upcItemDbItemMatches(item: any, barcode: string): boolean {
+  const expected = canonicalizeGtin(barcode);
+  if (!expected) return false;
+  return [item?.ean, item?.upc, item?.gtin]
+    .some(value => canonicalizeGtin(String(value ?? '')) === expected);
+}
+
+/**
+ * Parses UPCitemdb conservatively. An exact GTIN identifies the item, but the
+ * community/merchant title is kept at medium confidence so the server-side
+ * exact web search can still enrich it with manufacturer details.
+ */
+export function parseUpcItemDbResponse(payload: any, barcode: string): InventoryBarcodeMatch | null {
+  const rawItems = payload?.items;
+  const items = Array.isArray(rawItems) ? rawItems : rawItems ? [rawItems] : [];
+  const item = items.find(candidate => upcItemDbItemMatches(candidate, barcode));
+  const title = meaningfulName(item?.title);
+  if (!item || !title) return null;
+
+  const details = [item.model, item.size, item.dimension, item.weight]
+    .map(meaningfulName)
+    .filter((value): value is string => Boolean(value))
+    .filter(value => !normalizedProductText(title).includes(normalizedProductText(value)))
+    .slice(0, 2);
+  const designation = [title, ...details].join(' â€” ');
+  const image = Array.isArray(item.images)
+    ? item.images.map(safeWebUrl).find(Boolean)
+    : safeWebUrl(item.image ?? item.thumbnail);
+
+  return {
+    barcode,
+    designation,
+    brand: meaningfulName(item.brand),
+    photoUrl: image,
+    source: 'upcitemdb',
+    sourceUrl: `https://www.upcitemdb.com/upc/${encodeURIComponent(barcode)}`,
+    confidence: 'medium',
+    variantComplete: false,
+  };
+}
+
+/** No-key general catalogue fallback. Mobile requests use the device IP. */
+export async function lookupUpcItemDb(
+  value: string,
+  options: UpcItemDbLookupOptions = {},
+): Promise<InventoryBarcodeMatch | null> {
+  const barcode = extractGtin(value);
+  if (!barcode || !isValidGtin(barcode)) return null;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs ?? 4000);
+  try {
+    const url = new URL('https://api.upcitemdb.com/prod/trial/lookup');
+    url.searchParams.set('upc', barcode);
+    const response = await (options.fetchImpl ?? fetch)(url.toString(), {
+      headers: { Accept: 'application/json' },
+      signal: controller.signal,
+    });
+    if (!response.ok) return null;
+    return parseUpcItemDbResponse(await response.json(), barcode);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const GENERIC_LOOKUP_HOSTS = [

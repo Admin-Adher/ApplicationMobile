@@ -7,6 +7,7 @@ import {
 } from '@/lib/supabase';
 import {
   lookupOpenFactsCatalogs,
+  lookupUpcItemDb,
   normalizeBarcodeLookupCode,
   type InventoryBarcodeMatch,
 } from '@/lib/inventoryBarcodeCore';
@@ -138,11 +139,17 @@ export async function lookupInventoryBarcode(
   const cached = options.useCache === false ? null : await readCachedMatch(code);
   if (cached?.variantComplete) return cached;
 
-  const openMatch = cached ?? await lookupOpenFactsCatalogs(code, {
-    fetchImpl: options.fetchImpl,
-    timeoutMs: options.openCatalogTimeoutMs,
-    language: options.language,
-  });
+  const openMatch = cached ?? (await Promise.all([
+    lookupOpenFactsCatalogs(code, {
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.openCatalogTimeoutMs,
+      language: options.language,
+    }),
+    lookupUpcItemDb(code, {
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.openCatalogTimeoutMs,
+    }),
+  ])).find(Boolean) ?? null;
   if (openMatch) {
     if (options.useCache !== false) await writeCachedMatch(code, openMatch);
     if (openMatch.variantComplete) return openMatch;
