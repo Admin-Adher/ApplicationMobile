@@ -10,6 +10,8 @@ export const queryKeys = {
   oprs: (chantierId?: string | null) => ['oprs', chantierId ?? 'all'] as const,
   documents: () => ['documents'] as const,
   photos: () => ['photos'] as const,
+  inventoryProducts: (chantierId?: string | null) => ['inventory', 'products', chantierId ?? 'none'] as const,
+  inventoryMovements: (chantierId?: string | null) => ['inventory', 'movements', chantierId ?? 'none'] as const,
   messages: (channelId: string) => ['messages', channelId] as const,
   channels: {
     all: () => ['channels'] as const,

@@ -33,7 +33,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { useSettings } from '@/context/SettingsContext';
 import { generateAndSendIndividualReserve } from '@/lib/email/client';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { uploadPhoto, persistLocalPhoto, INTERACTIVE_UPLOAD_TIMEOUT_MS } from '@/lib/storage';
 import { isSupabaseConfigured } from '@/lib/supabase';

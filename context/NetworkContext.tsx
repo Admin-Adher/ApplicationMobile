@@ -485,6 +485,7 @@ function countLocalPhotoUris(data: Record<string, any> | null | undefined): numb
   if (!data) return 0;
   let n = 0;
   if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) n += 1;
+  if (typeof data.photo_url === 'string' && isLocalUri(data.photo_url)) n += 1;
   if (Array.isArray(data.photos)) {
     for (const p of data.photos) {
       if (p && typeof p.uri === 'string' && isLocalUri(p.uri)) n += 1;
@@ -507,6 +508,8 @@ function uploadStepTimeoutMs(data: Record<string, any> | null | undefined): numb
 
 function queueReplayPriority(op: QueuedOperation): number {
   if (op.op === 'rpc' && op.rpc?.fn === 'create_reserve_with_photos') return 10;
+  if (op.op === 'rpc' && op.rpc?.fn === 'record_inventory_movement') return 12;
+  if (op.op === 'rpc' && op.rpc?.fn === 'update_inventory_product') return 13;
   if (op.op === 'rpc' && op.rpc?.fn === 'create_site_plan_revision_with_reserve_migration') return 15;
   if (op.table === 'reserves' && op.op === 'insert') return 10;
   if (op.table === 'photos' && op.op === 'insert') return 20;
@@ -1293,6 +1296,42 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 preparedReserve,
               );
             }
+          } else if (op.rpc.fn === 'record_inventory_movement') {
+            const rawProduct = (args.p_product ?? op.data) as Record<string, any> | undefined;
+            if (!args.p_operation_id || !args.p_movement || !rawProduct?.id) {
+              fail(op, 'Mouvement de stock invalide : opération, mouvement ou produit manquant.', { terminalStatus: 'invalid_payload' });
+              continue;
+            }
+            const prep = await withTimeoutMs(
+              uploadLocalPhotosInPayload('inventory_products', rawProduct),
+              uploadStepTimeoutMs(rawProduct),
+            );
+            if (!prep.allOk) {
+              fail(op, prep.uploadErrors?.join(' | ') || 'Échec upload de la photo produit.');
+              continue;
+            }
+            const preparedProduct = prep.data ?? rawProduct;
+            args = { ...args, p_product: preparedProduct };
+            retryRpcOp = { ...op, data: preparedProduct, rpc: { ...op.rpc, args } };
+            retryOpForCatch = retryRpcOp;
+          } else if (op.rpc.fn === 'update_inventory_product') {
+            const rawPatch = (args.p_patch ?? op.data) as Record<string, any> | undefined;
+            if (!args.p_product_id || !rawPatch) {
+              fail(op, 'Modification produit invalide : produit ou données manquantes.', { terminalStatus: 'invalid_payload' });
+              continue;
+            }
+            const prep = await withTimeoutMs(
+              uploadLocalPhotosInPayload('inventory_products', rawPatch),
+              uploadStepTimeoutMs(rawPatch),
+            );
+            if (!prep.allOk) {
+              fail(op, prep.uploadErrors?.join(' | ') || 'Échec upload de la photo produit.');
+              continue;
+            }
+            const preparedPatch = prep.data ?? rawPatch;
+            args = { ...args, p_patch: preparedPatch };
+            retryRpcOp = { ...op, data: preparedPatch, rpc: { ...op.rpc, args } };
+            retryOpForCatch = retryRpcOp;
           } else if (op.rpc.fn === 'create_site_plan_revision_with_reserve_migration') {
             const rawPlan = hydrateQueuedOrganizationId(
               'site_plans',
@@ -1377,6 +1416,26 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             await applySyncedReservePhotoPayloadToCache(userId, reserveId, retryRpcOp.data ?? args.p_reserve);
             await queryClient.invalidateQueries({ queryKey: queryKeys.photos(), refetchType: 'active' });
             triggerReserveCreatedPush(reserveId);
+          }
+          else if (op.rpc.fn === 'record_inventory_movement' || op.rpc.fn === 'update_inventory_product') {
+            const outcome = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+            if (!outcome || outcome.status !== 'ok') {
+              fail(
+                retryRpcOp,
+                outcome?.message ?? outcome?.status ?? 'Opération de stock refusée.',
+                { terminalStatus: outcome?.status ?? 'server_rejected' },
+              );
+            } else {
+              const chantierId = args.p_movement?.chantier_id;
+              if (op.rpc.fn === 'record_inventory_movement') {
+                await Promise.all([
+                  queryClient.invalidateQueries({ queryKey: queryKeys.inventoryProducts(chantierId), refetchType: 'active' }),
+                  queryClient.invalidateQueries({ queryKey: queryKeys.inventoryMovements(chantierId), refetchType: 'active' }),
+                ]);
+              } else {
+                await queryClient.invalidateQueries({ queryKey: ['inventory', 'products'], refetchType: 'active' });
+              }
+            }
           }
           continue;
         }

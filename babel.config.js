@@ -35,7 +35,7 @@ module.exports = function (api) {
       // MUST be last — processes useAnimatedStyle/useSharedValue/etc. into
       // Hermes-compatible worklet functions. Without this, reanimated crashes
       // at runtime on Android with cryptic property-access errors.
-      'react-native-reanimated/plugin',
+      'react-native-worklets/plugin',
     ],
   };
 };

@@ -12,6 +12,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import UpdateBanner from '@/components/UpdateBanner';
 import UpdateCheckRow from '@/components/UpdateCheckRow';
+import { useInventoryCopy } from '@/lib/inventoryI18n';
 
 const ROLE_COLORS: Record<string, string> = {
   super_admin: '#8B5CF6',
@@ -38,6 +39,7 @@ interface MenuSection {
 
 export default function MoreScreen() {
   const { t } = useTranslation();
+  const inventoryCopy = useInventoryCopy();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { documents, photos, tasks, companies, chantiers, activeChantier } = useApp();
@@ -105,6 +107,13 @@ export default function MoreScreen() {
         route: '/chantier/manage',
         color: C.primary,
       },
+      ...(permissions.canViewInventory ? [{
+        icon: 'cube',
+        label: inventoryCopy.module,
+        subtitle: inventoryCopy.subtitle,
+        route: '/inventory',
+        color: '#0F766E',
+      } as MenuItem] : []),
       ...(!isSousTraitant ? [
         { icon: 'calendar', label: t('moreScreen.items.planning.0'), subtitle: t('moreScreen.items.planning.1', { count: tasks.length }), route: '/planning', color: C.closed, badge: delayedCount || undefined } as MenuItem,
         { icon: 'bar-chart', label: t('moreScreen.items.analytics.0'), subtitle: t('moreScreen.items.analytics.1'), route: '/analytics', color: '#0EA5E9' } as MenuItem,
@@ -147,7 +156,7 @@ export default function MoreScreen() {
     }
 
     return result;
-  }, [documents.length, tasks.length, photos.length, companies.length, incidents.length, delayedCount, recentDocsCount, openIncidentsCount, permissions.canViewTeams, isAdmin, user?.role, chantiers.length, activeChantier?.id, activeChantier?.name, t]);
+  }, [documents.length, tasks.length, photos.length, companies.length, incidents.length, delayedCount, recentDocsCount, openIncidentsCount, permissions.canViewTeams, permissions.canViewInventory, inventoryCopy.module, inventoryCopy.subtitle, isAdmin, user?.role, chantiers.length, activeChantier?.id, activeChantier?.name, t]);
 
   function handleLogout() {
     Alert.alert(t('moreScreen.logoutTitle'), t('moreScreen.logoutMessage'), [
@@ -221,6 +230,7 @@ export default function MoreScreen() {
                   { label: t('moreScreen.permissionLabels.export'), key: 'canExport' },
                   { label: t('moreScreen.permissionLabels.teams'), key: 'canViewTeams' },
                   { label: t('moreScreen.permissionLabels.attendance'), key: 'canUpdateAttendance' },
+                  { label: inventoryCopy.stock, key: 'canViewInventory' },
                 ].map(p => (
                   <View key={p.key} style={styles.permItem}>
                     <Ionicons

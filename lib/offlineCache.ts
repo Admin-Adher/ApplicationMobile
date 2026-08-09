@@ -457,7 +457,7 @@ export async function localFileExists(uri: string): Promise<boolean> {
   if (!uri) return false;
   if (!uri.startsWith('file://')) return true;
   try {
-    const FileSystem = require('expo-file-system');
+    const FileSystem = require('expo-file-system/legacy');
     const info = await FileSystem.getInfoAsync(uri);
     return !!info?.exists;
   } catch {

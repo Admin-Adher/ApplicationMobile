@@ -1261,6 +1261,10 @@ export const resources: Resource = {
           canUpdateAttendance: ['Gérer les présences', 'Pointer et mettre à jour les présences terrain'],
           canMovePins: ['Déplacer les pins', 'Repositionner les épingles sur les plans'],
           canEditChantier: ['Modifier les chantiers', "Éditer les informations d'un chantier (nom, adresse, dates...)"],
+          canViewInventory: ['Voir le stock chantier', 'Consulter les produits et les mouvements de stock'],
+          canRecordInventory: ['Enregistrer les mouvements', 'Réaliser les entrées et sorties de matériel'],
+          canAdjustInventory: ['Administrer le stock', 'Modifier les fiches et autoriser un stock négatif'],
+          canExportInventory: ['Exporter le stock', 'Créer les exports Excel/CSV et PDF du stock'],
         },
       },
       reserveLabels: {
@@ -5785,6 +5789,10 @@ export const resources: Resource = {
           canUpdateAttendance: ['Manage attendance', 'Track and update field attendance'],
           canMovePins: ['Move pins', 'Reposition pins on plans'],
           canEditChantier: ['Edit sites', 'Edit site information (name, address, dates...)'],
+          canViewInventory: ['View site inventory', 'View products and stock movements'],
+          canRecordInventory: ['Record movements', 'Receive and issue materials'],
+          canAdjustInventory: ['Manage inventory', 'Edit product sheets and allow negative stock'],
+          canExportInventory: ['Export inventory', 'Create Excel/CSV and PDF inventory exports'],
         },
       },
       reserveLabels: {
@@ -10309,6 +10317,10 @@ export const resources: Resource = {
           canUpdateAttendance: ['Gestionar asistencias', 'Registrar y actualizar presencias en campo'],
           canMovePins: ['Mover pins', 'Reposicionar pins en los planos'],
           canEditChantier: ['Modificar obras', 'Editar información de la obra (nombre, dirección, fechas...)'],
+          canViewInventory: ['Ver stock de obra', 'Consultar productos y movimientos de stock'],
+          canRecordInventory: ['Registrar movimientos', 'Realizar entradas y salidas de material'],
+          canAdjustInventory: ['Administrar stock', 'Editar fichas y autorizar stock negativo'],
+          canExportInventory: ['Exportar stock', 'Crear exportaciones Excel/CSV y PDF'],
         },
       },
       reserveLabels: {

@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
 import i18n from '@/lib/i18n';
 
@@ -820,6 +820,18 @@ export async function uploadLocalPhotosInPayload(
       if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
+    }
+  } else if (table === 'inventory_products') {
+    if (typeof data.photo_url === 'string' && isLocalUri(data.photo_url)) {
+      hadLocal = true;
+      const reference = String(data.reference ?? 'produit').replace(/[^a-zA-Z0-9._-]/g, '_');
+      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(
+        data.photo_url,
+        `stock_${reference}_${Date.now()}_${nextUploadSeq()}.jpg`,
+      );
+      if (remote === (MISSING_LOCAL_FILE as any)) data.photo_url = null;
+      else if (remote) data.photo_url = remote;
+      else { allOk = false; if (uploadErr) uploadErrors.push(`photo_url: ${uploadErr}`); }
     }
   } else if (table === 'photos') {
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {

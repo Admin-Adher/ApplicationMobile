@@ -149,6 +149,23 @@ export function useRealtimeSync() {
         .subscribe();
       channels.push(documentSub);
 
+      const inventoryProductSub = supabase
+        .channel(`rq-inventory-products-v1-${uid}`)
+        .on('postgres_changes', orgFilter('inventory_products'), () => {
+          queryClient.invalidateQueries({ queryKey: ['inventory', 'products'] });
+        })
+        .subscribe();
+      channels.push(inventoryProductSub);
+
+      const inventoryMovementSub = supabase
+        .channel(`rq-inventory-movements-v1-${uid}`)
+        .on('postgres_changes', orgFilter('inventory_movements'), () => {
+          queryClient.invalidateQueries({ queryKey: ['inventory', 'movements'] });
+          queryClient.invalidateQueries({ queryKey: ['inventory', 'products'] });
+        })
+        .subscribe();
+      channels.push(inventoryMovementSub);
+
       // Global tables (no org filter)
       const profileSub = supabase
         .channel(`rq-profiles-v2-${uid}`)

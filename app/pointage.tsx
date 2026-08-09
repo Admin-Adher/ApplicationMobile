@@ -5,7 +5,7 @@ import {
 import { showAlert } from '@/lib/appAlert';
 import PageContainer from '@/components/PageContainer';
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';

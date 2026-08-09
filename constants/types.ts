@@ -16,6 +16,10 @@ export interface UserPermissions {
   canUpdateAttendance: boolean;
   canMovePins: boolean;
   canEditChantier: boolean;
+  canViewInventory: boolean;
+  canRecordInventory: boolean;
+  canAdjustInventory: boolean;
+  canExportInventory: boolean;
 }
 
 export type PermissionsOverride = Partial<UserPermissions>;
@@ -428,6 +432,57 @@ export interface Company {
   lots?: string[];
   email?: string;
   organizationId?: string;
+}
+
+export type InventoryMovementType = 'in' | 'out';
+
+export interface InventoryProduct {
+  id: string;
+  organizationId: string;
+  chantierId: string;
+  reference: string;
+  designation: string;
+  barcode?: string;
+  photoUrl?: string;
+  currentStock: number;
+  totalEntries: number;
+  totalExits: number;
+  minStock: number;
+  location?: string;
+  supplier?: string;
+  createdBy?: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+  version: number;
+  pendingSync?: boolean;
+}
+
+export interface InventoryMovement {
+  id: string;
+  operationId: string;
+  organizationId: string;
+  chantierId: string;
+  productId: string;
+  movementType: InventoryMovementType;
+  quantity: number;
+  stockBefore: number;
+  stockAfter: number;
+  reference: string;
+  designation: string;
+  supplier?: string;
+  buildingId?: string;
+  buildingName?: string;
+  zoneId?: string;
+  zoneName?: string;
+  companyId?: string;
+  companyName?: string;
+  personName?: string;
+  comment?: string;
+  createdBy?: string;
+  userName: string;
+  createdAt: string;
+  pendingSync?: boolean;
 }
 
 export interface Task {

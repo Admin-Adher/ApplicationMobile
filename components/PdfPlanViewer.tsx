@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { PlanDrawing, PlanDrawingTool, Reserve } from '@/constants/types';
 import { genId } from '@/lib/utils';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as pdfjsLib from '@/lib/pdfjs';
 import { getPlanUriCacheFirst, getCachedPlanUri } from '@/lib/planCache';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';

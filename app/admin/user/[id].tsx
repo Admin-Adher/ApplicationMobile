@@ -29,6 +29,10 @@ const PERMISSION_DEFS: { key: keyof PermissionsOverride }[] = [
   { key: 'canUpdateAttendance' },
   { key: 'canMovePins' },
   { key: 'canEditChantier' },
+  { key: 'canViewInventory' },
+  { key: 'canRecordInventory' },
+  { key: 'canAdjustInventory' },
+  { key: 'canExportInventory' },
 ];
 
 function cycleOverride(current: boolean | undefined): boolean | undefined {

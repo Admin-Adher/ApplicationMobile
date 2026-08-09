@@ -373,6 +373,12 @@ export default function RootLayout() {
                         <Stack.Screen name="visite/new" options={{ headerShown: false }} />
                         <Stack.Screen name="visite/[id]" options={{ headerShown: false }} />
                         <Stack.Screen name="admin/user/[id]" options={{ headerShown: false }} />
+                        <Stack.Screen name="inventory/index" options={{ headerShown: false }} />
+                        <Stack.Screen name="inventory/scan" options={{ headerShown: false }} />
+                        <Stack.Screen name="inventory/movement" options={{ headerShown: false }} />
+                        <Stack.Screen name="inventory/stock" options={{ headerShown: false }} />
+                        <Stack.Screen name="inventory/history" options={{ headerShown: false }} />
+                        <Stack.Screen name="inventory/product/[id]" options={{ headerShown: false }} />
                         <Stack.Screen name="+not-found" />
                       </Stack>
                       </AppErrorBoundary>

@@ -33,7 +33,7 @@ import {
 } from '@/lib/pdfReserveHelpers';
 import { buildPdfFilename } from '@/lib/pdfFilename';
 import { generateAndSendReservesReport } from '@/lib/email/client';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import {
   RESERVE_PRIORITY_COLORS as PRIORITY_COLORS,
