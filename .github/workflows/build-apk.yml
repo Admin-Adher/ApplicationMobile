@@ -38,7 +38,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Publish OTA update
         run: npx eas-cli@latest update --branch production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
@@ -71,13 +71,16 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools build-tools;35.0.0 platforms;android-35
+          packages: platform-tools build-tools;36.0.0 platforms;android-36
 
       - name: Accept all Android SDK licenses
         run: yes | sdkmanager --licenses || true
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
+
+      - name: Type-check application
+        run: npx tsc --noEmit
 
       - name: Configure Android push services
         env:
@@ -103,7 +106,16 @@ jobs:
 
       - name: Force JS bundle embedding in APK
         run: |
-          printf '\nbundleInDebug=true\nhermesEnabled=true\nsystemProp.org.gradle.internal.http.connectionTimeout=60000\nsystemProp.org.gradle.internal.http.socketTimeout=120000\n' >> android/gradle.properties
+          cat >> android/gradle.properties <<'EOF'
+
+          bundleInDebug=true
+          hermesEnabled=true
+          org.gradle.jvmargs=-Xmx2048m -XX:MaxMetaspaceSize=1024m -Dfile.encoding=UTF-8
+          kotlin.daemon.jvmargs=-Xmx1536m -XX:MaxMetaspaceSize=768m
+          org.gradle.workers.max=2
+          systemProp.org.gradle.internal.http.connectionTimeout=60000
+          systemProp.org.gradle.internal.http.socketTimeout=120000
+          EOF
 
       - name: Configure release signing with debug key
         working-directory: android

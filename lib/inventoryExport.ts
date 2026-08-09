@@ -4,17 +4,14 @@ import * as Sharing from 'expo-sharing';
 import type { InventoryMovement, InventoryProduct } from '@/constants/types';
 import { escapeHtml, exportPDF, PDF_BASE_CSS, PDF_BRAND_COLOR } from '@/lib/pdfBase';
 import { formatDateTimeFR } from '@/lib/utils';
+import {
+  buildInventoryWorkbook,
+  inventoryWorkbookToArrayBuffer,
+  inventoryWorkbookToBase64,
+  type InventoryExportKind,
+} from '@/lib/inventoryWorkbook';
 
-export type InventoryExportKind = 'stock' | 'entries' | 'exits' | 'by_building' | 'by_company' | 'reorder';
-
-function csvCell(value: unknown): string {
-  const text = value == null ? '' : String(value);
-  return `"${text.replace(/"/g, '""')}"`;
-}
-
-function csvLine(values: unknown[]): string {
-  return values.map(csvCell).join(';');
-}
+export type { InventoryExportKind } from '@/lib/inventoryWorkbook';
 
 function safeFilename(value: string): string {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
@@ -30,10 +27,12 @@ function sumBy(movements: InventoryMovement[], key: (movement: InventoryMovement
   return [...totals.entries()].sort((a, b) => b[1] - a[1]);
 }
 
-async function shareCsv(content: string, filename: string): Promise<void> {
-  const withBom = `\uFEFF${content}`;
+async function shareXlsx(kind: InventoryExportKind, products: InventoryProduct[], movements: InventoryMovement[], chantierName: string, filename: string): Promise<void> {
+  const workbook = buildInventoryWorkbook(kind, products, movements, chantierName);
   if (Platform.OS === 'web') {
-    const blob = new Blob([withBom], { type: 'text/csv;charset=utf-8' });
+    const blob = new Blob([inventoryWorkbookToArrayBuffer(workbook)], {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
@@ -47,76 +46,23 @@ async function shareCsv(content: string, filename: string): Promise<void> {
   const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
   if (!baseDir) throw new Error('Répertoire d’export indisponible.');
   const uri = `${baseDir}${filename}`;
-  await FileSystem.writeAsStringAsync(uri, withBom, { encoding: FileSystem.EncodingType.UTF8 });
+  await FileSystem.writeAsStringAsync(uri, inventoryWorkbookToBase64(workbook), { encoding: FileSystem.EncodingType.Base64 });
   if (!(await Sharing.isAvailableAsync())) throw new Error('Partage de fichier indisponible sur cet appareil.');
   await Sharing.shareAsync(uri, {
-    mimeType: 'text/csv',
+    mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     dialogTitle: filename,
-    UTI: 'public.comma-separated-values-text',
+    UTI: 'org.openxmlformats.spreadsheetml.sheet',
   });
 }
 
-export async function exportInventoryCsv(
+export async function exportInventoryXlsx(
   kind: InventoryExportKind,
   products: InventoryProduct[],
   movements: InventoryMovement[],
   chantierName: string,
 ): Promise<void> {
-  let rows: string[];
-  if (kind === 'stock' || kind === 'reorder') {
-    const selected = kind === 'reorder'
-      ? products.filter(product => product.minStock > 0 && product.currentStock <= product.minStock)
-      : products;
-    rows = [
-      csvLine(['Référence', 'Désignation', 'Stock', 'Stock minimum', 'Entrées', 'Sorties', 'Localisation', 'Fournisseur', 'Code-barres', 'À commander']),
-      ...selected.map(product => csvLine([
-        product.reference,
-        product.designation,
-        product.currentStock,
-        product.minStock,
-        product.totalEntries,
-        product.totalExits,
-        product.location,
-        product.supplier,
-        product.barcode,
-        product.minStock > 0 && product.currentStock <= product.minStock ? 'OUI' : 'NON',
-      ])),
-    ];
-  } else if (kind === 'by_building' || kind === 'by_company') {
-    const values = sumBy(
-      movements,
-      kind === 'by_building'
-        ? movement => movement.buildingName ?? ''
-        : movement => movement.companyName ?? '',
-    );
-    rows = [
-      csvLine([kind === 'by_building' ? 'Bâtiment / zone' : 'Entreprise', 'Quantité sortie']),
-      ...values.map(([label, quantity]) => csvLine([label, quantity])),
-    ];
-  } else {
-    const movementType = kind === 'entries' ? 'in' : 'out';
-    const selected = movements.filter(movement => movement.movementType === movementType);
-    rows = [
-      csvLine(['Date', 'Type', 'Référence', 'Désignation', 'Quantité', 'Stock avant', 'Stock après', 'Utilisateur', 'Bâtiment / zone', 'Entreprise', 'Personne', 'Fournisseur', 'Commentaire']),
-      ...selected.map(movement => csvLine([
-        formatDateTimeFR(movement.createdAt),
-        movement.movementType === 'in' ? 'ENTRÉE' : 'SORTIE',
-        movement.reference,
-        movement.designation,
-        movement.quantity,
-        movement.stockBefore,
-        movement.stockAfter,
-        movement.userName,
-        [movement.buildingName, movement.zoneName].filter(Boolean).join(' / '),
-        movement.companyName,
-        movement.personName,
-        movement.supplier,
-        movement.comment,
-      ])),
-    ];
-  }
   const date = new Date().toISOString().slice(0, 10);
-  await shareCsv(rows.join('\r\n'), `buildtrack-stock-${kind}-${safeFilename(chantierName)}-${date}.csv`);
+  await shareXlsx(kind, products, movements, chantierName, `buildtrack-stock-${kind}-${safeFilename(chantierName)}-${date}.xlsx`);
 }
 
 function tableRows(rows: string[][]): string {

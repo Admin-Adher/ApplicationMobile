@@ -43,7 +43,15 @@ export default function InventoryMovementScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const copy = useInventoryCopy();
-  const params = useLocalSearchParams<{ mode?: string; code?: string; codeType?: string; photoUri?: string; productId?: string }>();
+  const params = useLocalSearchParams<{
+    mode?: string;
+    code?: string;
+    codeType?: string;
+    photoUri?: string;
+    productId?: string;
+    ocrReference?: string;
+    ocrDesignation?: string;
+  }>();
   const mode = params.mode === 'out' ? 'out' : 'in';
   const { activeChantier, companies } = useApp();
   const { permissions } = useAuth();
@@ -51,9 +59,9 @@ export default function InventoryMovementScreen() {
   const initialApplied = useRef(false);
 
   const [productId, setProductId] = useState<string | undefined>(params.productId);
-  const [reference, setReference] = useState(params.code ?? '');
+  const [reference, setReference] = useState(params.ocrReference ?? params.code ?? '');
   const [barcode, setBarcode] = useState(params.code ?? '');
-  const [designation, setDesignation] = useState('');
+  const [designation, setDesignation] = useState(params.ocrDesignation ?? '');
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(params.photoUri);
   const [quantity, setQuantity] = useState('');
   const [supplier, setSupplier] = useState('');

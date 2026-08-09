@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, type BarcodeScanningResult, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -8,6 +8,7 @@ import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { persistLocalPhoto } from '@/lib/storage';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
+import { recognizeInventoryLabel } from '@/lib/inventoryOcr';
 
 export default function InventoryScanScreen() {
   const router = useRouter();
@@ -20,8 +21,15 @@ export default function InventoryScanScreen() {
   const [scanned, setScanned] = useState(false);
   const [torch, setTorch] = useState(false);
   const [takingPhoto, setTakingPhoto] = useState(false);
+  const [recognizing, setRecognizing] = useState(false);
 
-  function openMovement(extra?: { code?: string; codeType?: string; photoUri?: string }) {
+  function openMovement(extra?: {
+    code?: string;
+    codeType?: string;
+    photoUri?: string;
+    ocrReference?: string;
+    ocrDesignation?: string;
+  }) {
     router.replace({
       pathname: '/inventory/movement',
       params: { mode, ...(extra ?? {}) },
@@ -35,13 +43,31 @@ export default function InventoryScanScreen() {
   }
 
   async function takeLabelPhoto() {
-    if (!cameraRef.current || takingPhoto) return;
+    if (!cameraRef.current || takingPhoto || recognizing) return;
     setTakingPhoto(true);
     try {
       const picture = await cameraRef.current.takePictureAsync({ quality: 0.68, skipProcessing: Platform.OS === 'android' });
-      if (picture?.uri) openMovement({ photoUri: await persistLocalPhoto(picture.uri) });
+      if (picture?.uri) {
+        const photoUri = await persistLocalPhoto(picture.uri);
+        setTakingPhoto(false);
+        setRecognizing(true);
+        try {
+          const fields = await recognizeInventoryLabel(photoUri);
+          openMovement({
+            photoUri,
+            ocrReference: fields.reference,
+            ocrDesignation: fields.designation,
+          });
+        } catch (error) {
+          console.warn('[inventory-ocr] label recognition failed:', error);
+          openMovement({ photoUri });
+        }
+      }
+    } catch (error: any) {
+      Alert.alert(copy.error, error?.message ?? String(error));
     } finally {
       setTakingPhoto(false);
+      setRecognizing(false);
     }
   }
 
@@ -103,15 +129,15 @@ export default function InventoryScanScreen() {
               <Ionicons name={torch ? 'flash' : 'flash-outline'} size={23} color="#fff" />
               <Text style={styles.sideControlText}>{copy.torch}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.shutter} onPress={takeLabelPhoto} disabled={takingPhoto}>
-              {takingPhoto ? <ActivityIndicator color={C.primary} /> : <Ionicons name="camera" size={28} color={C.primary} />}
+            <TouchableOpacity style={styles.shutter} onPress={takeLabelPhoto} disabled={takingPhoto || recognizing}>
+              {takingPhoto || recognizing ? <ActivityIndicator color={C.primary} /> : <Ionicons name="camera" size={28} color={C.primary} />}
             </TouchableOpacity>
             <TouchableOpacity style={styles.sideControl} onPress={() => openMovement()}>
               <Ionicons name="create-outline" size={23} color="#fff" />
               <Text style={styles.sideControlText}>{copy.manualEntry}</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.photoHint}>{copy.takeLabelPhoto}</Text>
+          <Text style={styles.photoHint}>{recognizing ? copy.ocrReading : copy.takeLabelPhoto}</Text>
         </View>
       </View>
     </View>

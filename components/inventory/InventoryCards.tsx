@@ -54,31 +54,45 @@ export function InventoryProductCard({
   const low = product.minStock > 0 && product.currentStock <= product.minStock;
   const content = (
     <>
-      {product.photoUrl ? (
-        <Image source={{ uri: product.photoUrl }} style={[styles.productPhoto, compact && styles.productPhotoCompact]} />
-      ) : (
-        <View style={[styles.productPhoto, styles.photoPlaceholder, compact && styles.productPhotoCompact]}>
-          <Ionicons name="cube-outline" size={compact ? 18 : 24} color={C.textMuted} />
-        </View>
-      )}
-      <View style={styles.productBody}>
-        <View style={styles.referenceRow}>
-          <Text style={styles.reference} numberOfLines={1}>{product.reference}</Text>
-          {product.pendingSync && <Ionicons name="cloud-upload-outline" size={15} color={C.waiting} />}
-        </View>
-        <Text style={styles.designation} numberOfLines={compact ? 1 : 2}>{product.designation}</Text>
-        {!compact && !!product.location && (
-          <View style={styles.metaRow}>
-            <Ionicons name="location-outline" size={13} color={C.textMuted} />
-            <Text style={styles.meta} numberOfLines={1}>{product.location}</Text>
+      <View style={styles.productMain}>
+        {product.photoUrl ? (
+          <Image source={{ uri: product.photoUrl }} style={[styles.productPhoto, compact && styles.productPhotoCompact]} />
+        ) : (
+          <View style={[styles.productPhoto, styles.photoPlaceholder, compact && styles.productPhotoCompact]}>
+            <Ionicons name="cube-outline" size={compact ? 18 : 24} color={C.textMuted} />
           </View>
         )}
+        <View style={styles.productBody}>
+          <View style={styles.referenceRow}>
+            <Text style={styles.reference} numberOfLines={1}>{product.reference}</Text>
+            {product.pendingSync && <Ionicons name="cloud-upload-outline" size={15} color={C.waiting} />}
+          </View>
+          <Text style={styles.designation} numberOfLines={compact ? 1 : 2}>{product.designation}</Text>
+        </View>
+        <View style={[styles.stockBox, low && styles.stockBoxLow]}>
+          <Text style={[styles.stockValue, low && styles.stockValueLow]}>{product.currentStock}</Text>
+          <Text style={[styles.stockLabel, low && styles.stockValueLow]}>{low ? copy.lowStock : copy.stock}</Text>
+        </View>
+        {!!onPress && <Ionicons name="chevron-forward" size={18} color={C.textMuted} />}
       </View>
-      <View style={[styles.stockBox, low && styles.stockBoxLow]}>
-        <Text style={[styles.stockValue, low && styles.stockValueLow]}>{product.currentStock}</Text>
-        <Text style={[styles.stockLabel, low && styles.stockValueLow]}>{low ? copy.lowStock : copy.stock}</Text>
-      </View>
-      {!!onPress && <Ionicons name="chevron-forward" size={18} color={C.textMuted} />}
+      {!compact && (
+        <View style={styles.productStats}>
+          <View style={styles.productStat}>
+            <Text style={styles.productStatLabel}>{copy.entries}</Text>
+            <Text style={[styles.productStatValue, { color: C.closed }]}>+{product.totalEntries}</Text>
+          </View>
+          <View style={styles.productStatDivider} />
+          <View style={styles.productStat}>
+            <Text style={styles.productStatLabel}>{copy.exits}</Text>
+            <Text style={[styles.productStatValue, { color: C.open }]}>−{product.totalExits}</Text>
+          </View>
+          <View style={styles.productStatDivider} />
+          <View style={[styles.productStat, styles.productLocationStat]}>
+            <Text style={styles.productStatLabel}>{copy.location}</Text>
+            <Text style={styles.productLocation} numberOfLines={1}>{product.location || '—'}</Text>
+          </View>
+        </View>
+      )}
     </>
   );
   if (!onPress) return <View style={[styles.productCard, compact && styles.productCardCompact]}>{content}</View>;
@@ -136,8 +150,9 @@ export function InventoryEmpty({ icon = 'cube-outline', title, subtitle }: { ico
 const styles = StyleSheet.create({
   search: { height: 48, flexDirection: 'row', alignItems: 'center', gap: 9, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14 },
   searchInput: { flex: 1, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14, paddingVertical: 0 },
-  productCard: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12, backgroundColor: C.surface, borderRadius: 15, borderWidth: 1, borderColor: C.border },
+  productCard: { padding: 12, backgroundColor: C.surface, borderRadius: 15, borderWidth: 1, borderColor: C.border },
   productCardCompact: { padding: 9, borderRadius: 12 },
+  productMain: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   productPhoto: { width: 54, height: 54, borderRadius: 11, backgroundColor: C.surface2 },
   productPhotoCompact: { width: 40, height: 40, borderRadius: 9 },
   photoPlaceholder: { alignItems: 'center', justifyContent: 'center' },
@@ -152,6 +167,13 @@ const styles = StyleSheet.create({
   stockValue: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 18 },
   stockValueLow: { color: C.open },
   stockLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 9, textTransform: 'uppercase' },
+  productStats: { flexDirection: 'row', alignItems: 'center', marginTop: 10, paddingTop: 9, borderTopWidth: 1, borderTopColor: C.border },
+  productStat: { minWidth: 64 },
+  productLocationStat: { flex: 1, minWidth: 0 },
+  productStatDivider: { width: 1, height: 27, backgroundColor: C.border, marginHorizontal: 10 },
+  productStatLabel: { color: C.textMuted, fontFamily: 'Inter_500Medium', fontSize: 9, textTransform: 'uppercase' },
+  productStatValue: { fontFamily: 'Inter_700Bold', fontSize: 13, marginTop: 2 },
+  productLocation: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, marginTop: 3 },
   movementCard: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border },
   movementIcon: { width: 42, height: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   movementBody: { flex: 1, minWidth: 0 },

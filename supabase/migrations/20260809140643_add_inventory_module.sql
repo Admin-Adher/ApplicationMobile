@@ -1,4 +1,4 @@
--- BuildTrack chantier inventory module.
+-- BuildTrack chantier inventory module (applied as migration 20260809140643).
 -- Stock writes are intentionally RPC-only: row locks and operation IDs keep
 -- concurrent and offline-replayed movements atomic and idempotent.
 

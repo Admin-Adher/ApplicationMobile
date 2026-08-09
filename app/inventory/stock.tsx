@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
   ActivityIndicator, Alert, FlatList, Modal, RefreshControl, StyleSheet, Text,
-  TouchableOpacity, View,
+  ScrollView, TouchableOpacity, View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -12,7 +12,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { fetchInventoryMovementsForExport, normalizeInventoryReference, useInventory } from '@/hooks/queries/useInventory';
-import { exportInventoryCsv, exportInventoryPdf, type InventoryExportKind } from '@/lib/inventoryExport';
+import { exportInventoryPdf, exportInventoryXlsx, type InventoryExportKind } from '@/lib/inventoryExport';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
 
 export default function InventoryStockScreen() {
@@ -47,11 +47,12 @@ export default function InventoryStockScreen() {
     setExportOpen(false);
     setExporting(true);
     try {
-      const movements = kind === 'pdf'
+      const needsFullHistory = kind === 'pdf' || !['stock', 'reorder'].includes(kind);
+      const movements = needsFullHistory
         ? await fetchInventoryMovementsForExport(activeChantier.id, inventory.movements)
         : inventory.movements;
       if (kind === 'pdf') await exportInventoryPdf(inventory.products, movements, activeChantier.name);
-      else await exportInventoryCsv(kind, inventory.products, movements, activeChantier.name);
+      else await exportInventoryXlsx(kind, inventory.products, movements, activeChantier.name);
     } catch (error: any) {
       Alert.alert(copy.error, error?.message ?? String(error));
     } finally {
@@ -98,15 +99,21 @@ export default function InventoryStockScreen() {
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setExportOpen(false)}>
           <View style={styles.exportCard} onStartShouldSetResponder={() => true}>
             <Text style={styles.exportTitle}>{copy.export}</Text>
-            {([
-              ['pdf', 'document-text-outline', copy.exportPdf],
-              ['stock', 'grid-outline', copy.exportStockCsv],
-              ['reorder', 'warning-outline', copy.exportReorderCsv],
-            ] as const).map(([kind, icon, label]) => (
-              <TouchableOpacity key={kind} style={styles.exportOption} onPress={() => runExport(kind)}>
-                <View style={styles.exportIcon}><Ionicons name={icon} size={20} color={C.primary} /></View><Text style={styles.exportLabel}>{label}</Text><Ionicons name="chevron-forward" size={17} color={C.textMuted} />
-              </TouchableOpacity>
-            ))}
+            <ScrollView style={styles.exportOptions} contentContainerStyle={styles.exportOptionsContent} showsVerticalScrollIndicator={false}>
+              {([
+                ['pdf', 'document-text-outline', copy.exportPdf],
+                ['stock', 'grid-outline', copy.exportStockCsv],
+                ['entries', 'arrow-down-circle-outline', copy.exportEntriesCsv],
+                ['exits', 'arrow-up-circle-outline', copy.exportExitsCsv],
+                ['by_building', 'business-outline', copy.exportBuildingCsv],
+                ['by_company', 'people-outline', copy.exportCompanyCsv],
+                ['reorder', 'warning-outline', copy.exportReorderCsv],
+              ] as const).map(([kind, icon, label]) => (
+                <TouchableOpacity key={kind} style={styles.exportOption} onPress={() => runExport(kind)}>
+                  <View style={styles.exportIcon}><Ionicons name={icon} size={20} color={C.primary} /></View><Text style={styles.exportLabel}>{label}</Text><Ionicons name="chevron-forward" size={17} color={C.textMuted} />
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
             <TouchableOpacity style={styles.cancelButton} onPress={() => setExportOpen(false)}><Text style={styles.cancelText}>{copy.cancel}</Text></TouchableOpacity>
           </View>
         </TouchableOpacity>
@@ -123,5 +130,6 @@ const styles = StyleSheet.create({
   countPill: { minWidth: 18, height: 18, borderRadius: 9, backgroundColor: C.textMuted, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 }, countPillText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 9 }, resultCount: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 11 },
   fabRow: { position: 'absolute', left: 14, right: 14, flexDirection: 'row', gap: 9 }, fab: { flex: 1, height: 52, borderRadius: 15, flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center', shadowColor: '#001F52', shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 }, fabText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 12 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,20,48,0.5)', justifyContent: 'flex-end', padding: 14 }, exportCard: { backgroundColor: C.surface, borderRadius: 20, padding: 16, gap: 8 }, exportTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 18, marginBottom: 4 }, exportOption: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.border, borderRadius: 13, paddingHorizontal: 11 }, exportIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' }, exportLabel: { flex: 1, color: C.text, fontFamily: 'Inter_500Medium', fontSize: 13 }, cancelButton: { alignItems: 'center', paddingVertical: 12 }, cancelText: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
+  exportOptions: { maxHeight: 400 }, exportOptionsContent: { gap: 8 },
   busy: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,31,82,0.38)', alignItems: 'center', justifyContent: 'center' },
 });

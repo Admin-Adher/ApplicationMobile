@@ -9,7 +9,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { fetchInventoryMovementsForExport, useInventory } from '@/hooks/queries/useInventory';
-import { exportInventoryCsv, exportInventoryPdf, type InventoryExportKind } from '@/lib/inventoryExport';
+import { exportInventoryPdf, exportInventoryXlsx, type InventoryExportKind } from '@/lib/inventoryExport';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
 
 type MovementFilter = 'all' | 'in' | 'out';
@@ -48,7 +48,7 @@ export default function InventoryHistoryScreen() {
     try {
       const movements = await fetchInventoryMovementsForExport(activeChantier.id, inventory.movements);
       if (kind === 'pdf') await exportInventoryPdf(inventory.products, movements, activeChantier.name);
-      else await exportInventoryCsv(kind, inventory.products, movements, activeChantier.name);
+      else await exportInventoryXlsx(kind, inventory.products, movements, activeChantier.name);
     } catch (error: any) {
       Alert.alert(copy.error, error?.message ?? String(error));
     } finally {
