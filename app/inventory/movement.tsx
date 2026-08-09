@@ -145,6 +145,9 @@ export default function InventoryMovementScreen() {
         if (match.brand) {
           setSupplier(current => supplierEdited.current || current.trim() ? current : match.brand ?? current);
         }
+        if (match.photoUrl) {
+          setPhotoUrl(current => current ?? match.photoUrl);
+        }
       });
     }, 350);
 

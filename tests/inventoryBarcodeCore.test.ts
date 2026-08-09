@@ -104,7 +104,7 @@ describe('web result safeguards', () => {
       barcode: '3245064079709',
       designation: 'Disjoncteur Legrand DX3 1P D 13A — Réf. 407970 — 6000A',
       source: 'web',
-      confidence: 'medium',
+      confidence: 'high',
       variantComplete: true,
     });
   });

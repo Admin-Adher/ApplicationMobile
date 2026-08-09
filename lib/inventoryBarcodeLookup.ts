@@ -13,6 +13,7 @@ import {
 
 const CACHE_PREFIX = 'buildtrack_inventory_barcode_v1';
 const OPEN_CATALOG_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
+const WEB_CATALOG_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface CachedBarcodeMatch {
   expiresAt: number;
@@ -49,10 +50,9 @@ async function readCachedMatch(code: string): Promise<InventoryBarcodeMatch | nu
 }
 
 async function writeCachedMatch(code: string, match: InventoryBarcodeMatch): Promise<void> {
-  if (match.source === 'web') return;
   try {
     const cached: CachedBarcodeMatch = {
-      expiresAt: Date.now() + OPEN_CATALOG_CACHE_MS,
+      expiresAt: Date.now() + (match.source === 'web' ? WEB_CATALOG_CACHE_MS : OPEN_CATALOG_CACHE_MS),
       match,
     };
     await AsyncStorage.setItem(cacheKey(code), JSON.stringify(cached));
@@ -148,11 +148,13 @@ export async function lookupInventoryBarcode(
 
   const webMatch = await lookupWebProvider(code, options);
   if (webMatch) {
-    return {
+    const mergedMatch = {
       ...webMatch,
       brand: webMatch.brand ?? openMatch?.brand,
       photoUrl: webMatch.photoUrl ?? openMatch?.photoUrl,
     };
+    if (options.useCache !== false) await writeCachedMatch(code, mergedMatch);
+    return mergedMatch;
   }
   return openMatch;
 }

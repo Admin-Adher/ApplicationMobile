@@ -9,6 +9,8 @@
     "ios": "node node_modules/expo/bin/cli run:ios",
     "web": "node node_modules/expo/bin/cli export --platform web",
     "test": "vitest run",
+    "test:barcode-btp": "vitest run tests/inventoryBarcodeBtpBenchmark.test.ts",
+    "benchmark:barcode-btp": "node --no-warnings scripts/benchmark-inventory-btp.mts",
     "postinstall": "node scripts/patch-expo-cors.js"
   },
   "dependencies": {

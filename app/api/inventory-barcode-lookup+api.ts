@@ -39,11 +39,11 @@ function allowRequest(userId: string): boolean {
   return true;
 }
 
-function braveLocale(language: string): { country: string; searchLang: string } {
+function braveUiLanguage(language: string): string {
   const lang = language.split('-')[0].toLowerCase();
-  if (lang === 'es') return { country: 'es', searchLang: 'es' };
-  if (lang === 'en') return { country: 'us', searchLang: 'en' };
-  return { country: 'fr', searchLang: 'fr' };
+  if (lang === 'es') return 'es-ES';
+  if (lang === 'en') return 'en-US';
+  return 'fr-FR';
 }
 
 async function authenticatedUser(request: Request): Promise<{ id: string } | null> {
@@ -57,13 +57,15 @@ async function authenticatedUser(request: Request): Promise<{ id: string } | nul
 }
 
 async function searchBrave(code: string, language: string): Promise<WebSearchResult[]> {
-  const locale = braveLocale(language);
   const url = new URL('https://api.search.brave.com/res/v1/web/search');
-  url.searchParams.set('q', `"${code}" produit référence modèle EAN GTIN`);
-  url.searchParams.set('count', '8');
-  url.searchParams.set('country', locale.country);
-  url.searchParams.set('search_lang', locale.searchLang);
+  // A GTIN is globally unique. Locale filters hid manufacturer pages hosted in
+  // another country, while extra French keywords reduced exact-code recall.
+  url.searchParams.set('q', `"${code}"`);
+  url.searchParams.set('count', '20');
+  url.searchParams.set('ui_lang', braveUiLanguage(language));
   url.searchParams.set('safesearch', 'moderate');
+  url.searchParams.set('spellcheck', 'false');
+  url.searchParams.set('extra_snippets', 'true');
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 6500);
@@ -75,7 +77,11 @@ async function searchBrave(code: string, language: string): Promise<WebSearchRes
       },
       signal: controller.signal,
     });
-    if (!response.ok) throw new Error(`Brave Search HTTP ${response.status}`);
+    if (!response.ok) {
+      const error = new Error(`Brave Search HTTP ${response.status}`) as Error & { providerStatus?: number };
+      error.providerStatus = response.status;
+      throw error;
+    }
     const payload = await response.json();
     return Array.isArray(payload?.web?.results) ? payload.web.results : [];
   } finally {
@@ -105,6 +111,10 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ match }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error: any) {
     console.error('[inventory-barcode-lookup]', error?.message ?? error);
-    return apiError('Recherche web temporairement indisponible', 502, 'provider_unavailable');
+    return Response.json({
+      error: 'Recherche web temporairement indisponible',
+      code: 'provider_unavailable',
+      providerStatus: error?.providerStatus,
+    }, { status: 502, headers: { 'Cache-Control': 'no-store' } });
   }
 }

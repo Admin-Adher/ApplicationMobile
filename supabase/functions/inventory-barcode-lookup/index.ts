@@ -3,7 +3,10 @@ import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 type SearchResult = {
   title?: string;
   description?: string;
+  extra_snippets?: string[];
   url?: string;
+  profile?: { long_name?: string };
+  thumbnail?: { src?: string; original?: string };
 };
 
 const corsHeaders = {
@@ -32,21 +35,72 @@ function compact(value: unknown): string {
   return String(value ?? '').toLowerCase().replace(/[\s.\-]/g, '');
 }
 
-function cleanTitle(value: unknown, code: string): string {
-  const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  let title = String(value ?? '')
+function cleanText(value: unknown, maxLength = 500): string {
+  return String(value ?? '')
     .replace(/<[^>]*>/g, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&quot;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, maxLength);
+}
+
+function evidenceText(result: SearchResult): string {
+  return [result.description, ...(Array.isArray(result.extra_snippets) ? result.extra_snippets : [])]
+    .map(value => cleanText(value, 500))
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 1800);
+}
+
+function variantTitleSegment(value: string): boolean {
+  const segment = cleanText(value, 60);
+  return !!segment && /\d/.test(segment) && segment.length <= 60
+    && !/^\d{8,14}$/.test(segment.replace(/[\s.\-]/g, ''))
+    && !/^(?:19|20)\d{2}$/.test(segment);
+}
+
+function cleanTitle(value: unknown, code: string): string {
+  const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  let title = cleanText(value, 180)
     .replace(new RegExp(escaped, 'gi'), ' ')
     .replace(/\b(?:EAN(?:-?13)?|GTIN(?:-?\d+)?|UPC(?:-?[AE])?|code[- ]?barres?|barcode)\b\s*[:#-]?/gi, ' ')
     .replace(/\s+/g, ' ')
     .replace(/^[|:;,\-–—\s]+|[|:;,\-–—\s]+$/g, '')
     .trim();
-  const first = title.split(/\s+[|•]\s+|\s+[–—]\s+/)[0]?.trim();
-  if (first && first.length >= 4) title = first;
+  const segments = title.split(/\s*[|•]\s*|\s+[–—]\s+/).map(segment => segment.trim()).filter(Boolean);
+  const first = segments[0];
+  if (first && first.length >= 4) {
+    title = [first, ...segments.slice(1).filter(variantTitleSegment).slice(0, 3)].join(' — ');
+  }
   return title.length >= 4 ? title.slice(0, 180) : '';
+}
+
+function genericCatalogueTitle(value: string): boolean {
+  const title = cleanText(value, 180).toLowerCase().normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  return /^(?:accessories|accessoires|zubehor|catalog(?:ue)?|product catalog(?:ue)?|general catalog(?:ue)?)(?: \d{4})?$/.test(title)
+    || /^(?:download|data sheet|datasheet|technical sheet|fiche technique)(?: \d{4})?$/.test(title);
+}
+
+function manufacturerReference(value: unknown, code: string): string | undefined {
+  const text = cleanText(value, 1800);
+  const labels = /\b(?:manufacturer\s+part\s+(?:number|no\.?|#)|part\s+(?:number|no\.?|#)|product\s+(?:number|no\.?|code)|order\s+(?:number|no\.?|code)|article\s+(?:number|no\.?|code)|catalog(?:ue)?\s+(?:number|no\.?|code)|reference\s+(?:du\s+produit|number|no\.?|code)?|réf(?:érence)?|ref(?:erence)?|modèle|model|mpn|sku|index)\s*[.:#-]?\s*/gi;
+  for (const label of text.matchAll(labels)) {
+    let remaining = text.slice((label.index ?? 0) + label[0].length, (label.index ?? 0) + label[0].length + 60);
+    const tokens: string[] = [];
+    for (let index = 0; index < 4; index += 1) {
+      const token = remaining.match(/^([A-Z0-9][A-Z0-9._/-]*)\b/i)?.[1]?.replace(/[.,;:]+$/, '');
+      if (!token || !/\d/.test(token)) break;
+      tokens.push(token);
+      remaining = remaining.slice(remaining.indexOf(token) + token.length).replace(/^\s+/, '');
+    }
+    const candidate = tokens.join(' ');
+    if (candidate.length >= 3 && compact(candidate) !== compact(code)) return candidate;
+  }
+  return undefined;
 }
 
 function normalizedProductText(value: string): string {
@@ -60,10 +114,11 @@ function variantDetails(value: unknown, code: string): string[] {
     .replace(/&amp;/gi, '&')
     .replace(new RegExp(escaped, 'gi'), ' ')
     .replace(/\s+/g, ' ')
-    .slice(0, 500);
+    .slice(0, 1800);
   const patterns = [
     /\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)?\s*(?:mm|cm|m)?\b/gi,
-    /\b\d+(?:[.,]\d+)?\s*(?:mm²|mm2|cm²|cm2|m²|m2|kg|mg|g|ml|cl|l|mm|cm|m|kv|v|ka|a|kw|w|bar|kpa|mpa|hz)\b/gi,
+    /\b\d+(?:[.,]\d+)?\s*(?:mm²|mm2|cm²|cm2|m²|m2|kwh|mah|ah|wh|kg|mg|g|ml|cl|l\/min|m\/min|nm|kn|n|mm|cm|m|kv|v|ka|a|kw|w|bar|kpa|mpa|hz|rpm|dba?)\b/gi,
+    /\b(?:PZ|PH|TX|TORX)\s*[-:]?\s*\d+\b/gi,
     /\bDN\s*[-:]?\s*\d+(?:[.,]\d+)?\b/gi,
     /\b(?:IP|IK)\s*\d{2}\b/gi,
     /\b(?:lot|pack|bo[iî]te|carton|sachet|conditionnement)\s*(?:de\s*)?\d+\b/gi,
@@ -82,9 +137,44 @@ function variantDetails(value: unknown, code: string): string[] {
   return details;
 }
 
+function hasVariant(value: string): boolean {
+  const withoutYears = value.replace(/\b(?:19|20)\d{2}\b/g, ' ');
+  return variantDetails(withoutYears, '').length > 0
+    || /\b(?=[A-Z0-9./-]{3,}\b)(?=[A-Z0-9./-]*[A-Z])(?=[A-Z0-9./-]*\d)[A-Z0-9][A-Z0-9./-]*\b/i.test(withoutYears);
+}
+
+const btpBrandDomains: Array<[string, string]> = [
+  ['legrand.', 'Legrand'], ['hager.', 'Hager'], ['grohe.', 'GROHE'], ['knipex.', 'KNIPEX'],
+  ['wiha.', 'Wiha'], ['makita.', 'Makita'], ['bosch-professional.', 'Bosch Professional'],
+  ['wera.', 'Wera'], ['hellermanntyton.', 'HellermannTyton'], ['rawlplug.', 'Rawlplug'],
+  ['se.com', 'Schneider Electric'], ['wago.', 'WAGO'], ['hilti.', 'Hilti'], ['fischer.', 'fischer'],
+  ['geberit.', 'Geberit'], ['dewalt.', 'DEWALT'],
+];
+const btpBrandAliases: Array<[string, string]> = [
+  ['bosch', 'Bosch Professional'], ['hellermanntyton', 'HellermannTyton'],
+  ['schneiderelectric', 'Schneider Electric'], ['legrand', 'Legrand'], ['hager', 'Hager'],
+  ['grohe', 'GROHE'], ['knipex', 'KNIPEX'], ['wiha', 'Wiha'], ['makita', 'Makita'],
+  ['wera', 'Wera'], ['rawlplug', 'Rawlplug'], ['wago', 'WAGO'], ['hilti', 'Hilti'],
+  ['fischer', 'fischer'], ['geberit', 'Geberit'], ['dewalt', 'DEWALT'],
+];
+
+function inferBrand(result: SearchResult, url: URL, designation: string): string | undefined {
+  const official = btpBrandDomains.find(([domain]) => url.hostname.toLowerCase().includes(domain));
+  if (official) return official[1];
+  const context = normalizedProductText(`${designation} ${result.profile?.long_name ?? ''}`);
+  return btpBrandAliases.find(([alias]) => context.includes(alias))?.[1];
+}
+
 function selectMatch(results: SearchResult[], code: string) {
   const needle = compact(code);
-  const ranked: Array<{ designation: string; score: number; url: string }> = [];
+  const ranked: Array<{
+    designation: string;
+    evidenceScore: number;
+    score: number;
+    url: URL;
+    result: SearchResult;
+    variantComplete: boolean;
+  }> = [];
   for (const result of results) {
     let url: URL;
     try {
@@ -94,48 +184,69 @@ function selectMatch(results: SearchResult[], code: string) {
     }
     if (!['http:', 'https:'].includes(url.protocol)) continue;
     if (blockedHosts.some(host => url.hostname.toLowerCase().includes(host))) continue;
+    const evidence = evidenceText(result);
     const inTitle = compact(result.title).includes(needle);
-    const inDescription = compact(result.description).includes(needle);
+    const inDescription = compact(evidence).includes(needle);
     const inUrl = compact(result.url).includes(needle);
-    const score = (inTitle ? 8 : 0) + (inDescription ? 4 : 0) + (inUrl ? 2 : 0);
-    if (score < 4) continue;
+    const evidenceScore = (inTitle ? 8 : 0) + (inDescription ? 4 : 0) + (inUrl ? 2 : 0);
+    if (evidenceScore < 4) continue;
 
     let designation = cleanTitle(result.title, code);
+    if (genericCatalogueTitle(designation)) continue;
     if (!designation || /^(product|produit|fiche produit|product sheet)$/i.test(designation)) {
-      designation = cleanTitle(String(result.description ?? '').split(/[.!?](?:\s|$)/)[0], code);
+      designation = cleanTitle(evidence.slice(0, 180).split(/[.!?](?:\s|$)/)[0], code);
     }
-    if (!designation) continue;
-    const manufacturerReference = String(result.description ?? '')
-      .match(/\b(?:réf(?:érence)?|ref(?:erence)?|modèle|model|article|mpn)\s*[.:#-]?\s*([A-Z0-9][A-Z0-9._/-]{2,})\b/i)?.[1];
-    if (manufacturerReference
-      && compact(manufacturerReference) !== needle
-      && !compact(designation).includes(compact(manufacturerReference))) {
-      designation = `${designation} — Réf. ${manufacturerReference}`;
+    if (!designation || genericCatalogueTitle(designation)) continue;
+    const reference = manufacturerReference(evidence, code);
+    if (reference
+      && compact(reference) !== needle
+      && !compact(designation).includes(compact(reference))) {
+      designation = `${designation} — Réf. ${reference}`;
     }
+    const details = variantDetails(evidence, code);
     let appendedDetails = 0;
-    for (const detail of variantDetails(result.description, code)) {
+    for (const detail of details) {
       if (normalizedProductText(designation).includes(normalizedProductText(detail))) continue;
       designation = `${designation} — ${detail}`;
       appendedDetails += 1;
-      if (appendedDetails >= 2) break;
+      if (appendedDetails >= 3) break;
     }
-    ranked.push({ designation, score, url: url.toString() });
+    const variantComplete = Boolean(reference) || hasVariant(designation) || details.length > 0;
+    const score = evidenceScore + (variantComplete ? 3 : 0) + (designation.length >= 12 ? 1 : 0);
+    ranked.push({ designation, evidenceScore, score, url, result, variantComplete });
   }
   ranked.sort((a, b) => b.score - a.score);
   const best = ranked[0];
   return best ? {
     barcode: code,
     designation: best.designation,
+    brand: inferBrand(best.result, best.url, best.designation),
+    photoUrl: best.result.thumbnail?.original ?? best.result.thumbnail?.src,
     source: 'web',
-    sourceUrl: best.url,
-    confidence: best.score >= 8 ? 'high' : 'medium',
-    variantComplete: /\d/.test(best.designation),
+    sourceUrl: best.url.toString(),
+    confidence: best.evidenceScore >= 8 || (best.evidenceScore >= 4 && best.variantComplete) ? 'high' : 'medium',
+    variantComplete: best.variantComplete,
   } : null;
 }
 
-function requestIdentity(request: Request): string {
-  const auth = request.headers.get('authorization') ?? '';
-  return auth.slice(-48) || 'anonymous';
+function authenticatedIdentity(request: Request): string | null {
+  const authorization = request.headers.get('authorization') ?? '';
+  if (!authorization.startsWith('Bearer ')) return null;
+  const token = authorization.slice(7).trim();
+  const payload = token.split('.')[1];
+  if (!payload) return null;
+  try {
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const claims = JSON.parse(atob(padded));
+    // The Supabase gateway validates the JWT signature because verify_jwt is
+    // enabled. Requiring the authenticated role rejects the public anon JWT.
+    return claims?.role === 'authenticated' && typeof claims?.sub === 'string'
+      ? claims.sub
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function allowRequest(identity: string): boolean {
@@ -150,7 +261,9 @@ function allowRequest(identity: string): boolean {
 Deno.serve(async request => {
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: corsHeaders });
   if (request.method !== 'POST') return json({ error: 'Méthode non autorisée' }, 405);
-  if (!allowRequest(requestIdentity(request))) return json({ error: 'Trop de recherches' }, 429);
+  const identity = authenticatedIdentity(request);
+  if (!identity) return json({ error: 'Session invalide', code: 'invalid_session' }, 401);
+  if (!allowRequest(identity)) return json({ error: 'Trop de recherches' }, 429);
 
   try {
     const body = await request.json();
@@ -160,17 +273,15 @@ Deno.serve(async request => {
 
     const apiKey = Deno.env.get('BRAVE_SEARCH_API_KEY');
     if (!apiKey) return json({ error: 'Recherche web non configurée', code: 'web_search_not_configured' }, 503);
-    const locale = language === 'es'
-      ? { country: 'es', searchLang: 'es' }
-      : language === 'en'
-        ? { country: 'us', searchLang: 'en' }
-        : { country: 'fr', searchLang: 'fr' };
     const url = new URL('https://api.search.brave.com/res/v1/web/search');
-    url.searchParams.set('q', `"${code}" produit référence modèle EAN GTIN`);
-    url.searchParams.set('count', '8');
-    url.searchParams.set('country', locale.country);
-    url.searchParams.set('search_lang', locale.searchLang);
+    // GTINs are global identifiers: locale filtering hides valid manufacturer
+    // pages, especially when their catalogue is hosted outside France.
+    url.searchParams.set('q', `"${code}"`);
+    url.searchParams.set('count', '20');
+    url.searchParams.set('ui_lang', language === 'es' ? 'es-ES' : language === 'en' ? 'en-US' : 'fr-FR');
     url.searchParams.set('safesearch', 'moderate');
+    url.searchParams.set('spellcheck', 'false');
+    url.searchParams.set('extra_snippets', 'true');
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 6500);
@@ -180,7 +291,14 @@ Deno.serve(async request => {
         signal: controller.signal,
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(`Brave Search HTTP ${response.status}`);
+      if (!response.ok) {
+        console.error(`[inventory-barcode-lookup] Brave Search HTTP ${response.status}`);
+        return json({
+          error: 'Recherche web temporairement indisponible',
+          code: 'provider_http_error',
+          providerStatus: response.status,
+        }, 502);
+      }
       const results = Array.isArray(payload?.web?.results) ? payload.web.results : [];
       const match = selectMatch(results, code);
       return match ? json({ match }) : json({ error: 'Produit introuvable' }, 404);

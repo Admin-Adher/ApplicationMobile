@@ -39,7 +39,9 @@ BRAVE_SEARCH_API_KEY=<clé serveur>
 
 La clé ne doit jamais être préfixée par `EXPO_PUBLIC_`, incluse dans l’APK ou commitée. Sans cette variable, les catalogues ouverts et la recherche locale continuent de fonctionner ; l’interface propose un bouton qui ouvre une recherche Internet manuelle.
 
-Le serveur limite chaque utilisateur à 20 recherches par minute, exige une session Supabase valide, n’accepte qu’un code court et ne met pas les résultats web en cache. Un résultat n’est retenu que si le code exact apparaît dans son titre, son extrait ou son URL. Les agrégateurs génériques de codes-barres sont exclus afin de réduire les faux positifs.
+Le serveur limite chaque utilisateur à 20 recherches par minute, exige une session Supabase valide et n’accepte qu’un code court. La requête porte sur le GTIN exact, sans filtre de pays : un catalogue fabricant allemand ou mondial ne doit pas disparaître parce que le téléphone est en français. Jusqu’à 20 résultats et leurs extraits complémentaires sont analysés en un appel. La correction orthographique du moteur est désactivée pour ne jamais altérer le code.
+
+Un résultat n’est retenu que si le code exact apparaît dans son titre, son extrait, un extrait complémentaire ou son URL. Les titres génériques tels que « ACCESSOIRES 2026 » sont rejetés, même s’ils contiennent le GTIN dans un vaste catalogue. Les références fabricant, modèles, dimensions, calibres, capacités et conditionnements sont conservés dans la proposition. Les agrégateurs génériques de codes-barres sont exclus afin de réduire les faux positifs. Un résultat web validé est conservé sept jours dans le cache du téléphone ; les catalogues ouverts restent conservés trente jours.
 
 ## Vérification rapide
 
@@ -52,3 +54,19 @@ Les tests automatisés sont exécutés avec :
 ```text
 npm test
 ```
+
+Le banc d’essai BTP ciblé peut être rejoué séparément :
+
+```text
+npm run test:barcode-btp
+npm run benchmark:barcode-btp
+```
+
+Pour interroger réellement Brave depuis une machine de développement, sans exposer la clé au client :
+
+```powershell
+$env:BRAVE_SEARCH_API_KEY = '<clé serveur>'
+npm run benchmark:barcode-btp -- --live
+```
+
+Voir [INVENTORY_BARCODE_BTP_BENCHMARK.md](./INVENTORY_BARCODE_BTP_BENCHMARK.md) pour le jeu de références, les sources fabricant et les limites de la mesure.

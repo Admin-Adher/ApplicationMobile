@@ -23,9 +23,14 @@ export interface OpenFactsLookupOptions {
 export interface WebSearchResult {
   title?: string;
   description?: string;
+  extra_snippets?: string[];
   url?: string;
   profile?: {
     long_name?: string;
+  };
+  thumbnail?: {
+    src?: string;
+    original?: string;
   };
 }
 
@@ -232,17 +237,45 @@ function searchableText(value: string): string {
   return compactDigits(value.toLowerCase());
 }
 
+function resultEvidenceText(result: WebSearchResult): string {
+  return [result.description, ...(Array.isArray(result.extra_snippets) ? result.extra_snippets : [])]
+    .map(value => cleanText(value, 500))
+    .filter(Boolean)
+    .join(' ')
+    .slice(0, 1800);
+}
+
 function resultContainsCode(result: WebSearchResult, code: string): {
   title: boolean;
   description: boolean;
   url: boolean;
 } {
   const needle = searchableText(code);
+  const evidence = resultEvidenceText(result);
   return {
     title: searchableText(cleanText(result.title)).includes(needle),
-    description: searchableText(cleanText(result.description)).includes(needle),
+    description: searchableText(evidence).includes(needle),
     url: searchableText(cleanText(result.url)).includes(needle),
   };
+}
+
+function isVariantTitleSegment(value: string): boolean {
+  const segment = cleanText(value, 60);
+  if (!segment || /^\d{8,14}$/.test(compactDigits(segment))) return false;
+  return /\d/.test(segment)
+    && segment.length <= 60
+    && !/^(?:19|20)\d{2}$/.test(segment);
+}
+
+function isGenericCatalogueTitle(value: string): boolean {
+  const title = cleanText(value, 180)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+  return /^(?:accessories|accessoires|zubehor|catalog(?:ue)?|product catalog(?:ue)?|general catalog(?:ue)?)(?: \d{4})?$/.test(title)
+    || /^(?:download|data sheet|datasheet|technical sheet|fiche technique)(?: \d{4})?$/.test(title);
 }
 
 export function cleanWebProductTitle(value: string, code: string): string {
@@ -255,8 +288,15 @@ export function cleanWebProductTitle(value: string, code: string): string {
     .replace(/^[|:;,\-–—\s]+|[|:;,\-–—\s]+$/g, '')
     .trim();
 
-  const firstSegment = title.split(/\s+[|•]\s+|\s+[–—]\s+/)[0]?.trim();
-  if (firstSegment && firstSegment.length >= 4) title = firstSegment;
+  const segments = title
+    .split(/\s*[|•]\s*|\s+[–—]\s+/)
+    .map(segment => segment.trim())
+    .filter(Boolean);
+  const firstSegment = segments[0];
+  if (firstSegment && firstSegment.length >= 4) {
+    const variants = segments.slice(1).filter(isVariantTitleSegment).slice(0, 3);
+    title = [firstSegment, ...variants].join(' — ');
+  }
   return title.length >= 4 ? title : '';
 }
 
@@ -270,15 +310,29 @@ function safeWebUrl(value: unknown): string | undefined {
 }
 
 function extractManufacturerReference(value: unknown, scannedCode: string): string | undefined {
-  const text = cleanText(value, 500);
-  const match = text.match(/\b(?:réf(?:érence)?|ref(?:erence)?|modèle|model|article|mpn)\s*[.:#-]?\s*([A-Z0-9][A-Z0-9._/-]{2,})\b/i)?.[1];
-  if (!match || searchableText(match) === searchableText(scannedCode)) return undefined;
-  return match;
+  const text = cleanText(value, 1800);
+  const labels = /\b(?:manufacturer\s+part\s+(?:number|no\.?|#)|part\s+(?:number|no\.?|#)|product\s+(?:number|no\.?|code)|order\s+(?:number|no\.?|code)|article\s+(?:number|no\.?|code)|catalog(?:ue)?\s+(?:number|no\.?|code)|reference\s+(?:du\s+produit|number|no\.?|code)?|réf(?:érence)?|ref(?:erence)?|modèle|model|mpn|sku|index)\s*[.:#-]?\s*/gi;
+  for (const label of text.matchAll(labels)) {
+    const tail = text.slice((label.index ?? 0) + label[0].length, (label.index ?? 0) + label[0].length + 60);
+    const tokens: string[] = [];
+    let remaining = tail;
+    for (let index = 0; index < 4; index += 1) {
+      const token = remaining.match(/^([A-Z0-9][A-Z0-9._/-]*)\b/i)?.[1]?.replace(/[.,;:]+$/, '');
+      if (!token || !/\d/.test(token)) break;
+      tokens.push(token);
+      remaining = remaining.slice(remaining.indexOf(token) + token.length).replace(/^\s+/, '');
+    }
+    const candidate = tokens.join(' ');
+    if (candidate.length < 3 || searchableText(candidate) === searchableText(scannedCode)) continue;
+    return candidate;
+  }
+  return undefined;
 }
 
 const VARIANT_DETAIL_PATTERNS = [
   /\b\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?(?:\s*[x×]\s*\d+(?:[.,]\d+)?)?\s*(?:mm|cm|m)?\b/gi,
-  /\b\d+(?:[.,]\d+)?\s*(?:mm²|mm2|cm²|cm2|m²|m2|kg|mg|g|ml|cl|l|mm|cm|m|kv|v|ka|a|kw|w|bar|kpa|mpa|hz)\b/gi,
+  /\b\d+(?:[.,]\d+)?\s*(?:mm²|mm2|cm²|cm2|m²|m2|kwh|mah|ah|wh|kg|mg|g|ml|cl|l\/min|m\/min|nm|kn|n|mm|cm|m|kv|v|ka|a|kw|w|bar|kpa|mpa|hz|rpm|dba?)\b/gi,
+  /\b(?:PZ|PH|TX|TORX)\s*[-:]?\s*\d+\b/gi,
   /\bDN\s*[-:]?\s*\d+(?:[.,]\d+)?\b/gi,
   /\b(?:IP|IK)\s*\d{2}\b/gi,
   /\b(?:lot|pack|bo[iî]te|carton|sachet|conditionnement)\s*(?:de\s*)?\d+\b/gi,
@@ -305,6 +359,37 @@ export function extractVariantDetails(value: unknown, scannedCode: string): stri
   return details;
 }
 
+const BTP_BRAND_DOMAINS: Array<[string, string]> = [
+  ['legrand.', 'Legrand'], ['hager.', 'Hager'], ['grohe.', 'GROHE'],
+  ['knipex.', 'KNIPEX'], ['wiha.', 'Wiha'], ['makita.', 'Makita'],
+  ['bosch-professional.', 'Bosch Professional'], ['wera.', 'Wera'],
+  ['hellermanntyton.', 'HellermannTyton'], ['rawlplug.', 'Rawlplug'],
+  ['se.com', 'Schneider Electric'], ['wago.', 'WAGO'], ['hilti.', 'Hilti'],
+  ['fischer.', 'fischer'], ['geberit.', 'Geberit'], ['dewalt.', 'DEWALT'],
+];
+const BTP_BRAND_ALIASES: Array<[string, string]> = [
+  ['bosch', 'Bosch Professional'], ['hellermanntyton', 'HellermannTyton'],
+  ['schneiderelectric', 'Schneider Electric'], ['legrand', 'Legrand'],
+  ['hager', 'Hager'], ['grohe', 'GROHE'], ['knipex', 'KNIPEX'],
+  ['wiha', 'Wiha'], ['makita', 'Makita'], ['wera', 'Wera'],
+  ['rawlplug', 'Rawlplug'], ['wago', 'WAGO'], ['hilti', 'Hilti'],
+  ['fischer', 'fischer'], ['geberit', 'Geberit'], ['dewalt', 'DEWALT'],
+];
+
+function inferBtpBrand(result: WebSearchResult, url: string, designation: string): string | undefined {
+  const hostname = new URL(url).hostname.toLowerCase();
+  const official = BTP_BRAND_DOMAINS.find(([domain]) => hostname.includes(domain));
+  if (official) return official[1];
+  const titleAndProfile = normalizedProductText(`${designation} ${cleanText(result.profile?.long_name, 80)}`);
+  return BTP_BRAND_ALIASES.find(([alias]) => titleAndProfile.includes(alias))?.[1];
+}
+
+function hasVariantDiscriminator(value: string): boolean {
+  const withoutYears = value.replace(/\b(?:19|20)\d{2}\b/g, ' ');
+  if (extractVariantDetails(withoutYears, '').length > 0) return true;
+  return /\b(?=[A-Z0-9./-]{3,}\b)(?=[A-Z0-9./-]*[A-Z])(?=[A-Z0-9./-]*\d)[A-Z0-9][A-Z0-9./-]*\b/i.test(withoutYears);
+}
+
 /**
  * Selects only a result whose title/snippet contains the exact scanned code.
  * This prevents a broad search result from silently becoming a product record.
@@ -322,28 +407,42 @@ export function selectWebSearchMatch(
     const hostname = new URL(url).hostname.toLowerCase();
     if (GENERIC_LOOKUP_HOSTS.some(blocked => hostname.includes(blocked))) return null;
     const contains = resultContainsCode(result, code);
-    const score = (contains.title ? 8 : 0) + (contains.description ? 4 : 0) + (contains.url ? 2 : 0);
-    if (score < 4) return null;
+    const evidenceScore = (contains.title ? 8 : 0) + (contains.description ? 4 : 0) + (contains.url ? 2 : 0);
+    if (evidenceScore < 4) return null;
 
     let designation = cleanWebProductTitle(result.title ?? '', code);
+    if (isGenericCatalogueTitle(designation)) return null;
     if (!designation || /^(product|produit|fiche produit|product sheet)$/i.test(designation)) {
-      const firstSentence = cleanText(result.description, 180).split(/[.!?](?:\s|$)/)[0] ?? '';
+      const firstSentence = resultEvidenceText(result).slice(0, 180).split(/[.!?](?:\s|$)/)[0] ?? '';
       designation = cleanWebProductTitle(firstSentence, code);
     }
-    if (!designation) return null;
-    const manufacturerReference = extractManufacturerReference(result.description, code);
+    if (!designation || isGenericCatalogueTitle(designation)) return null;
+    const evidence = resultEvidenceText(result);
+    const manufacturerReference = extractManufacturerReference(evidence, code);
     if (manufacturerReference
       && !searchableText(designation).includes(searchableText(manufacturerReference))) {
       designation = `${designation} — Réf. ${manufacturerReference}`;
     }
+    const details = extractVariantDetails(evidence, code);
     let appendedDetails = 0;
-    for (const detail of extractVariantDetails(result.description, code)) {
+    for (const detail of details) {
       if (normalizedProductText(designation).includes(normalizedProductText(detail))) continue;
       designation = `${designation} — ${detail}`;
       appendedDetails += 1;
-      if (appendedDetails >= 2) break;
+      if (appendedDetails >= 3) break;
     }
-    return { result, url, score, designation };
+    const variantComplete = Boolean(manufacturerReference)
+      || hasVariantDiscriminator(designation)
+      || details.length > 0;
+    const qualityScore = (variantComplete ? 3 : 0) + (designation.length >= 12 ? 1 : 0);
+    return {
+      result,
+      url,
+      evidenceScore,
+      score: evidenceScore + qualityScore,
+      designation,
+      variantComplete,
+    };
   }).filter((candidate): candidate is NonNullable<typeof candidate> => !!candidate)
     .sort((a, b) => b.score - a.score);
 
@@ -352,9 +451,11 @@ export function selectWebSearchMatch(
   return {
     barcode: extractGtin(code) ?? code,
     designation: best.designation,
+    brand: inferBtpBrand(best.result, best.url, best.designation),
+    photoUrl: safeWebUrl(best.result.thumbnail?.original ?? best.result.thumbnail?.src),
     source: 'web',
     sourceUrl: best.url,
-    confidence: best.score >= 8 ? 'high' : 'medium',
-    variantComplete: /\d/.test(best.designation),
+    confidence: best.evidenceScore >= 8 || (best.evidenceScore >= 4 && best.variantComplete) ? 'high' : 'medium',
+    variantComplete: best.variantComplete,
   };
 }
