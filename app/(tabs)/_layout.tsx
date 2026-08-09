@@ -118,7 +118,9 @@ function TabsNavigator() {
   const { incidents } = useIncidents();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
   const isTablet = width >= 768;
+  const bottomTabInset = Platform.OS === 'web' ? 0 : insets.bottom;
 
   useEffect(() => {
     if (Platform.OS === 'web') return;
@@ -159,8 +161,8 @@ function TabsNavigator() {
           backgroundColor: C.tabBar,
           borderTopColor: C.tabBorder,
           borderTopWidth: 1,
-          height: Platform.OS === 'web' ? 90 : 72,
-          paddingBottom: Platform.OS === 'web' ? 34 : 12,
+          height: Platform.OS === 'web' ? 90 : 72 + bottomTabInset,
+          paddingBottom: Platform.OS === 'web' ? 34 : 12 + bottomTabInset,
           paddingTop: 10,
           elevation: 8,
           ...Platform.select({
