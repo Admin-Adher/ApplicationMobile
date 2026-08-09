@@ -38,7 +38,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Publish OTA update
         run: npx eas-cli@latest update --branch production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
@@ -77,7 +77,7 @@ jobs:
         run: yes | sdkmanager --licenses || true
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Type-check application
         run: npx tsc --noEmit
