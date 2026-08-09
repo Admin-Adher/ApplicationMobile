@@ -41,7 +41,7 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Publish OTA update
-        run: npx eas-cli@latest update --branch production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
+        run: npx eas-cli@latest update --channel production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 

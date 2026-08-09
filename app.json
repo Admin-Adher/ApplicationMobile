@@ -2,7 +2,7 @@
   "expo": {
     "name": "BuildTrack",
     "slug": "buildtrack",
-    "version": "1.2.0",
+    "version": "1.2.1",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "buildtrack",
@@ -11,14 +11,17 @@
     "updates": {
       "url": "https://u.expo.dev/e3c73711-1793-4925-a2c2-c787a3ac739a",
       "fallbackToCacheTimeout": 0,
-      "checkAutomatically": "ON_LOAD"
+      "checkAutomatically": "ON_LOAD",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
     },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "ios": {
       "supportsTablet": true,
-      "buildNumber": "546",
+      "buildNumber": "547",
       "bundleIdentifier": "com.buildtrack.app",
       "infoPlist": {
         "NSCameraUsageDescription": "BuildTrack utilise votre caméra pour scanner les codes-barres et QR codes, lire les étiquettes du matériel et documenter le chantier.",
@@ -30,7 +33,7 @@
     },
     "android": {
       "package": "com.buildtrack.app",
-      "versionCode": 546,
+      "versionCode": 547,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#1B2B5E"
@@ -64,14 +67,6 @@
             "buildToolsVersion": "36.0.0",
             "minSdkVersion": 24
           }
-        }
-      ],
-      [
-        "expo-font",
-        {
-          "fonts": [
-            "./assets/fonts/ionicons.ttf"
-          ]
         }
       ],
       [
