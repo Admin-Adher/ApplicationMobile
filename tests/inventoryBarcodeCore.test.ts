@@ -11,7 +11,26 @@ import {
   parseOpenFactsProduct,
   parseUpcItemDbResponse,
   selectWebSearchMatch,
+  settleWithFallback,
 } from '../lib/inventoryBarcodeCore';
+
+describe('external lookup deadline', () => {
+  it('returns the result when the provider settles before the deadline', async () => {
+    await expect(settleWithFallback(Promise.resolve('found'), 100, 'fallback')).resolves.toBe('found');
+  });
+
+  it('returns the fallback on timeout or rejection', async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = settleWithFallback(new Promise<string>(() => undefined), 500, 'timeout');
+      await vi.advanceTimersByTimeAsync(500);
+      await expect(pending).resolves.toBe('timeout');
+      await expect(settleWithFallback(Promise.reject(new Error('network')), 500, 'error')).resolves.toBe('error');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('barcode normalization', () => {
   it('keeps a scanned EAN and validates its check digit', () => {

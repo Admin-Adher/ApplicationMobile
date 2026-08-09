@@ -40,6 +40,31 @@ export interface WebSearchResult {
   };
 }
 
+/**
+ * Resolves an external operation within a hard deadline. Some React Native
+ * network stacks do not reject a fetch promptly after AbortController.abort(),
+ * so callers must not rely on abort alone to unblock the inventory screen.
+ */
+export async function settleWithFallback<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  fallback: T,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>(resolve => {
+    timer = setTimeout(() => resolve(fallback), Math.max(0, timeoutMs));
+  });
+
+  try {
+    return await Promise.race([
+      operation.catch(() => fallback),
+      timeout,
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 const GTIN_LENGTHS = new Set([8, 12, 13, 14]);
 const LOOKUP_CODE_MAX_LENGTH = 128;
 

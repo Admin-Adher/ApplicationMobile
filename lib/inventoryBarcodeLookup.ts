@@ -9,6 +9,7 @@ import {
   lookupOpenFactsCatalogs,
   lookupUpcItemDb,
   normalizeBarcodeLookupCode,
+  settleWithFallback,
   type InventoryBarcodeMatch,
 } from '@/lib/inventoryBarcodeCore';
 
@@ -17,6 +18,8 @@ import {
 const CACHE_PREFIX = 'buildtrack_inventory_barcode_v2';
 const OPEN_CATALOG_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
 const WEB_CATALOG_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
+const CACHE_OPERATION_TIMEOUT_MS = 1200;
+const ACCESS_TOKEN_TIMEOUT_MS = 2000;
 
 interface CachedBarcodeMatch {
   expiresAt: number;
@@ -31,6 +34,17 @@ export interface InventoryBarcodeLookupOptions {
   apiBaseUrl?: string;
   accessToken?: string | null;
   useCache?: boolean;
+}
+
+async function readCachedMatchWithinDeadline(code: string): Promise<InventoryBarcodeMatch | null> {
+  return settleWithFallback(readCachedMatch(code), CACHE_OPERATION_TIMEOUT_MS, null);
+}
+
+async function writeCachedMatchWithinDeadline(
+  code: string,
+  match: InventoryBarcodeMatch,
+): Promise<void> {
+  await settleWithFallback(writeCachedMatch(code, match), CACHE_OPERATION_TIMEOUT_MS, undefined);
 }
 
 function cacheKey(code: string): string {
@@ -84,7 +98,13 @@ async function lookupWebProvider(
   options: InventoryBarcodeLookupOptions,
 ): Promise<InventoryBarcodeMatch | null> {
   const base = (options.apiBaseUrl ?? defaultApiBaseUrl()).replace(/\/+$/, '');
-  const token = options.accessToken === undefined ? await currentAccessToken() : options.accessToken;
+  const token = options.accessToken === undefined
+    ? await settleWithFallback(
+      currentAccessToken(),
+      Math.min(options.webTimeoutMs ?? ACCESS_TOKEN_TIMEOUT_MS, ACCESS_TOKEN_TIMEOUT_MS),
+      null,
+    )
+    : options.accessToken;
   if (!token) return null;
 
   const endpoints: Array<{ url: string; apiKey?: string }> = [];
@@ -98,7 +118,8 @@ async function lookupWebProvider(
 
   for (const endpoint of endpoints) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), options.webTimeoutMs ?? 7000);
+    const timeoutMs = options.webTimeoutMs ?? 7000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const headers: Record<string, string> = {
         Accept: 'application/json',
@@ -106,16 +127,19 @@ async function lookupWebProvider(
         Authorization: `Bearer ${token}`,
       };
       if (endpoint.apiKey) headers.apikey = endpoint.apiKey;
-      const response = await (options.fetchImpl ?? fetch)(endpoint.url, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ code, language: options.language ?? 'fr' }),
-        signal: controller.signal,
-      });
-      if (!response.ok) continue;
-      const payload = await response.json();
-      if (!payload?.match?.designation || payload.match.source !== 'web') continue;
-      return payload.match as InventoryBarcodeMatch;
+      const match = await settleWithFallback((async () => {
+        const response = await (options.fetchImpl ?? fetch)(endpoint.url, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ code, language: options.language ?? 'fr' }),
+          signal: controller.signal,
+        });
+        if (!response.ok) return null;
+        const payload = await response.json();
+        if (!payload?.match?.designation || payload.match.source !== 'web') return null;
+        return payload.match as InventoryBarcodeMatch;
+      })(), timeoutMs, null);
+      if (match) return match;
     } catch {
       // Continue with the regular API server when the Edge Function is unavailable.
     } finally {
@@ -136,22 +160,23 @@ export async function lookupInventoryBarcode(
   const code = normalizeBarcodeLookupCode(value);
   if (code.length < 4) return null;
 
-  const cached = options.useCache === false ? null : await readCachedMatch(code);
+  const cached = options.useCache === false ? null : await readCachedMatchWithinDeadline(code);
   if (cached?.variantComplete) return cached;
 
+  const openCatalogTimeoutMs = options.openCatalogTimeoutMs ?? 4000;
   const openMatch = cached ?? (await Promise.all([
-    lookupOpenFactsCatalogs(code, {
+    settleWithFallback(lookupOpenFactsCatalogs(code, {
       fetchImpl: options.fetchImpl,
-      timeoutMs: options.openCatalogTimeoutMs,
+      timeoutMs: openCatalogTimeoutMs,
       language: options.language,
-    }),
-    lookupUpcItemDb(code, {
+    }), openCatalogTimeoutMs + 500, null),
+    settleWithFallback(lookupUpcItemDb(code, {
       fetchImpl: options.fetchImpl,
-      timeoutMs: options.openCatalogTimeoutMs,
-    }),
+      timeoutMs: openCatalogTimeoutMs,
+    }), openCatalogTimeoutMs + 500, null),
   ])).find(Boolean) ?? null;
   if (openMatch) {
-    if (options.useCache !== false) await writeCachedMatch(code, openMatch);
+    if (options.useCache !== false) await writeCachedMatchWithinDeadline(code, openMatch);
     if (openMatch.variantComplete) return openMatch;
   }
 
@@ -162,7 +187,7 @@ export async function lookupInventoryBarcode(
       brand: webMatch.brand ?? openMatch?.brand,
       photoUrl: webMatch.photoUrl ?? openMatch?.photoUrl,
     };
-    if (options.useCache !== false) await writeCachedMatch(code, mergedMatch);
+    if (options.useCache !== false) await writeCachedMatchWithinDeadline(code, mergedMatch);
     return mergedMatch;
   }
   return openMatch;

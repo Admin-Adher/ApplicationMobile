@@ -148,6 +148,8 @@ export default function InventoryMovementScreen() {
         if (match.photoUrl) {
           setPhotoUrl(current => current ?? match.photoUrl);
         }
+      }).catch(() => {
+        if (active) setBarcodeLookup({ status: 'not-found' });
       });
     }, 350);
 
