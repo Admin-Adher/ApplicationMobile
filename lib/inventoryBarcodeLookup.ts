@@ -15,8 +15,9 @@ import {
 } from '@/lib/inventoryBarcodeCore';
 
 // Parser/provider rules changed materially: invalidate matches accepted by the
-// former, more permissive variant detector instead of serving stale results.
-const CACHE_PREFIX = 'buildtrack_inventory_barcode_v2';
+// former detector, including UPC descriptions with a broken separator or an
+// Android-blocked plain-HTTP image, instead of serving stale results.
+const CACHE_PREFIX = 'buildtrack_inventory_barcode_v3';
 const OPEN_CATALOG_CACHE_MS = 30 * 24 * 60 * 60 * 1000;
 const WEB_CATALOG_CACHE_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_OPERATION_TIMEOUT_MS = 1200;
