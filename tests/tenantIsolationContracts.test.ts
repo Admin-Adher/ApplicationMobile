@@ -14,6 +14,7 @@ const authority = source('supabase/migrations/20260810192253_organization_member
 const integrity = source('supabase/migrations/20260810193111_enforce_tenant_integrity_and_rpc_scope.sql');
 const media = source('supabase/migrations/20260810193713_add_private_tenant_media_registry.sql');
 const followup = source('supabase/migrations/20260811000500_index_tenant_fks_and_harden_legacy_helpers.sql');
+const visibilityHardening = source('supabase/migrations/20260811001700_fix_chantier_visibility_search_path.sql');
 
 describe('tenant A x object B authorization matrix', () => {
   const actors = [
@@ -113,6 +114,7 @@ describe('tenant integrity migration contract', () => {
     expect(followup).toContain('on public.reserves(organization_id, plan_id)');
     expect(followup).toContain('revoke all on function public.auth_user_email() from public, anon');
     expect(followup).toContain('revoke all on function public.set_photo_organization_id() from public, anon, authenticated');
+    expect(visibilityHardening).toContain('set search_path = pg_catalog, public');
   });
 });
 
