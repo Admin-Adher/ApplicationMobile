@@ -57,11 +57,12 @@
     "expo-updates": "~29.0.19",
     "express": "^5.2.1",
     "i18next": "^26.2.0",
-    "nodemailer": "^8.0.7",
+    "image-size": "file:vendor/image-size-2.0.3-buildtrack.1.tgz",
+    "nodemailer": "^9.0.5",
     "openai": "^6.37.0",
     "p-limit": "^7.3.0",
     "p-retry": "^7.1.1",
-    "pdfjs-dist": "^5.7.284",
+    "pdfjs-dist": "^6.2.108",
     "puppeteer": "^24.43.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
@@ -82,19 +83,26 @@
     "zod-validation-error": "^5.0.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.29.0",
+    "@babel/core": "^7.29.7",
     "@types/react": "~19.1.10",
     "typescript": "~5.9.2",
     "vitest": "^4.1.10"
   },
   "overrides": {
+    "@infinitered/react-native-mlkit-text-recognition": {
+      "@infinitered/react-native-mlkit-core": "5.0.0"
+    },
     "@xmldom/xmldom": "^0.8.13",
     "ajv": "^8.20.0",
     "diff": "^8.0.3",
+    "image-size": "$image-size",
     "minimatch": "^10.2.5",
     "node-forge": "^1.4.0",
     "postcss": "^8.5.14",
-    "tar": "^7.5.15",
+    "tar": "^7.5.22",
+    "xcode": {
+      "uuid": "^11.1.1"
+    },
     "yaml": "^2.9.0"
   }
 }

@@ -12,6 +12,7 @@ attached_assets/
 *.mobileprovision
 *.orig.*
 web-build/
+vercel-app/.next/
 .env
 .env.local
 

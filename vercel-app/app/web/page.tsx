@@ -46,6 +46,7 @@ type WebPermissions = {
   canEditChantier: boolean;
   canViewInventory: boolean;
   canRecordInventory: boolean;
+  canManageInventoryProducts: boolean;
   canAdjustInventory: boolean;
   canExportInventory: boolean;
 };
@@ -53,14 +54,38 @@ type WebPermissions = {
 type PermissionsOverride = Partial<WebPermissions>;
 
 const WEB_ROLE_PERMISSIONS: Record<string, WebPermissions> = {
-  super_admin:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: true,  canExportInventory: true  },
-  admin:         { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: true,  canExportInventory: true  },
-  conducteur:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: true,  canExportInventory: true  },
-  chef_equipe:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: false, canExportInventory: false },
-  magasinier:    { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: false, canExportInventory: false },
-  observateur:   { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: false, canAdjustInventory: false, canExportInventory: true  },
-  sous_traitant: { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: false, canRecordInventory: false, canAdjustInventory: false, canExportInventory: false },
+  super_admin:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: true,  canExportInventory: true  },
+  admin:         { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: true,  canExportInventory: true  },
+  conducteur:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: true,  canExportInventory: true  },
+  chef_equipe:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: false, canAdjustInventory: false, canExportInventory: false },
+  magasinier:    { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: false, canExportInventory: true  },
+  observateur:   { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: false, canManageInventoryProducts: false, canAdjustInventory: false, canExportInventory: true  },
+  sous_traitant: { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: false, canRecordInventory: false, canManageInventoryProducts: false, canAdjustInventory: false, canExportInventory: false },
 };
+
+const WEB_PERMISSION_DEFS: { key: keyof WebPermissions; label: string; description: string; inventory: boolean }[] = [
+  { key: 'canViewInventory', label: 'Consulter le stock', description: 'Produits, alertes et historique des mouvements', inventory: true },
+  { key: 'canRecordInventory', label: 'Enregistrer entrées et sorties', description: 'Créer les références pendant une entrée', inventory: true },
+  { key: 'canManageInventoryProducts', label: 'Gérer les fiches produits', description: 'Références, photos, emplacements et stocks minimums', inventory: true },
+  { key: 'canExportInventory', label: 'Exporter le stock', description: 'Exports Excel/CSV et PDF', inventory: true },
+  { key: 'canAdjustInventory', label: 'Autoriser le stock négatif', description: 'Exception sensible, désactivée par défaut pour le magasinier', inventory: true },
+  { key: 'canCreate', label: 'Créer des réserves', description: 'Ajouter de nouvelles réserves sur les plans', inventory: false },
+  { key: 'canEdit', label: 'Modifier toutes les réserves', description: "Éditer les réserves de l'organisation", inventory: false },
+  { key: 'canEditOwn', label: 'Modifier ses réserves', description: 'Éditer uniquement ses propres réserves', inventory: false },
+  { key: 'canDelete', label: 'Mettre en corbeille', description: 'Retirer des réserves actives', inventory: false },
+  { key: 'canExport', label: 'Exporter les données BuildTrack', description: 'Rapports et exports hors stock', inventory: false },
+  { key: 'canManageTeams', label: 'Gérer les équipes', description: 'Administration des équipes chantier', inventory: false },
+  { key: 'canViewTeams', label: 'Voir les équipes', description: 'Consulter les équipes et leurs membres', inventory: false },
+  { key: 'canUpdateAttendance', label: 'Gérer les présences', description: 'Pointage et présence terrain', inventory: false },
+  { key: 'canMovePins', label: 'Déplacer les pins', description: 'Repositionner les épingles sur les plans', inventory: false },
+  { key: 'canEditChantier', label: 'Modifier les chantiers', description: 'Informations générales du chantier', inventory: false },
+];
+
+function cyclePermissionOverride(current: boolean | undefined): boolean | undefined {
+  if (current === undefined) return true;
+  if (current === true) return false;
+  return undefined;
+}
 
 type Organization = {
   id: string;
@@ -259,7 +284,7 @@ const EMPTY_DATA: WebState = {
   inventoryMovements: [],
 };
 
-const PDFJS_VERSION = '5.7.284';
+const PDFJS_VERSION = '6.2.108';
 const WEB_LANGUAGE_PREFERENCE_KEY = 'buildtrack-web-language-preference-v1';
 const WEB_LANGUAGE_LEGACY_KEY = 'buildtrack-web-language';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
@@ -804,6 +829,7 @@ function resolveWebPermissions(profile: Profile | null): WebPermissions {
     canEditChantier: base.canEditChantier ?? false,
     canViewInventory: base.canViewInventory ?? false,
     canRecordInventory: base.canRecordInventory ?? false,
+    canManageInventoryProducts: base.canManageInventoryProducts ?? false,
     canAdjustInventory: base.canAdjustInventory ?? false,
     canExportInventory: base.canExportInventory ?? false,
   };
@@ -860,6 +886,10 @@ function canViewInventory(profile: Profile | null) {
 
 function canRecordInventory(profile: Profile | null) {
   return resolveWebPermissions(profile).canRecordInventory;
+}
+
+function canManageInventoryProducts(profile: Profile | null) {
+  return resolveWebPermissions(profile).canManageInventoryProducts;
 }
 
 function canAdjustInventory(profile: Profile | null) {
@@ -5499,6 +5529,7 @@ export default function BuildTrackWebPage() {
                   selectedProjectId={selectedProjectId}
                   organizationId={profile?.organization_id}
                   canRecord={canRecordInventory(profile)}
+                  canManage={canManageInventoryProducts(profile)}
                   canAdjust={canAdjustInventory(profile)}
                   canExport={canExportInventory(profile)}
                   onReload={async () => {
@@ -15015,13 +15046,16 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
   );
 }
 
-function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => void }) {
+function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void }) {
   const [query, setQuery] = useState('');
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   if (!isAdmin(profile)) {
     return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux admins et super admins.</p></section>;
   }
   const q = query.trim().toLowerCase();
   const users = data.profiles.filter(user => !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q));
+  const editorIsSuperAdmin = profile?.role === 'super_admin';
+
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
@@ -15033,25 +15067,93 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
-            <h2>Utilisateurs</h2>
-            <p>Gestion web des rôles et entreprises rattachées.</p>
+            <h2>Utilisateurs et permissions</h2>
+            <p>Le rôle définit la base. Chaque permission peut ensuite être accordée, retirée ou remise au défaut du rôle.</p>
           </div>
           <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher utilisateur..." />
         </div>
+        <div className={styles.adminPermissionLegend}>
+          <span><i className={styles.permissionDefaultDot} /> Défaut du rôle</span>
+          <span><i className={styles.permissionEnabledDot} /> Accord manuel</span>
+          <span><i className={styles.permissionDisabledDot} /> Retrait manuel</span>
+        </div>
         <div className={styles.dataTable}>
-          <div className={`${styles.tableHead} ${styles.adminTableHead}`}><span>Utilisateur</span><span>Rôle</span><span>Entreprise</span><span>Email</span></div>
+          <div className={`${styles.tableHead} ${styles.adminTableHead}`}><span>Utilisateur</span><span>Rôle</span><span>Entreprise</span><span>Email</span><span>Droits</span></div>
           {users.map(user => {
+            const targetEditable = editorIsSuperAdmin || (user.role !== 'admin' && user.role !== 'super_admin');
+            const permissionsEditable = targetEditable && user.role !== 'super_admin';
+            const overrides = profilePermissionsOverride(user) ?? {};
+            const overrideCount = Object.keys(overrides).length;
+            const roleDefaults = WEB_ROLE_PERMISSIONS[String(user.role)] ?? WEB_ROLE_PERMISSIONS.observateur;
+            const expanded = expandedUserId === user.id;
+            const roleOptions = Object.entries(ROLE_LABELS).filter(([value]) => editorIsSuperAdmin || (value !== 'admin' && value !== 'super_admin'));
+
+            const updatePermission = (key: keyof WebPermissions) => {
+              if (!permissionsEditable) return;
+              const next = { ...overrides };
+              const nextValue = cyclePermissionOverride(next[key]);
+              if (nextValue === undefined) delete next[key];
+              else next[key] = nextValue;
+              void onUpdateProfile(user.id, { permissions_override: next });
+            };
+
             return (
-              <div key={user.id} className={`${styles.tableRow} ${styles.adminTableRow}`}>
-                <strong>{user.name}</strong>
-                <select value={user.role ?? ''} onChange={event => onUpdateProfile(user.id, { role: event.target.value })}>
-                  {Object.entries(ROLE_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                </select>
-                <select value={user.company_id ?? ''} onChange={event => onUpdateProfile(user.id, { company_id: event.target.value || null })}>
-                  <option value="">Aucune</option>
-                  {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                </select>
-                <span>{user.email}</span>
+              <div key={user.id} className={styles.adminUserBlock}>
+                <div className={`${styles.tableRow} ${styles.adminTableRow}`}>
+                  <strong>{user.name}</strong>
+                  <select disabled={!targetEditable} value={user.role ?? ''} onChange={event => void onUpdateProfile(user.id, { role: event.target.value })}>
+                    {roleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                  <select disabled={!targetEditable} value={user.company_id ?? ''} onChange={event => void onUpdateProfile(user.id, { company_id: event.target.value || null })}>
+                    <option value="">Aucune</option>
+                    {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </select>
+                  <span>{user.email}</span>
+                  <button
+                    type="button"
+                    className={styles.adminPermissionsButton}
+                    onClick={() => setExpandedUserId(current => current === user.id ? null : user.id)}
+                  >
+                    {user.role === 'super_admin' ? 'Droits fixes' : `${overrideCount} surcharge${overrideCount === 1 ? '' : 's'}`} {expanded ? '▴' : '▾'}
+                  </button>
+                </div>
+                {expanded ? (
+                  <div className={styles.adminPermissionsPanel}>
+                    <div className={styles.adminPermissionsHeader}>
+                      <div><strong>Permissions de {user.name}</strong><span>Cliquer : défaut → accordé → retiré → défaut</span></div>
+                      {permissionsEditable && overrideCount > 0 ? <button type="button" onClick={() => void onUpdateProfile(user.id, { permissions_override: {} })}>Réinitialiser</button> : null}
+                    </div>
+                    <h3>Module Stock</h3>
+                    <div className={styles.adminPermissionsGrid}>
+                      {WEB_PERMISSION_DEFS.filter(item => item.inventory).map(item => {
+                        const override = overrides[item.key];
+                        const effective = override ?? roleDefaults[item.key];
+                        return (
+                          <button key={item.key} type="button" disabled={!permissionsEditable} className={override === true ? styles.permissionOverrideEnabled : override === false ? styles.permissionOverrideDisabled : styles.permissionRoleDefault} onClick={() => updatePermission(item.key)}>
+                            <i className={effective ? styles.permissionEffectiveOn : styles.permissionEffectiveOff} />
+                            <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                            <b>{override === true ? 'Accordé' : override === false ? 'Retiré' : roleDefaults[item.key] ? 'Par le rôle' : 'Désactivé'}</b>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <h3>Autres modules BuildTrack</h3>
+                    <div className={styles.adminPermissionsGrid}>
+                      {WEB_PERMISSION_DEFS.filter(item => !item.inventory).map(item => {
+                        const override = overrides[item.key];
+                        const effective = override ?? roleDefaults[item.key];
+                        return (
+                          <button key={item.key} type="button" disabled={!permissionsEditable} className={override === true ? styles.permissionOverrideEnabled : override === false ? styles.permissionOverrideDisabled : styles.permissionRoleDefault} onClick={() => updatePermission(item.key)}>
+                            <i className={effective ? styles.permissionEffectiveOn : styles.permissionEffectiveOff} />
+                            <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                            <b>{override === true ? 'Accordé' : override === false ? 'Retiré' : roleDefaults[item.key] ? 'Par le rôle' : 'Désactivé'}</b>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {user.role === 'magasinier' ? <p className={styles.adminWarehouseNote}>L’interface magasinier reste limitée au Stock et aux paramètres personnels, même si une permission d’un autre module est accordée par erreur.</p> : null}
+                  </div>
+                ) : null}
               </div>
             );
           })}

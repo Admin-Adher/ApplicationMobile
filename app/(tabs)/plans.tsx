@@ -421,7 +421,7 @@ function renderWithPdfjs(pdfjsLib){
 }
 var s=document.createElement('script');
 s.type='module';
-s.textContent="import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.min.mjs'; pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/legacy/build/pdf.worker.min.mjs'; window.__btPdfjs=pdfjsLib; window.dispatchEvent(new Event('bt-pdfjs-ready'));";
+s.textContent="import * as pdfjsLib from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/legacy/build/pdf.min.mjs'; pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/legacy/build/pdf.worker.min.mjs'; window.__btPdfjs=pdfjsLib; window.dispatchEvent(new Event('bt-pdfjs-ready'));";
 window.addEventListener('bt-pdfjs-ready',function(){renderWithPdfjs(window.__btPdfjs);},{once:true});
 s.onerror=drawFallback;
 document.head.appendChild(s);

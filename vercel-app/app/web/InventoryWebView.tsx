@@ -51,6 +51,7 @@ type Props = {
   selectedProjectId: string;
   organizationId?: string | null;
   canRecord: boolean;
+  canManage: boolean;
   canAdjust: boolean;
   canExport: boolean;
   onReload: () => Promise<void> | void;
@@ -72,9 +73,22 @@ type FormState = {
   allowNegative: boolean;
 };
 
+type ProductEditState = {
+  reference: string;
+  barcode: string;
+  designation: string;
+  supplier: string;
+  location: string;
+  minStock: string;
+};
+
 const EMPTY_FORM: FormState = {
   reference: '', barcode: '', designation: '', quantity: '', supplier: '', location: '', minStock: '0',
   buildingName: '', zoneName: '', companyId: '', personName: '', comment: '', allowNegative: false,
+};
+
+const EMPTY_PRODUCT_EDIT: ProductEditState = {
+  reference: '', barcode: '', designation: '', supplier: '', location: '', minStock: '0',
 };
 
 function normalizeReference(value: string) {
@@ -108,6 +122,7 @@ export default function InventoryWebView({
   selectedProjectId,
   organizationId,
   canRecord,
+  canManage,
   canAdjust,
   canExport,
   onReload,
@@ -117,6 +132,9 @@ export default function InventoryWebView({
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
+  const [editingProduct, setEditingProduct] = useState<InventoryProductRow | null>(null);
+  const [editForm, setEditForm] = useState<ProductEditState>(EMPTY_PRODUCT_EDIT);
+  const [editPhoto, setEditPhoto] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -207,6 +225,28 @@ export default function InventoryWebView({
     setForm({ ...EMPTY_FORM });
     setSelectedProductId(null);
     if (product) selectProduct(product);
+  }
+
+  function openProductEditor(product: InventoryProductRow) {
+    if (!canManage) return;
+    setEditingProduct(product);
+    setEditPhoto(null);
+    setEditForm({
+      reference: product.reference ?? '',
+      barcode: product.barcode ?? '',
+      designation: product.designation ?? product.reference ?? '',
+      supplier: product.supplier ?? '',
+      location: product.location ?? '',
+      minStock: String(numberValue(product.min_stock)),
+    });
+    setError('');
+    setNotice('');
+  }
+
+  function closeProductEditor() {
+    setEditingProduct(null);
+    setEditPhoto(null);
+    setEditForm(EMPTY_PRODUCT_EDIT);
   }
 
   function stopScanner() {
@@ -341,6 +381,46 @@ export default function InventoryWebView({
     }
   }
 
+  async function submitProductEdit(event: React.FormEvent) {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+    if (!canManage || !editingProduct) return setError("Votre rôle n'autorise pas la modification des fiches produits.");
+    const reference = editForm.reference.trim().toUpperCase();
+    const designation = editForm.designation.trim();
+    const minStock = Number(editForm.minStock.replace(',', '.'));
+    if (!reference) return setError('La référence est obligatoire.');
+    if (!designation) return setError('La désignation est obligatoire.');
+    if (!Number.isFinite(minStock) || minStock < 0) return setError('Le stock minimum doit être positif ou nul.');
+
+    setSaving(true);
+    try {
+      const photoUrl = editPhoto ? await uploadPhoto(editPhoto, editingProduct.id) : editingProduct.photo_url ?? null;
+      const { data: rpcData, error: rpcError } = await (supabaseBrowser.rpc as any)('update_inventory_product', {
+        p_product_id: editingProduct.id,
+        p_patch: {
+          reference,
+          designation,
+          barcode: editForm.barcode.trim() || null,
+          photo_url: photoUrl,
+          min_stock: minStock,
+          location: editForm.location.trim() || null,
+          supplier: editForm.supplier.trim() || null,
+        },
+      });
+      if (rpcError) throw rpcError;
+      const outcome = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      if (!outcome || outcome.status !== 'ok') throw new Error(outcome?.message ?? 'Modification refusée par le serveur.');
+      await onReload();
+      closeProductEditor();
+      setNotice(`La fiche ${reference} a été mise à jour.`);
+    } catch (editError: any) {
+      setError(editError?.message ?? String(editError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function exportStock() {
     downloadCsv(`stock-${activeProjectId || 'chantier'}.csv`, [
       ['Référence', 'Désignation', 'Stock', 'Entrées', 'Sorties', 'Minimum', 'Localisation', 'Fournisseur', 'Code-barres'],
@@ -428,6 +508,25 @@ export default function InventoryWebView({
         </form>
       )}
 
+      {editingProduct && canManage ? (
+        <form className={styles.formCard} onSubmit={submitProductEdit}>
+          <div className={styles.formHeading}>
+            <div><span>Fiche produit</span><h3>Modifier {editingProduct.reference}</h3></div>
+            <button type="button" className={styles.closeButton} onClick={closeProductEditor}>×</button>
+          </div>
+          <div className={styles.formGrid}>
+            <label><span>Référence *</span><input value={editForm.reference} onChange={event => setEditForm(current => ({ ...current, reference: event.target.value }))} autoFocus /></label>
+            <label><span>Code-barres / QR</span><input value={editForm.barcode} onChange={event => setEditForm(current => ({ ...current, barcode: event.target.value }))} /></label>
+            <label className={styles.wide}><span>Désignation *</span><input value={editForm.designation} onChange={event => setEditForm(current => ({ ...current, designation: event.target.value }))} /></label>
+            <label><span>Stock minimum</span><input value={editForm.minStock} onChange={event => setEditForm(current => ({ ...current, minStock: event.target.value }))} type="number" min="0" step="any" /></label>
+            <label><span>Emplacement</span><input value={editForm.location} onChange={event => setEditForm(current => ({ ...current, location: event.target.value }))} /></label>
+            <label><span>Fournisseur</span><input value={editForm.supplier} onChange={event => setEditForm(current => ({ ...current, supplier: event.target.value }))} /></label>
+            <label><span>Nouvelle photo</span><input type="file" accept="image/*" capture="environment" onChange={event => setEditPhoto(event.target.files?.[0] ?? null)} /></label>
+          </div>
+          <div className={styles.formActions}><button type="button" onClick={closeProductEditor}>Annuler</button><button type="submit" disabled={saving}>{saving ? 'Enregistrement…' : 'ENREGISTRER LA FICHE'}</button></div>
+        </form>
+      ) : null}
+
       {(mode === 'home' || mode === 'stock' || mode === 'history') && (
         <section className={styles.tableCard}>
           <div className={styles.tableToolbar}>
@@ -437,7 +536,7 @@ export default function InventoryWebView({
           {mode === 'history' ? (
             <div className={styles.tableScroll}><table><thead><tr><th>Date</th><th>Type</th><th>Référence</th><th>Désignation</th><th>Qté</th><th>Stock</th><th>Destination</th><th>Entreprise</th><th>Utilisateur</th><th>Commentaire</th></tr></thead><tbody>{filteredMovements.map(movement => <tr key={movement.id}><td>{movement.created_at ? new Date(movement.created_at).toLocaleString('fr-FR') : '—'}</td><td><span className={movement.movement_type === 'in' ? styles.inBadge : styles.outBadge}>{movement.movement_type === 'in' ? 'Entrée' : 'Sortie'}</span></td><td><strong>{movement.reference}</strong></td><td>{movement.designation}</td><td>{movement.movement_type === 'in' ? '+' : '−'}{movement.quantity}</td><td>{numberValue(movement.stock_before)} → {numberValue(movement.stock_after)}</td><td>{movement.building_name || movement.zone_name || '—'}</td><td>{movement.company_name || '—'}</td><td>{movement.user_name || '—'}</td><td>{movement.comment || '—'}</td></tr>)}</tbody></table>{!filteredMovements.length ? <p className={styles.empty}>Aucun mouvement enregistré.</p> : null}</div>
           ) : (
-            <div className={styles.tableScroll}><table><thead><tr><th>Photo</th><th>Référence</th><th>Désignation</th><th>Stock</th><th>Entrées</th><th>Sorties</th><th>Minimum</th><th>Localisation</th><th>Actions</th></tr></thead><tbody>{filteredProducts.map(product => { const low = numberValue(product.current_stock) <= numberValue(product.min_stock); return <tr key={product.id} className={low ? styles.lowRow : ''}><td>{product.photo_url ? <img className={styles.productPhoto} src={product.photo_url} alt="" /> : <span className={styles.photoPlaceholder}>▦</span>}</td><td><strong>{product.reference}</strong>{product.barcode ? <small>{product.barcode}</small> : null}</td><td>{product.designation || product.reference}</td><td><b className={low ? styles.lowStock : ''}>{numberValue(product.current_stock)}</b>{low ? <small className={styles.warning}>Stock faible</small> : null}</td><td>{numberValue(product.total_entries)}</td><td>{numberValue(product.total_exits)}</td><td>{numberValue(product.min_stock)}</td><td>{product.location || '—'}</td><td><div className={styles.rowActions}>{canRecord ? <button type="button" onClick={() => openMovement('in', product)}>+ Entrée</button> : null}{canRecord ? <button type="button" onClick={() => openMovement('out', product)}>− Sortie</button> : null}</div></td></tr>; })}</tbody></table>{!filteredProducts.length ? <p className={styles.empty}>Aucun produit dans ce chantier.</p> : null}</div>
+            <div className={styles.tableScroll}><table><thead><tr><th>Photo</th><th>Référence</th><th>Désignation</th><th>Stock</th><th>Entrées</th><th>Sorties</th><th>Minimum</th><th>Localisation</th><th>Actions</th></tr></thead><tbody>{filteredProducts.map(product => { const low = numberValue(product.current_stock) <= numberValue(product.min_stock); return <tr key={product.id} className={low ? styles.lowRow : ''}><td>{product.photo_url ? <img className={styles.productPhoto} src={product.photo_url} alt="" /> : <span className={styles.photoPlaceholder}>▦</span>}</td><td><strong>{product.reference}</strong>{product.barcode ? <small>{product.barcode}</small> : null}</td><td>{product.designation || product.reference}</td><td><b className={low ? styles.lowStock : ''}>{numberValue(product.current_stock)}</b>{low ? <small className={styles.warning}>Stock faible</small> : null}</td><td>{numberValue(product.total_entries)}</td><td>{numberValue(product.total_exits)}</td><td>{numberValue(product.min_stock)}</td><td>{product.location || '—'}</td><td><div className={styles.rowActions}>{canRecord ? <button type="button" onClick={() => openMovement('in', product)}>+ Entrée</button> : null}{canRecord ? <button type="button" onClick={() => openMovement('out', product)}>− Sortie</button> : null}{canManage ? <button type="button" onClick={() => openProductEditor(product)}>Modifier</button> : null}</div></td></tr>; })}</tbody></table>{!filteredProducts.length ? <p className={styles.empty}>Aucun produit dans ce chantier.</p> : null}</div>
           )}
         </section>
       )}

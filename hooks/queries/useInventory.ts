@@ -498,7 +498,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
   }, [enqueueOperation, isOnline, movementsKey, orgId, permissions.canAdjustInventory, permissions.canRecordInventory, persistCurrent, productsKey, queryClient, user, validChantierId]);
 
   const updateProduct = useCallback(async (productId: string, patch: UpdateInventoryProductPatch) => {
-    if (!user || !permissions.canAdjustInventory) {
+    if (!user || !permissions.canManageInventoryProducts) {
       throw new InventoryOperationError('forbidden', 'Vous ne pouvez pas modifier cette fiche produit.');
     }
     const previous = queryClient.getQueryData<InventoryProduct[]>(productsKey) ?? [];
@@ -574,7 +574,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     await persistCurrent();
     void queryClient.invalidateQueries({ queryKey: productsKey });
     return { queued: false };
-  }, [enqueueOperation, isOnline, permissions.canAdjustInventory, persistCurrent, productsKey, queryClient, user]);
+  }, [enqueueOperation, isOnline, permissions.canManageInventoryProducts, persistCurrent, productsKey, queryClient, user]);
 
   const products = productsQuery.data ?? [];
   const movements = movementsQuery.data ?? [];

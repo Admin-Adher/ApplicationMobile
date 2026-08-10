@@ -101,7 +101,7 @@ export default function InventoryProductScreen() {
 
   return (
     <View style={styles.root}>
-      <Header title={copy.productSheet} subtitle={product.reference} showBack backFallback="/inventory/stock" rightIcon={permissions.canAdjustInventory ? 'create-outline' : undefined} onRightPress={permissions.canAdjustInventory ? openEditor : undefined} />
+      <Header title={copy.productSheet} subtitle={product.reference} showBack backFallback="/inventory/stock" rightIcon={permissions.canManageInventoryProducts ? 'create-outline' : undefined} onRightPress={permissions.canManageInventoryProducts ? openEditor : undefined} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 34 }]}>
         <View style={styles.heroCard}>
           {product.photoUrl ? <Image source={{ uri: product.photoUrl }} style={styles.heroPhoto} /> : <View style={[styles.heroPhoto, styles.heroPlaceholder]}><Ionicons name="cube-outline" size={44} color={C.textMuted} /></View>}

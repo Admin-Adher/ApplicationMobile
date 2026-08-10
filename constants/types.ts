@@ -18,6 +18,7 @@ export interface UserPermissions {
   canEditChantier: boolean;
   canViewInventory: boolean;
   canRecordInventory: boolean;
+  canManageInventoryProducts: boolean;
   canAdjustInventory: boolean;
   canExportInventory: boolean;
 }

@@ -1,5 +1,5 @@
 let _promise: Promise<any> | null = null;
-const PDFJS_VERSION = '5.7.284';
+const PDFJS_VERSION = '6.2.108';
 const PDFJS_MODULE_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/legacy/build/pdf.min.mjs`;
 const PDFJS_WORKER_URL = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/legacy/build/pdf.worker.min.mjs`;
 

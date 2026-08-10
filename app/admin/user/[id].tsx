@@ -31,6 +31,7 @@ const PERMISSION_DEFS: { key: keyof PermissionsOverride }[] = [
   { key: 'canEditChantier' },
   { key: 'canViewInventory' },
   { key: 'canRecordInventory' },
+  { key: 'canManageInventoryProducts' },
   { key: 'canAdjustInventory' },
   { key: 'canExportInventory' },
 ];
