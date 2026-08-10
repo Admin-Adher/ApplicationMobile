@@ -75,6 +75,7 @@ export default function InviteLandingScreen() {
               email: row.email,
               org: row.organization_name || '',
               invitedBy: row.invited_by_name || '',
+              token,
             },
           });
         }, 600);

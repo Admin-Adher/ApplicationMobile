@@ -1,14 +1,15 @@
 # BuildTrack
 
-**BuildTrack** est une application React Native / Expo SDK 53 de gestion de chantier numérique pour Bouygues Construction.
+**BuildTrack** est une application SaaS React Native / Expo SDK 54 de gestion de chantier.
 
 ## Architecture
 
 - **Frontend mobile** : Expo (React Native) avec Expo Router pour la navigation
-- **Backend** : Supabase (service hébergé — auth, PostgreSQL avec RLS, realtime, storage)
+- **Backend** : Supabase (Auth, PostgreSQL avec RLS, Realtime et registre média)
 - **Web target** : Metro bundler, tourne comme SPA sur le port 5000
-- **Emails transactionnels** : Gmail SMTP via nodemailer (depuis l'API Vercel et la route dev locale)
-- **Deep links & landing pages** : Vercel (`https://buildtrack-mobile.vercel.app`)
+- **API canonique** : Next.js/Vercel (`https://buildtrack-mobile.vercel.app`)
+- **Emails transactionnels** : Resend ou SMTP, exclusivement depuis l’API canonique
+- **Deep links, landing page et expérience web** : Next.js/Vercel
 
 ## Démarrer l'application
 
@@ -38,17 +39,12 @@ Le système de mise à jour est en deux couches :
 - Corrections de bugs JS → `git push main` → OTA publié automatiquement → app mise à jour sans action utilisateur.
 - Nouveau module natif / upgrade Expo → nouveau APK à distribuer via GitHub Releases.
 
-## Replit — Notes de migration (complétée mai 2026)
+## Replit
 
-- **Migration réussie** : L'application tourne correctement sur Replit avec deux workflows : "Start Frontend" (Expo Metro, port 5000) et "Start API" (Express, port 3001).
+- **Frontend uniquement** : Replit exécute Expo Metro sur le port 5000. Aucun serveur Express local ne porte de logique privilégiée.
 - **CORS** : `scripts/patch-expo-cors.js` patche automatiquement Expo pour autoriser les domaines `.replit.dev` et `.repl.co` (exécuté via `postinstall`).
-- **API locale** : `server/api.js` — serveur Express qui remplace l'ancienne app Vercel Next.js. Expose :
-  - `POST /api/send-email` — envoi d'emails transactionnels (invitation, welcome, réserves, etc.)
-  - `POST /api/request-password-reset` — réinitialisation de mot de passe via Supabase Admin API
-  - `GET  /api/cron/overdue-reserves` — cron de rappel pour réserves en retard
-  - `GET  /api/health` — health check
-- **Architecture conservée** : Supabase conservé comme backend principal (auth, RLS, realtime, stockage). Le PostgreSQL Replit/Neon est disponible pour usage futur.
-- **Client email mis à jour** : `lib/email/client.ts` utilise `EXPO_PUBLIC_API_URL` pour pointer vers le serveur API local sur les domaines Replit.
+- **API distante** : `EXPO_PUBLIC_API_URL` pointe toujours vers l’API Next.js canonique. Cette règle vaut aussi pour Expo web afin d’éviter le retour accidentel vers des routes locales incomplètes.
+- **Backend** : Supabase reste l’autorité d’identité et de données ; Replit ne contient ni service role, ni SMTP privilégié, ni implémentation serveur parallèle.
 - **CI Android (GitHub Actions)** : `.github/workflows/build-apk.yml` — ajout de `yes | sdkmanager --licenses || true` après le setup Android SDK pour accepter toutes les licences (y compris TV/XR) sans interaction. Les packages SDK sont ciblés sur `platform-tools build-tools;34.0.0 platforms;android-34` pour éviter les licences exotiques.
 
 ## Variables d'environnement
@@ -57,11 +53,11 @@ Configurées dans Replit (shared) :
 - `EXPO_PUBLIC_SUPABASE_URL` — URL du projet Supabase
 - `EXPO_PUBLIC_SUPABASE_KEY` — Clé anon Supabase (public, intentionnellement côté client)
 - `EXPO_PUBLIC_APP_URL` — URL de l'app Replit (dev domain, ex: `https://xxx.replit.dev`)
-- `EXPO_PUBLIC_API_URL` — URL de l'API locale (même domaine que l'app, ex: `https://xxx.replit.dev`)
-- `GMAIL_USER` — Adresse Gmail expéditrice (`buildtrack.admin@gmail.com`)
-- `GMAIL_APP_PASSWORD` — Mot de passe d'application Google 16 caractères (à configurer en secret)
-- `EMAIL_FROM` — Expéditeur affiché : `BuildTrack <buildtrack.admin@gmail.com>`
-- `SUPABASE_SERVICE_ROLE_KEY` — Clé service Supabase (pour password reset, à configurer en secret)
+- `EXPO_PUBLIC_API_URL` — URL HTTPS de l’API Next.js canonique
+
+Les secrets `SUPABASE_SERVICE_ROLE_KEY`, SMTP/Resend, R2 et `CRON_SECRET`
+restent exclusivement dans l’environnement Vercel ; ils ne doivent pas être
+ajoutés à l’environnement du frontend Replit.
 
 ## Correctif critique — Écran vide / "Vérification en cours..." après veille prolongée (mai 2026)
 
@@ -121,10 +117,9 @@ Configurées dans Replit (shared) :
 
 - `lib/supabase.ts` — Client Supabase
 - `lib/email/client.ts` — Client email (appelle l'API Vercel)
-- `lib/email/templates.ts` — Templates HTML (pour référence — les vrais sont dans vercel-app/)
-- `lib/email/sender.ts` — Wrapper nodemailer/Gmail SMTP (utilisé par la route API locale en dev)
-- `vercel-app/lib/sender.ts` — Même wrapper côté app Vercel
-- `app/api/send-email+api.ts` — Route API Expo (dev uniquement)
+- `vercel-app/lib/sender.ts` — transport email serveur canonique
+- `vercel-app/lib/server-auth.ts` — autorité membership et authentification serveur
+- `vercel-app/lib/private-media-server.ts` — autorisation et signature des médias privés
 - `context/AuthContext.tsx` — Auth + envoi email de bienvenue à l'inscription
 - `context/SubscriptionContext.tsx` — Invitations + envoi email d'invitation
 - `scripts/patch-expo-cors.js` — Patch CORS Expo pour Replit
@@ -165,11 +160,13 @@ Tables principales :
 - `documents`, `time_entries`
 - `invitations` — gestion des invitations avec token unique
 
-RLS via fonctions SECURITY DEFINER : `auth_user_org()`, `auth_user_role()`, `auth_user_name()`
+L’autorité réside dans `organization_memberships` et `private.platform_admins`.
+`profiles` ne contient plus que l’identité et une projection de compatibilité.
+Voir `docs/ARCHITECTURE.md` pour les invariants et la matrice d’isolation.
 
 ## Rôles utilisateurs
 
-`super_admin`, `admin`, `conducteur`, `chef_equipe`, `observateur`, `sous_traitant`
+`super_admin` (plateforme), `admin`, `conducteur`, `chef_equipe`, `magasinier`, `observateur`, `sous_traitant`
 
 ## Limites de sièges
 

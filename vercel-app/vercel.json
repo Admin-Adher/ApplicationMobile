@@ -10,6 +10,10 @@
     {
       "path": "/api/cron/overdue-reserves",
       "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/cron/media-gc",
+      "schedule": "0 3 * * *"
     }
   ]
 }

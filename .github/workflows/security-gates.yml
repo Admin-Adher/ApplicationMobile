@@ -1,0 +1,90 @@
+name: Security gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  application-contracts:
+    name: Application security contracts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            vercel-app/package-lock.json
+
+      - name: Install dependencies from lockfile
+        run: npm ci
+
+      - name: Install canonical server dependencies from lockfile
+        working-directory: vercel-app
+        run: npm ci
+
+      - name: Run application and tenant-isolation contracts
+        run: npm test
+
+      - name: Type-check Expo application
+        run: npx tsc --noEmit --pretty false
+
+      - name: Type-check canonical Next.js server
+        working-directory: vercel-app
+        run: npx tsc --noEmit --pretty false
+
+  postgres-tenant-matrix:
+    name: PostgreSQL user A x object B matrix
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: buildtrack_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d buildtrack_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      PGHOST: localhost
+      PGPORT: 5432
+      PGDATABASE: buildtrack_test
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Bootstrap disposable Supabase catalogue
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/bootstrap_tenant_isolation.sql
+
+      - name: Apply production authority migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260810192253_organization_membership_authority.sql
+
+      - name: Apply production tenant-integrity migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260810193111_enforce_tenant_integrity_and_rpc_scope.sql
+
+      - name: Apply production private-media migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260810193713_add_private_tenant_media_registry.sql
+
+      - name: Execute user A x object B matrix
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/tenant_isolation_matrix.sql

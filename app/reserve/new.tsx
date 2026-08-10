@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
@@ -802,7 +803,7 @@ export default function NewReserveScreen() {
                   {photos.map(p => (
                     <View key={p.id} style={styles.photoThumb}>
                       <TouchableOpacity onPress={() => togglePhotoKind(p.id)} activeOpacity={0.85}>
-                        <Image source={{ uri: p.uri }} style={styles.photoThumbImg} resizeMode="cover" />
+                        <MediaImage source={{ uri: p.uri }} style={styles.photoThumbImg} resizeMode="cover" />
                         <View style={[styles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
                           <Text style={styles.photoKindBadgeText}>{p.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')}</Text>
                         </View>

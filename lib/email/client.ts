@@ -1,6 +1,6 @@
-import { Platform } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import i18n from '@/lib/i18n';
+import { canonicalApiBaseUrl } from '@/lib/apiBase';
 
 async function getAccessToken(): Promise<string | null> {
   if (!isSupabaseConfigured) return null;
@@ -20,12 +20,7 @@ async function buildAuthHeaders(): Promise<Record<string, string>> {
 }
 
 function getBaseApiUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-  const apiUrl = process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL;
-  if (apiUrl) return apiUrl;
-  return '';
+  return canonicalApiBaseUrl();
 }
 
 function getApiUrl(): string {

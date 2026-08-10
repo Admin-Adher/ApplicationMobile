@@ -9,6 +9,7 @@ import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { PhotoAnnotation, PlanDrawing, Reserve, ReservePriority, ReserveStatus, ReservePhoto, SitePlan } from '@/constants/types';
 import {
@@ -2238,7 +2239,7 @@ export default function ReserveDetailScreen() {
                     {editPhotos.map(p => (
                       <View key={p.id} style={mStyles.photoThumb}>
                         <TouchableOpacity onPress={() => toggleEditPhotoKind(p.id)} activeOpacity={0.85}>
-                          <Image source={{ uri: p.uri }} style={mStyles.photoThumbImg} resizeMode="cover" onError={() => {}} />
+                          <MediaImage source={{ uri: p.uri }} style={mStyles.photoThumbImg} resizeMode="cover" onError={() => {}} />
                           <View style={[mStyles.photoKindBadge, { backgroundColor: p.kind === 'defect' ? '#EF444488' : '#22C55E88' }]}>
                             <Text style={mStyles.photoKindText}>{p.kind === 'defect' ? t('reserveNew.photoDefect') : t('reserveNew.photoResolved')}</Text>
                           </View>
@@ -2409,7 +2410,7 @@ export default function ReserveDetailScreen() {
               {liftPhoto ? (
                 <View style={{ marginBottom: 10, alignSelf: 'flex-start' }}>
                   <View style={mStyles.photoThumb}>
-                    <Image source={{ uri: liftPhoto.uri }} style={mStyles.photoThumbImg} resizeMode="cover" onError={() => {}} />
+                    <MediaImage source={{ uri: liftPhoto.uri }} style={mStyles.photoThumbImg} resizeMode="cover" onError={() => {}} />
                     <View style={[mStyles.photoKindBadge, { backgroundColor: '#22C55E88' }]}>
                       <Text style={mStyles.photoKindText}>{t('reserveNew.photoResolved')}</Text>
                     </View>

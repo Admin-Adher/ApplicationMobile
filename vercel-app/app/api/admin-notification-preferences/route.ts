@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { authenticateRequest, createServiceClient, getOrganizationUser } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -26,15 +26,7 @@ function json(req: NextRequest, body: unknown, status = 200) {
 }
 
 function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
-}
-
-function bearerToken(req: NextRequest) {
-  const auth = req.headers.get('authorization') ?? '';
-  return auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
+  return createServiceClient();
 }
 
 function friendlyDatabaseError(message: string) {
@@ -44,42 +36,47 @@ function friendlyDatabaseError(message: string) {
   return message || 'Erreur serveur';
 }
 
-async function authenticatedProfile(req: NextRequest, supabase: any) {
-  const token = bearerToken(req);
-  if (!token) return null;
-  const { data: userData, error: userError } = await supabase.auth.getUser(token);
-  const userId = userData?.user?.id;
-  if (userError || !userId) return null;
-
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('id, name, email, role, organization_id')
-    .eq('id', userId)
-    .maybeSingle();
-  if (error || !profile) return null;
-  return profile;
-}
-
 async function adminTargetProfile(req: NextRequest, supabase: any, targetUserId: string) {
-  const actor = await authenticatedProfile(req, supabase);
-  if (!actor) return { status: 401, error: 'Session admin invalide' };
-  if (actor.role !== 'admin' && actor.role !== 'super_admin') {
+  const auth = await authenticateRequest(req, supabase);
+  if (!auth) return { status: 401, error: 'Session admin invalide' };
+  const actor = auth.authority;
+  if (!actor.isPlatformAdmin && actor.role !== 'admin' && actor.role !== 'super_admin') {
     return { status: 403, error: 'Acces admin requis' };
   }
-
-  const { data: target, error } = await supabase
-    .from('profiles')
-    .select('id, name, email, role, organization_id')
-    .eq('id', targetUserId)
-    .maybeSingle();
-  if (error || !target) return { status: 404, error: 'Utilisateur introuvable' };
-  if (actor.role !== 'super_admin' && target.organization_id !== actor.organization_id) {
+  let targetOrganizationId = actor.organizationId;
+  if (actor.isPlatformAdmin) {
+    const { data: membership, error } = await supabase
+      .from('organization_memberships')
+      .select('organization_id')
+      .eq('user_id', targetUserId)
+      .eq('status', 'active')
+      .order('is_primary', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !membership?.organization_id) return { status: 404, error: 'Utilisateur introuvable' };
+    targetOrganizationId = membership.organization_id;
+  }
+  if (!targetOrganizationId) return { status: 403, error: 'Organisation active requise' };
+  const member = await getOrganizationUser(supabase, targetOrganizationId, targetUserId, true);
+  if (!member) return { status: 404, error: 'Utilisateur introuvable' };
+  const target = {
+    id: member.id,
+    name: member.name,
+    email: member.email,
+    role: member.role,
+    organization_id: member.organizationId,
+  };
+  if (!actor.isPlatformAdmin && target.organization_id !== actor.organizationId) {
     return { status: 403, error: 'Utilisateur hors organisation' };
   }
-  if (actor.role === 'admin' && (target.role === 'admin' || target.role === 'super_admin')) {
+  if (!actor.isPlatformAdmin && actor.role === 'admin' && (target.role === 'admin' || target.role === 'super_admin')) {
     return { status: 403, error: 'Modification reservee au super administrateur' };
   }
-  return { actor, target };
+  return {
+    actor: { id: actor.userId, role: actor.role, organization_id: actor.organizationId },
+    target,
+  };
 }
 
 const PREFERENCE_SELECT = [
@@ -132,6 +129,7 @@ export async function GET(req: NextRequest) {
 
     const access = await adminTargetProfile(req, supabase, userId);
     if (access.error) return json(req, { error: access.error }, access.status ?? 500);
+    if (!access.target) return json(req, { error: 'Utilisateur introuvable' }, 404);
 
     const preferences = await getPreferences(supabase, access.target);
     return json(req, { ok: true, user: access.target, preferences });
@@ -156,6 +154,7 @@ export async function POST(req: NextRequest) {
 
     const access = await adminTargetProfile(req, supabase, String(userId));
     if (access.error) return json(req, { error: access.error }, access.status ?? 500);
+    if (!access.target || !access.actor) return json(req, { error: 'Utilisateur introuvable' }, 404);
 
     const now = new Date().toISOString();
     const { data, error } = await supabase

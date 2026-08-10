@@ -5,7 +5,7 @@ import {
   markInventoryBarcodeNotFound,
   releaseInventoryBarcodeLookup,
   type InventoryBarcodeCacheClient,
-} from '../supabase/functions/_shared/inventoryBarcodeCache';
+} from '../lib/server/inventoryBarcodeCache';
 
 function cacheClient(responses: unknown[]): {
   client: InventoryBarcodeCacheClient;

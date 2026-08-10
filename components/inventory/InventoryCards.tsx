@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { MediaImage } from '@/components/MediaImage';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import type { InventoryMovement, InventoryProduct } from '@/constants/types';
@@ -56,7 +57,7 @@ export function InventoryProductCard({
     <>
       <View style={styles.productMain}>
         {product.photoUrl ? (
-          <Image source={{ uri: product.photoUrl }} style={[styles.productPhoto, compact && styles.productPhotoCompact]} />
+          <MediaImage source={{ uri: product.photoUrl }} style={[styles.productPhoto, compact && styles.productPhotoCompact]} />
         ) : (
           <View style={[styles.productPhoto, styles.photoPlaceholder, compact && styles.productPhotoCompact]}>
             <Ionicons name="cube-outline" size={compact ? 18 : 24} color={C.textMuted} />

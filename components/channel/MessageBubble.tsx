@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, Image, Linking } from 'react-native';
+import { MediaImage } from '@/components/MediaImage';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
 import { Message } from '@/constants/types';
@@ -163,7 +164,7 @@ export default function MessageBubble({ msg: rawMsg, color, userName, highlighte
           )}
           {msg.attachmentUri && (
             <View style={styles.attachmentWrap}>
-              <Image source={{ uri: msg.attachmentUri }} style={styles.attachment} resizeMode="cover" />
+              <MediaImage source={{ uri: msg.attachmentUri }} style={styles.attachment} resizeMode="cover" />
             </View>
           )}
           {msg.content.length > 0 && (

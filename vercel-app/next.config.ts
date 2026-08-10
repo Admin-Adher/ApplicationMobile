@@ -1,7 +1,16 @@
+import path from 'node:path';
 import type { NextConfig } from 'next';
 
+const repositoryRoot = path.join(process.cwd(), '..');
+
 const nextConfig: NextConfig = {
-  outputFileTracingRoot: process.cwd(),
+  // The canonical barcode route deliberately reuses the same validated core
+  // as Expo. Turbopack otherwise treats vercel-app/ as a hard filesystem
+  // boundary and cannot bundle the shared server-only provider modules.
+  turbopack: {
+    root: repositoryRoot,
+  },
+  outputFileTracingRoot: repositoryRoot,
   serverExternalPackages: ['@sparticuz/chromium', '@sparticuz/chromium-min', 'puppeteer-core'],
   outputFileTracingIncludes: {
     '/api/generate-pdf': [

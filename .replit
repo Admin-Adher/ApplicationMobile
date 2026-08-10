@@ -19,10 +19,6 @@ author = "agent"
 task = "workflow.run"
 args = "Start Frontend"
 
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start API"
-
 [[workflows.workflow]]
 name = "Start Frontend"
 author = "agent"
@@ -35,29 +31,9 @@ task = "shell.exec"
 args = "npm run start"
 waitForPort = 5000
 
-[[workflows.workflow]]
-name = "Start API"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run start:api"
-waitForPort = 3001
-
-[[ports]]
-localPort = 3001
-externalPort = 3001
-
 [[ports]]
 localPort = 5000
 externalPort = 80
-
-[[ports]]
-localPort = 5001
-externalPort = 3001
 
 [[ports]]
 localPort = 8081
@@ -78,6 +54,4 @@ publicDir = "dist"
 EXPO_PUBLIC_SUPABASE_URL = "https://jzeojdpgglbxjdasjgta.supabase.co"
 EXPO_PUBLIC_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6ZW9qZHBnZ2xieGpkYXNqZ3RhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjg1ODAsImV4cCI6MjA5MDQwNDU4MH0.ZcU5EAYQMEnQHVe0-6Wff_1sBanvjtdZZ0hJNJGLAz0"
 EXPO_PUBLIC_APP_URL = "https://44951110-9083-4440-be88-6ae02a3ffd3a-00-bfkiwy7z3lmf.janeway.replit.dev"
-GMAIL_USER = "buildtrack.admin@gmail.com"
-EMAIL_FROM = "BuildTrack <buildtrack.admin@gmail.com>"
-EXPO_PUBLIC_API_URL = "https://44951110-9083-4440-be88-6ae02a3ffd3a-00-bfkiwy7z3lmf.janeway.replit.dev"
+EXPO_PUBLIC_API_URL = "https://buildtrack-mobile.vercel.app"

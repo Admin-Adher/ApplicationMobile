@@ -17,11 +17,12 @@ export default function RegisterScreen() {
   const router = useRouter();
   const { register } = useAuth();
 
-  const search = useLocalSearchParams<{ email?: string; org?: string; invitedBy?: string }>();
+  const search = useLocalSearchParams<{ email?: string; org?: string; invitedBy?: string; token?: string }>();
   const prefilledEmail = typeof search.email === 'string' ? search.email : '';
   const orgName = typeof search.org === 'string' ? search.org : '';
   const invitedByName = typeof search.invitedBy === 'string' ? search.invitedBy : '';
-  const fromInvitation = prefilledEmail.length > 0;
+  const invitationToken = typeof search.token === 'string' ? search.token : '';
+  const fromInvitation = prefilledEmail.length > 0 && invitationToken.length > 0;
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState(prefilledEmail);
@@ -51,12 +52,15 @@ export default function RegisterScreen() {
 
     setLoading(true);
 
-    // Pré-validation : vérifier qu'une invitation en attente existe
-    // avant de créer le compte, via le RPC public (pas d'auth requise).
+    // Validate the secret token and bound email together. Email-only lookups
+    // would disclose whether an address has a pending BuildTrack invitation.
     try {
       const { data: hasInvitation, error: rpcErr } = await (supabase as any).rpc(
-        'check_pending_invitation',
-        { p_email: email.trim().toLowerCase() }
+        'check_invitation_token',
+        {
+          p_token: invitationToken,
+          p_email: email.trim().toLowerCase(),
+        }
       );
 
       if (rpcErr) {
@@ -77,7 +81,7 @@ export default function RegisterScreen() {
         return;
       }
     } catch (checkErr) {
-      console.warn('[register] check_pending_invitation exception:', checkErr);
+      console.warn('[register] check_invitation_token exception:', checkErr);
     }
 
     const result = await register({

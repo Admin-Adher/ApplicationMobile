@@ -24,17 +24,20 @@ Selon la [règle GS1 sur le contenu net déclaré](https://www.gs1.org/1/gtinrul
 
 ## Recherche web serveur
 
-L'application mobile tente d'abord l'Edge Function Supabase authentifiée :
+L'application mobile, l'export Expo web et le site Next.js utilisent le même
+endpoint canonique BuildTrack :
 
 ```text
-POST https://<project-ref>.supabase.co/functions/v1/inventory-barcode-lookup
+POST https://<domaine-buildtrack>/api/inventory-barcode-lookup
 Authorization: Bearer <session Supabase>
-apikey: <clé publique Supabase>
 ```
 
-L'endpoint `/api/inventory-barcode-lookup` du serveur BuildTrack reste disponible comme repli. L'Edge Function `inventory-barcode-lookup` est déployée avec `verify_jwt = true` : un appel sans session valide est rejeté avant d'atteindre le fournisseur de recherche.
+Il n'existe pas de route Expo, Express ou Edge Function Supabase de repli. Cette
+API Next.js unique valide la session, dérive l'utilisateur côté serveur et
+accède au catalogue partagé avec le rôle serveur. Une indisponibilité de l'API
+ne déclenche donc jamais un second appel fournisseur concurrent.
 
-La recherche utilise Tavily en priorité, puis bascule automatiquement vers SerpAPI lorsque Tavily n'est pas configuré, atteint sa limite mensuelle (`432`/`433`), applique un rate-limit (`429`) ou devient temporairement indisponible. Configurer les deux clés dans les secrets du projet Supabase et, si le serveur BuildTrack est utilisé, dans ses variables d'environnement :
+La recherche utilise Tavily en priorité, puis bascule automatiquement vers SerpAPI lorsque Tavily n'est pas configuré, atteint sa limite mensuelle (`432`/`433`), applique un rate-limit (`429`) ou devient temporairement indisponible. Configurer les deux clés uniquement dans les variables d'environnement du serveur Next.js :
 
 ```text
 TAVILY_API_KEY=<clé Tavily serveur>
@@ -49,7 +52,7 @@ Un résultat n’est retenu que si le code exact apparaît dans son titre, son e
 
 ### Catalogue partagé et économie de quota
 
-Avant d’appeler Tavily ou SerpAPI, l’Edge Function et l’API BuildTrack consultent
+Avant d’appeler Tavily ou SerpAPI, l’API BuildTrack consulte
 `private.inventory_barcode_catalog`. Une fiche trouvée par la recherche web y est
 conservée sans expiration automatique. Le même code scanné ensuite depuis un
 autre téléphone, un autre chantier ou le site web est donc renvoyé directement
@@ -72,10 +75,10 @@ résultat « introuvable » expire après sept jours afin de permettre une nouve
 tentative si le produit est indexé ultérieurement ; une indisponibilité technique
 du fournisseur n’est jamais enregistrée comme un produit introuvable.
 
-Le client essaie l’Edge Function puis l’API BuildTrack de manière strictement
-séquentielle. L’API secondaire n’est appelée que si l’Edge Function ne renvoie
-aucune fiche, ce qui évite le double débit de quota provoqué par des appels en
-parallèle. Ce chemin est commun à l’application mobile et au site web.
+Le client appelle une seule fois l’API BuildTrack. Ce chemin est commun à
+l’application mobile, à l’export Expo web et au site Next.js. L’origine est
+fournie aux clients Expo avec `EXPO_PUBLIC_API_URL`; les clés Tavily et SerpAPI
+restent exclusivement dans l’environnement privé du serveur.
 
 ## Vérification rapide
 

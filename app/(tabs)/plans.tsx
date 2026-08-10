@@ -16,6 +16,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Reserve, SitePlan, ReserveStatus } from '@/constants/types';
@@ -23,6 +24,7 @@ import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
+import { resolveMediaRef } from '@/lib/media';
 import { genId, formatDateFR } from '@/lib/utils';
 import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
 import { generateAndSendPdfReport } from '@/lib/email/client';
@@ -2202,7 +2204,11 @@ export default function PlansScreen() {
     if (dxfData[currentPlanId]) return;
     const controller = new AbortController();
     setDxfLoading(true);
-    fetch(currentPlan.uri, { signal: controller.signal })
+    resolveMediaRef(currentPlan.uri, { cacheDisk: false })
+      .then(uri => {
+        if (!uri) throw new Error('DXF access denied or unavailable');
+        return fetch(uri, { signal: controller.signal });
+      })
       .then(r => r.text())
       .then(text => {
         const parsed = parseDxf(text);
@@ -3264,7 +3270,7 @@ export default function PlansScreen() {
                     >
                       <View style={styles.planTabThumb}>
                         {plan.fileType === 'image' || (plan.uri && plan.fileType !== 'dxf' && isImage(plan.uri)) ? (
-                          <Image source={{ uri: plan.uri }} style={styles.planTabThumbImg} resizeMode="cover" />
+                          <MediaImage source={{ uri: plan.uri }} style={styles.planTabThumbImg} resizeMode="cover" />
                         ) : plan.fileType === 'dxf' || dxfData[plan.id] ? (
                           <Ionicons name="grid-outline" size={13} color={isActive ? C.primary : C.textMuted} />
                         ) : plan.fileType === 'pdf' || plan.uri ? (

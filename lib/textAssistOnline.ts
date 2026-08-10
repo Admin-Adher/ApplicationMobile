@@ -1,6 +1,7 @@
 import { TextAssistContext, TextAssistLanguage } from '@/lib/textAssist';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import i18n from '@/lib/i18n';
+import { canonicalApiBaseUrl } from '@/lib/apiBase';
 
 type AdvancedTranslationRequest = {
   text: string;
@@ -26,10 +27,7 @@ export class AdvancedTranslationError extends Error {
 }
 
 function getBaseApiUrl(): string {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
-  }
-  return (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '').replace(/\/$/, '');
+  return canonicalApiBaseUrl();
 }
 
 async function getAccessToken(): Promise<string | null> {

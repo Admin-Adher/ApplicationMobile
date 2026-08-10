@@ -4,7 +4,6 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { Organization, Plan, Subscription, Invitation, UserRole, User } from '@/constants/types';
 import { sendInvitationEmail } from '@/lib/email/client';
-import { removeRemoteFilesViaApi } from '@/lib/storage';
 import i18n from '@/lib/i18n';
 
 export interface OrgSummary {
@@ -222,24 +221,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
           new Date(subData.trial_ends_at) < new Date()
         ) {
           resolvedStatus = 'expired';
-          (supabase.from('subscriptions') as any)
-            .update({ status: 'expired' })
-            .eq('id', subData.id)
-            .then(({ error }: { error: any }) => {
-              if (error) console.warn('Erreur mise à jour statut abonnement expiré:', error.message);
-            });
         } else if (
           resolvedStatus === 'active' &&
           subData.expires_at &&
           new Date(subData.expires_at) < new Date()
         ) {
           resolvedStatus = 'expired';
-          (supabase.from('subscriptions') as any)
-            .update({ status: 'expired' })
-            .eq('id', subData.id)
-            .then(({ error }: { error: any }) => {
-              if (error) console.warn('Erreur mise à jour statut abonnement expiré:', error.message);
-            });
         }
         setSubscription({
           id: subData.id,
@@ -265,17 +252,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       }
 
       if (user.role === 'admin' || user.role === 'super_admin') {
-        // Opportunistic cleanup: delete invitations that expired more than 30 days
-        // ago for this org. Runs each time an admin loads the screen, which keeps
-        // the DB tidy without needing a server-side cron job.
-        const cleanupCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-        (supabase.from('invitations') as any)
-          .delete()
-          .eq('organization_id', user.organizationId)
-          .lt('expires_at', cleanupCutoff)
-          .then(() => {})
-          .catch(() => {});
-
         // Note: invitations are filtered client-side by expires_at > now() to exclude expired ones.
         // Expired rows keep status='pending' in the DB (no auto-transition to 'expired').
         const { data: invData } = await (supabase.from('invitations') as any)
@@ -401,41 +377,30 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     try {
-      // Clean up any stale invitation row (accepted, expired, or otherwise lingering)
-      // for the same email + organization. The DB may have a unique constraint on
-      // (organization_id, email) — without this delete, a re-invite would collide.
-      await (supabase.from('invitations') as any)
-        .delete()
-        .eq('organization_id', user.organizationId)
-        .eq('email', emailLower);
-
-      // Generate token + expiry client-side. The invitations table has NOT NULL
-      // constraints on `token` and `expires_at` without DB-side defaults, so we
-      // must supply them explicitly otherwise the INSERT fails for every email.
-      const newToken =
-        (globalThis.crypto as Crypto | undefined)?.randomUUID?.() ??
-        `inv_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-      const newExpiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
-
-      const { data, error } = await (supabase.from('invitations') as any)
-        .insert({
-          organization_id: user.organizationId,
-          email: emailLower,
-          role,
-          invited_by: user.id,
-          token: newToken,
-          expires_at: newExpiresAt,
-          status: 'pending',
-          ...(companyId ? { company_id: companyId } : {}),
-        })
-        .select()
-        .single();
+      const rpcName = user.role === 'super_admin'
+        ? 'platform_create_invitation'
+        : 'admin_create_invitation';
+      const rpcArgs = user.role === 'super_admin'
+        ? {
+            p_organization_id: user.organizationId,
+            p_email: emailLower,
+            p_role: role,
+            p_company_id: companyId ?? null,
+            p_expires_at: null,
+          }
+        : {
+            p_email: emailLower,
+            p_role: role,
+            p_company_id: companyId ?? null,
+            p_expires_at: null,
+          };
+      const { data, error } = await (supabase as any).rpc(rpcName, rpcArgs);
 
       if (error || !data) {
         const msg = error?.message
           ? i18n.t('subscriptionContext.createInviteFailedWithMessage', { message: error.message })
           : i18n.t('subscriptionContext.createInviteFailed');
-        console.warn('[inviteUser] insert error:', error?.code, error?.message, error?.details);
+        console.warn('[inviteUser] RPC error:', error?.code, error?.message, error?.details);
         return { success: false, error: msg };
       }
 
@@ -501,12 +466,30 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: false, error: i18n.t('subscriptionContext.invitationExpired') };
     }
 
+    let currentInv = inv;
+    if (isSupabaseConfigured) {
+      const { data, error } = await (supabase as any).rpc('admin_resend_invitation', {
+        p_invitation_id: id,
+      });
+      if (error || !data) {
+        return { success: false, error: error?.message ?? i18n.t('subscriptionContext.invitationNotFound') };
+      }
+      currentInv = {
+        ...inv,
+        token: data.token,
+        expiresAt: data.expires_at,
+        resendCount: data.resend_count ?? 0,
+        lastResentAt: data.last_resent_at ?? undefined,
+      };
+      setPendingInvitations(prev => prev.map(item => item.id === id ? currentInv : item));
+    }
+
     let companyName: string | undefined;
-    if (inv.companyId) {
+    if (currentInv.companyId) {
       try {
         const { data: co } = await (supabase.from('companies') as any)
           .select('name')
-          .eq('id', inv.companyId)
+          .eq('id', currentInv.companyId)
           .maybeSingle();
         if (co?.name) companyName = co.name;
       } catch {
@@ -515,12 +498,12 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     const emailResult = await sendInvitationEmail({
-      email: inv.email,
+      email: currentInv.email,
       invitedByName: user.name,
       organizationName: organization?.name ?? i18n.t('subscriptionContext.defaultOrganizationName'),
-      role: inv.role,
-      token: inv.token,
-      expiresAt: inv.expiresAt,
+      role: currentInv.role,
+      token: currentInv.token,
+      expiresAt: currentInv.expiresAt,
       companyName,
       language: user.preferredLanguage,
     });
@@ -529,30 +512,15 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: false, error: emailResult.error };
     }
 
-    // Best-effort counter increment. If the migration adding resend_count /
-    // last_resent_at hasn't been applied yet, the UPDATE silently no-ops and
-    // the email send still counts as success.
-    const newCount = (inv.resendCount ?? 0) + 1;
-    const nowIso = new Date().toISOString();
-    try {
-      const { error: updErr } = await (supabase.from('invitations') as any)
-        .update({ resend_count: newCount, last_resent_at: nowIso })
-        .eq('id', id);
-      if (!updErr) {
-        setPendingInvitations(prev =>
-          prev.map(i => (i.id === id ? { ...i, resendCount: newCount, lastResentAt: nowIso } : i))
-        );
-      }
-    } catch {
-      // ignore — columns may not exist yet
-    }
     return { success: true };
   }
 
   async function cancelInvitation(id: string): Promise<void> {
     if (isSupabaseConfigured) {
-      const { error } = await (supabase.from('invitations') as any).delete().eq('id', id);
-      if (error) {
+      const { data, error } = await (supabase as any).rpc('admin_delete_invitation', {
+        p_invitation_id: id,
+      });
+      if (error || data !== true) {
         Alert.alert(i18n.t('common.error'), i18n.t('syncAlerts.invitationCancelFailed'));
         return;
       }
@@ -571,9 +539,11 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
     try {
-      const { error } = await (supabase.from('subscriptions') as any)
-        .update({ plan_id: planId, status: 'active' })
-        .eq('organization_id', orgId);
+      const { error } = await (supabase as any).rpc('platform_update_subscription', {
+        p_organization_id: orgId,
+        p_plan_id: planId,
+        p_status: 'active',
+      });
 
       if (error) return { success: false, error: error.message };
       refreshSubscription();
@@ -594,13 +564,14 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
     try {
-      const { data, error } = await (supabase.from('subscriptions') as any)
-        .update({ status })
-        .eq('organization_id', orgId)
-        .select('id');
+      const { data, error } = await (supabase as any).rpc('platform_update_subscription', {
+        p_organization_id: orgId,
+        p_plan_id: null,
+        p_status: status,
+      });
 
       if (error) return { success: false, error: error.message };
-      if (!data || data.length === 0) {
+      if (!data?.id) {
         return { success: false, error: i18n.t('subscriptionContext.noRowsSubscriptions') };
       }
       // Mise à jour locale immédiate + synchronisation complète
@@ -634,13 +605,13 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: true };
     }
     try {
-      const patch: Record<string, string> = { name: trimmed };
-      if (newSlug) patch.slug = newSlug;
-
-      const { data, error } = await (supabase.from('organizations') as any)
-        .update(patch)
-        .eq('id', orgId)
-        .select('id, slug');
+      const rpcName = user?.role === 'super_admin'
+        ? 'platform_update_organization'
+        : 'update_current_organization';
+      const rpcArgs = user?.role === 'super_admin'
+        ? { p_organization_id: orgId, p_name: trimmed, p_slug: newSlug ?? null }
+        : { p_name: trimmed, p_slug: newSlug ?? null };
+      const { data, error } = await (supabase as any).rpc(rpcName, rpcArgs);
 
       if (error) {
         if (error.code === '23505') {
@@ -648,10 +619,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         }
         return { success: false, error: error.message };
       }
-      if (!data || data.length === 0) {
+      if (!data?.id) {
         return { success: false, error: i18n.t('subscriptionContext.noRowsOrganizations') };
       }
-      const savedSlug: string = (data[0] as any).slug;
+      const savedSlug: string = data.slug;
       // Mise à jour locale immédiate + synchronisation complète
       setAllOrganizations(prev => prev.map(o =>
         o.id === orgId ? { ...o, name: trimmed, slug: savedSlug } : o
@@ -671,6 +642,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     adminEmail?: string
   ): Promise<{ success: boolean; error?: string }> {
     if (!user) return { success: false, error: i18n.t('subscriptionContext.notConnected') };
+    if (user.role !== 'super_admin') {
+      return { success: false, error: i18n.t('subscriptionContext.superAdminOnly') };
+    }
 
     const slug = name
       .toLowerCase()
@@ -699,16 +673,23 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     }
 
     try {
-      const { data: org, error: orgErr } = await (supabase.from('organizations') as any)
-        .insert({ name, slug })
-        .select()
-        .single();
+      const { data: result, error: orgErr } = await (supabase as any).rpc(
+        'platform_create_organization',
+        {
+          p_name: name.trim(),
+          p_slug: slug,
+          p_admin_email: adminEmail?.trim().toLowerCase() || null,
+        },
+      );
+      const org = result?.organization;
+      const invData = result?.invitation;
 
       if (orgErr || !org) {
         return { success: false, error: orgErr?.message ?? i18n.t('subscriptionContext.createOrganizationFailed') };
       }
 
       // Update local state immediately so the new org appears in the UI without waiting for refresh.
+      const enterprisePlan = allPlans.find(p => p.name === 'Entreprise') ?? allPlans[allPlans.length - 1];
       const newOrg: Organization = {
         id: org.id,
         name: org.name,
@@ -724,39 +705,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         seatMax: -1,
       }, ...prev]);
 
-      const enterprisePlan = allPlans.find(p => p.name === 'Entreprise') ?? allPlans[allPlans.length - 1];
-      await (supabase.from('subscriptions') as any).insert({
-        organization_id: org.id,
-        plan_id: enterprisePlan?.id ?? allPlans[0]?.id,
-        status: 'active',
-        started_at: new Date().toISOString(),
-      });
-
-      await (supabase.from('channels') as any).insert({
-        id: `general-${org.id}`,
-        name: i18n.t('subscriptionContext.generalChannel'),
-        type: 'general',
-        organization_id: org.id,
-        created_by: user.id,
-        members: [],
-      });
-
       if (adminEmail) {
         const emailLower = adminEmail.trim().toLowerCase();
-        const { data: invData, error: invError } = await (supabase.from('invitations') as any)
-          .insert({
-            organization_id: org.id,
-            email: emailLower,
-            role: 'admin',
-            invited_by: user.id,
-          })
-          .select()
-          .single();
-
-        if (invError) {
-          console.warn('[createOrganization] Invitation insert failed:', invError.message, invError.code);
-        }
-
         if (invData?.token) {
           sendInvitationEmail({
             email: emailLower,
@@ -796,85 +746,6 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       success: false,
       error: i18n.t('subscriptionContext.deleteOrganizationDisabled'),
     };
-
-    try {
-      const extractPath = (uri: string, bucket: string): string | null => {
-        const marker = `/storage/v1/object/public/${bucket}/`;
-        const idx = uri.indexOf(marker);
-        if (idx === -1) return null;
-        return decodeURIComponent(uri.slice(idx + marker.length));
-      };
-
-      // ── Collect reserve IDs (needed for photo deletion: photos use reserve_id not org_id) ──
-      const { data: reservesData } = await (supabase.from('reserves') as any)
-        .select('id')
-        .eq('organization_id', orgId);
-      const reserveIds = (reservesData ?? []).map((r: any) => r.id as string);
-
-      // ── Collect Storage URIs before deletion (best-effort) ──
-      const { data: photoData } = reserveIds.length > 0
-        ? await (supabase.from('photos') as any).select('uri').in('reserve_id', reserveIds)
-        : { data: [] };
-      const { data: docData } = await (supabase.from('documents') as any)
-        .select('uri')
-        .eq('organization_id', orgId);
-
-      // ── Delete in FK order (super_admin RLS allows all deletes) ──
-      await (supabase.from('messages') as any).delete().eq('organization_id', orgId);
-
-      if (reserveIds.length > 0) {
-        await (supabase.from('photos') as any).delete().in('reserve_id', reserveIds);
-      }
-
-      await (supabase.from('time_entries') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('tasks') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('reserves') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('site_plans') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('oprs') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('lots') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('visites') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('incidents') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('regulatory_docs') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('documents') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('chantiers') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('channels') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('companies') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('subscriptions') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('invitations') as any).delete().eq('organization_id', orgId);
-      await (supabase.from('profiles') as any).delete().eq('organization_id', orgId).neq('id', user!.id);
-      await (supabase.from('organizations') as any).delete().eq('id', orgId);
-
-      // ── Clean up Storage files (best-effort — does not block on failure) ──
-      const photoPaths = (photoData ?? [])
-        .map((p: any) => extractPath(p.uri ?? '', 'photos'))
-        .filter((p: any): p is string => !!p);
-      const docPaths = (docData ?? [])
-        .map((d: any) => extractPath(d.uri ?? '', 'documents'))
-        .filter((p: any): p is string => !!p);
-
-      if (photoPaths.length > 0) {
-        await supabase.storage.from('photos').remove(photoPaths).catch(() => {});
-      }
-      if (docPaths.length > 0) {
-        await supabase.storage.from('documents').remove(docPaths).catch(() => {});
-      }
-
-      // Fichiers hébergés sur Cloudflare R2 (URLs non-Supabase) : suppression
-      // via l'API serveur — elle ignore d'elle-même les URLs d'autres hôtes.
-      const allFileUrls = [
-        ...(photoData ?? []).map((p: any) => String(p.uri ?? '')),
-        ...(docData ?? []).map((d: any) => String(d.uri ?? '')),
-      ].filter(Boolean);
-      await removeRemoteFilesViaApi(allFileUrls).catch(() => {});
-
-      // ── Update local state ──
-      setAllOrganizations(prev => prev.filter(o => o.id !== orgId));
-      setOrgSummaries(prev => prev.filter(o => o.org.id !== orgId));
-
-      return { success: true };
-    } catch (e: any) {
-      return { success: false, error: e?.message ?? i18n.t('subscriptionContext.deleteError') };
-    }
   }
 
   return (

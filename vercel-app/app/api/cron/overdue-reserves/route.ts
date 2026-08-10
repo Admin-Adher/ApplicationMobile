@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/lib/sender';
 import { reserveOverdueEmail, reserveOverdueEscalationEmail, APP_URL } from '@/lib/templates';
 import { buildReserveUrl } from '@/lib/reserve-token';
 import { withUnsubscribeFooter, listUnsubscribeHeaders } from '@/lib/emailOptout';
+import { createServiceClient, getOrganizationUsers } from '@/lib/server-auth';
 
 // Journal durable des envois (table email_notification_log) : dédupe les
 // relances entre exécutions du cron (relance Vercel, échec d'update du flag
@@ -76,10 +76,7 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
 function getServiceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, { auth: { persistSession: false } });
+  return createServiceClient();
 }
 
 function todayISO(): string {
@@ -172,11 +169,18 @@ export async function GET(req: NextRequest) {
       .select('id, name, organization_id')
       .in('organization_id', orgIds.length ? orgIds : ['__none__']);
 
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, name, email, company_id, organization_id, role, preferred_language')
-      .in('organization_id', orgIds.length ? orgIds : ['__none__']);
-    const prefsByUser = await preferencesForProfiles(supabase, (profiles ?? []).map((p: any) => p.id));
+    const profiles = (await Promise.all(
+      orgIds.map((organizationId: string) => getOrganizationUsers(supabase, organizationId)),
+    )).flat().map(profile => ({
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      company_id: profile.companyId,
+      organization_id: profile.organizationId,
+      role: profile.role,
+      preferred_language: profile.preferredLanguage,
+    }));
+    const prefsByUser = await preferencesForProfiles(supabase, profiles.map((p: any) => p.id));
 
     const { data: chantiers } = chantierIds.length
       ? await supabase.from('chantiers').select('id, name').in('id', chantierIds)
@@ -190,7 +194,7 @@ export async function GET(req: NextRequest) {
     }
     const profilesByCompany = new Map<string, any[]>();
     const adminsByOrg = new Map<string, any[]>();
-    for (const p of profiles ?? []) {
+    for (const p of profiles) {
       if (!p.email) continue;
       if (p.company_id) {
         const arr = profilesByCompany.get(p.company_id) ?? [];

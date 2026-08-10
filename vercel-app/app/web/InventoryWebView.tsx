@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { privateMediaUrl, uploadRegisteredWebFile } from '@/lib/private-media-client';
 import styles from './inventory.module.css';
 
 type InventoryMode = 'home' | 'in' | 'out' | 'stock' | 'history';
@@ -120,7 +121,6 @@ export default function InventoryWebView({
   projects,
   companies,
   selectedProjectId,
-  organizationId,
   canRecord,
   canManage,
   canAdjust,
@@ -296,14 +296,7 @@ export default function InventoryWebView({
   }
 
   async function uploadPhoto(file: File, productId: string) {
-    const extension = file.name.split('.').pop()?.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
-    const safeOrg = String(organizationId ?? 'organization').replace(/[^a-z0-9_-]/gi, '_');
-    const path = `${safeOrg}/inventory/${activeProjectId}/${productId}-${Date.now()}.${extension}`;
-    const { data, error: uploadError } = await supabaseBrowser.storage
-      .from('photos')
-      .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
-    if (uploadError) throw uploadError;
-    return supabaseBrowser.storage.from('photos').getPublicUrl(data.path).data.publicUrl;
+    return uploadRegisteredWebFile('photos', file, `inventory_${activeProjectId}_${productId}`);
   }
 
   async function submitMovement(event: React.FormEvent) {
@@ -536,7 +529,7 @@ export default function InventoryWebView({
           {mode === 'history' ? (
             <div className={styles.tableScroll}><table><thead><tr><th>Date</th><th>Type</th><th>Référence</th><th>Désignation</th><th>Qté</th><th>Stock</th><th>Destination</th><th>Entreprise</th><th>Utilisateur</th><th>Commentaire</th></tr></thead><tbody>{filteredMovements.map(movement => <tr key={movement.id}><td>{movement.created_at ? new Date(movement.created_at).toLocaleString('fr-FR') : '—'}</td><td><span className={movement.movement_type === 'in' ? styles.inBadge : styles.outBadge}>{movement.movement_type === 'in' ? 'Entrée' : 'Sortie'}</span></td><td><strong>{movement.reference}</strong></td><td>{movement.designation}</td><td>{movement.movement_type === 'in' ? '+' : '−'}{movement.quantity}</td><td>{numberValue(movement.stock_before)} → {numberValue(movement.stock_after)}</td><td>{movement.building_name || movement.zone_name || '—'}</td><td>{movement.company_name || '—'}</td><td>{movement.user_name || '—'}</td><td>{movement.comment || '—'}</td></tr>)}</tbody></table>{!filteredMovements.length ? <p className={styles.empty}>Aucun mouvement enregistré.</p> : null}</div>
           ) : (
-            <div className={styles.tableScroll}><table><thead><tr><th>Photo</th><th>Référence</th><th>Désignation</th><th>Stock</th><th>Entrées</th><th>Sorties</th><th>Minimum</th><th>Localisation</th><th>Actions</th></tr></thead><tbody>{filteredProducts.map(product => { const low = numberValue(product.current_stock) <= numberValue(product.min_stock); return <tr key={product.id} className={low ? styles.lowRow : ''}><td>{product.photo_url ? <img className={styles.productPhoto} src={product.photo_url} alt="" /> : <span className={styles.photoPlaceholder}>▦</span>}</td><td><strong>{product.reference}</strong>{product.barcode ? <small>{product.barcode}</small> : null}</td><td>{product.designation || product.reference}</td><td><b className={low ? styles.lowStock : ''}>{numberValue(product.current_stock)}</b>{low ? <small className={styles.warning}>Stock faible</small> : null}</td><td>{numberValue(product.total_entries)}</td><td>{numberValue(product.total_exits)}</td><td>{numberValue(product.min_stock)}</td><td>{product.location || '—'}</td><td><div className={styles.rowActions}>{canRecord ? <button type="button" onClick={() => openMovement('in', product)}>+ Entrée</button> : null}{canRecord ? <button type="button" onClick={() => openMovement('out', product)}>− Sortie</button> : null}{canManage ? <button type="button" onClick={() => openProductEditor(product)}>Modifier</button> : null}</div></td></tr>; })}</tbody></table>{!filteredProducts.length ? <p className={styles.empty}>Aucun produit dans ce chantier.</p> : null}</div>
+            <div className={styles.tableScroll}><table><thead><tr><th>Photo</th><th>Référence</th><th>Désignation</th><th>Stock</th><th>Entrées</th><th>Sorties</th><th>Minimum</th><th>Localisation</th><th>Actions</th></tr></thead><tbody>{filteredProducts.map(product => { const low = numberValue(product.current_stock) <= numberValue(product.min_stock); const photoUrl = privateMediaUrl(product.photo_url); return <tr key={product.id} className={low ? styles.lowRow : ''}><td>{photoUrl ? <img className={styles.productPhoto} src={photoUrl} alt="" /> : <span className={styles.photoPlaceholder}>▦</span>}</td><td><strong>{product.reference}</strong>{product.barcode ? <small>{product.barcode}</small> : null}</td><td>{product.designation || product.reference}</td><td><b className={low ? styles.lowStock : ''}>{numberValue(product.current_stock)}</b>{low ? <small className={styles.warning}>Stock faible</small> : null}</td><td>{numberValue(product.total_entries)}</td><td>{numberValue(product.total_exits)}</td><td>{numberValue(product.min_stock)}</td><td>{product.location || '—'}</td><td><div className={styles.rowActions}>{canRecord ? <button type="button" onClick={() => openMovement('in', product)}>+ Entrée</button> : null}{canRecord ? <button type="button" onClick={() => openMovement('out', product)}>− Sortie</button> : null}{canManage ? <button type="button" onClick={() => openProductEditor(product)}>Modifier</button> : null}</div></td></tr>; })}</tbody></table>{!filteredProducts.length ? <p className={styles.empty}>Aucun produit dans ce chantier.</p> : null}</div>
           )}
         </section>
       )}

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/lib/sender';
 import {
   invitationEmail,
@@ -21,46 +20,39 @@ import {
   withUnsubscribeFooter,
   listUnsubscribeHeaders,
 } from '@/lib/emailOptout';
+import { authenticateRequest, createServiceClient, getOrganizationUsers } from '@/lib/server-auth';
 
-function safeReserveUrl(reserveId: string, recipientEmail: string, language?: string | null): string {
-  try {
-    return buildReserveUrl(APP_URL, reserveId, recipientEmail, language);
-  } catch (e: any) {
-    console.warn('[send-email] reserveUrl signature impossible:', e?.message);
-    const lang = String(language ?? '').toLowerCase().slice(0, 2);
-    const langQuery = ['fr', 'en', 'es'].includes(lang) ? `?lang=${encodeURIComponent(lang)}` : '';
-    return `${APP_URL}/reserve/${encodeURIComponent(reserveId)}${langQuery}`;
-  }
+function signedReserveUrl(reserveId: string, recipientEmail: string, language?: string | null): string {
+  // Fail closed: an unsigned fallback would produce either a broken link or a
+  // future accidental disclosure if the public page contract changed.
+  return buildReserveUrl(APP_URL, reserveId, recipientEmail, language);
 }
 
 function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  return createServiceClient();
 }
 
 // Auth obligatoire : header `Authorization: Bearer <access_token Supabase>` vérifié
 // via le client service-role (même pattern que /api/send-push). Retourne l'id,
 // l'email auth et l'organisation de l'appelant, ou null.
-type CallerContext = { userId: string; email: string; organizationId: string | null };
+type CallerContext = {
+  userId: string;
+  email: string;
+  organizationId: string | null;
+  role: string;
+  isPlatformAdmin: boolean;
+};
 
 async function authenticatedCaller(req: NextRequest): Promise<CallerContext | null> {
-  const supabase = serviceClient();
-  if (!supabase) return null;
-  const auth = req.headers.get('authorization') ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
-  if (!token) return null;
-  const { data, error } = await supabase.auth.getUser(token);
-  const userId = data?.user?.id;
-  if (error || !userId) return null;
-  const email = String(data?.user?.email ?? '').trim().toLowerCase();
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organization_id')
-    .eq('id', userId)
-    .maybeSingle();
-  return { userId, email, organizationId: profile?.organization_id ?? null };
+  const auth = await authenticateRequest(req);
+  if (!auth) return null;
+  return {
+    userId: auth.authority.userId,
+    email: auth.authority.email,
+    organizationId: auth.authority.organizationId,
+    role: auth.authority.role,
+    isPlatformAdmin: auth.authority.isPlatformAdmin,
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -102,31 +94,37 @@ async function recipientAllowed(caller: CallerContext, type: string, to: string)
 
   if (type === 'invitation-accepted') {
     if (!caller.organizationId) return false;
-    const { data } = await supabase
-      .from('profiles')
-      .select('email')
-      .eq('organization_id', caller.organizationId);
-    return matchesEmail(data);
+    const users = await getOrganizationUsers(supabase, caller.organizationId);
+    return matchesEmail(users);
   }
 
   if (type === 'access-revoked') {
     // Le profil révoqué peut avoir son organization_id déjà passé à NULL au
     // moment de l'envoi — on accepte les deux états.
     if (!caller.organizationId) return false;
-    const { data } = await supabase
-      .from('profiles')
-      .select('email, organization_id')
-      .or(`organization_id.eq.${caller.organizationId},organization_id.is.null`);
-    return matchesEmail(data);
+    const users = await getOrganizationUsers(supabase, caller.organizationId, true);
+    return matchesEmail(users);
   }
 
   // reserve-created / reserve-status-changed / reserve-overdue
   if (!caller.organizationId) return false;
-  const [profilesResult, companiesResult] = await Promise.all([
-    supabase.from('profiles').select('email').eq('organization_id', caller.organizationId),
+  const [users, companiesResult] = await Promise.all([
+    getOrganizationUsers(supabase, caller.organizationId),
     supabase.from('companies').select('email').eq('organization_id', caller.organizationId),
   ]);
-  return matchesEmail(profilesResult.data) || matchesEmail(companiesResult.data);
+  return matchesEmail(users) || matchesEmail(companiesResult.data);
+}
+
+async function reserveBelongsToCaller(caller: CallerContext, reserveId: unknown) {
+  const supabase = serviceClient();
+  if (!supabase || !caller.organizationId || !reserveId) return false;
+  const { data, error } = await supabase
+    .from('reserves')
+    .select('id')
+    .eq('id', String(reserveId))
+    .eq('organization_id', caller.organizationId)
+    .maybeSingle();
+  return !error && Boolean(data?.id);
 }
 
 async function resolveRecipientLanguage(email: string, fallback?: string | null) {
@@ -221,6 +219,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Type manquant' }, { status: 400, headers });
     }
 
+    const adminEmailTypes = new Set(['invitation', 'invitation-accepted', 'access-revoked']);
+    if (adminEmailTypes.has(type)
+      && !caller.isPlatformAdmin
+      && caller.role !== 'admin'
+      && caller.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Droits administrateur requis' }, { status: 403, headers });
+    }
+    if (String(type).startsWith('reserve-') && !await reserveBelongsToCaller(caller, body.reserveId)) {
+      return NextResponse.json({ error: 'Réserve hors organisation' }, { status: 403, headers });
+    }
+
     let template: { subject: string; html: string } | null = null;
     let to: string = '';
 
@@ -269,7 +278,7 @@ export async function POST(req: NextRequest) {
       template = reserveCreatedEmail({
         recipientName, reserveTitle, reserveId, priority, deadline,
         building, level, zone, description, chantierName, companyName, createdBy, reserveCode, language,
-        reserveUrl: safeReserveUrl(reserveId, email, language),
+        reserveUrl: signedReserveUrl(reserveId, email, language),
       } as any);
     } else if (type === 'reserve-status-changed') {
       const {
@@ -284,7 +293,7 @@ export async function POST(req: NextRequest) {
       template = reserveStatusChangedEmail({
         recipientName, reserveTitle, reserveId, newStatus, previousStatus,
         changedBy, companyName, chantierName, reserveCode, language,
-        reserveUrl: safeReserveUrl(reserveId, email, language),
+        reserveUrl: signedReserveUrl(reserveId, email, language),
       } as any);
     } else if (type === 'reserve-overdue') {
       const {
@@ -299,7 +308,7 @@ export async function POST(req: NextRequest) {
       template = reserveOverdueEmail({
         recipientName, reserveTitle, reserveId, deadline, daysLate,
         priority, companyName, chantierName, reserveCode, language,
-        reserveUrl: safeReserveUrl(reserveId, email, language),
+        reserveUrl: signedReserveUrl(reserveId, email, language),
       } as any);
     } else if (type === 'password-changed') {
       const { email, name } = body;

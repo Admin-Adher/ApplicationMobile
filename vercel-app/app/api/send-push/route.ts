@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { authenticateRequest, createServiceClient, getOrganizationUsers } from '@/lib/server-auth';
 
 // Les ids (messages, réserves) sont des chaînes générées par l'app — jamais de
 // contenu libre. On refuse tout ce qui sort de ce format avant de l'injecter
@@ -31,10 +31,7 @@ function corsHeaders(req: NextRequest) {
 }
 
 function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  return createServiceClient();
 }
 
 function sameName(a: unknown, b: unknown) {
@@ -129,19 +126,21 @@ async function preferencesForProfiles(supabase: any, profileIds: string[]) {
 }
 
 async function authenticatedProfile(req: NextRequest, supabase: any) {
-  const auth = req.headers.get('authorization') ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
-  if (!token) return null;
-  const { data: userData, error: userError } = await supabase.auth.getUser(token);
-  const userId = userData?.user?.id;
-  if (userError || !userId) return null;
+  const auth = await authenticateRequest(req, supabase);
+  if (!auth) return null;
   const { data: profile, error } = await supabase
     .from('profiles')
-    .select('id, name, email, role, organization_id, company_id')
-    .eq('id', userId)
+    .select('id, name, email')
+    .eq('id', auth.authority.userId)
     .maybeSingle();
   if (error || !profile) return null;
-  return profile;
+  return {
+    ...profile,
+    role: auth.authority.role,
+    organization_id: auth.authority.organizationId,
+    company_id: auth.authority.companyId,
+    is_platform_admin: auth.authority.isPlatformAdmin,
+  };
 }
 
 async function enabledTokensForProfiles(
@@ -223,13 +222,8 @@ async function resolveReserveRecipientProfileIds(supabase: any, reserve: any) {
   const matched = (companies ?? []).filter((company: any) => names.some(name => sameName(name, company.name)));
   const companyIds = matched.map((c: any) => c.id);
   if (companyIds.length === 0) return [];
-  const { data: profiles, error: profileError } = await supabase
-    .from('profiles')
-    .select('id, company_id, organization_id')
-    .eq('organization_id', reserve.organization_id)
-    .in('company_id', companyIds);
-  if (profileError) throw profileError;
-  return (profiles ?? []).map((p: any) => p.id);
+  const users = await getOrganizationUsers(supabase, reserve.organization_id);
+  return users.filter(user => user.companyId && companyIds.includes(user.companyId)).map(user => user.id);
 }
 
 async function resolveMessageRecipientProfileIds(supabase: any, message: any, requesterProfile: any) {
@@ -243,13 +237,9 @@ async function resolveMessageRecipientProfileIds(supabase: any, message: any, re
 
   if (message.channel_id?.startsWith('company-')) {
     const companyId = message.channel_id.slice('company-'.length);
-    const { data: profiles, error } = await supabase
-      .from('profiles')
-      .select('id, name, company_id, organization_id')
-      .eq('organization_id', orgId)
-      .eq('company_id', companyId);
-    if (error) throw error;
-    return (profiles ?? [])
+    const users = await getOrganizationUsers(supabase, orgId);
+    return users
+      .filter(user => user.companyId === companyId)
       .filter((p: any) => p.id !== requesterProfile.id && !sameName(p.name, message.sender))
       .map((p: any) => p.id);
   }
@@ -259,14 +249,10 @@ async function resolveMessageRecipientProfileIds(supabase: any, message: any, re
   const targetNames = Array.from(new Set([...memberNames, ...dmNames].filter(Boolean)))
     .filter(name => !sameName(name, message.sender));
 
-  const { data: profiles, error } = await supabase
-    .from('profiles')
-    .select('id, name, organization_id')
-    .eq('organization_id', orgId);
-  if (error) throw error;
+  const profiles = await getOrganizationUsers(supabase, orgId);
   const candidates = targetNames.length > 0
-    ? (profiles ?? []).filter((p: any) => targetNames.some(name => sameName(name, p.name)))
-    : (profiles ?? []);
+    ? profiles.filter((p: any) => targetNames.some(name => sameName(name, p.name)))
+    : profiles;
   return candidates
     .filter((p: any) => p.id !== requesterProfile.id && !sameName(p.name, message.sender))
     .map((p: any) => p.id);
@@ -276,15 +262,15 @@ async function pushForMessage(supabase: any, profile: any, body: any) {
   if (!body.messageId) throw new Error('messageId manquant');
   const { data: message, error } = await supabase
     .from('messages')
-    .select('id, channel_id, sender, content, attachment_uri, organization_id')
+    .select('id, channel_id, sender, sender_id, content, attachment_uri, organization_id')
     .eq('id', body.messageId)
     .maybeSingle();
   if (error) throw error;
   if (!message) throw new Error('Message introuvable');
-  if (message.organization_id && profile.organization_id && message.organization_id !== profile.organization_id) {
+  if (!profile.organization_id || message.organization_id !== profile.organization_id) {
     throw Object.assign(new Error('Message hors organisation'), { statusCode: 403 });
   }
-  if (!sameName(message.sender, profile.name)) {
+  if (message.sender_id !== profile.id) {
     throw Object.assign(new Error('Seul l expediteur peut notifier ce message'), { statusCode: 403 });
   }
   const recipientIds = await resolveMessageRecipientProfileIds(supabase, message, profile);
@@ -309,7 +295,7 @@ async function pushForReserve(supabase: any, profile: any, body: any, statusChan
     .maybeSingle();
   if (error) throw error;
   if (!reserve) throw new Error('Reserve introuvable');
-  if (reserve.organization_id && profile.organization_id && reserve.organization_id !== profile.organization_id) {
+  if (!profile.organization_id || reserve.organization_id !== profile.organization_id) {
     throw Object.assign(new Error('Reserve hors organisation'), { statusCode: 403 });
   }
 
@@ -355,13 +341,21 @@ async function pushOverdueReserves(supabase: any) {
   const list = reserves ?? [];
   stats.scanned = list.length;
   if (list.length === 0) return stats;
-  const orgIds = Array.from(new Set(list.map((r: any) => r.organization_id).filter(Boolean)));
+  const orgIds: string[] = Array.from(new Set<string>(list.map((r: any) => String(r.organization_id ?? '')).filter(Boolean)));
   if (orgIds.length === 0) return stats;
 
   const { data: companies } = await supabase.from('companies').select('id, name, organization_id').in('organization_id', orgIds);
-  const { data: profiles } = await supabase.from('profiles').select('id, name, company_id, organization_id, role').in('organization_id', orgIds);
+  const profiles = (await Promise.all(
+    orgIds.map((organizationId: string) => getOrganizationUsers(supabase, organizationId)),
+  )).flat().map(profile => ({
+    id: profile.id,
+    name: profile.name,
+    company_id: profile.companyId,
+    organization_id: profile.organizationId,
+    role: profile.role,
+  }));
   const { data: tokens } = await supabase.from('push_tokens').select('token, user_id').eq('enabled', true).in('organization_id', orgIds);
-  const prefsByUser = await preferencesForProfiles(supabase, (profiles ?? []).map((p: any) => p.id));
+  const prefsByUser = await preferencesForProfiles(supabase, profiles.map((p: any) => p.id));
 
   const companiesByOrg = new Map<string, any[]>();
   for (const c of companies ?? []) {
@@ -371,7 +365,7 @@ async function pushOverdueReserves(supabase: any) {
   }
   const profilesByCompany = new Map<string, any[]>();
   const adminsByOrg = new Map<string, any[]>();
-  for (const p of profiles ?? []) {
+  for (const p of profiles) {
     if (p.company_id) {
       const arr = profilesByCompany.get(p.company_id) ?? [];
       arr.push(p);

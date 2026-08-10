@@ -5,6 +5,7 @@ import { goBack } from '@/lib/nav';
 import { useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import {
   exportPDF as exportPDFHelper,
   loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf,
@@ -1276,7 +1277,7 @@ export default function VisiteDetailScreen() {
         {/* Cover photo */}
         {visite.coverPhotoUri ? (
           <View style={styles.coverPhotoCard}>
-            <Image source={{ uri: visite.coverPhotoUri }} style={styles.coverPhoto} resizeMode="cover" />
+            <MediaImage source={{ uri: visite.coverPhotoUri }} style={styles.coverPhoto} resizeMode="cover" />
           </View>
         ) : null}
 

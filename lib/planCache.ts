@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
+import { resolveMediaRef } from './media';
 
 const CACHE_DIR = `${FileSystem.documentDirectory ?? ''}plans_cache/`;
 const MANIFEST_PATH = `${CACHE_DIR}.manifest.json`;
@@ -163,11 +164,13 @@ export async function ensurePlanCached(
 
   const downloadPromise = (async () => {
     await ensureCacheDir();
-    const ext = extOf(remoteUrl);
+    const resolvedUrl = await resolveMediaRef(remoteUrl, { cacheDisk: false });
+    if (!resolvedUrl) throw new Error('plan access denied or unavailable');
+    const ext = extOf(resolvedUrl);
     const filename = `${key}.${ext}`;
     const dest = `${CACHE_DIR}${filename}`;
 
-    const dl = await withTimeout(FileSystem.downloadAsync(remoteUrl, dest), 'plan download');
+    const dl = await withTimeout(FileSystem.downloadAsync(resolvedUrl, dest), 'plan download');
     if (dl.status && dl.status >= 400) {
       try { await FileSystem.deleteAsync(dest, { idempotent: true }); } catch {}
       throw new Error(`HTTP ${dl.status}`);

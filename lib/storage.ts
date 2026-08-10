@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
 import i18n from '@/lib/i18n';
+import { canonicalApiBaseUrl } from './apiBase';
 
 // ── File reading ──────────────────────────────────────────────────────────────
 // On native, we use fetch(uri) to obtain a proper Blob that the Supabase
@@ -83,34 +84,39 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
 export const MISSING_LOCAL_FILE = '__BUILDTRACK_MISSING_LOCAL_FILE__';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Cloudflare R2 — chemin d'upload prioritaire (bascule hybride)
+// Registre média privé — chemin canonique mobile et web Expo.
 //
-// Le plan gratuit Supabase est limité à 1 Go de storage et ~10 Go d'egress/mois
-// (partagé avec la base). R2 offre 10 Go + egress illimité gratuit. Stratégie :
-//   1. On demande une URL présignée PUT à /api/storage/presign (auth Bearer).
-//   2. On uploade DIRECTEMENT vers R2 (PUT simple, sans header d'auth — encore
-//      plus fiable que le chemin Supabase sur Android/Hermes).
-//   3. On stocke l'URL publique R2 (Worker *.workers.dev) en base.
-// Si le presign échoue (R2 non configuré → 503, vieille app, hors-ligne,
-// session invalide), on retombe sur le chemin Supabase historique : les deux
-// hôtes cohabitent, les lecteurs consomment des URLs absolues et ne voient
-// aucune différence.
+//   1. L'API authentifiée réserve un objet rattaché au tenant et retourne une
+//      référence opaque btmedia://<uuid> ainsi qu'une destination d'upload.
+//   2. Le client envoie directement les octets vers R2 ou Supabase privé.
+//   3. L'API vérifie l'objet, puis la ressource métier persiste uniquement la
+//      référence opaque. Les lectures passent par /api/storage/resolve après
+//      vérification RLS de la ressource liée.
+//
+// Une indisponibilité du serveur conserve le fichier dans la file hors-ligne :
+// aucun nouvel upload ne retombe sur une URL publique non enregistrée.
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PRESIGN_TIMEOUT_MS = 10_000;
 
-type PresignedUpload = { uploadUrl: string; publicUrl: string; key: string };
+type PresignedUpload = {
+  provider: 'r2' | 'supabase';
+  assetId: string;
+  mediaRef: string;
+  bucket: 'photos' | 'documents';
+  objectKey: string;
+  uploadUrl?: string;
+};
 
 function storageApiBaseUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-  return process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '';
+  return canonicalApiBaseUrl();
 }
 
 async function requestPresignedUpload(
   kind: 'photo' | 'document',
   filename: string,
+  contentType: string,
+  size: number,
   tag: string,
 ): Promise<PresignedUpload | null> {
   try {
@@ -131,15 +137,11 @@ async function requestPresignedUpload(
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
         },
-        body: JSON.stringify({ kind, filename }),
+        body: JSON.stringify({ kind, filename, contentType, size }),
         signal: controller.signal,
       });
     } finally {
       clearTimeout(timer);
-    }
-    if (response.status === 503) {
-      // R2 non configuré côté serveur — silencieux, fallback Supabase.
-      return null;
     }
     if (!response.ok) {
       const body = await response.text().catch(() => '');
@@ -147,8 +149,16 @@ async function requestPresignedUpload(
       return null;
     }
     const data = await response.json().catch(() => null);
-    if (!data?.uploadUrl || !data?.publicUrl) return null;
-    return { uploadUrl: data.uploadUrl, publicUrl: data.publicUrl, key: data.key ?? '' };
+    if (!data?.assetId || !data?.mediaRef || !data?.bucket || !data?.objectKey) return null;
+    if (data.provider === 'r2' && !data.uploadUrl) return null;
+    return {
+      provider: data.provider,
+      assetId: data.assetId,
+      mediaRef: data.mediaRef,
+      bucket: data.bucket,
+      objectKey: data.objectKey,
+      uploadUrl: data.uploadUrl,
+    };
   } catch (err: any) {
     console.warn(`${tag} presign R2 indisponible:`, err?.message ?? err);
     return null;
@@ -165,6 +175,7 @@ async function putFileToR2(
   tag: string,
 ): Promise<boolean> {
   try {
+    if (!presigned.uploadUrl) return false;
     if (Platform.OS !== 'web') {
       const result = await withTimeout(
         FileSystem.uploadAsync(presigned.uploadUrl, uri, {
@@ -206,29 +217,97 @@ async function putFileToR2(
   }
 }
 
-/**
- * Supprime côté serveur les fichiers R2 correspondant aux URLs fournies
- * (les URLs non-R2 sont ignorées par l'API — les fichiers Supabase restent
- * gérés par storage.remove côté client, comme avant). Best-effort.
- */
-export async function removeRemoteFilesViaApi(urls: string[]): Promise<void> {
-  const list = (urls ?? []).filter(u => typeof u === 'string' && /^https?:\/\//.test(u));
-  if (!list.length) return;
+async function fileSize(uri: string): Promise<number> {
+  if (Platform.OS !== 'web') {
+    const info = await withTimeout(FileSystem.getInfoAsync(uri), FILE_STAT_TIMEOUT_MS, 'taille fichier');
+    const nativeSize = Number((info as any)?.size ?? 0);
+    if ((info as any)?.exists && nativeSize > 0) return nativeSize;
+  }
+  const { data } = await readFileAsBlob(uri);
+  return data.size;
+}
+
+async function putFileToSupabase(
+  reservation: PresignedUpload,
+  uri: string,
+  contentType: string,
+  timeoutMs: number,
+  tag: string,
+): Promise<boolean> {
+  if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
+    const accessToken = await resolveStorageAccessToken(tag);
+    if (!accessToken || accessToken === SUPABASE_KEY) return false;
+    const encodedKey = reservation.objectKey.split('/').map(encodeURIComponent).join('/');
+    const result = await withTimeout(
+      FileSystem.uploadAsync(
+        `${SUPABASE_URL}/storage/v1/object/${reservation.bucket}/${encodedKey}`,
+        uri,
+        {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            apikey: SUPABASE_KEY,
+            'Content-Type': contentType,
+          },
+        },
+      ),
+      timeoutMs,
+      'upload Supabase privé',
+    );
+    return result.status >= 200 && result.status < 300;
+  }
+
+  const { data } = await readFileAsBlob(uri);
+  const result = await withTimeout(
+    supabase.storage.from(reservation.bucket).upload(reservation.objectKey, data, {
+      contentType,
+      upsert: false,
+    }),
+    timeoutMs,
+    'upload Supabase privé web',
+  );
+  return !result.error;
+}
+
+async function completeRegisteredUpload(reservation: PresignedUpload, tag: string): Promise<boolean> {
+  const base = storageApiBaseUrl();
+  const accessToken = await resolveStorageAccessToken(tag);
+  if (!accessToken || accessToken === SUPABASE_KEY) return false;
+  const response = await fetch(base ? `${base}/api/storage/complete` : '/api/storage/complete', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({ assetId: reservation.assetId }),
+  });
+  return response.ok;
+}
+
+async function uploadRegisteredMedia(
+  kind: 'photo' | 'document',
+  uri: string,
+  filename: string,
+  contentType: string,
+  timeoutMs: number,
+  tag: string,
+): Promise<{ url: string | null; error: string | null }> {
   try {
-    const base = storageApiBaseUrl();
-    const url = base ? `${base}/api/storage/delete` : '/api/storage/delete';
-    const accessToken = await resolveStorageAccessToken('[removeRemoteFiles]');
-    if (!accessToken || accessToken === SUPABASE_KEY) return;
-    await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({ urls: list.slice(0, 100) }),
-    });
-  } catch (err: any) {
-    console.warn('[removeRemoteFiles] suppression R2 échouée:', err?.message ?? err);
+    const size = await fileSize(uri);
+    if (!Number.isFinite(size) || size <= 0) return { url: null, error: 'Taille de fichier invalide' };
+    const reservation = await requestPresignedUpload(kind, filename, contentType, size, tag);
+    if (!reservation) return { url: null, error: 'Réservation média indisponible' };
+    const uploaded = reservation.provider === 'r2'
+      ? await putFileToR2(reservation, uri, contentType, timeoutMs, tag)
+      : await putFileToSupabase(reservation, uri, contentType, timeoutMs, tag);
+    if (!uploaded) return { url: null, error: 'Upload privé impossible' };
+    if (!await completeRegisteredUpload(reservation, tag)) {
+      return { url: null, error: 'Validation serveur du média impossible' };
+    }
+    return { url: reservation.mediaRef, error: null };
+  } catch (error: any) {
+    return { url: null, error: error?.message ?? String(error) };
   }
 }
 
@@ -318,97 +397,12 @@ async function _uploadPhotoWithError(
       ext === 'png' ? 'image/png' :
       ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg' :
       'image/jpeg';
-    const path = `${Date.now()}_${nextUploadSeq()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+    const remaining = remainingBudgetMs();
+    if (remaining <= 0) return { url: null, error: timeoutMessage() };
+    return await uploadRegisteredMedia(
+      'photo', uri, filename, contentType, remaining, '[uploadPhoto]',
+    );
 
-    // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ─────────────
-    const presigned = await requestPresignedUpload('photo', filename, '[uploadPhoto]');
-    if (presigned) {
-      const remainingForR2 = remainingBudgetMs();
-      if (remainingForR2 <= 0) return { url: null, error: timeoutMessage() };
-      const ok = await putFileToR2(presigned, uri, contentType, remainingForR2, '[uploadPhoto]');
-      if (ok) {
-        return { url: presigned.publicUrl, error: null };
-      }
-      console.warn('[uploadPhoto] R2 échoué — repli sur Supabase Storage');
-    }
-
-    let publicUrl: string;
-
-    if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
-      // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ───────────
-      // Avoid the "Network request failed" caused by Blob bodies in RN's fetch.
-      const remainingForToken = remainingBudgetMs();
-      if (remainingForToken <= 0) return { url: null, error: timeoutMessage() };
-      const accessToken = await withTimeout(
-        resolveStorageAccessToken('[uploadPhoto]'),
-        remainingForToken,
-        'jeton upload photo',
-      );
-
-      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/photos/${path}`;
-      const remainingForUpload = remainingBudgetMs();
-      if (remainingForUpload <= 0) return { url: null, error: timeoutMessage() };
-      const result = await withTimeout(
-        FileSystem.uploadAsync(uploadUrl, uri, {
-          httpMethod: 'POST',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            apikey: SUPABASE_KEY,
-            'Content-Type': contentType,
-          },
-        }),
-        remainingForUpload,
-        'upload photo native',
-      );
-
-      if (result.status < 200 || result.status >= 300) {
-        let detail = result.body ?? '';
-        try { detail = JSON.parse(result.body ?? '')?.message ?? result.body ?? ''; } catch {}
-        const msg = `[HTTP ${result.status}] ${detail}`;
-        console.warn('[uploadPhoto] native upload error:', msg);
-        return { url: null, error: msg };
-      }
-
-      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path);
-      publicUrl = urlData.publicUrl;
-    } else {
-      // ── Web path: Blob via Supabase JS SDK ───────────────────────────────────
-      const remainingForRead = remainingBudgetMs();
-      if (remainingForRead <= 0) return { url: null, error: timeoutMessage() };
-      const { data: fileData } = await withTimeout(
-        readFileAsBlob(uri),
-        remainingForRead,
-        'lecture photo web',
-      );
-      const remainingForUpload = remainingBudgetMs();
-      if (remainingForUpload <= 0) return { url: null, error: timeoutMessage() };
-      const { data, error } = await withTimeout(
-        supabase.storage
-          .from('photos')
-          .upload(path, fileData, { contentType, upsert: false }),
-        remainingForUpload,
-        'upload photo web',
-      );
-      if (error) {
-        const msg = `[${error.message}]${error.statusCode ? ` HTTP ${error.statusCode}` : ''}`;
-        console.warn('[uploadPhoto] Supabase SDK error:', msg);
-        return { url: null, error: msg };
-      }
-      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(data.path);
-      publicUrl = urlData.publicUrl;
-    }
-
-    // NOTE: the local documentDirectory/photos/ copy is intentionally NOT
-    // deleted here. A successful upload does not mean the photo is safe: the
-    // database write that references it (RPC create_reserve_with_photos, row
-    // update…) can still fail afterwards — e.g. `42501` while the session is
-    // expired — and the app cache then keeps pointing at the local URI. Deleting
-    // the file at this point turned those photos into permanently blank/white
-    // images. purgeOrphanedPhotoFiles() reclaims unreferenced files after a
-    // clean sync pass (with a 7-day age guard), so device storage is still
-    // bounded without risking the only remaining copy of the user's photo.
-    return { url: publicUrl, error: null };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.warn('[uploadPhoto] failed:', msg);
@@ -471,172 +465,12 @@ export async function uploadDocumentDetailed(
     return { url: MISSING_LOCAL_FILE as any, error: null };
   }
 
-  try {
-    const contentType = mimeType ?? 'application/octet-stream';
-    const path = `${Date.now()}_${nextUploadSeq()}_${filename.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-    console.log(`${tag} contentType : ${contentType}`);
-    console.log(`${tag} storage path: documents/${path}`);
+  const contentType = mimeType ?? 'application/octet-stream';
+  const registered = await uploadRegisteredMedia(
+    'document', uri, filename, contentType, DOCUMENT_UPLOAD_TIMEOUT_MS, tag,
+  );
+  return registered;
 
-    // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ─────────────
-    // Bonus : pas de limite de 50 Mo par fichier (plans PDF lourds OK).
-    const presigned = await requestPresignedUpload('document', filename, tag);
-    if (presigned) {
-      console.log(`${tag} chemin : R2 (PUT présigné)`);
-      const ok = await putFileToR2(presigned, uri, contentType, DOCUMENT_UPLOAD_TIMEOUT_MS, tag);
-      if (ok) {
-        console.log(`${tag} SUCCÈS R2 — url publique: ${presigned.publicUrl}`);
-        return { url: presigned.publicUrl, error: null };
-      }
-      console.warn(`${tag} R2 échoué — repli sur Supabase Storage`);
-    }
-
-    if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
-      // ── Native path: FileSystem.uploadAsync (native HTTP, no Blob) ────────
-      // CRITICAL: supabase.storage.upload() uses fetch() + Blob body which
-      // always fails on Android/Hermes with "Network request failed" — even
-      // when the rest of Supabase (auth, DB) works fine.  FileSystem.uploadAsync
-      // bypasses JS fetch and uses the platform's native HTTP stack.
-      console.log(`${tag} chemin : NATIF (FileSystem.uploadAsync)`);
-
-      // ── 2. Récupérer le token d'accès ──────────────────────────────────────
-      // Strategy (most robust to least):
-      // A) supabase.auth.getSession() with 8s timeout (lock may take up to 5s)
-      // B) getSessionFromStorage() — read cached JWT directly, no lock
-      // C) forceRefreshSession() — raw HTTP refresh bypassing the lock, if B is expired
-      // D) SUPABASE_KEY (anon key) — last resort, will fail RLS-protected buckets
-      let accessToken: string = SUPABASE_KEY;
-      let tokenSource = 'anon_key (fallback)';
-      try {
-        const TOKEN_TIMEOUT_MS = 8_000;
-        const sessionRace = await Promise.race([
-          supabase.auth.getSession(),
-          new Promise<never>((_, rej) =>
-            setTimeout(() => rej(new Error('getSession timeout')), TOKEN_TIMEOUT_MS)
-          ),
-        ]) as Awaited<ReturnType<typeof supabase.auth.getSession>>;
-
-        if (sessionRace.error) {
-          console.warn(`${tag} getSession erreur: ${sessionRace.error.message}`);
-        } else if (sessionRace.data?.session?.access_token) {
-          const s = sessionRace.data.session;
-          const nowSec = Math.floor(Date.now() / 1000);
-          if (typeof s.expires_at === 'number' && s.expires_at < nowSec) {
-            console.warn(`${tag} JWT expiré depuis ${nowSec - s.expires_at}s — forceRefresh`);
-            throw new Error('jwt-expired');
-          }
-          accessToken = s.access_token;
-          tokenSource = `JWT supabase-js (expire: ${s.expires_at
-            ? new Date(s.expires_at * 1000).toISOString()
-            : 'inconnu'})`;
-        } else {
-          console.warn(`${tag} getSession: pas de session active`);
-          throw new Error('no-session');
-        }
-      } catch (sessEx: any) {
-        console.warn(`${tag} getSession indisponible (${sessEx?.message ?? sessEx}) — essai AsyncStorage fallback`);
-        // B) Read directly from AsyncStorage (no lock involved)
-        const { getSessionFromStorage, forceRefreshSession } = await import('./offlineCache');
-        const cached = await getSessionFromStorage();
-        if (cached?.access_token && typeof cached.expires_at === 'number') {
-          const nowSec = Math.floor(Date.now() / 1000);
-          if (cached.expires_at - 10 > nowSec) {
-            accessToken = cached.access_token;
-            tokenSource = `JWT AsyncStorage (expire: ${new Date(cached.expires_at * 1000).toISOString()})`;
-            console.log(`${tag} token depuis AsyncStorage OK`);
-          } else {
-            // C) JWT expired — force-refresh via raw HTTP
-            console.warn(`${tag} JWT AsyncStorage expiré — forceRefreshSession()`);
-            const newToken = await forceRefreshSession();
-            if (newToken) {
-              accessToken = newToken;
-              tokenSource = 'JWT forceRefresh (bypass lock)';
-              console.log(`${tag} token renouvelé par forceRefresh ✓`);
-            } else {
-              console.warn(`${tag} forceRefresh échoué — fallback clé anon (RLS bloquera probablement)`);
-            }
-          }
-        } else {
-          console.warn(`${tag} AsyncStorage vide — fallback clé anon`);
-        }
-      }
-      console.log(`${tag} token source: ${tokenSource}`);
-
-      // ── 3. Lancer l'upload ─────────────────────────────────────────────────
-      const uploadUrl = `${SUPABASE_URL}/storage/v1/object/documents/${path}`;
-      console.log(`${tag} uploadUrl: ${uploadUrl}`);
-      console.log(`${tag} timeout: ${DOCUMENT_UPLOAD_TIMEOUT_MS / 1000}s`);
-      console.log(`${tag} ── lancement FileSystem.uploadAsync…`);
-
-      let result: { status: number; body: string };
-      try {
-        result = await withTimeout(
-          FileSystem.uploadAsync(uploadUrl, uri, {
-            httpMethod: 'POST',
-            uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              apikey: SUPABASE_KEY,
-              'Content-Type': contentType,
-            },
-          }),
-          DOCUMENT_UPLOAD_TIMEOUT_MS,
-          'upload document native',
-        );
-      } catch (uploadEx: any) {
-        const msg = uploadEx?.message ?? String(uploadEx);
-        console.error(`${tag} ECHEC uploadAsync exception: ${msg}`);
-        return { url: null, error: `uploadAsync exception: ${msg}` };
-      }
-
-      console.log(`${tag} réponse HTTP status: ${result.status}`);
-      console.log(`${tag} réponse HTTP body  : ${(result.body ?? '').slice(0, 300)}`);
-
-      if (result.status < 200 || result.status >= 300) {
-        let detail = result.body ?? '';
-        try {
-          const parsed = JSON.parse(result.body ?? '');
-          detail = parsed?.message ?? parsed?.error ?? result.body ?? '';
-        } catch {}
-        const statusLabel =
-          result.status === 401 ? i18n.t('storageErrors.jwtInvalid') :
-          result.status === 403 ? i18n.t('storageErrors.permissionDenied') :
-          result.status === 413 ? i18n.t('storageErrors.fileTooLarge') :
-          result.status === 0   ? i18n.t('storageErrors.noNetworkResponse') :
-          `HTTP ${result.status}`;
-        const msg = `${statusLabel}: ${detail}`.trim();
-        console.error(`${tag} ECHEC upload — ${msg}`);
-        return { url: null, error: msg };
-      }
-
-      const { data: urlData } = supabase.storage.from('documents').getPublicUrl(path);
-      console.log(`${tag} SUCCÈS — url publique: ${urlData.publicUrl}`);
-      return { url: urlData.publicUrl, error: null };
-    }
-
-    // ── Web path: Blob via Supabase JS SDK ──────────────────────────────────
-    console.log(`${tag} chemin : WEB (Blob SDK)`);
-    const { data: fileData, mimeType: detectedMime } = await readFileAsBlob(uri);
-    const resolvedContentType = mimeType || detectedMime || 'application/octet-stream';
-    console.log(`${tag} blob size: ${fileData?.size ?? 'inconnu'} octets`);
-    const { data, error } = await withTimeout(
-      supabase.storage
-        .from('documents')
-        .upload(path, fileData, { contentType: resolvedContentType, upsert: false }),
-      DOCUMENT_UPLOAD_TIMEOUT_MS,
-      'upload document web',
-    );
-    if (error) {
-      console.error(`${tag} ECHEC SDK web: ${error.message}`);
-      return { url: null, error: error.message };
-    }
-    const { data: urlData } = supabase.storage.from('documents').getPublicUrl(data.path);
-    console.log(`${tag} SUCCÈS web — url: ${urlData.publicUrl}`);
-    return { url: urlData.publicUrl, error: null };
-  } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    console.error(`${tag} ECHEC exception inattendue: ${msg}`);
-    return { url: null, error: `Exception inattendue: ${msg}` };
-  }
 }
 
 /**
@@ -820,6 +654,17 @@ export async function uploadLocalPhotosInPayload(
       if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
+    }
+  } else if (table === 'visites') {
+    if (typeof data.cover_photo_uri === 'string' && isLocalUri(data.cover_photo_uri)) {
+      hadLocal = true;
+      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(
+        data.cover_photo_uri,
+        `visite_${String(data.id ?? Date.now()).replace(/[^a-zA-Z0-9._-]/g, '_')}_${nextUploadSeq()}.jpg`,
+      );
+      if (remote === (MISSING_LOCAL_FILE as any)) data.cover_photo_uri = null;
+      else if (remote) data.cover_photo_uri = remote;
+      else { allOk = false; if (uploadErr) uploadErrors.push(`cover_photo_uri: ${uploadErr}`); }
     }
   } else if (table === 'inventory_products') {
     if (typeof data.photo_url === 'string' && isLocalUri(data.photo_url)) {

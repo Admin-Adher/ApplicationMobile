@@ -14,6 +14,7 @@ import {
   type WebTranslator,
 } from '@/lib/i18n';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { privateMediaUrl, subscribePrivateMedia, uploadRegisteredWebFile } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWebView from './InventoryWebView';
 import styles from './web.module.css';
@@ -1374,13 +1375,14 @@ function storagePublicUrl(raw: any, bucket: 'photos' | 'documents') {
   if (typeof raw !== 'string') return '';
   const value = raw.trim();
   if (!value || /^file:\/\//i.test(value)) return '';
-  if (/^(https?:|data:|blob:)/i.test(value)) return value;
+  if (/^(data:|blob:)/i.test(value)) return value;
+  if (/^(https?:|btmedia:)/i.test(value)) return privateMediaUrl(value);
   const path = value
     .replace(/^\/+/, '')
     .replace(new RegExp(`^${bucket}/`, 'i'), '');
   if (!path) return '';
   const { data } = supabaseBrowser.storage.from(bucket).getPublicUrl(path);
-  return data.publicUrl;
+  return privateMediaUrl(data.publicUrl);
 }
 
 function assetUrl(item: any, bucket: 'photos' | 'documents' = 'photos') {
@@ -2124,54 +2126,7 @@ function checklistItemsToRows(items: any[]) {
 }
 
 async function uploadWebFile(bucket: 'photos' | 'documents', file: File, prefix: string) {
-  const extension = file.name.includes('.') ? file.name.split('.').pop() : '';
-  const fileName = `${safeStorageName(prefix)}_${Date.now()}_${safeStorageName(file.name || `upload.${extension || 'jpg'}`)}`;
-
-  // ── Chemin prioritaire : Cloudflare R2 (presign + PUT direct) ──────────────
-  // 10 Go gratuits + egress illimité vs 1 Go / ~10 Go d'egress sur Supabase.
-  // Si le presign échoue (R2 non configuré → 503, session absente…), on
-  // retombe sur Supabase Storage : bascule hybride sans rupture.
-  try {
-    const { data: authData } = await supabaseBrowser.auth.getSession();
-    const token = authData.session?.access_token;
-    if (token) {
-      const presignResponse = await fetch('/api/storage/presign', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          kind: bucket === 'photos' ? 'photo' : 'document',
-          filename: fileName,
-        }),
-      });
-      if (presignResponse.ok) {
-        const presigned = await presignResponse.json().catch(() => null);
-        if (presigned?.uploadUrl && presigned?.publicUrl) {
-          const putResponse = await fetch(presigned.uploadUrl, {
-            method: 'PUT',
-            body: file,
-            headers: { 'Content-Type': file.type || 'application/octet-stream' },
-          });
-          if (putResponse.ok) return presigned.publicUrl as string;
-          console.warn(`[uploadWebFile] PUT R2 HTTP ${putResponse.status} — repli Supabase`);
-        }
-      } else if (presignResponse.status !== 503) {
-        console.warn(`[uploadWebFile] presign R2 HTTP ${presignResponse.status} — repli Supabase`);
-      }
-    }
-  } catch (r2Error: any) {
-    console.warn('[uploadWebFile] R2 indisponible — repli Supabase:', r2Error?.message ?? r2Error);
-  }
-
-  const path = fileName;
-  const { data, error } = await supabaseBrowser.storage
-    .from(bucket)
-    .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
-  if (error) throw error;
-  const { data: urlData } = supabaseBrowser.storage.from(bucket).getPublicUrl(data.path);
-  return urlData.publicUrl;
+  return uploadRegisteredWebFile(bucket, file, safeStorageName(prefix));
 }
 
 async function requestWebTranslation(params: { text: string; source?: TextLang | 'auto'; target: TextLang; context: string }) {
@@ -2527,6 +2482,18 @@ async function fetchScopedTable<T = any>(
   }
 }
 
+async function fetchOrgUsers(onError?: (table: string, message: string) => void): Promise<Profile[]> {
+  try {
+    const { data, error } = await supabaseBrowser.rpc('get_org_users');
+    if (error) throw error;
+    return (Array.isArray(data) ? data : []) as Profile[];
+  } catch (error: any) {
+    console.warn('[web] get_org_users', error);
+    onError?.('profiles', error?.message ?? String(error));
+    return [];
+  }
+}
+
 type WebTextPromptRequest = {
   title: string;
   label?: string;
@@ -2587,6 +2554,7 @@ export default function BuildTrackWebPage() {
   const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
+  const [, setPrivateMediaVersion] = useState(0);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
@@ -2674,6 +2642,10 @@ export default function BuildTrackWebPage() {
   const handleWebLangChange = useCallback(async (nextLang: SupportedLang) => {
     await handleWebLanguagePreferenceChange(nextLang);
   }, [handleWebLanguagePreferenceChange]);
+
+  useEffect(() => subscribePrivateMedia(() => {
+    setPrivateMediaVersion(version => version + 1);
+  }), []);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -2920,13 +2892,20 @@ export default function BuildTrackWebPage() {
       if (!failedTables.includes(table)) failedTables.push(table);
     };
     try {
-      const { data: profileRows, error: profileError } = await supabaseBrowser
-        .from('profiles')
-        .select('*')
-        .or(`id.eq.${user.id},email.eq.${user.email ?? ''}`)
-        .limit(1);
+      let { data: profileRows, error: profileError } = await supabaseBrowser
+        .rpc('get_profile_for_current_user');
       if (profileError) throw profileError;
-      const loadedProfile = (profileRows?.[0] ?? null) as Profile | null;
+      if (!Array.isArray(profileRows) || profileRows.length === 0) {
+        const { error: ensureError } = await supabaseBrowser.rpc('ensure_current_user_profile', {
+          p_name: user.user_metadata?.full_name ?? null,
+        });
+        if (ensureError) throw ensureError;
+        const refreshed = await supabaseBrowser.rpc('get_profile_for_current_user');
+        profileRows = refreshed.data;
+        profileError = refreshed.error;
+        if (profileError) throw profileError;
+      }
+      const loadedProfile = ((Array.isArray(profileRows) ? profileRows[0] : null) ?? null) as Profile | null;
       if (!loadedProfile) {
         setError(t('login.missingProfile'));
         setLoading(false);
@@ -3012,7 +2991,7 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('visites', loadedProfile, { order: 'created_at', onError }),
         fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800, onError }),
         fetchScopedTable('channels', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable<Profile>('profiles', loadedProfile, { order: 'name', ascending: true, onError }),
+        fetchOrgUsers(onError),
         fetchScopedTable('lots', loadedProfile, { order: 'name', ascending: true, onError }),
         fetchScopedTable('tasks', loadedProfile, { order: 'created_at', onError }),
         fetchScopedTable('incidents', loadedProfile, { order: 'created_at', onError }),
@@ -4190,6 +4169,18 @@ export default function BuildTrackWebPage() {
 
   async function updateProfileField(userId: string, patch: Partial<Profile>) {
     if (!isAdmin(profile)) return;
+    const target = data.profiles.find(user => user.id === userId);
+    if (!target) return;
+    const { error: profileError } = await supabaseBrowser.rpc('admin_update_membership', {
+      p_user_id: userId,
+      p_role: patch.role ?? target.role,
+      p_company_id: patch.company_id !== undefined ? patch.company_id : target.company_id ?? null,
+      p_permissions_override: patch.permissions_override ?? target.permissions_override ?? {},
+    });
+    if (profileError) {
+      setError(profileError.message);
+      return;
+    }
     setData(prev => ({
       ...prev,
       profiles: prev.profiles.map(user => user.id === userId ? { ...user, ...patch } : user),
@@ -4205,11 +4196,6 @@ export default function BuildTrackWebPage() {
         storeWebLanguagePreference(nextPreference, nextLang);
       }
     }
-    const { error: profileError } = await supabaseBrowser
-      .from('profiles')
-      .update(patch)
-      .eq('id', userId);
-    if (profileError) setError(profileError.message);
   }
 
   async function updateOwnProfile(patch: Partial<Profile>) {

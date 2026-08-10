@@ -1,21 +1,15 @@
-# Cloudflare R2 — stockage de fichiers BuildTrack
+# Cloudflare R2 — stockage privé BuildTrack
 
-Bascule **hybride** : les nouveaux uploads (photos, documents) partent sur R2
-(10 Go gratuits, egress illimité) ; les anciens fichiers restent servis par
-Supabase Storage (les URLs absolues en base continuent de fonctionner).
-Si R2 n'est pas configuré, l'app retombe automatiquement sur Supabase —
-le code est déployable avant la mise en place ci-dessous.
+R2 est un backend d’objets privé. Le client n’enregistre jamais une URL R2 en
+base : il conserve une référence `btmedia://<asset_id>`. L’API canonique
+autorise chaque ressource, puis retourne une URL S3 GET signée de courte durée.
 
-## Mise en route (~15 min, dashboard Cloudflare)
+## Configuration du bucket
 
-### 1. Créer le bucket
-R2 Object Storage → **Create bucket**
-- Nom : `buildtrack-files`
-- Location : **Provide a location hint → Western Europe (WEUR)** (RGPD)
-- Storage class : Standard
-
-### 2. Règles CORS du bucket (pour l'upload navigateur)
-Bucket → Settings → **CORS policy** :
+1. Créer un bucket privé `buildtrack-files` dans la région contractuelle.
+2. Créer un token limité à ce bucket avec `Object Read & Write`.
+3. Configurer la politique CORS suivante, en remplaçant les domaines de test
+   par les domaines réellement utilisés :
 
 ```json
 [
@@ -25,85 +19,72 @@ Bucket → Settings → **CORS policy** :
       "http://localhost:3000",
       "http://localhost:5000"
     ],
-    "AllowedMethods": ["PUT"],
-    "AllowedHeaders": ["content-type"],
+    "AllowedMethods": ["PUT", "GET", "HEAD"],
+    "AllowedHeaders": ["content-type", "range"],
+    "ExposeHeaders": [
+      "etag",
+      "content-length",
+      "content-type",
+      "accept-ranges",
+      "content-range"
+    ],
     "MaxAgeSeconds": 3600
   }
 ]
 ```
 
-### 3. Token API S3
-R2 → **Manage R2 API Tokens** → Create API Token
-- Permissions : **Object Read & Write**
-- Specify bucket : `buildtrack-files`
-- Noter : Access Key ID, Secret Access Key, et l'Account ID (visible dans
-  l'URL du dashboard ou R2 → vue d'ensemble).
+## Variables Vercel
 
-### 4. Worker public de lecture
-Workers & Pages → Create → Worker (nom : `buildtrack-files`)
-- Coller le contenu de [`r2-public-worker.js`](./r2-public-worker.js)
-- Settings → **Bindings** → R2 bucket : nom de variable `FILES` → bucket `buildtrack-files`
-- Deploy, puis noter l'URL `https://buildtrack-files.<compte>.workers.dev`
-- Vérification rapide : `https://…workers.dev/nimporte-quoi` doit répondre 404.
-
-### 5. Variables d'environnement Vercel
-Project → Settings → Environment Variables (Production + Preview) :
-
-| Variable | Valeur |
+| Variable | Usage |
 |---|---|
-| `R2_ACCOUNT_ID` | id du compte Cloudflare |
-| `R2_ACCESS_KEY_ID` | du token étape 3 |
-| `R2_SECRET_ACCESS_KEY` | du token étape 3 |
+| `R2_ACCOUNT_ID` | Compte Cloudflare |
+| `R2_ACCESS_KEY_ID` | Identifiant du token limité au bucket |
+| `R2_SECRET_ACCESS_KEY` | Secret du token |
 | `R2_BUCKET` | `buildtrack-files` |
-| `R2_PUBLIC_BASE_URL` | `https://buildtrack-files.<compte>.workers.dev` |
+| `R2_PUBLIC_BASE_URL` | Hôte Worker historique, uniquement pendant le dual-read |
 
-Redéployer le projet Vercel après ajout.
+Ces variables sont des secrets serveur, sauf le nom du bucket. Elles ne doivent
+pas être exposées avec un préfixe `NEXT_PUBLIC_` ou `EXPO_PUBLIC_`.
 
-### 6. Vérifier
-- Web : créer une réserve avec photo → l'URL de la photo doit commencer par
-  `https://buildtrack-files.…workers.dev/photos/`.
-- Générer un PDF avec cette réserve → la photo doit apparaître (allowlist
-  SSRF mise à jour côté `generate-pdf`).
-- Mobile : nécessite la mise à jour de l'app (les anciennes versions
-  continuent d'uploader vers Supabase — c'est voulu, mode hybride).
+## Flux
 
-## Architecture
+```text
+Client -> POST /api/storage/presign (JWT)
+API    -> server_begin_media_upload(user vérifié)
+API    <- asset_id, object_key tenant-scoped, btmedia://asset_id
+Client -> PUT signé directement vers R2
+Client -> POST /api/storage/complete (JWT)
+API    -> HEAD R2 + vérification taille/owner
+Métier -> persiste btmedia://asset_id ; trigger crée tenant_media_links
 
-```
-Upload  : client ──POST /api/storage/presign (Bearer)──▶ Vercel
-                  ◀── { uploadUrl (S3 présignée 10 min), publicUrl } ──
-          client ──PUT fichier──▶ <account>.r2.cloudflarestorage.com
-          → publicUrl stockée en base (photo_uri, photos[], uri…)
-
-Lecture : <img src="https://buildtrack-files.<compte>.workers.dev/photos/…">
-          Worker (lecture seule, CORS *, cache immutable) ──▶ binding R2
-
-Suppression : client ──POST /api/storage/delete (Bearer, rôles gestion)──▶
-          Vercel ──S3 DeleteObject──▶ R2 (les URLs Supabase sont ignorées
-          par cette route et restent gérées par storage.remove côté client)
+Client -> POST /api/storage/resolve (JWT, refs[])
+API    -> contrôle chaque ressource avec le JWT et sa RLS
+API    <- URL S3 GET signée 5–10 minutes
 ```
 
-## Quotas plan gratuit (2026)
+Les nouvelles clés suivent `org/<organization_id>/...` via la valeur réellement
+émise par le registre (`<organization_id>/<kind>/<asset_id>/<safe_name>`). Elles
+ne sont jamais acceptées depuis un payload client.
 
-| | Supabase Storage | Cloudflare R2 |
-|---|---|---|
-| Stockage | 1 Go | **10 Go** |
-| Egress | ~10 Go/mois (partagé avec la DB) | **Illimité, gratuit** |
-| Taille max fichier | 50 Mo | 5 Go (PUT simple) |
-| Lectures | — | 10 M/mois (Class B) + Worker 100 k req/jour |
-| Écritures | — | 1 M/mois (Class A) |
+## Worker historique
 
-## Migration de l'historique (optionnelle, plus tard)
+Le Worker public n’appartient plus à l’architecture cible. Il reste en ligne
+uniquement pendant la phase `dual_read` pour les anciennes versions mobiles.
+Après le cutover et la version minimale forcée, déployer
+`r2-public-worker.js` : ce Worker de retrait répond `410 Gone` et empêche toute
+lecture anonyme résiduelle.
 
-Pour vider le bucket Supabase (vous êtes au-dessus du Go) :
-1. `rclone` avec deux remotes S3 (Supabase expose un endpoint S3-compatible :
-   Storage → Settings → S3 connection) → copie `photos/` et `documents/`
-   vers `buildtrack-files` en préservant les chemins.
-2. Script SQL de réécriture des URLs en base (`photo_uri`, `photos` jsonb,
-   `documents.uri`, `site_plans.uri`…) : remplacer
-   `https://<projet>.supabase.co/storage/v1/object/public/<bucket>/` par
-   `https://buildtrack-files.<compte>.workers.dev/<bucket>/`.
-3. Vérifier, puis vider les buckets Supabase.
+Le détail des gates et du retour arrière se trouve dans
+[`MIGRATION.md`](./MIGRATION.md).
 
-Tant que cette migration n'est pas faite, les deux hôtes cohabitent sans
-aucun impact utilisateur.
+## Cycle de vie
+
+- `pending` : réservation émise, upload pas encore vérifié ;
+- `ready` : objet vérifié, en attente ou déjà lié ;
+- `legacy` : URL historique enregistrée dans le registre ;
+- `delete_pending` : aucun lien actif, suppression physique à effectuer ;
+- `deleted` : suppression physique confirmée.
+
+Le cron `/api/cron/media-gc` récupère les suppressions en attente et les uploads
+orphelins. Il exige `CRON_SECRET` et ne reçoit jamais une URL ou une clé fournie
+par un utilisateur.

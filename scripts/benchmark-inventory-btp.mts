@@ -3,7 +3,7 @@ import {
   selectWebSearchMatch,
   type InventoryBarcodeMatch,
 } from '../lib/inventoryBarcodeCore.ts';
-import { searchInventoryBarcodeWeb } from '../supabase/functions/_shared/inventoryWebSearchProviders.ts';
+import { searchInventoryBarcodeWeb } from '../lib/server/inventoryWebSearchProviders.ts';
 import { inventoryBtpBenchmark } from '../tests/fixtures/inventoryBtpBenchmark.ts';
 
 const live = process.argv.includes('--live');

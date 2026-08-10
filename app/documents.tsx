@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
+import { resolveMediaRef } from '@/lib/media';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { DocumentType, Document } from '@/constants/types';
@@ -155,27 +156,32 @@ export default function DocumentsScreen() {
     }
   }
 
-  function handleDownload(doc: Document) {
+  async function handleDownload(doc: Document) {
     if (!doc.uri) {
       showAlert(t('documentsScreen.noFileTitle'), t('documentsScreen.noFileMessage'));
       return;
     }
-    if (doc.uri.startsWith('http')) {
-      Linking.openURL(doc.uri).catch(() =>
+    const resolvedUri = await resolveMediaRef(doc.uri, { cacheDisk: false });
+    if (!resolvedUri) {
+      showAlert(t('common.error'), t('documentsScreen.openLinkError'));
+      return;
+    }
+    if (resolvedUri.startsWith('http')) {
+      Linking.openURL(resolvedUri).catch(() =>
         showAlert(t('common.error'), t('documentsScreen.openLinkError'))
       );
       return;
     }
     // Web : les URI blob:/data: (upload cloud absent ou échoué) restent ouvrables
     // dans le navigateur — nouvel onglet, sinon téléchargement via une ancre.
-    if (Platform.OS === 'web' && (doc.uri.startsWith('blob:') || doc.uri.startsWith('data:'))) {
+    if (Platform.OS === 'web' && (resolvedUri.startsWith('blob:') || resolvedUri.startsWith('data:'))) {
       try {
         // Les navigateurs bloquent la navigation d'onglet vers les data: URI :
         // dans ce cas on passe directement par le téléchargement.
-        const win = doc.uri.startsWith('blob:') ? window.open(doc.uri, '_blank') : null;
+        const win = resolvedUri.startsWith('blob:') ? window.open(resolvedUri, '_blank') : null;
         if (!win) {
           const a = document.createElement('a');
-          a.href = doc.uri;
+          a.href = resolvedUri;
           a.download = doc.name || 'document';
           document.body.appendChild(a);
           a.click();

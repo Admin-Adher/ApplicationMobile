@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useAuth } from '@/context/AuthContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { useApp } from '@/context/AppContext';
@@ -308,7 +309,7 @@ export default function EditIncidentScreen() {
           <Text style={styles.label}>{t('incidentForm.photoEvidence')}</Text>
           {photoUri ? (
             <View style={styles.photoWrap}>
-              <Image source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
+              <MediaImage source={{ uri: photoUri }} style={styles.photo} resizeMode="cover" />
               <TouchableOpacity style={styles.removePhoto} onPress={() => setPhotoUri(undefined)}>
                 <Ionicons name="close-circle" size={20} color={C.open} />
                 <Text style={styles.removePhotoText}>{t('incidentForm.remove')}</Text>

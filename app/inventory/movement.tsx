@@ -11,6 +11,7 @@ import { useTranslation } from 'react-i18next';
 import Header from '@/components/Header';
 import { InventoryProductCard } from '@/components/inventory/InventoryCards';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useInventory, normalizeInventoryReference } from '@/hooks/queries/useInventory';
@@ -428,7 +429,7 @@ export default function InventoryMovementScreen() {
             <TextInput style={styles.input} value={barcode} onChangeText={handleBarcodeChange} editable={!selectedProduct} placeholder="EAN, QR, Code 128…" placeholderTextColor={C.textMuted} autoCapitalize="none" autoCorrect={false} />
           </Field>
           <TouchableOpacity style={styles.photoButton} onPress={takePhoto}>
-            {photoUrl ? <Image source={{ uri: photoUrl }} style={styles.photoPreview} /> : <View style={styles.photoPlaceholder}><Ionicons name="camera-outline" size={25} color={C.primary} /></View>}
+            {photoUrl ? <MediaImage source={{ uri: photoUrl }} style={styles.photoPreview} /> : <View style={styles.photoPlaceholder}><Ionicons name="camera-outline" size={25} color={C.primary} /></View>}
             <Text style={styles.photoButtonText}>{photoUrl ? copy.changePhoto : copy.addPhoto}</Text>
             <Ionicons name="chevron-forward" size={17} color={C.textMuted} />
           </TouchableOpacity>

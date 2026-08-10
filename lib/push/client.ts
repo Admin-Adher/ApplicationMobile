@@ -1,11 +1,8 @@
-import { Platform } from 'react-native';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { canonicalApiBaseUrl } from '@/lib/apiBase';
 
 function getBaseApiUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-  return process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '';
+  return canonicalApiBaseUrl();
 }
 
 function getPushApiUrl(): string {

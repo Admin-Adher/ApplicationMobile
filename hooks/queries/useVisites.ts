@@ -13,6 +13,7 @@ import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSe
 import { supabaseRestRpc } from '@/lib/supabaseRest';
 import { RESERVES_CACHE_KEY, VISITES_CACHE_KEY } from '@/lib/cacheKeys';
 import i18n from '@/lib/i18n';
+import { uploadLocalPhotosInPayload } from '@/lib/storage';
 
 export function useVisites() {
   const { user } = useAuth();
@@ -89,10 +90,23 @@ export function useVisites() {
     }
     if (isSupabaseConfigured) {
       const payload = fromVisite(v, orgId);
-      const { error } = await (supabase as any).from('visites').insert(payload);
+      const prepared = await uploadLocalPhotosInPayload('visites', payload);
+      if (!prepared.allOk) {
+        console.warn('[sync] addVisite cover upload failed, queuing for retry:', prepared.uploadErrors.join('; '));
+        enqueueOperation({ table: 'visites', op: 'insert', data: payload });
+        return;
+      }
+      const persistedPayload = prepared.data ?? payload;
+      if (persistedPayload.cover_photo_uri && persistedPayload.cover_photo_uri !== payload.cover_photo_uri) {
+        queryClient.setQueryData<Visite[]>(queryKeys.visites(), old =>
+          (old ?? []).map(item => item.id === v.id ? { ...item, coverPhotoUri: persistedPayload.cover_photo_uri } : item)
+        );
+        persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
+      }
+      const { error } = await (supabase as any).from('visites').insert(persistedPayload);
       if (error) {
         console.warn('[sync] addVisite error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'visites', op: 'insert', data: payload });
+        enqueueOperation({ table: 'visites', op: 'insert', data: persistedPayload });
       }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
@@ -109,10 +123,23 @@ export function useVisites() {
       return;
     }
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('visites').update(fields).eq('id', v.id);
+      const prepared = await uploadLocalPhotosInPayload('visites', { id: v.id, organization_id: orgId, ...fields });
+      if (!prepared.allOk) {
+        console.warn('[sync] updateVisite cover upload failed, queuing for retry:', prepared.uploadErrors.join('; '));
+        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: fields });
+        return;
+      }
+      const { id: _id, organization_id: _organizationId, ...persistedFields } = prepared.data ?? fields;
+      if (persistedFields.cover_photo_uri && persistedFields.cover_photo_uri !== fields.cover_photo_uri) {
+        queryClient.setQueryData<Visite[]>(queryKeys.visites(), old =>
+          (old ?? []).map(item => item.id === v.id ? { ...item, coverPhotoUri: persistedFields.cover_photo_uri } : item)
+        );
+        persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
+      }
+      const { error } = await (supabase as any).from('visites').update(persistedFields).eq('id', v.id);
       if (error) {
         console.warn('[sync] updateVisite error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: fields });
+        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: persistedFields });
       }
     }
   }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);

@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
+import { resolveMediaRef } from '@/lib/media';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { preRenderPdfPageToDataUrlImpl } from '@/lib/pdfPreRender';
 import { ensurePdfFilename } from '@/lib/pdfFilename';
@@ -358,6 +359,8 @@ export function wrapHTML(body: string, title: string): string {
  */
 export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
   if (!uri) return '';
+  uri = await resolveMediaRef(uri, { cacheDisk: false }) ?? '';
+  if (!uri) return '';
   if (uri.startsWith('data:')) return uri;
 
   const lc = uri.toLowerCase();
@@ -423,6 +426,8 @@ export async function loadPhotoAsDataUrl(uri: string): Promise<string> {
  */
 export async function loadPhotoAsDataUrlForPdf(uri: string): Promise<string | null> {
   if (!uri) return null;
+  uri = await resolveMediaRef(uri, { cacheDisk: false }) ?? '';
+  if (!uri) return null;
   if (uri.startsWith('data:')) return uri;
 
   // Web: browser can fetch HTTPS directly — no need to embed as base64
@@ -474,6 +479,8 @@ export async function loadFileAsDataUrl(
   fileType?: 'pdf' | 'image' | 'dxf' | null,
 ): Promise<string> {
   if (!uri) return uri;
+  uri = await resolveMediaRef(uri, { cacheDisk: false }) ?? '';
+  if (!uri) return '';
   if (uri.startsWith('data:')) return uri;
 
   const lc = uri.toLowerCase();

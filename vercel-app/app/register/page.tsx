@@ -146,9 +146,6 @@ function RegisterContent() {
   const lang = getRequestedLang((name) => params.get(name));
   const copy = COPY[lang];
   const token = params.get('token') ?? '';
-  const emailFromUrl = params.get('email') ?? '';
-  const orgFromUrl = params.get('org') ?? '';
-  const invitedByFromUrl = params.get('invitedBy') ?? '';
 
   const [stage, setStage] = useState<Stage>({ kind: 'loading' });
   const [name, setName] = useState('');
@@ -160,17 +157,7 @@ function RegisterContent() {
     let cancelled = false;
 
     async function bootstrap() {
-      // If no token, fall back to URL params (manual ?email=... use case)
       if (!token) {
-        if (emailFromUrl) {
-          setStage({
-            kind: 'form',
-            email: emailFromUrl,
-            organizationName: orgFromUrl,
-            invitedByName: invitedByFromUrl,
-          });
-          return;
-        }
         setStage({ kind: 'invalid', reason: copy.incompleteLink });
         return;
       }
@@ -214,7 +201,7 @@ function RegisterContent() {
 
     bootstrap();
     return () => { cancelled = true; };
-  }, [token, emailFromUrl, orgFromUrl, invitedByFromUrl, copy]);
+  }, [token, copy]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -233,8 +220,11 @@ function RegisterContent() {
       const supabase = createClient(supabaseUrl, supabaseKey);
 
       const { data: hasInv, error: rpcErr } = await supabase.rpc(
-        'check_pending_invitation',
-        { p_email: email.trim().toLowerCase() }
+        'check_invitation_token',
+        {
+          p_token: token,
+          p_email: email.trim().toLowerCase(),
+        }
       );
       if (rpcErr) {
         setErrorMsg(copy.invitationCheckFailed);
@@ -268,6 +258,7 @@ function RegisterContent() {
       // attempt to link the invitation right away.
       if (signUpData?.session) {
         try {
+          await supabase.rpc('ensure_current_user_profile', { p_name: name.trim() });
           await supabase.rpc('link_invitation_for_current_user');
         } catch (linkErr) {
           console.warn('[register] link_invitation_for_current_user warning:', linkErr);

@@ -11,7 +11,7 @@ import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constant
 import type { AppLanguage } from '@/constants/language';
 import { ROLE_LABELS } from '@/constants/roles';
 import { debugLog, debugLogOk, debugLogWarn, debugLogError } from '@/lib/debugLog';
-import { sendWelcomeEmail, sendInvitationAcceptedEmail, sendAccessRevokedEmail } from '@/lib/email/client';
+import { sendWelcomeEmail, sendAccessRevokedEmail } from '@/lib/email/client';
 import { markIntentionalLogout } from '@/lib/authIntent';
 import { setPersisterUserId } from '@/lib/queryPersister';
 import { deleteCurrentPushToken } from '@/lib/push/deviceRegistration';
@@ -33,6 +33,9 @@ export const registerInProgressRef: { current: boolean } = { current: false };
 export const loginInProgressRef: { current: boolean } = { current: false };
 
 const DEMO_SEED_PASS = process.env.EXPO_PUBLIC_DEMO_SEED_PASS || '';
+const DEMO_SEED_ENABLED = __DEV__
+  && process.env.EXPO_PUBLIC_ENABLE_DEMO_SEED === 'true'
+  && Boolean(DEMO_SEED_PASS);
 
 const DEMO_USERS = [
   { email: 'superadmin@buildtrack.fr', name: 'Super Admin BuildTrack', role: 'super_admin', roleLabel: ROLE_LABELS.super_admin, companyId: undefined as string | undefined },
@@ -107,90 +110,6 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function addUserToGeneralChannel(orgId: string, userName: string) {
-  try {
-    const { data } = await (supabase as any)
-      .from('channels')
-      .select('id, members')
-      .eq('organization_id', orgId)
-      .eq('type', 'general')
-      .single();
-    if (!data) return;
-    const current: string[] = data.members ?? [];
-    if (!current.includes(userName)) {
-      await (supabase as any)
-        .from('channels')
-        .update({ members: [...current, userName] })
-        .eq('id', data.id);
-    }
-  } catch {}
-}
-
-async function notifyAdminOfAcceptedInvitation(params: {
-  invitedById: string;
-  organizationId: string;
-  role: string;
-  inviteeEmail: string;
-  inviteeName?: string;
-}): Promise<void> {
-  try {
-    const [adminResult, orgResult] = await Promise.all([
-      (supabase as any).from('profiles').select('name, email, preferred_language').eq('id', params.invitedById).single(),
-      (supabase as any).from('organizations').select('name').eq('id', params.organizationId).single(),
-    ]);
-    if (adminResult.data?.email && orgResult.data?.name) {
-      sendInvitationAcceptedEmail({
-        adminEmail: adminResult.data.email,
-        adminName: adminResult.data.name ?? 'Admin',
-        inviteeName: params.inviteeName ?? params.inviteeEmail,
-        inviteeEmail: params.inviteeEmail,
-        organizationName: orgResult.data.name,
-        role: params.role,
-        language: adminResult.data.preferred_language,
-      });
-    }
-  } catch {}
-}
-
-async function linkPendingInvitation(userId: string, email: string, inviteeName?: string): Promise<string | undefined> {
-  try {
-    const emailLower = email.trim().toLowerCase();
-    const { data: inv } = await (supabase as any)
-      .from('invitations')
-      .select('*')
-      .eq('email', emailLower)
-      .eq('status', 'pending')
-      .gt('expires_at', new Date().toISOString())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .single();
-
-    if (!inv) return undefined;
-
-    await (supabase as any).from('profiles').update({
-      organization_id: inv.organization_id,
-      role: inv.role,
-      role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
-      ...(inv.company_id ? { company_id: inv.company_id } : {}),
-    }).eq('id', userId);
-
-    await (supabase as any).from('invitations').update({ status: 'accepted' }).eq('id', inv.id);
-
-    // Notify the admin who sent the invitation (fire-and-forget)
-    notifyAdminOfAcceptedInvitation({
-      invitedById: inv.invited_by,
-      organizationId: inv.organization_id,
-      role: inv.role,
-      inviteeEmail: emailLower,
-      inviteeName,
-    });
-
-    return inv.organization_id;
-  } catch {
-    return undefined;
-  }
-}
-
 type InvitationLinkResult = {
   linked?: boolean;
   organization_id?: string;
@@ -217,55 +136,22 @@ async function linkInvitationForCurrentUser(inviteeName?: string): Promise<Invit
 
 async function fetchProfile(userId: string, skipInvitationLink = false): Promise<User | null> {
   try {
-    // ── Lancer direct query + RPC en parallèle pour gagner du temps ────
-    // La requête directe est rapide si RLS est OK ; le RPC est le fallback
-    // si RLS récursif. En les lançant en parallèle, on évite 1 RTT inutile.
-    let profileData: Record<string, unknown> | null = null;
+    const readAuthority = async (): Promise<Record<string, unknown> | null> => {
+      const { data, error } = await (supabase as any).rpc('get_profile_for_current_user');
+      if (error) throw error;
+      const rows = Array.isArray(data) ? data : data ? [data] : [];
+      return (rows[0] as Record<string, unknown> | undefined) ?? null;
+    };
 
-    const directPromise = (supabase as any)
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    const rpcPromise = (supabase as any).rpc('get_profile_for_current_user');
-
-    // Attendre la direct query en premier — si elle réussit, on ignore le RPC
-    const { data: directData, error: directError } = await directPromise;
-
-    if (!directError && directData) {
-      profileData = directData as Record<string, unknown>;
-    } else {
-      // La politique RLS peut être récursive et provoquer
-      // "infinite recursion detected in policy for relation profiles".
-      // Le RPC est déjà en vol — on attend son résultat.
-      console.warn(
-        '[fetchProfile] Requête directe échouée (probablement RLS récursif) :',
-        directError.code, directError.message,
-        '— Tentative via RPC get_profile_for_current_user…'
-      );
-
-      try {
-        const { data: rpcRows, error: rpcError } = await rpcPromise;
-        if (!rpcError && rpcRows && (rpcRows as unknown[]).length > 0) {
-          profileData = (rpcRows as Record<string, unknown>[])[0];
-          console.log('[fetchProfile] Profil récupéré via RPC (fallback RLS) ✓');
-        } else {
-          console.warn(
-            '[fetchProfile] RPC également échoué :',
-            rpcError?.code, rpcError?.message,
-            '— userId:', userId
-          );
-          return null;
-        }
-      } catch (rpcErr) {
-        console.warn('[fetchProfile] RPC exception:', rpcErr);
-        return null;
-      }
+    let profileData = await readAuthority();
+    if (!profileData) {
+      const { error } = await (supabase as any).rpc('ensure_current_user_profile', { p_name: null });
+      if (error) throw error;
+      profileData = await readAuthority();
     }
 
     if (!profileData) {
-      console.warn('[fetchProfile] Aucun profil trouvé pour userId:', userId);
+      console.warn('[fetchProfile] No profile projection for authenticated user:', userId);
       return null;
     }
 
@@ -276,36 +162,19 @@ async function fetchProfile(userId: string, skipInvitationLink = false): Promise
 
     if (!orgId && role !== 'super_admin') {
       if (skipInvitationLink) {
-        // Pendant le login, on ne bloque pas pour lier l'invitation —
-        // on le fait en arrière-plan après avoir rendu la main à l'utilisateur.
-        const name = profileData.name as string;
-        linkInvitationForCurrentUser(name).then(result => {
-          const linkedOrgId = result?.linked ? result.organization_id : undefined;
-          if (linkedOrgId) {
-            (supabase as any).from('profiles').select('*').eq('id', userId).single().then(({ data: refreshed }: { data: any }) => {
-              if (refreshed) {
-                // Mettre à jour le user en arrière-plan — le prochain render prendra les nouvelles valeurs
-                console.log('[fetchProfile] Invitation liée en arrière-plan ✓');
-              }
-            }).catch(() => {});
-            addUserToGeneralChannel(linkedOrgId, name).catch(() => {});
-          }
-        }).catch(() => {});
+        // The caller will link explicitly after login; authority is never
+        // reconstructed from the compatibility columns in profiles.
       } else {
         const rpcLink = await linkInvitationForCurrentUser(profileData.name as string);
-        let linkedOrgId = rpcLink?.linked ? rpcLink.organization_id : undefined;
-        if (!linkedOrgId) {
-          linkedOrgId = await linkPendingInvitation(userId, profileData.email as string, profileData.name as string);
-        }
-        if (linkedOrgId) {
-          const { data: refreshed } = await (supabase as any).from('profiles').select('*').eq('id', userId).single();
+        if (rpcLink?.linked) {
+          const refreshed = await readAuthority();
           if (refreshed) {
-            orgId = (refreshed as Record<string, unknown>).organization_id as string ?? undefined;
-            role = (refreshed as Record<string, unknown>).role as UserRole;
-            roleLabel = ((refreshed as Record<string, unknown>).role_label as string) ?? ROLE_LABELS[role] ?? role;
-            companyId = (refreshed as Record<string, unknown>).company_id as string ?? undefined;
+            profileData = refreshed;
+            orgId = (refreshed.organization_id as string) ?? undefined;
+            role = refreshed.role as UserRole;
+            roleLabel = (refreshed.role_label as string) ?? ROLE_LABELS[role] ?? role;
+            companyId = (refreshed.company_id as string) ?? undefined;
           }
-          await addUserToGeneralChannel(linkedOrgId, profileData.name as string);
         }
       }
     }
@@ -382,18 +251,12 @@ async function seedOneUser(u: typeof DEMO_USERS[number], shouldAbort: () => bool
   if (!authUserId) return;
   if (shouldAbort()) return;
 
-  const orgId = (u.role === 'super_admin') ? undefined : '00000000-0000-0000-0000-000000000001';
-
-  const { error: upsertErr } = await (supabase as any).from('profiles').upsert({
-    id: authUserId,
-    name: u.name,
-    role: u.role,
-    role_label: u.roleLabel,
-    email: u.email,
-    organization_id: orgId ?? null,
-  }, { onConflict: 'id' });
-  if (upsertErr) {
-    console.error('[Supabase] seedOneUser profile upsert failed:', upsertErr.code, upsertErr.message, '— Vérifiez que la politique INSERT est bien ajoutée sur public.profiles dans Supabase.');
+  const { error: ensureError } = await (supabase as any).rpc(
+    'ensure_current_user_profile',
+    { p_name: u.name },
+  );
+  if (ensureError) {
+    console.error('[Supabase] seedOneUser profile bootstrap failed:', ensureError.code, ensureError.message);
   }
 
   if (shouldAbort()) return;
@@ -730,62 +593,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         : undefined,
     });
 
-    // Essai 1 : RPC SECURITY DEFINER get_org_users() — contourne RLS,
-    // évite la récursion infinie dans la politique profiles SELECT.
-    (supabase as any).rpc('get_org_users').then(({ data: rpcData, error: rpcErr }: { data: any; error: any }) => {
-      if (!rpcErr && rpcData && rpcData.length > 0) {
-        setUsers(rpcData.map(mapProfile));
+    void (async () => {
+      try {
+        const { data, error } = await (supabase as any).rpc('get_org_users');
+        if (error) throw error;
+        setUsers((Array.isArray(data) ? data : []).map(mapProfile));
         setUsersLoaded(true);
-        return;
+      } catch (error: any) {
+        console.warn('[AuthContext] get_org_users RPC failed:', error?.code, error?.message);
+        usersLoadedRef.current = false;
       }
-      if (rpcErr) {
-        console.warn('[AuthContext] get_org_users RPC error (RLS fix SQL pas encore appliqué?):', rpcErr.code, rpcErr.message);
-      }
-
-      // Essai 2 : requête directe sur profiles (peut échouer si RLS récursif)
-      (supabase as any).from('profiles')
-        .select('id, name, role, role_label, email, organization_id, company_id, permissions_override, preferred_language')
-        .then(({ data, error }: { data: any; error: any }) => {
-          if (!error && data && data.length > 0) {
-            setUsers(data.map(mapProfile));
-            setUsersLoaded(true);
-            return;
-          }
-          if (error) {
-            console.warn('[AuthContext] profiles.select error (récursion RLS?):', error.code, error.message,
-              '— Appliquez supabase/migrations/20260422_fix_rls_infinite_recursion.sql dans le SQL Editor Supabase.');
-          }
-
-          // Essai 3 : requête minimale sans permissions_override
-          (supabase as any).from('profiles')
-            .select('id, name, role, role_label, email, organization_id, preferred_language')
-            .then(({ data: d3, error: e3 }: { data: any; error: any }) => {
-              if (e3) {
-                console.warn('[AuthContext] profiles minimal select error:', e3.code, e3.message);
-                usersLoadedRef.current = false;
-                return;
-              }
-              if (d3 && d3.length > 0) {
-                setUsers(d3.map((p: any) => ({
-                  id: p.id, name: p.name, role: p.role as UserRole,
-                  roleLabel: p.role_label ?? ROLE_LABELS[p.role as UserRole] ?? p.role,
-                  email: p.email, organizationId: p.organization_id ?? undefined,
-                  preferredLanguage: p.preferred_language ?? undefined,
-                  companyId: undefined, permissionsOverride: undefined,
-                })));
-                setUsersLoaded(true);
-              } else {
-                usersLoadedRef.current = false;
-              }
-            }).catch(() => { usersLoadedRef.current = false; });
-        }).catch((err: any) => {
-          console.warn('[AuthContext] profiles.select exception:', err);
-          usersLoadedRef.current = false;
-        });
-    }).catch((err: any) => {
-      console.warn('[AuthContext] get_org_users RPC exception:', err);
-      usersLoadedRef.current = false;
-    });
+    })();
   }, [user]);
 
   useEffect(() => {
@@ -819,6 +637,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isSupabaseConfigured) return;
+    if (!DEMO_SEED_ENABLED) {
+      setSeedStatus('done');
+      return;
+    }
     if (!isLoading && !user && seedStatus === 'idle') {
       // Synchronous guard: set 'seeding' immediately to prevent double-entry
       // if this effect fires again before the AsyncStorage read resolves.
@@ -1002,19 +824,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // pour une raison quelconque (RLS, timing, conflit), pas grave :
         // l'étape 3 (RPC link_invitation_for_current_user) fait un UPSERT
         // côté serveur en SECURITY DEFINER — le profil sera créé là.
-        const { error: profileInsertErr } = await (supabase as any).from('profiles').insert({
-          id: signInUserId,
-          name: name.trim(),
-          email: email.trim().toLowerCase(),
-          role: 'observateur',
-          role_label: ROLE_LABELS['observateur'],
-          organization_id: null,
-        });
-
-        if (profileInsertErr && profileInsertErr.code !== '23505') {
-          // 23505 = duplicate key (profile already exists from a previous attempt) → OK
-          console.warn('[register] profiles.insert (invitation) error:', profileInsertErr.code, profileInsertErr.message,
-            '— Le RPC link_invitation_for_current_user prendra le relais via UPSERT.');
+        const { error: ensureProfileError } = await (supabase as any).rpc(
+          'ensure_current_user_profile',
+          { p_name: name.trim() },
+        );
+        if (ensureProfileError) {
+          cleanup();
+          return { success: false, error: ensureProfileError.message };
         }
 
         // Link the invitation to the newly created profile.
@@ -1022,97 +838,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Step 2 — If RPC fails or isn't deployed, fall back to direct client-side
         //          queries using the RLS policies that allow a user to read/accept
         //          invitations sent to their own email.
-        let rpcLinked = false;
-        let rpcLinkedOrgId: string | undefined;
-        let rpcLinkedRole: string | undefined;
-        try {
-          // On passe p_name pour que le RPC puisse créer le profil via UPSERT
-          // si l'INSERT côté client a été bloqué par RLS (cas où la session
-          // n'était pas encore propagée dans les headers du client supabase-js).
-          const { data: rpcData, error: rpcErr } = await (supabase as any).rpc(
-            'link_invitation_for_current_user',
-            { p_name: name.trim() }
-          );
-          if (rpcErr) {
-            console.warn('[register] link_invitation_for_current_user RPC error:', rpcErr.code, rpcErr.message);
-          } else {
-            rpcLinked = !!(rpcData as any)?.linked;
-            rpcLinkedOrgId = (rpcData as any)?.organization_id;
-            rpcLinkedRole = (rpcData as any)?.role;
-          }
-        } catch (rpcEx) {
-          console.warn('[register] link_invitation_for_current_user RPC exception:', rpcEx);
-        }
-
-        // Notify the admin who sent the invitation when the RPC linked it.
-        // The fallback path uses linkPendingInvitation() which already notifies.
-        if (rpcLinked && rpcLinkedOrgId) {
-          try {
-            const emailLower = email.trim().toLowerCase();
-            const { data: acceptedInv } = await (supabase as any)
-              .from('invitations')
-              .select('invited_by, role')
-              .eq('email', emailLower)
-              .eq('organization_id', rpcLinkedOrgId)
-              .eq('status', 'accepted')
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-            if (acceptedInv?.invited_by) {
-              notifyAdminOfAcceptedInvitation({
-                invitedById: acceptedInv.invited_by,
-                organizationId: rpcLinkedOrgId,
-                role: acceptedInv.role ?? rpcLinkedRole ?? 'observateur',
-                inviteeEmail: emailLower,
-                inviteeName: name.trim(),
-              });
-            }
-          } catch (notifyEx) {
-            console.warn('[register] admin notification (RPC path) failed:', notifyEx);
-          }
-        }
-
-        // Client-side fallback: query invitations directly (requires the RLS policy
-        // "Utilisateur peut voir ses propres invitations" to be deployed on Supabase).
-        if (!rpcLinked && signInUserId) {
-          try {
-            const emailLower = email.trim().toLowerCase();
-            const { data: inv } = await (supabase as any)
-              .from('invitations')
-              .select('*')
-              .eq('email', emailLower)
-              .eq('status', 'pending')
-              .gt('expires_at', new Date().toISOString())
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle();
-
-            if (inv?.organization_id) {
-              await (supabase as any).from('profiles').update({
-                organization_id: inv.organization_id,
-                role: inv.role,
-                role_label: ROLE_LABELS[inv.role as UserRole] ?? inv.role,
-                ...(inv.company_id ? { company_id: inv.company_id } : {}),
-              }).eq('id', signInUserId);
-
-              await (supabase as any).from('invitations')
-                .update({ status: 'accepted' })
-                .eq('id', inv.id);
-
-              // Notify the admin who sent the invitation (fire-and-forget)
-              notifyAdminOfAcceptedInvitation({
-                invitedById: inv.invited_by,
-                organizationId: inv.organization_id,
-                role: inv.role,
-                inviteeEmail: emailLower,
-                inviteeName: name.trim(),
-              });
-
-              console.log('[register] invitation linked via client-side fallback for org:', inv.organization_id);
-            }
-          } catch (fallbackEx) {
-            console.warn('[register] client-side invitation link fallback failed:', fallbackEx);
-          }
+        const { data: linkData, error: linkError } = await (supabase as any).rpc(
+          'link_invitation_for_current_user',
+          { p_name: name.trim() },
+        );
+        if (linkError || !(linkData as InvitationLinkResult | null)?.linked) {
+          await supabase.auth.signOut().catch(() => {});
+          cleanup();
+          return { success: false, error: linkError?.message ?? i18n.t('auth.noInvitationMessage') };
         }
 
         const profile = await fetchProfile(signInUserId);
@@ -1263,8 +996,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (authUser && authSession) {
-        // Passer skipInvitationLink=true pour ne pas bloquer le login
-        // avec linkPendingInvitation (3-4 appels réseau supplémentaires)
+        // Let login own the invitation-link step after the authority read.
         let profile = await fetchProfile(authUser.id, true);
 
         if (!profile) {
@@ -1370,11 +1102,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const newLabel = ROLE_LABELS[newRole];
     if (isSupabaseConfigured) {
       resetAuthLock();
-      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
-        role: newRole,
-        role_label: newLabel,
-      }).eq('id', userId).select('id').maybeSingle(), i18n.t('auth.mutationLabels.role'));
-      if (error || !data?.id) {
+      const target = users.find(item => item.id === userId);
+      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).rpc(
+        'admin_update_membership',
+        {
+          p_user_id: userId,
+          p_role: newRole,
+          p_company_id: target?.companyId ?? null,
+          p_permissions_override: target?.permissionsOverride ?? {},
+        },
+      ), i18n.t('auth.mutationLabels.role'));
+      if (error || !data?.user_id) {
         throw new Error(error?.message ?? i18n.t('auth.roleUpdateFailed'));
       }
     }
@@ -1386,10 +1124,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function updateUserCompany(userId: string, companyId: string | null): Promise<void> {
     if (isSupabaseConfigured) {
       resetAuthLock();
-      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
-        company_id: companyId,
-      }).eq('id', userId).select('id, company_id').maybeSingle(), i18n.t('auth.mutationLabels.company'));
-      if (error || !data?.id) {
+      const target = users.find(item => item.id === userId);
+      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).rpc(
+        'admin_update_membership',
+        {
+          p_user_id: userId,
+          p_role: target?.role ?? 'observateur',
+          p_company_id: companyId,
+          p_permissions_override: target?.permissionsOverride ?? {},
+        },
+      ), i18n.t('auth.mutationLabels.company'));
+      if (error || !data?.user_id) {
         throw new Error(error?.message ?? i18n.t('auth.companyUpdateFailed'));
       }
     }
@@ -1419,15 +1164,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const targetUser = users.find(u => u.id === userId);
 
     if (isSupabaseConfigured) {
-      if (targetUser?.email && targetUser.organizationId) {
-        await (supabase as any)
-          .from('invitations')
-          .delete()
-          .eq('organization_id', targetUser.organizationId)
-          .eq('email', targetUser.email.trim().toLowerCase());
-      }
-      const { error } = await (supabase as any).from('profiles').delete().eq('id', userId);
-      if (error) {
+      const { data, error } = await (supabase as any).rpc('admin_revoke_membership', {
+        p_user_id: userId,
+      });
+      if (error || !data?.user_id) {
         Alert.alert(i18n.t('common.error'), i18n.t('syncAlerts.profileDeleteFailed'));
         return;
       }
@@ -1460,10 +1200,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   async function updateUserPermissions(userId: string, override: PermissionsOverride): Promise<void> {
     if (isSupabaseConfigured) {
       resetAuthLock();
-      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).from('profiles').update({
-        permissions_override: override,
-      }).eq('id', userId).select('id').maybeSingle(), i18n.t('auth.mutationLabels.permissions'));
-      if (error || !data?.id) {
+      const target = users.find(item => item.id === userId);
+      const { data, error } = await withProfileMutationTimeout<any>((supabase as any).rpc(
+        'admin_update_membership',
+        {
+          p_user_id: userId,
+          p_role: target?.role ?? 'observateur',
+          p_company_id: target?.companyId ?? null,
+          p_permissions_override: override,
+        },
+      ), i18n.t('auth.mutationLabels.permissions'));
+      if (error || !data?.user_id) {
         throw new Error(error?.message ?? i18n.t('auth.permissionsUpdateFailed'));
       }
     }

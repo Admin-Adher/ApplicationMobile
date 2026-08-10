@@ -3,7 +3,7 @@ import {
   InventoryWebSearchError,
   resetInventoryWebSearchProviderStateForTests,
   searchInventoryBarcodeWeb,
-} from '../supabase/functions/_shared/inventoryWebSearchProviders';
+} from '../lib/server/inventoryWebSearchProviders';
 
 const code = '3245064079709';
 

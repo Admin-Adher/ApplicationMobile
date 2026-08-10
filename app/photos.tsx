@@ -7,6 +7,7 @@ import * as Location from 'expo-location';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
@@ -417,7 +418,7 @@ export default function PhotosScreen() {
             >
               {item.uri ? (
                 <View>
-                  <Image source={{ uri: item.uri }} style={[styles.photoThumbImg, { height: thumbHeight }]} resizeMode="cover" />
+                  <MediaImage source={{ uri: item.uri }} style={[styles.photoThumbImg, { height: thumbHeight }]} resizeMode="cover" />
                   <View style={styles.expandHint}>
                     <Ionicons name="expand-outline" size={10} color="#fff" />
                   </View>
@@ -480,7 +481,7 @@ export default function PhotosScreen() {
             <Ionicons name="close" size={26} color="#fff" />
           </TouchableOpacity>
           {fullScreenUri && (
-            <Image source={{ uri: fullScreenUri }} style={styles.fullScreenImage} resizeMode="contain" />
+            <MediaImage source={{ uri: fullScreenUri }} style={styles.fullScreenImage} resizeMode="contain" />
           )}
         </View>
       </Modal>
@@ -497,7 +498,7 @@ export default function PhotosScreen() {
             </View>
 
             {sharePhoto?.uri && (
-              <Image source={{ uri: sharePhoto.uri }} style={[styles.modalPreview, { height: 100 }]} resizeMode="cover" />
+              <MediaImage source={{ uri: sharePhoto.uri }} style={[styles.modalPreview, { height: 100 }]} resizeMode="cover" />
             )}
 
             <View style={styles.modalField}>
@@ -575,7 +576,7 @@ export default function PhotosScreen() {
             </View>
 
             {pendingUri && (
-              <Image source={{ uri: pendingUri }} style={styles.modalPreview} resizeMode="cover" />
+              <MediaImage source={{ uri: pendingUri }} style={styles.modalPreview} resizeMode="cover" />
             )}
 
             <View style={styles.modalField}>

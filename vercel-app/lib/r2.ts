@@ -7,22 +7,18 @@ import { AwsClient } from 'aws4fetch';
 //   - Écriture : le client (mobile/web) demande une URL présignée PUT à
 //     /api/storage/presign (auth Bearer), puis uploade directement vers
 //     l'endpoint S3 de R2. Aucun octet ne transite par Vercel.
-//   - Lecture : un Worker Cloudflare public (cloudflare/r2-public-worker.js)
-//     sert le bucket sur *.workers.dev → R2_PUBLIC_BASE_URL. Egress gratuit.
-//   - Les anciens fichiers restent servis par Supabase Storage : les URLs
-//     absolues stockées en base continuent de fonctionner telles quelles.
+//   - Lecture : l'API canonique vérifie le tenant et la ressource, puis émet
+//     une URL S3 GET de courte durée. Aucune URL publique n'est persistée.
 //
-// Si les variables R2_* ne sont pas configurées, isR2Configured() renvoie
-// false, /api/storage/presign répond 503 et les clients retombent
-// automatiquement sur le chemin Supabase historique — déployable avant
-// même d'avoir créé le bucket.
+// Si les variables R2_* ne sont pas configurées, le registre réserve un objet
+// dans un bucket Supabase privé. Aucun chemin public de repli n'est utilisé.
 //
 // Variables d'environnement (Vercel) :
 //   R2_ACCOUNT_ID        — id du compte Cloudflare
 //   R2_ACCESS_KEY_ID     — token API R2 (Object Read & Write sur le bucket)
 //   R2_SECRET_ACCESS_KEY
 //   R2_BUCKET            — ex. buildtrack-files
-//   R2_PUBLIC_BASE_URL   — ex. https://buildtrack-files.xxxx.workers.dev
+//   R2_PUBLIC_BASE_URL   — hôte historique, lecture seule pendant la migration
 // ─────────────────────────────────────────────────────────────────────────────
 
 const PRESIGN_EXPIRES_SECONDS = 600; // 10 min — large pour les connexions chantier
@@ -36,8 +32,7 @@ export function isR2Configured(): boolean {
     env('R2_ACCOUNT_ID') &&
     env('R2_ACCESS_KEY_ID') &&
     env('R2_SECRET_ACCESS_KEY') &&
-    env('R2_BUCKET') &&
-    env('R2_PUBLIC_BASE_URL')
+    env('R2_BUCKET')
   );
 }
 
@@ -57,6 +52,14 @@ function r2Endpoint(): string {
   return `https://${env('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`;
 }
 
+export function r2EndpointHost(): string | null {
+  try {
+    return new URL(r2Endpoint()).host || null;
+  } catch {
+    return null;
+  }
+}
+
 function r2Client(): AwsClient {
   return new AwsClient({
     accessKeyId: env('R2_ACCESS_KEY_ID'),
@@ -71,36 +74,58 @@ function encodeKey(key: string): string {
   return key.split('/').map(encodeURIComponent).join('/');
 }
 
-export function r2PublicUrlForKey(key: string): string {
-  return `${r2PublicBaseUrl()}/${encodeKey(key)}`;
-}
-
-// Retrouve la clé R2 à partir d'une URL publique servie par le Worker.
-// Renvoie null si l'URL n'est pas sur notre hôte public R2.
-export function r2KeyFromPublicUrl(url: string): string | null {
-  try {
-    const base = new URL(r2PublicBaseUrl());
-    const parsed = new URL(String(url ?? ''));
-    if (parsed.host !== base.host) return null;
-    const key = decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
-    return key || null;
-  } catch {
-    return null;
-  }
-}
-
-export async function presignR2Upload(key: string): Promise<{ uploadUrl: string; publicUrl: string; expiresIn: number }> {
+export async function presignR2Upload(
+  key: string,
+  contentType: string,
+): Promise<{ uploadUrl: string; expiresIn: number }> {
   const url = new URL(`${r2Endpoint()}/${env('R2_BUCKET')}/${encodeKey(key)}`);
   url.searchParams.set('X-Amz-Expires', String(PRESIGN_EXPIRES_SECONDS));
   const signed = await r2Client().sign(
-    new Request(url.toString(), { method: 'PUT' }),
+    new Request(url.toString(), {
+      method: 'PUT',
+      headers: { 'Content-Type': contentType },
+    }),
     { aws: { signQuery: true } }
   );
   return {
     uploadUrl: signed.url,
-    publicUrl: r2PublicUrlForKey(key),
     expiresIn: PRESIGN_EXPIRES_SECONDS,
   };
+}
+
+export async function presignR2Read(
+  key: string,
+  expiresIn = PRESIGN_EXPIRES_SECONDS,
+): Promise<{ url: string; expiresIn: number }> {
+  const ttl = Math.max(60, Math.min(900, Math.trunc(expiresIn)));
+  const url = new URL(`${r2Endpoint()}/${env('R2_BUCKET')}/${encodeKey(key)}`);
+  url.searchParams.set('X-Amz-Expires', String(ttl));
+  const signed = await r2Client().sign(
+    new Request(url.toString(), { method: 'GET' }),
+    { aws: { signQuery: true } },
+  );
+  return { url: signed.url, expiresIn: ttl };
+}
+
+export async function headR2Object(
+  key: string,
+): Promise<{ ok: boolean; size?: number; etag?: string; contentType?: string; error?: string }> {
+  try {
+    const response = await r2Client().fetch(
+      `${r2Endpoint()}/${env('R2_BUCKET')}/${encodeKey(key)}`,
+      { method: 'HEAD' },
+    );
+    if (!response.ok) return { ok: false, error: `HTTP ${response.status}` };
+    const size = Number(response.headers.get('content-length') ?? '');
+    return {
+      ok: true,
+      size: Number.isFinite(size) ? size : undefined,
+      etag: response.headers.get('etag')?.replace(/^\"|\"$/g, '') || undefined,
+      contentType: response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase() || undefined,
+    };
+  } catch (error: any) {
+    return { ok: false, error: error?.message ?? String(error) };
+  }
 }
 
 export async function deleteR2Object(key: string): Promise<{ ok: boolean; error?: string }> {

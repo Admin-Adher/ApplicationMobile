@@ -9,6 +9,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -689,7 +690,7 @@ export default function NewVisiteScreen() {
 
           {coverPhotoUri ? (
             <View style={styles.coverPhotoWrapper}>
-              <Image source={{ uri: coverPhotoUri }} style={styles.coverPhoto} resizeMode="cover" />
+              <MediaImage source={{ uri: coverPhotoUri }} style={styles.coverPhoto} resizeMode="cover" />
               <TouchableOpacity
                 style={styles.coverPhotoRemove}
                 onPress={() => setCoverPhotoUri(null)}

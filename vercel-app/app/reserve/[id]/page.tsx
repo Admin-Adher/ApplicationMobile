@@ -5,6 +5,7 @@ import {
   getReserveStatusColor,
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
+import { presignR2Read } from '@/lib/r2';
 
 export const dynamic = 'force-dynamic';
 
@@ -161,20 +162,14 @@ function getServiceClient() {
   return createClient(url, serviceKey, { auth: { persistSession: false } });
 }
 
-function publicAssetUrl(raw: any, bucket: 'photos', supabase: any) {
+function publicAssetRef(raw: any) {
   if (typeof raw !== 'string') return '';
   const value = raw.trim();
   if (!value || /^file:\/\//i.test(value)) return '';
-  if (/^(https?:|data:|blob:)/i.test(value)) return value;
-  const path = value
-    .replace(/^\/+/, '')
-    .replace(new RegExp(`^${bucket}/`, 'i'), '');
-  if (!path) return '';
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return data?.publicUrl ?? '';
+  return value;
 }
 
-function publicPhotoUrl(photo: any, supabase: any) {
+function publicPhotoRef(photo: any) {
   const raw =
     photo?.uri ??
     photo?.photoUri ??
@@ -192,10 +187,10 @@ function publicPhotoUrl(photo: any, supabase: any) {
     photo?.filePath ??
     photo?.path ??
     '';
-  return publicAssetUrl(raw, 'photos', supabase);
+  return publicAssetRef(raw);
 }
 
-function publicReservePhotoItems(reserve: any, photoRows: any[] = [], supabase: any) {
+function publicReservePhotoItems(reserve: any, photoRows: any[] = []) {
   const embeddedPhotos = Array.isArray(reserve?.photos) ? reserve.photos : [];
   const legacyUri = reserve?.photo_uri ?? reserve?.photoUri;
   const legacyPhotos = legacyUri ? [{ id: `${reserve.id}-legacy`, uri: legacyUri, comment: 'Photo' }] : [];
@@ -205,11 +200,47 @@ function publicReservePhotoItems(reserve: any, photoRows: any[] = [], supabase: 
   });
   const byKey = new Map<string, any>();
   [...embeddedPhotos, ...legacyPhotos, ...tablePhotos].forEach(photo => {
-    const uri = publicPhotoUrl(photo, supabase);
+    const uri = publicPhotoRef(photo);
     if (!uri) return;
     byKey.set(String(photo.id ?? uri), { ...photo, uri });
   });
   return Array.from(byKey.values());
+}
+
+async function signedPublicReservePhotos(supabase: any, reserveId: string, photoItems: any[]) {
+  const refs = Array.from(new Set(
+    photoItems.map(photo => String(photo?.uri ?? '').trim()).filter(Boolean),
+  ));
+  const passthrough = new Set(refs.filter(ref => /^(data:|blob:)/i.test(ref)));
+  const requested = refs.filter(ref => !passthrough.has(ref));
+  const signedByRef = new Map<string, string>();
+  if (requested.length > 0) {
+    const { data, error } = await supabase.rpc('server_get_public_reserve_media', {
+      p_reserve_id: reserveId,
+      p_refs: requested.slice(0, 100),
+    });
+    if (error) {
+      console.warn('[public reserve] résolution média refusée:', error.message);
+    } else {
+      await Promise.all((data ?? []).map(async (asset: any) => {
+        let url = '';
+        if (asset.provider === 'r2') {
+          url = (await presignR2Read(asset.object_key, 600)).url;
+        } else {
+          const { data: signed, error: signError } = await supabase.storage
+            .from(asset.bucket)
+            .createSignedUrl(asset.object_key, 600);
+          if (!signError) url = signed?.signedUrl ?? '';
+        }
+        if (url) signedByRef.set(String(asset.requested_ref), url);
+      }));
+    }
+  }
+  return photoItems.flatMap(photo => {
+    const ref = String(photo?.uri ?? '');
+    const uri = passthrough.has(ref) ? ref : signedByRef.get(ref);
+    return uri ? [{ ...photo, uri }] : [];
+  });
 }
 
 // Les dates en base sont du texte hérité de 2 formats : ISO (web) et dd/mm/yyyy (mobile).
@@ -335,7 +366,11 @@ export default async function ReservePublicPage({
       .order('taken_at', { ascending: false })
       .limit(20),
   ]);
-  const photos = publicReservePhotoItems(reserve, photoRows ?? [], supabase);
+  const photos = await signedPublicReservePhotos(
+    supabase,
+    id,
+    publicReservePhotoItems(reserve, photoRows ?? []),
+  );
 
   const prio = {
     label: labelFor(c.priorityLabels, reserve.priority),

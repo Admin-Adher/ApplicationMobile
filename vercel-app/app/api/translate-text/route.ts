@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { authenticateRequest, createServiceClient } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -32,26 +32,12 @@ function corsHeaders(req: NextRequest) {
 }
 
 function serviceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  return createServiceClient();
 }
 
 async function authenticatedProfile(req: NextRequest, supabase: any) {
-  const auth = req.headers.get('authorization') ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
-  if (!token) return null;
-  const { data: userData, error: userError } = await supabase.auth.getUser(token);
-  const userId = userData?.user?.id;
-  if (userError || !userId) return null;
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('id, organization_id')
-    .eq('id', userId)
-    .maybeSingle();
-  if (error || !profile) return null;
-  return profile;
+  const auth = await authenticateRequest(req, supabase);
+  return auth ? { id: auth.authority.userId, organization_id: auth.authority.organizationId } : null;
 }
 
 function sanitizeTranslationText(value: unknown) {

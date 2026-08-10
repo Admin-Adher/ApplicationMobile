@@ -1,4 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Animated } from 'react-native';
+import { MediaImage } from '@/components/MediaImage';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Swipeable } from 'react-native-gesture-handler';
@@ -239,7 +240,7 @@ export default function ReserveCard({ reserve, onPress, onLongPress, onSwipeRigh
                 <Ionicons name="image-outline" size={18} color={C.textMuted} />
               </View>
             ) : (
-              <Image source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" onError={() => setThumbFailed(true)} accessibilityLabel={t('reserveCard.reservePhoto')} />
+              <MediaImage source={{ uri: firstPhotoUri }} style={styles.photoThumb} resizeMode="cover" onError={() => setThumbFailed(true)} accessibilityLabel={t('reserveCard.reservePhoto')} />
             )}
             {hasUnsyncedPhoto && (
               <View style={[styles.syncDot, isOnline ? styles.syncDotPending : styles.syncDotOffline]} accessibilityLabel={syncPhotoLabel}>

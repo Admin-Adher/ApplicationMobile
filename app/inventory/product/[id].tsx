@@ -10,6 +10,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
 import { InventoryEmpty, InventoryMovementCard } from '@/components/inventory/InventoryCards';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useInventory } from '@/hooks/queries/useInventory';
@@ -104,7 +105,7 @@ export default function InventoryProductScreen() {
       <Header title={copy.productSheet} subtitle={product.reference} showBack backFallback="/inventory/stock" rightIcon={permissions.canManageInventoryProducts ? 'create-outline' : undefined} onRightPress={permissions.canManageInventoryProducts ? openEditor : undefined} />
       <ScrollView contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 34 }]}>
         <View style={styles.heroCard}>
-          {product.photoUrl ? <Image source={{ uri: product.photoUrl }} style={styles.heroPhoto} /> : <View style={[styles.heroPhoto, styles.heroPlaceholder]}><Ionicons name="cube-outline" size={44} color={C.textMuted} /></View>}
+          {product.photoUrl ? <MediaImage source={{ uri: product.photoUrl }} style={styles.heroPhoto} /> : <View style={[styles.heroPhoto, styles.heroPlaceholder]}><Ionicons name="cube-outline" size={44} color={C.textMuted} /></View>}
           <View style={styles.heroBody}>
             <View style={styles.referenceLine}><Text style={styles.reference}>{product.reference}</Text>{product.pendingSync && <Ionicons name="cloud-upload-outline" size={17} color={C.waiting} />}</View>
             <Text style={styles.designation}>{product.designation}</Text>
@@ -149,7 +150,7 @@ export default function InventoryProductScreen() {
           <Header title={copy.editProduct} onBack={() => setEditOpen(false)} rightLabel={copy.save} onRightPress={saveProduct} />
           <ScrollView contentContainerStyle={[styles.editContent, { paddingBottom: insets.bottom + 30 }]} keyboardShouldPersistTaps="handled">
             <TouchableOpacity style={styles.editPhotoButton} onPress={takePhoto}>
-              {photoUrl ? <Image source={{ uri: photoUrl }} style={styles.editPhoto} /> : <View style={[styles.editPhoto, styles.heroPlaceholder]}><Ionicons name="camera-outline" size={34} color={C.primary} /></View>}
+              {photoUrl ? <MediaImage source={{ uri: photoUrl }} style={styles.editPhoto} /> : <View style={[styles.editPhoto, styles.heroPlaceholder]}><Ionicons name="camera-outline" size={34} color={C.primary} /></View>}
               <Text style={styles.editPhotoText}>{photoUrl ? copy.changePhoto : copy.addPhoto}</Text>
             </TouchableOpacity>
             <EditField label={copy.reference} value={reference} onChangeText={setReference} />

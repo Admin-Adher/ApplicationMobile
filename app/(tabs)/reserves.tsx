@@ -14,6 +14,7 @@ import { SkeletonList } from '@/components/SkeletonCard';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { C } from '@/constants/colors';
+import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { Reserve, ReserveStatus, ReservePriority, ReserveKind, SitePlan as SitePlanType } from '@/constants/types';
@@ -2066,7 +2067,7 @@ export default function ReservesScreen() {
                 )}
 
                 {(selectedReserve.photos?.[0]?.uri ?? selectedReserve.photoUri) ? (
-                  <Image source={{ uri: selectedReserve.photos?.[0]?.uri ?? selectedReserve.photoUri }} style={styles.detailPhoto} resizeMode="cover" />
+                  <MediaImage source={{ uri: selectedReserve.photos?.[0]?.uri ?? selectedReserve.photoUri }} style={styles.detailPhoto} resizeMode="cover" />
                 ) : null}
 
                 <View style={styles.detailCard}>

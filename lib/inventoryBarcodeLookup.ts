@@ -3,8 +3,6 @@ import {
   isSupabaseConfigured,
   getValidStoredAccessToken,
   supabase,
-  SUPABASE_KEY,
-  SUPABASE_URL,
 } from '@/lib/supabase';
 import {
   lookupOpenFactsCatalogs,
@@ -13,7 +11,7 @@ import {
   settleWithFallback,
   type InventoryBarcodeMatch,
 } from '@/lib/inventoryBarcodeCore';
-import { firstSuccessfulSequentially } from '@/lib/sequentialFallback';
+import { canonicalApiBaseUrl } from '@/lib/apiBase';
 
 // Parser/provider rules changed materially: invalidate matches accepted by the
 // former detector, including UPC descriptions with a broken separator or an
@@ -83,8 +81,7 @@ async function writeCachedMatch(code: string, match: InventoryBarcodeMatch): Pro
 }
 
 function defaultApiBaseUrl(): string {
-  if (typeof window !== 'undefined' && window.location?.origin) return window.location.origin;
-  return (process.env.EXPO_PUBLIC_API_URL || process.env.EXPO_PUBLIC_APP_URL || '').replace(/\/+$/, '');
+  return canonicalApiBaseUrl();
 }
 
 async function currentAccessToken(): Promise<string | null> {
@@ -111,50 +108,36 @@ async function lookupWebProvider(
       null,
     )
     : options.accessToken;
-  if (!token) return null;
+  if (!token || !base) return null;
 
-  const endpoints: Array<{ url: string; apiKey?: string }> = [];
-  if (SUPABASE_URL && SUPABASE_KEY) {
-    endpoints.push({
-      url: `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/inventory-barcode-lookup`,
-      apiKey: SUPABASE_KEY,
-    });
-  }
-  if (base) endpoints.push({ url: `${base}/api/inventory-barcode-lookup` });
-
-  async function requestEndpoint(endpoint: { url: string; apiKey?: string }): Promise<InventoryBarcodeMatch | null> {
-    const controller = new AbortController();
-    const timeoutMs = options.webTimeoutMs ?? 5000;
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const headers: Record<string, string> = {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      };
-      if (endpoint.apiKey) headers.apikey = endpoint.apiKey;
-      const match = await settleWithFallback((async () => {
-        const response = await (options.fetchImpl ?? fetch)(endpoint.url, {
+  const controller = new AbortController();
+  const timeoutMs = options.webTimeoutMs ?? 5000;
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await settleWithFallback((async () => {
+      const response = await (options.fetchImpl ?? fetch)(
+        `${base}/api/inventory-barcode-lookup`,
+        {
           method: 'POST',
-          headers,
+          headers: {
+            Accept: 'application/json',
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
           body: JSON.stringify({ code, language: options.language ?? 'fr' }),
           signal: controller.signal,
-        });
-        if (!response.ok) return null;
-        const payload = await response.json();
-        if (!payload?.match?.designation || !payload.match.source) return null;
-        return payload.match as InventoryBarcodeMatch;
-      })(), timeoutMs, null);
-      if (match) return match;
-    } catch {
-      // Continue with the regular API server when the Edge Function is unavailable.
-    } finally {
-      clearTimeout(timer);
-    }
+        },
+      );
+      if (!response.ok) return null;
+      const payload = await response.json();
+      if (!payload?.match?.designation || !payload.match.source) return null;
+      return payload.match as InventoryBarcodeMatch;
+    })(), timeoutMs, null);
+  } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
-
-  return firstSuccessfulSequentially(endpoints, requestEndpoint);
 }
 
 function emitPartialMatch(

@@ -3,13 +3,14 @@ import type { PdfReportPayload } from '@/types/pdfReport';
 import { buildGlobalReportHtml, buildGlobalReservesHtml, buildIndividualReserveHtml, buildVisitReportHtml } from '@/lib/reportBuilder';
 import { sendEmail } from '@/lib/sender';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
-import { createClient } from '@supabase/supabase-js';
 import { normalizeEmailLanguage, APP_URL, type EmailLanguage } from '@/lib/templates';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isOptedOut, withUnsubscribeFooter, listUnsubscribeHeaders } from '@/lib/emailOptout';
-import { r2PublicHost } from '@/lib/r2';
+import { r2EndpointHost, r2PublicHost } from '@/lib/r2';
 import { existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import { authenticateRequest, createServiceClient, getOrganizationUsers, type AuthenticatedRequest } from '@/lib/server-auth';
+import { collectRegistryMediaRefs, replaceResolvedMediaRefs, resolveAuthorizedMediaRefs } from '@/lib/private-media-server';
 
 export const maxDuration = 60;
 export const runtime = 'nodejs';
@@ -51,10 +52,7 @@ function corsHeaders(origin: string) {
 }
 
 function getServiceClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return null;
-  return createClient(url, serviceKey, { auth: { autoRefreshToken: false, persistSession: false } });
+  return createServiceClient();
 }
 
 function isChromiumRuntimeError(error: any) {
@@ -74,22 +72,18 @@ type PdfCallerProfile = {
   id: string;
   email: string | null;
   organization_id: string | null;
+  auth: AuthenticatedRequest;
 };
 
 async function authenticatedCallerProfile(req: NextRequest, supabase: any): Promise<PdfCallerProfile | null> {
-  const auth = req.headers.get('authorization') ?? '';
-  const token = auth.startsWith('Bearer ') ? auth.slice(7).trim() : null;
-  if (!token) return null;
-  const { data: userData, error: userError } = await supabase.auth.getUser(token);
-  const userId = userData?.user?.id;
-  if (userError || !userId) return null;
-  const { data: profile, error } = await supabase
-    .from('profiles')
-    .select('id, email, organization_id')
-    .eq('id', userId)
-    .maybeSingle();
-  if (error || !profile) return null;
-  return profile as PdfCallerProfile;
+  const auth = await authenticateRequest(req, supabase);
+  if (!auth) return null;
+  return {
+    id: auth.authority.userId,
+    email: auth.authority.email || null,
+    organization_id: auth.authority.organizationId,
+    auth,
+  };
 }
 
 const MAX_PDF_EMAIL_RECIPIENTS = 20;
@@ -113,17 +107,14 @@ async function resolveAllowedRecipients(
   }
 
   const allowed = new Set<string>();
-  const [profilesResult, companiesResult] = await Promise.all([
-    supabase.from('profiles').select('email').eq('organization_id', organizationId),
+  const [users, companiesResult] = await Promise.all([
+    getOrganizationUsers(supabase, organizationId),
     supabase.from('companies').select('email').eq('organization_id', organizationId),
   ]);
-  if (profilesResult.error) {
-    console.warn('[generate-pdf] Lecture emails profils impossible:', profilesResult.error.message);
-  }
   if (companiesResult.error) {
     console.warn('[generate-pdf] Lecture emails entreprises impossible:', companiesResult.error.message);
   }
-  for (const row of [...(profilesResult.data ?? []), ...(companiesResult.data ?? [])]) {
+  for (const row of [...users, ...(companiesResult.data ?? [])]) {
     const email = String(row?.email ?? '').trim().toLowerCase();
     if (email.includes('@')) allowed.add(email);
   }
@@ -371,6 +362,8 @@ function allowedRemoteImageHosts(): Set<string> {
   }
   const r2Host = r2PublicHost();
   if (r2Host) hosts.add(r2Host.toLowerCase());
+  const privateR2Host = r2EndpointHost();
+  if (privateR2Host) hosts.add(privateR2Host.toLowerCase());
   return hosts;
 }
 
@@ -813,6 +806,14 @@ export async function POST(req: NextRequest) {
             : 'Payload PDF invalide.',
         },
         { status, headers }
+      );
+    }
+    const mediaRefs = Array.from(collectRegistryMediaRefs(payload));
+    if (mediaRefs.length > 0) {
+      const resolved = await resolveAuthorizedMediaRefs(callerProfile.auth, mediaRefs, 600);
+      payload = replaceResolvedMediaRefs(
+        payload,
+        new Map(resolved.map(asset => [asset.ref, asset.url])),
       );
     }
     const type: string = payload.type ?? 'plans';

@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, Modal, TouchableOpacity, Image,
   Platform, TextInput, ScrollView, Alert,
 } from 'react-native';
+import { MediaImage } from '@/components/MediaImage';
 import Svg, { Polyline } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -538,7 +539,7 @@ export function PhotoAnnotationOverlay({
             onLayout={e => setContainerSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
             {...responderProps}
           >
-            <Image
+            <MediaImage
               source={{ uri: photoUri }}
               // pointerEvents en style : l'image ne doit jamais être la cible
               // du toucher pour que locationX/Y restent relatifs au conteneur.
@@ -764,7 +765,7 @@ export function PhotoWithAnnotations({
       style={[{ position: 'relative', overflow: 'hidden' }, style]}
       onLayout={e => setContainerSize({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
     >
-      <Image
+      <MediaImage
         key={`${uri}#${retryToken}`}
         source={{ uri }}
         style={StyleSheet.absoluteFill}
