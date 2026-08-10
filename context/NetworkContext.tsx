@@ -25,6 +25,12 @@ import {
   type ReserveMutationResult,
 } from '@/lib/reserveOutbox';
 import i18n from '@/lib/i18n';
+import {
+  getSyncQueueCounts,
+  hasReplayableQueuedOperations,
+  inventoryOutcomeTranslationKey,
+  isReplayableQueuedOperation,
+} from '@/lib/syncQueuePolicy';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
@@ -199,7 +205,10 @@ export type SyncStatus = 'idle' | 'syncing' | 'conflict' | 'done' | 'error';
 interface NetworkContextValue {
   isOnline: boolean;
   queue: QueuedOperation[];
+  /** Number of operations that can still be replayed. */
   queueCount: number;
+  /** Number of deterministic server rejections kept only for user acknowledgement. */
+  rejectedCount: number;
   /**
    * Number of queued operations that have failed ≥ 3 times and are considered
    * "stuck" — they need manual attention (retry or clear) in Settings.
@@ -232,6 +241,7 @@ interface NetworkContextValue {
   dismissConflicts: () => void;
   registerReloadHandler: (fn: () => void) => void;
   clearQueue: () => Promise<void>;
+  dismissRejectedOperations: () => Promise<void>;
   retrySync: () => Promise<void>;
 }
 
@@ -239,6 +249,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   isOnline: true,
   queue: [],
   queueCount: 0,
+  rejectedCount: 0,
   stuckCount: 0,
   queueLoaded: true,
   syncStatus: 'idle',
@@ -250,6 +261,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   dismissConflicts: () => {},
   registerReloadHandler: () => {},
   clearQueue: async () => {},
+  dismissRejectedOperations: async () => {},
   retrySync: async () => {},
 });
 
@@ -675,7 +687,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (
         queueLoadedRef.current &&
         isOnlineRef.current &&
-        queueRef.current.length > 0
+        hasReplayableQueuedOperations(queueRef.current)
       ) {
         void processSyncQueueRef.current();
       }
@@ -794,7 +806,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (queueHydrationGenerationRef.current === myHydrationGeneration) {
         queueLoadedRef.current = true;
         setQueueLoaded(true);
-        if (queueRef.current.length > 0) scheduleSync();
+        if (hasReplayableQueuedOperations(queueRef.current)) scheduleSync();
       }
     }
   }, [userId, saveQueue, scheduleSync]);
@@ -878,7 +890,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (
         online &&
         isSupabaseConfigured &&
-        queueRef.current.length > 0 &&
+        hasReplayableQueuedOperations(queueRef.current) &&
         Date.now() - lastSyncAttemptRef.current > 20_000
       ) {
         processSyncQueueRef.current();
@@ -895,7 +907,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (isOnline && !prevOnlineRef.current) {
       if (isSupabaseConfigured) {
-        if (queueRef.current.length > 0) processSyncQueueRef.current();
+        if (hasReplayableQueuedOperations(queueRef.current)) processSyncQueueRef.current();
         void refetchActiveQueries('online-transition');
       }
     }
@@ -912,7 +924,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (!isOnline) return;
     if (!isSupabaseConfigured) return;
     if (!userId) return;
-    if (queue.length === 0) return;
+    if (!hasReplayableQueuedOperations(queue)) return;
     // Pas de court-circuit sur `syncingRef` : processSyncQueue gère lui-même le
     // verrou (et la préemption d'une passe gelée).
     const t = setTimeout(() => {
@@ -982,7 +994,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // ── 5. Trigger sync if we have pending operations ─────────────────────
       // Pas de garde `!syncingRef.current` : processSyncQueue early-return si
       // une passe progresse, ou préempte une passe gelée.
-      if (online && queueRef.current.length > 0) {
+      if (online && hasReplayableQueuedOperations(queueRef.current)) {
         await processSyncQueueRef.current();
         await refetchActiveQueries('foreground-after-queue-sync');
         try { reloadHandlerRef.current?.(); } catch {}
@@ -1034,7 +1046,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // IMPORTANT: use queueRef.current (not queue from closure) so this function
     // works correctly even when called from a stale closure (AppState listener,
     // ping interval, etc.).
-    if (queueRef.current.length === 0 || !isSupabaseConfigured) return;
+    if (!hasReplayableQueuedOperations(queueRef.current) || !isSupabaseConfigured) return;
 
     const backoffRemainingMs = syncBackoffUntilRef.current - Date.now();
     if (backoffRemainingMs > 0) {
@@ -1131,7 +1143,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     let circuitOpened = false;
     let circuitDelayMs = 0;
     // Snapshot the queue from the ref (always current, not a stale closure)
-    const currentQueue = [...queueRef.current].sort((a, b) => {
+    const currentQueue = queueRef.current.filter(isReplayableQueuedOperation).sort((a, b) => {
       const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
       if (priorityDiff !== 0) return priorityDiff;
       return (a.queuedAt ?? '').localeCompare(b.queuedAt ?? '');
@@ -1194,10 +1206,6 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (!isCurrentGeneration()) break;
       let retryOpForCatch: QueuedOperation = op;
       try {
-        if (op.terminal) {
-          failedOps.push(op);
-          continue;
-        }
         // ── Status-change conflict detection ───────────────────────────────
         if (op.op === 'rpc') {
           if (!op.rpc?.fn) {
@@ -1420,10 +1428,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           else if (op.rpc.fn === 'record_inventory_movement' || op.rpc.fn === 'update_inventory_product') {
             const outcome = Array.isArray(rpcData) ? rpcData[0] : rpcData;
             if (!outcome || outcome.status !== 'ok') {
+              const terminalStatus = outcome?.status ?? 'server_rejected';
+              const fallbackMessage = outcome?.message ?? outcome?.status ?? 'Opération de stock refusée.';
+              const translationKey = inventoryOutcomeTranslationKey(terminalStatus);
               fail(
                 retryRpcOp,
-                outcome?.message ?? outcome?.status ?? 'Opération de stock refusée.',
-                { terminalStatus: outcome?.status ?? 'server_rejected' },
+                translationKey
+                  ? i18n.t(translationKey as any, { defaultValue: fallbackMessage })
+                  : fallbackMessage,
+                { terminalStatus },
               );
             } else {
               const chantierId = args.p_movement?.chantier_id;
@@ -1965,13 +1978,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     } else if (failedOps.length > 0) {
       setSyncStatus('error');
       reloadHandlerRef.current?.();
-    } else if (leftover.length > 0) {
+    } else if (hasReplayableQueuedOperations(leftover)) {
       // Tout l'instantané est passé, mais des opérations enfilées pendant la
       // passe restent à synchroniser : on n'affiche pas « terminé », une
       // nouvelle passe (cold-start / ping) les prendra en charge.
       setSyncStatus('idle');
       reloadHandlerRef.current?.();
       scheduleSync();
+    } else if (leftover.length > 0) {
+      // Les refus métier terminaux sont conservés uniquement pour informer
+      // l'utilisateur. Ils ne sont ni « en attente » ni rejouables.
+      setSyncStatus('error');
+      reloadHandlerRef.current?.();
     } else {
       setSyncStatus('done');
       reloadHandlerRef.current?.();
@@ -2133,6 +2151,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
   }, [backupQueue, offlineQueueKey]);
 
+  const dismissRejectedOperations = useCallback(async () => {
+    const rejected = queueRef.current.filter(operation => operation.terminal);
+    if (rejected.length === 0) return;
+
+    await backupQueue(rejected, 'dismiss-rejected');
+    const next = queueRef.current.filter(operation => !operation.terminal);
+    queueRef.current = next;
+    setQueue(next);
+    await saveQueue(next);
+    setSyncStatus('idle');
+    void refetchActiveQueries('rejected-operations-dismissed');
+    if (hasReplayableQueuedOperations(next)) scheduleSync();
+  }, [backupQueue, saveQueue, scheduleSync]);
+
   const registerReloadHandler = useCallback((fn: () => void) => {
     reloadHandlerRef.current = fn;
   }, []);
@@ -2149,12 +2181,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     await processSyncQueueRef.current();
   }, []);
 
+  const queueCounts = getSyncQueueCounts(queue);
+
   return (
     <NetworkContext.Provider value={{
       isOnline,
       queue,
-      queueCount: queue.length,
-      stuckCount: queue.filter(op => op.terminal || (op.attemptCount ?? 0) >= 3).length,
+      queueCount: queueCounts.pending,
+      rejectedCount: queueCounts.rejected,
+      stuckCount: queueCounts.stuck,
       queueLoaded,
       syncStatus,
       syncProgress,
@@ -2165,6 +2200,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       dismissConflicts,
       registerReloadHandler,
       clearQueue,
+      dismissRejectedOperations,
       retrySync,
     }}>
       {children}

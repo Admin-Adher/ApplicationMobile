@@ -8,6 +8,7 @@ import { readCache, writeCache, isSupabaseSessionValid } from '@/lib/offlineCach
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { genId } from '@/lib/utils';
 import { canonicalizeGtin } from '@/lib/inventoryBarcodeCore';
+import { isInventoryQueuedOperation } from '@/lib/syncQueuePolicy';
 import type {
   InventoryMovement,
   InventoryMovementType,
@@ -201,6 +202,23 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
 
   const productsKey = useMemo(() => queryKeys.inventoryProducts(validChantierId), [validChantierId]);
   const movementsKey = useMemo(() => queryKeys.inventoryMovements(validChantierId), [validChantierId]);
+  const rejectedInventorySignature = useMemo(() => queue
+    .filter(operation => operation.terminal && isInventoryQueuedOperation(operation))
+    .map(operation => `${operation.id}:${operation.terminalStatus ?? 'rejected'}`)
+    .sort()
+    .join('|'), [queue]);
+
+  // A movement accepted optimistically while offline can be refused later if
+  // another device consumed the stock first. Once the queue marks it terminal,
+  // reload the authoritative product and movement lists so the local stock and
+  // history no longer retain the rejected optimistic mutation.
+  useEffect(() => {
+    if (!rejectedInventorySignature || !queueLoaded || !isOnline || !validChantierId) return;
+    void Promise.all([
+      queryClient.invalidateQueries({ queryKey: productsKey, refetchType: 'active' }),
+      queryClient.invalidateQueries({ queryKey: movementsKey, refetchType: 'active' }),
+    ]);
+  }, [isOnline, movementsKey, productsKey, queryClient, queueLoaded, rejectedInventorySignature, validChantierId]);
 
   useEffect(() => {
     if (!userId || !validChantierId) return;

@@ -24,6 +24,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 import { usePushNotifications } from '@/context/PushNotificationsContext';
 import { useLanguage } from '@/context/LanguageContext';
+import { inventoryOutcomeTranslationKey } from '@/lib/syncQueuePolicy';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
   const groups: Record<string, AttendanceRecord[]> = {};
@@ -79,7 +80,19 @@ export default function SettingsScreen() {
   const { companies } = useApp();
   const { user, logout, permissions, reconnectExpiredSession } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
-  const { queue, queueCount, isOnline, syncStatus, syncProgress, syncAuthBlocked, clearQueue, retrySync } = useNetwork();
+  const {
+    queue,
+    queueCount,
+    rejectedCount,
+    isOnline,
+    syncStatus,
+    syncProgress,
+    syncAuthBlocked,
+    clearQueue,
+    dismissRejectedOperations,
+    retrySync,
+  } = useNetwork();
+  const totalQueueCount = queue.length;
   // Stuck operations whose error points to an expired/invalid session: writes
   // went out with the read-only anon key and RLS rejected them. The cure is a
   // fresh login, not a retry — so we surface a "reconnect" affordance.
@@ -94,6 +107,10 @@ export default function SettingsScreen() {
       || e.includes('row-level security')
       || e.includes('401');
   });
+  const queueErrorText = (terminalStatus?: string, fallback?: string) => {
+    const key = inventoryOutcomeTranslationKey(terminalStatus);
+    return key ? t(key as any, { defaultValue: fallback ?? '' }) : fallback;
+  };
   const { preferences: notifPrefs, updatePreferences, isLoading: notifLoading, lastError: notifError } = useNotificationPreferences();
   const { expoPushToken, permissionStatus, lastError: pushError, retryRegistration: retryPushRegistration } = usePushNotifications();
   const {
@@ -143,11 +160,11 @@ export default function SettingsScreen() {
   const [diagOpen, setDiagOpen] = useState(false);
 
   useEffect(() => {
-    if (queueCount > 0 && !diagOpen) {
+    if (totalQueueCount > 0 && !diagOpen) {
       setDiagOpen(true);
       runDiagnostic();
     }
-  }, [queueCount]);
+  }, [totalQueueCount]);
 
   // Helper : ajoute un délai d'expiration à une promesse Supabase. Sans cela,
   // un appel auth/réseau qui ne répond jamais (verrou interne du client après
@@ -346,6 +363,12 @@ export default function SettingsScreen() {
       msg: t(isOnline ? 'settings.syncQueue.pending' : 'settings.syncQueue.pendingOffline', { count: queueCount }),
     });
   }
+  if (rejectedCount > 0) {
+    diagIssues.push({
+      level: 'warn',
+      msg: t('settings.syncQueue.rejected', { count: rejectedCount }),
+    });
+  }
   const diagOk = diag && !diag.loading && !diag.error && diagIssues.length === 0;
   type NotificationBooleanKey = NonNullable<{
     [K in keyof NotificationPreferences]: NotificationPreferences[K] extends boolean ? K : never
@@ -485,10 +508,10 @@ export default function SettingsScreen() {
   }
 
   function handleClearQueue() {
-    if (queueCount === 0) return;
+    if (totalQueueCount === 0) return;
     showAlert(
       t('settings.syncQueue.clearTitle'),
-      t('settings.syncQueue.clearMessage', { count: queueCount }),
+      t('settings.syncQueue.clearMessage', { count: totalQueueCount }),
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
@@ -497,6 +520,25 @@ export default function SettingsScreen() {
           onPress: async () => {
             await clearQueue();
             showAlert(t('settings.syncQueue.clearedTitle'), t('settings.syncQueue.clearedText'));
+          },
+        },
+      ],
+    );
+  }
+
+  function handleDismissRejectedOperations() {
+    if (rejectedCount === 0) return;
+    showAlert(
+      t('settings.syncQueue.dismissRejectedTitle'),
+      t('settings.syncQueue.dismissRejectedMessage', { count: rejectedCount }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('settings.syncQueue.dismissRejectedAction'),
+          style: 'destructive',
+          onPress: async () => {
+            await dismissRejectedOperations();
+            showAlert(t('settings.syncQueue.dismissedTitle'), t('settings.syncQueue.dismissedText'));
           },
         },
       ],
@@ -938,7 +980,7 @@ export default function SettingsScreen() {
                       </View>
                     )}
 
-                    {queueCount > 0 && (
+                    {totalQueueCount > 0 && (
                       <View style={styles.queueBlock}>
                         <View style={styles.queueHeaderRow}>
                           <Ionicons
@@ -947,11 +989,17 @@ export default function SettingsScreen() {
                             color="#F59E0B"
                           />
                           <Text style={styles.queueHeaderTxt}>
-                            {t('settings.syncQueue.titleWithCount', { count: queueCount })}
+                            {queueCount > 0 && rejectedCount > 0
+                              ? t('settings.syncQueue.mixedTitle', { pending: queueCount, rejected: rejectedCount })
+                              : rejectedCount > 0
+                                ? t('settings.syncQueue.rejectedTitleWithCount', { count: rejectedCount })
+                                : t('settings.syncQueue.titleWithCount', { count: queueCount })}
                           </Text>
                         </View>
                         <Text style={styles.queueHint}>
-                          {isOnline
+                          {queueCount === 0
+                            ? t('settings.syncQueue.rejectedHint')
+                            : isOnline
                             ? t('settings.syncQueue.onlineHint')
                             : t('settings.syncQueue.offlineHint')}
                         </Text>
@@ -974,10 +1022,11 @@ export default function SettingsScreen() {
                               <Text style={styles.queueItemMeta} numberOfLines={1}>
                                 {new Date(op.queuedAt).toLocaleString(appLocale)}
                                 {op.attemptCount ? ` · ${t('settings.syncQueue.failures', { count: op.attemptCount })}` : ''}
+                                {op.terminal ? ` · ${t('settings.syncQueue.rejectedStatus')}` : ''}
                               </Text>
                               {op.lastError && (
                                 <Text style={styles.queueItemError} numberOfLines={3}>
-                                  {op.lastError}
+                                  {queueErrorText(op.terminalStatus, op.lastError)}
                                 </Text>
                               )}
                             </View>
@@ -999,24 +1048,31 @@ export default function SettingsScreen() {
                         )}
                         <View style={styles.queueActionsRow}>
                           <TouchableOpacity
-                            style={[styles.queueRetryBtn, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabled]}
-                            onPress={() => { if (isOnline && syncStatus !== 'syncing') retrySync(); }}
-                            disabled={!isOnline || syncStatus === 'syncing'}
+                            style={[styles.queueRetryBtn, (!isOnline || syncStatus === 'syncing' || queueCount === 0) && styles.queueBtnDisabled]}
+                            onPress={() => { if (isOnline && syncStatus !== 'syncing' && queueCount > 0) retrySync(); }}
+                            disabled={!isOnline || syncStatus === 'syncing' || queueCount === 0}
                           >
                             <Ionicons
                               name={syncStatus === 'syncing' ? 'sync' : 'refresh'}
                               size={14}
-                              color={!isOnline || syncStatus === 'syncing' ? '#9CA3AF' : '#10B981'}
+                              color={!isOnline || syncStatus === 'syncing' || queueCount === 0 ? '#9CA3AF' : '#10B981'}
                             />
-                            <Text style={[styles.queueRetryTxt, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabledTxt]}>
+                            <Text style={[styles.queueRetryTxt, (!isOnline || syncStatus === 'syncing' || queueCount === 0) && styles.queueBtnDisabledTxt]}>
                               {syncStatus === 'syncing'
                                 ? (syncProgress.total > 0 ? t('settings.syncQueue.syncProgress', { done: syncProgress.done, total: syncProgress.total }) : t('settings.syncQueue.syncing'))
                                 : !isOnline ? t('common.offline') : t('common.retry')}
                             </Text>
                           </TouchableOpacity>
-                          <TouchableOpacity style={styles.queueClearBtn} onPress={handleClearQueue}>
+                          <TouchableOpacity
+                            style={styles.queueClearBtn}
+                            onPress={rejectedCount > 0 ? handleDismissRejectedOperations : handleClearQueue}
+                          >
                             <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                            <Text style={styles.queueClearTxt}>{t('settings.syncQueue.clearAction')}</Text>
+                            <Text style={styles.queueClearTxt}>
+                              {t(rejectedCount > 0
+                                ? 'settings.syncQueue.dismissRejectedAction'
+                                : 'settings.syncQueue.clearAction')}
+                            </Text>
                           </TouchableOpacity>
                         </View>
                       </View>
