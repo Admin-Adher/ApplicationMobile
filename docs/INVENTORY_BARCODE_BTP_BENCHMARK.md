@@ -13,7 +13,17 @@ Après correction :
 
 Un essai direct complémentaire du catalogue généraliste UPCitemdb a retrouvé **6/10** GTIN BTP (Hager, GROHE, KNIPEX, Wiha, Makita et Wera). Les six identités correspondaient exactement au GTIN demandé, mais plusieurs titres ne contenaient pas tous les détails de la fiche fabricant. Ils sont donc utilisés comme préremplissage à confiance moyenne, puis enrichis par la recherche web exacte quand celle-ci est configurée. Les quatre autres références (Legrand, Bosch Professional, HellermannTyton et Rawlplug) restent dépendantes de la recherche web ou de la saisie manuelle.
 
-Ce résultat mesure le moteur sur ce jeu représentatif, pas l’ensemble des produits commercialisés. Il ne constitue donc pas une promesse universelle de 100 %. Le test en conditions réelles dépend aussi de la présence du secret serveur `BRAVE_SEARCH_API_KEY`, de l’indexation de la page et de la qualité de son extrait.
+## Contrôle live du 10 août 2026
+
+Une interrogation réelle de Tavily en mode `basic`, avec le GTIN exact, a obtenu une réponse HTTP 200 pour les dix références :
+
+- GTIN retrouvé exactement dans les résultats : **10/10** ;
+- variante contenant tous les attributs strictement attendus : **8/10** ;
+- variantes incomplètes dans les extraits : **GROHE** et **KNIPEX**.
+
+GROHE et KNIPEX sont donc bien identifiés par leur code unique, mais certains attributs (dimension, modèle ou référence fabricant) ne sont pas tous présents dans un même extrait web. L’application conserve la proposition comme préremplissage vérifiable au lieu de fabriquer les informations manquantes. Un appel réel SerpAPI a également validé la recherche exacte ; le basculement automatique sur quota Tavily est couvert par les tests automatisés sans consommer inutilement le quota SerpAPI.
+
+Ce résultat mesure le moteur sur ce jeu représentatif, pas l’ensemble des produits commercialisés. Il ne constitue donc pas une promesse universelle de 100 %. Le test en conditions réelles dépend aussi de la présence du secret serveur `TAVILY_API_KEY` ou `SERPAPI_API_KEY`, de l’indexation de la page et de la qualité de son extrait.
 
 ## Jeu de références
 
@@ -42,8 +52,9 @@ npm run benchmark:barcode-btp
 Le mode live effectue dix requêtes réelles au fournisseur web et peut donc consommer son quota :
 
 ```powershell
-$env:BRAVE_SEARCH_API_KEY = '<clé serveur>'
+$env:TAVILY_API_KEY = '<clé Tavily serveur>'
+$env:SERPAPI_API_KEY = '<clé SerpAPI serveur>'
 npm run benchmark:barcode-btp -- --live
 ```
 
-La clé ne doit être présente que dans l’environnement serveur ou les secrets Supabase. Elle ne doit jamais être ajoutée à l’APK, à une variable `EXPO_PUBLIC_*` ou au dépôt Git.
+Les clés ne doivent être présentes que dans l’environnement serveur ou les secrets Supabase. Elles ne doivent jamais être ajoutées à l’APK, à une variable `EXPO_PUBLIC_*` ou au dépôt Git.

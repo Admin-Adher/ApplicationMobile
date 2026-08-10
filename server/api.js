@@ -861,6 +861,118 @@ function allowInventoryBarcodeLookup(userId) {
   return true;
 }
 
+let inventoryTavilyBlockedUntil = 0;
+
+function firstDayOfNextUtcMonth(timestamp) {
+  const date = new Date(timestamp);
+  return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1);
+}
+
+async function inventoryProviderFetch(url, init, timeoutMs = 4000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function searchInventoryWebProvidersServer(code, language) {
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  const serpApiKey = process.env.SERPAPI_API_KEY;
+  const providersTried = [];
+  const providerStatuses = {};
+  const now = Date.now();
+  let fallbackReason;
+
+  if (tavilyKey && now >= inventoryTavilyBlockedUntil) {
+    providersTried.push('tavily');
+    try {
+      const response = await inventoryProviderFetch('https://api.tavily.com/search', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${tavilyKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: `"${code}"`,
+          search_depth: 'basic',
+          max_results: 20,
+          topic: 'general',
+          include_answer: false,
+          include_raw_content: false,
+          include_images: false,
+          exact_match: true,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      providerStatuses.tavily = response.status;
+      if (response.ok) {
+        return {
+          provider: 'tavily',
+          providersTried,
+          results: Array.isArray(payload?.results) ? payload.results.map(result => ({
+            title: result?.title,
+            description: result?.content,
+            url: result?.url,
+          })) : [],
+        };
+      }
+      fallbackReason = `tavily_http_${response.status}`;
+      if (response.status === 432 || response.status === 433) {
+        inventoryTavilyBlockedUntil = firstDayOfNextUtcMonth(now);
+      } else if (response.status === 429) {
+        inventoryTavilyBlockedUntil = now + 60000;
+      }
+    } catch (error) {
+      fallbackReason = error?.name === 'AbortError' ? 'tavily_timeout' : 'tavily_unavailable';
+    }
+  } else if (tavilyKey) {
+    fallbackReason = 'tavily_circuit_open';
+  } else {
+    fallbackReason = 'tavily_not_configured';
+  }
+
+  if (serpApiKey) {
+    providersTried.push('serpapi');
+    try {
+      const url = new URL('https://serpapi.com/search.json');
+      url.searchParams.set('engine', 'google');
+      url.searchParams.set('q', `"${code}"`);
+      url.searchParams.set('hl', ['fr', 'es', 'en'].includes(language) ? language : 'fr');
+      url.searchParams.set('safe', 'active');
+      url.searchParams.set('num', '20');
+      url.searchParams.set('api_key', serpApiKey);
+      const response = await inventoryProviderFetch(url.toString(), { headers: { Accept: 'application/json' } });
+      const payload = await response.json().catch(() => ({}));
+      providerStatuses.serpapi = response.status;
+      if (response.ok && !payload?.error) {
+        return {
+          provider: 'serpapi',
+          providersTried,
+          fallbackReason,
+          results: Array.isArray(payload?.organic_results) ? payload.organic_results.map(result => ({
+            title: result?.title,
+            description: result?.snippet,
+            url: result?.link,
+            thumbnail: result?.thumbnail ? { src: result.thumbnail } : undefined,
+          })) : [],
+        };
+      }
+    } catch {
+      // Fall through to a sanitized error response.
+    }
+  }
+
+  const error = new Error(tavilyKey || serpApiKey
+    ? 'No web search provider is currently available'
+    : 'No web search provider is configured');
+  error.providerStatuses = providerStatuses;
+  throw error;
+}
+
 app.post('/api/inventory-barcode-lookup', async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const supabase = getSupabaseAdmin();
@@ -874,41 +986,24 @@ app.post('/api/inventory-barcode-lookup', async (req, res) => {
   const code = normalizeInventoryBarcodeLookupCode(req.body?.code);
   const language = String(req.body?.language || 'fr').split('-')[0].toLowerCase();
   if (code.length < 4) return res.status(400).json({ error: 'Code-barres invalide', code: 'invalid_barcode' });
-  const apiKey = process.env.BRAVE_SEARCH_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'Recherche web non configuree', code: 'web_search_not_configured' });
-
-  const url = new URL('https://api.search.brave.com/res/v1/web/search');
-  url.searchParams.set('q', `"${code}"`);
-  url.searchParams.set('count', '20');
-  url.searchParams.set('ui_lang', language === 'es' ? 'es-ES' : language === 'en' ? 'en-US' : 'fr-FR');
-  url.searchParams.set('safesearch', 'moderate');
-  url.searchParams.set('spellcheck', 'false');
-  url.searchParams.set('extra_snippets', 'true');
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 6500);
   try {
-    const response = await fetch(url, {
-      headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
-      signal: controller.signal,
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      console.error(`[inventory-barcode-lookup] Brave Search HTTP ${response.status}`);
-      return res.status(502).json({
-        error: 'Recherche web temporairement indisponible',
-        code: 'provider_http_error',
-        providerStatus: response.status,
-      });
-    }
-    const match = selectInventoryWebMatch(payload?.web?.results, code);
+    const search = await searchInventoryWebProvidersServer(code, language);
+    const match = selectInventoryWebMatch(search.results, code);
     if (!match) return res.status(404).json({ error: 'Produit introuvable', code: 'product_not_found' });
-    return res.json({ match });
+    return res.json({
+      match,
+      provider: search.provider,
+      providersTried: search.providersTried,
+      fallbackReason: search.fallbackReason,
+    });
   } catch (error) {
     console.error('[inventory-barcode-lookup]', error?.message || error);
-    return res.status(502).json({ error: 'Recherche web temporairement indisponible', code: 'provider_unavailable' });
-  } finally {
-    clearTimeout(timer);
+    const notConfigured = error?.message?.includes('configured');
+    return res.status(notConfigured ? 503 : 502).json({
+      error: notConfigured ? 'Recherche web non configuree' : 'Recherche web temporairement indisponible',
+      code: notConfigured ? 'web_search_not_configured' : 'provider_unavailable',
+      providerStatuses: error?.providerStatuses,
+    });
   }
 });
 

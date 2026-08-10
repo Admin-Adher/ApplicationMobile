@@ -1,13 +1,9 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
-
-type SearchResult = {
-  title?: string;
-  description?: string;
-  extra_snippets?: string[];
-  url?: string;
-  profile?: { long_name?: string };
-  thumbnail?: { src?: string; original?: string };
-};
+import {
+  InventoryWebSearchError,
+  searchInventoryBarcodeWeb,
+  type InventoryWebSearchResult as SearchResult,
+} from '../_shared/inventoryWebSearchProviders.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -271,42 +267,31 @@ Deno.serve(async request => {
     const language = String(body?.language ?? 'fr').split('-')[0].toLowerCase();
     if (code.length < 4) return json({ error: 'Code-barres invalide' }, 400);
 
-    const apiKey = Deno.env.get('BRAVE_SEARCH_API_KEY');
-    if (!apiKey) return json({ error: 'Recherche web non configurée', code: 'web_search_not_configured' }, 503);
-    const url = new URL('https://api.search.brave.com/res/v1/web/search');
-    // GTINs are global identifiers: locale filtering hides valid manufacturer
-    // pages, especially when their catalogue is hosted outside France.
-    url.searchParams.set('q', `"${code}"`);
-    url.searchParams.set('count', '20');
-    url.searchParams.set('ui_lang', language === 'es' ? 'es-ES' : language === 'en' ? 'en-US' : 'fr-FR');
-    url.searchParams.set('safesearch', 'moderate');
-    url.searchParams.set('spellcheck', 'false');
-    url.searchParams.set('extra_snippets', 'true');
-
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 6500);
-    try {
-      const response = await fetch(url, {
-        headers: { Accept: 'application/json', 'X-Subscription-Token': apiKey },
-        signal: controller.signal,
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        console.error(`[inventory-barcode-lookup] Brave Search HTTP ${response.status}`);
-        return json({
-          error: 'Recherche web temporairement indisponible',
-          code: 'provider_http_error',
-          providerStatus: response.status,
-        }, 502);
-      }
-      const results = Array.isArray(payload?.web?.results) ? payload.web.results : [];
-      const match = selectMatch(results, code);
-      return match ? json({ match }) : json({ error: 'Produit introuvable' }, 404);
-    } finally {
-      clearTimeout(timer);
-    }
+    const search = await searchInventoryBarcodeWeb({
+      code,
+      language,
+      tavilyApiKey: Deno.env.get('TAVILY_API_KEY'),
+      serpApiKey: Deno.env.get('SERPAPI_API_KEY'),
+    });
+    const match = selectMatch(search.results, code);
+    return match
+      ? json({
+        match,
+        provider: search.provider,
+        providersTried: search.providersTried,
+        fallbackReason: search.fallbackReason,
+      })
+      : json({ error: 'Produit introuvable', code: 'product_not_found', provider: search.provider }, 404);
   } catch (error) {
     console.error('[inventory-barcode-lookup]', error);
-    return json({ error: 'Recherche web temporairement indisponible' }, 502);
+    if (error instanceof InventoryWebSearchError) {
+      const notConfigured = error.message.includes('configured');
+      return json({
+        error: notConfigured ? 'Recherche web non configurée' : 'Recherche web temporairement indisponible',
+        code: notConfigured ? 'web_search_not_configured' : 'provider_unavailable',
+        providerStatuses: error.providerStatuses,
+      }, notConfigured ? 503 : 502);
+    }
+    return json({ error: 'Recherche web temporairement indisponible', code: 'provider_unavailable' }, 502);
   }
 });

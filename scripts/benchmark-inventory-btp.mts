@@ -2,12 +2,13 @@ import {
   lookupOpenFactsCatalogs,
   selectWebSearchMatch,
   type InventoryBarcodeMatch,
-  type WebSearchResult,
 } from '../lib/inventoryBarcodeCore.ts';
+import { searchInventoryBarcodeWeb } from '../supabase/functions/_shared/inventoryWebSearchProviders.ts';
 import { inventoryBtpBenchmark } from '../tests/fixtures/inventoryBtpBenchmark.ts';
 
 const live = process.argv.includes('--live');
-const braveKey = process.env.BRAVE_SEARCH_API_KEY ?? '';
+const tavilyKey = process.env.TAVILY_API_KEY ?? '';
+const serpApiKey = process.env.SERPAPI_API_KEY ?? '';
 
 function normalized(value: string): string {
   return value.toLowerCase().normalize('NFD')
@@ -21,31 +22,21 @@ function isExpectedVariant(match: InventoryBarcodeMatch | null, expectedTokens: 
   return expectedTokens.every(token => designation.includes(normalized(token)));
 }
 
-async function braveResults(code: string): Promise<WebSearchResult[]> {
-  const url = new URL('https://api.search.brave.com/res/v1/web/search');
-  url.searchParams.set('q', `"${code}"`);
-  url.searchParams.set('count', '20');
-  url.searchParams.set('ui_lang', 'fr-FR');
-  url.searchParams.set('safesearch', 'moderate');
-  url.searchParams.set('spellcheck', 'false');
-  url.searchParams.set('extra_snippets', 'true');
-  const response = await fetch(url, {
-    headers: { Accept: 'application/json', 'X-Subscription-Token': braveKey },
-    signal: AbortSignal.timeout(8_000),
-  });
-  if (!response.ok) throw new Error(`Brave Search HTTP ${response.status}`);
-  const payload = await response.json();
-  return Array.isArray(payload?.web?.results) ? payload.web.results : [];
-}
-
-if (live && !braveKey) {
-  throw new Error('BRAVE_SEARCH_API_KEY est requis pour le benchmark --live. La cle ne doit rester que cote serveur.');
+if (live && !tavilyKey && !serpApiKey) {
+  throw new Error('TAVILY_API_KEY ou SERPAPI_API_KEY est requis pour le benchmark --live. Les cles restent cote serveur.');
 }
 
 const rows: Array<Record<string, string>> = [];
 for (const sample of inventoryBtpBenchmark) {
   const openMatch = live ? await lookupOpenFactsCatalogs(sample.gtin, { timeoutMs: 5_000 }) : null;
-  const results = live ? await braveResults(sample.gtin) : sample.results;
+  const search = live ? await searchInventoryBarcodeWeb({
+    code: sample.gtin,
+    language: 'fr',
+    tavilyApiKey: tavilyKey,
+    serpApiKey,
+    timeoutMs: 8_000,
+  }) : null;
+  const results = search?.results ?? sample.results;
   const webMatch = openMatch?.variantComplete ? null : selectWebSearchMatch(results, sample.gtin);
   const match = webMatch ?? openMatch;
   rows.push({
@@ -53,7 +44,7 @@ for (const sample of inventoryBtpBenchmark) {
     gtin: sample.gtin,
     trouve: match ? 'oui' : 'non',
     variante_precise: isExpectedVariant(match, sample.expectedTokens) ? 'oui' : 'non',
-    source: match?.source ?? '-',
+    source: search?.provider ?? match?.source ?? '-',
     designation: match?.designation ?? '-',
   });
 }
