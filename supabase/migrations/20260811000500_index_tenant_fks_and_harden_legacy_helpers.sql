@@ -26,8 +26,6 @@ create index if not exists lots_org_chantier_idx
   on public.lots(organization_id, chantier_id);
 create index if not exists lots_org_company_idx
   on public.lots(organization_id, company_id);
-create index if not exists notification_preferences_admin_updater_idx
-  on public.notification_preferences(email_admin_updated_by);
 create index if not exists notification_preferences_org_user_idx
   on public.notification_preferences(organization_id, user_id);
 create index if not exists oprs_org_chantier_idx
