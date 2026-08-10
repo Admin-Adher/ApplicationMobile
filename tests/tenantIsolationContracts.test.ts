@@ -13,6 +13,7 @@ function source(relative: string) {
 const authority = source('supabase/migrations/20260810192253_organization_membership_authority.sql');
 const integrity = source('supabase/migrations/20260810193111_enforce_tenant_integrity_and_rpc_scope.sql');
 const media = source('supabase/migrations/20260810193713_add_private_tenant_media_registry.sql');
+const followup = source('supabase/migrations/20260811000500_index_tenant_fks_and_harden_legacy_helpers.sql');
 
 describe('tenant A x object B authorization matrix', () => {
   const actors = [
@@ -104,6 +105,14 @@ describe('tenant integrity migration contract', () => {
     expect(integrity).toContain('add column if not exists sender_id uuid references auth.users(id)');
     expect(integrity).toContain('new.sender_id := auth.uid()');
     expect(integrity).toContain('messages_actor_update_restrictive');
+  });
+
+  it('indexes tenant-aware foreign keys and closes legacy anonymous helpers', () => {
+    expect(followup).toContain('on public.organization_memberships(organization_id, company_id)');
+    expect(followup).toContain('on public.tenant_media_links(organization_id, asset_id)');
+    expect(followup).toContain('on public.reserves(organization_id, plan_id)');
+    expect(followup).toContain('revoke all on function public.auth_user_email() from public, anon');
+    expect(followup).toContain('revoke all on function public.set_photo_organization_id() from public, anon, authenticated');
   });
 });
 

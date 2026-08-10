@@ -86,5 +86,8 @@ jobs:
       - name: Apply production private-media migration
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260810193713_add_private_tenant_media_registry.sql
 
+      - name: Apply production tenant-index and legacy-helper hardening
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260811000500_index_tenant_fks_and_harden_legacy_helpers.sql
+
       - name: Execute user A x object B matrix
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/tenant_isolation_matrix.sql
