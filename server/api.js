@@ -185,6 +185,7 @@ function baseLayout(content, preheader = '', language = 'fr') {
 const ROLE_LABELS_FR = {
   admin: 'Administrateur',
   conducteur: 'Conducteur de travaux',
+  magasinier: 'Magasinier',
   chef_equipe: "Chef d'équipe",
   observateur: 'Observateur',
   sous_traitant: 'Sous-traitant',

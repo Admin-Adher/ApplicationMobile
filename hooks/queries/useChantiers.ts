@@ -114,7 +114,7 @@ export function useChantiers() {
         return cached ?? [];
       }
     },
-    enabled: !!user,
+    enabled: !!user && user.role !== 'magasinier',
 
   });
 

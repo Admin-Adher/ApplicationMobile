@@ -58,6 +58,29 @@ export function useRealtimeSync() {
 
       const channels: ReturnType<typeof supabase.channel>[] = [];
 
+      if (user?.role === 'magasinier') {
+        const warehouseTables = [
+          { table: 'chantiers', queryKey: queryKeys.chantiers() },
+          { table: 'companies', queryKey: queryKeys.companies() },
+          { table: 'inventory_products', queryKey: ['inventory', 'products'] as const },
+          { table: 'inventory_movements', queryKey: ['inventory', 'movements'] as const },
+        ];
+        for (const item of warehouseTables) {
+          const channel = supabase
+            .channel(`rq-warehouse-${item.table}-v1-${uid}`)
+            .on('postgres_changes', orgFilter(item.table), () => {
+              queryClient.invalidateQueries({ queryKey: item.queryKey });
+              if (item.table === 'inventory_movements') {
+                queryClient.invalidateQueries({ queryKey: ['inventory', 'products'] });
+              }
+            })
+            .subscribe();
+          channels.push(channel);
+        }
+        cleanupFn = () => channels.forEach(channel => supabase.removeChannel(channel));
+        return;
+      }
+
       // Org-scoped table subscriptions
       const reserveSub = supabase
         .channel(`rq-reserves-v2-${uid}`)

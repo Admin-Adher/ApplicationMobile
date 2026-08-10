@@ -992,6 +992,7 @@ export const resources: Resource = {
         super_admin: 'Super administrateur',
         admin: 'Administrateur',
         conducteur: 'Conducteur de travaux',
+        magasinier: 'Magasinier',
         chef_equipe: "Chef d'équipe",
         observateur: 'Observateur',
         sous_traitant: 'Sous-traitant',
@@ -999,6 +1000,7 @@ export const resources: Resource = {
       roleDescriptions: {
         admin: 'Gestion complète — utilisateurs, entreprises, abonnement',
         conducteur: 'Pilotage chantier — réserves, plans, OPR, rapports',
+        magasinier: 'Stock uniquement — entrées, sorties, inventaire et historique',
         chef_equipe: 'Terrain — réserves, pointage, incidents (pas de suppression)',
         observateur: 'Lecture seule — consultation et export des données (gratuit)',
         sous_traitant: 'Portail entreprise — voir et traiter ses propres réserves (gratuit)',
@@ -2839,7 +2841,7 @@ export const resources: Resource = {
           companies: { label: 'Gestion des entreprises', desc: 'Sous-traitants, effectifs prévus vs réels, heures.' },
           regulatory: { label: 'Docs réglementaires', desc: "Suivi des habilitations, certifications et dates d'expiration." },
           dashboards: { label: 'Tableaux de bord', desc: 'Vue globale par chantier, KPIs et alertes.' },
-          roles: { label: 'Rôles & permissions', desc: "Super admin, admin, conducteur, chef d'équipe, observateur." },
+          roles: { label: 'Rôles & permissions', desc: "Super admin, admin, conducteur, chef d'équipe, magasinier, observateur." },
         },
         security: {
           rls: { label: 'RLS PostgreSQL', desc: 'Isolation totale des données par organisation' },
@@ -5520,6 +5522,7 @@ export const resources: Resource = {
         super_admin: 'Super administrator',
         admin: 'Administrator',
         conducteur: 'Construction manager',
+        magasinier: 'Storekeeper',
         chef_equipe: 'Team lead',
         observateur: 'Observer',
         sous_traitant: 'Subcontractor',
@@ -5527,6 +5530,7 @@ export const resources: Resource = {
       roleDescriptions: {
         admin: 'Full management — users, companies, subscription',
         conducteur: 'Site steering — reserves, plans, handover, reports',
+        magasinier: 'Inventory only — entries, exits, stock and movement history',
         chef_equipe: 'Field — reserves, time tracking, incidents (no deletion)',
         observateur: 'Read-only — view and export data (free)',
         sous_traitant: 'Company portal — view and process own reserves (free)',
@@ -7367,7 +7371,7 @@ export const resources: Resource = {
           companies: { label: 'Company management', desc: 'Subcontractors, planned vs actual workers and hours.' },
           regulatory: { label: 'Regulatory docs', desc: 'Tracking authorizations, certifications and expiration dates.' },
           dashboards: { label: 'Dashboards', desc: 'Global project view, KPIs and alerts.' },
-          roles: { label: 'Roles & permissions', desc: 'Super admin, admin, manager, team lead, observer.' },
+          roles: { label: 'Roles & permissions', desc: 'Super admin, admin, manager, team lead, storekeeper, observer.' },
         },
         security: {
           rls: { label: 'PostgreSQL RLS', desc: 'Full data isolation per organization' },
@@ -10048,6 +10052,7 @@ export const resources: Resource = {
         super_admin: 'Superadministrador',
         admin: 'Administrador',
         conducteur: 'Jefe de obra',
+        magasinier: 'Almacenero',
         chef_equipe: 'Jefe de equipo',
         observateur: 'Observador',
         sous_traitant: 'Subcontratista',
@@ -10055,6 +10060,7 @@ export const resources: Resource = {
       roleDescriptions: {
         admin: 'Gestión completa — usuarios, empresas, suscripción',
         conducteur: 'Gestión de obra — reservas, planos, recepción, informes',
+        magasinier: 'Solo inventario — entradas, salidas, existencias e historial',
         chef_equipe: 'Campo — reservas, partes, incidentes (sin eliminación)',
         observateur: 'Solo lectura — consulta y exportación de datos (gratis)',
         sous_traitant: 'Portal empresa — ver y tratar sus propias reservas (gratis)',
@@ -11895,7 +11901,7 @@ export const resources: Resource = {
           companies: { label: 'Gestión de empresas', desc: 'Subcontratistas, efectivos previstos vs reales, horas.' },
           regulatory: { label: 'Docs reglamentarios', desc: 'Seguimiento de habilitaciones, certificaciones y vencimientos.' },
           dashboards: { label: 'Paneles', desc: 'Vista global por obra, KPIs y alertas.' },
-          roles: { label: 'Roles y permisos', desc: 'Super admin, admin, encargado, jefe de equipo, observador.' },
+          roles: { label: 'Roles y permisos', desc: 'Super admin, admin, encargado, jefe de equipo, almacenero, observador.' },
         },
         security: {
           rls: { label: 'RLS PostgreSQL', desc: 'Aislamiento total de datos por organización' },

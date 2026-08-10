@@ -71,6 +71,10 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
 
   useEffect(() => {
     async function load() {
+      if (user?.role === 'magasinier') {
+        setDocs([]);
+        return;
+      }
       // Always read cache first so offline-created docs survive.
       let cached: RegulatoryDoc[] | null = null;
       try {
@@ -102,10 +106,10 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       if (cached) setDocs(cached);
     }
     load();
-  }, [user?.id, queueLoaded, foregroundReloadSeq]);
+  }, [user?.id, user?.role, queueLoaded, foregroundReloadSeq]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || Platform.OS === 'web' || !user) return;
+    if (!isSupabaseConfigured || Platform.OS === 'web' || !user || user.role === 'magasinier') return;
     let backgroundAt = 0;
     let lastReloadAt = 0;
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -120,10 +124,10 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       }
     });
     return () => sub.remove();
-  }, [user?.id]);
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !user) return;
+    if (!isSupabaseConfigured || !user || user.role === 'magasinier') return;
     const sub = supabase
       .channel(`realtime-regulatory-docs-v2-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'regulatory_docs' }, (payload: any) => {
@@ -153,7 +157,7 @@ export function ReglementaireProvider({ children }: { children: React.ReactNode 
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, [user?.id, foregroundReloadSeq]);
+  }, [user?.id, user?.role, foregroundReloadSeq]);
 
   async function persistLocal(data: RegulatoryDoc[]) {
     setDocs(data);

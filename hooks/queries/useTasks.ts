@@ -68,7 +68,7 @@ export function useTasks() {
         return cached ?? [];
       }
     },
-    enabled: !!user,
+    enabled: !!user && user.role !== 'magasinier',
   });
 
   const persist = useCallback((tasks: Task[]) => {

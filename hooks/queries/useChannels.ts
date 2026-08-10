@@ -101,8 +101,9 @@ export function useChannels() {
     setChannelMembersOverride({});
     setPendingDmChannelIds(new Set());
     setHiddenDmChannelIds({});
+    if (user.role === 'magasinier') return;
     loadAll();
-  }, [user?.id]);
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
     if (!user) return;
@@ -132,6 +133,7 @@ export function useChannels() {
   }
 
   async function loadAll() {
+    if (user?.role === 'magasinier') return;
     await Promise.all([
       _loadChannelsFromSupabase(),
       loadPinnedChannels(),
@@ -140,7 +142,7 @@ export function useChannels() {
   }
 
   useEffect(() => {
-    if (!isSupabaseConfigured || Platform.OS === 'web' || !user) return;
+    if (!isSupabaseConfigured || Platform.OS === 'web' || !user || user.role === 'magasinier') return;
     let backgroundAt = 0;
     let lastReconnectAt = 0;
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -157,9 +159,10 @@ export function useChannels() {
     });
     return () => sub.remove();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, user?.role]);
 
   async function _loadChannelsFromSupabase() {
+    if (user?.role === 'magasinier') return;
     const [customCached, groupCached, generalCached, dmCached, pendingDmCached, hiddenDmCached] = await Promise.all([
       AsyncStorage.getItem(CUSTOM_CHANNELS_KEY)
         .then(s => s ? JSON.parse(s) as Channel[] : [] as Channel[])

@@ -85,6 +85,11 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     async function load() {
       setIsLoading(true);
+      if (user?.role === 'magasinier') {
+        setIncidents([]);
+        setIsLoading(false);
+        return;
+      }
       // Always read cache first so offline-created incidents survive.
       let cached: Incident[] | null = null;
       try {
@@ -121,10 +126,10 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false);
     }
     load();
-  }, [user?.id, queueLoaded, foregroundReloadSeq]);
+  }, [user?.id, user?.role, queueLoaded, foregroundReloadSeq]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || Platform.OS === 'web' || !user) return;
+    if (!isSupabaseConfigured || Platform.OS === 'web' || !user || user.role === 'magasinier') return;
     let backgroundAt = 0;
     let lastReloadAt = 0;
     const sub = AppState.addEventListener('change', (state: AppStateStatus) => {
@@ -139,10 +144,10 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       }
     });
     return () => sub.remove();
-  }, [user?.id]);
+  }, [user?.id, user?.role]);
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !user) return;
+    if (!isSupabaseConfigured || !user || user.role === 'magasinier') return;
     const sub = supabase
       .channel(`realtime-incidents-v2-${user.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'incidents' }, (payload: any) => {
@@ -162,7 +167,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
       })
       .subscribe();
     return () => { supabase.removeChannel(sub); };
-  }, [user?.id, foregroundReloadSeq]);
+  }, [user?.id, user?.role, foregroundReloadSeq]);
 
   async function persist(updated: Incident[]) {
     setIncidents(updated);

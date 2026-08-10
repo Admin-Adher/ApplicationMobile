@@ -20,6 +20,7 @@ const ROLE_LABELS: Record<EmailLanguage, LabelSet> = {
   fr: {
     admin: 'Administrateur',
     conducteur: 'Conducteur de travaux',
+    magasinier: 'Magasinier',
     chef_equipe: "Chef d'équipe",
     observateur: 'Observateur',
     sous_traitant: 'Sous-traitant',
@@ -28,6 +29,7 @@ const ROLE_LABELS: Record<EmailLanguage, LabelSet> = {
   en: {
     admin: 'Administrator',
     conducteur: 'Construction manager',
+    magasinier: 'Storekeeper',
     chef_equipe: 'Team lead',
     observateur: 'Observer',
     sous_traitant: 'Subcontractor',
@@ -36,6 +38,7 @@ const ROLE_LABELS: Record<EmailLanguage, LabelSet> = {
   es: {
     admin: 'Administrador',
     conducteur: 'Jefe de obra',
+    magasinier: 'Almacenero',
     chef_equipe: 'Jefe de equipo',
     observateur: 'Observador',
     sous_traitant: 'Subcontratista',

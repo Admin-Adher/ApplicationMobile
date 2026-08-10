@@ -15,9 +15,10 @@ import {
 } from '@/lib/i18n';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
+import InventoryWebView from './InventoryWebView';
 import styles from './web.module.css';
 
-type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'sous_traitant' | 'observateur' | string;
+type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'magasinier' | 'sous_traitant' | 'observateur' | string;
 
 type Profile = {
   id: string;
@@ -43,17 +44,22 @@ type WebPermissions = {
   canUpdateAttendance: boolean;
   canMovePins: boolean;
   canEditChantier: boolean;
+  canViewInventory: boolean;
+  canRecordInventory: boolean;
+  canAdjustInventory: boolean;
+  canExportInventory: boolean;
 };
 
 type PermissionsOverride = Partial<WebPermissions>;
 
 const WEB_ROLE_PERMISSIONS: Record<string, WebPermissions> = {
-  super_admin:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true  },
-  admin:         { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true  },
-  conducteur:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true  },
-  chef_equipe:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: false },
-  observateur:   { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false, canMovePins: false, canEditChantier: false },
-  sous_traitant: { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false },
+  super_admin:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: true,  canExportInventory: true  },
+  admin:         { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: true,  canExportInventory: true  },
+  conducteur:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: true,  canExportInventory: true  },
+  chef_equipe:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: false, canExportInventory: false },
+  magasinier:    { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canAdjustInventory: false, canExportInventory: false },
+  observateur:   { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: false, canAdjustInventory: false, canExportInventory: true  },
+  sous_traitant: { canCreate: false, canEdit: false, canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: false, canRecordInventory: false, canAdjustInventory: false, canExportInventory: false },
 };
 
 type Organization = {
@@ -85,6 +91,8 @@ type WebState = {
   notificationPreferences: any[];
   journalEntries: any[];
   checklists: any[];
+  inventoryProducts: any[];
+  inventoryMovements: any[];
 };
 
 type StorageUsageGuardrail = {
@@ -247,6 +255,8 @@ const EMPTY_DATA: WebState = {
   notificationPreferences: [],
   journalEntries: [],
   checklists: [],
+  inventoryProducts: [],
+  inventoryMovements: [],
 };
 
 const PDFJS_VERSION = '5.7.284';
@@ -258,6 +268,7 @@ const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard', icon: 'grid' },
+  { id: 'inventory', label: 'Stock', icon: 'grid' },
   { id: 'chantiers', label: 'Chantiers', icon: 'hammer' },
   { id: 'plans', label: 'Plans', icon: 'map' },
   { id: 'reserves', label: 'Réserves', icon: 'warning' },
@@ -285,7 +296,7 @@ type TabId = typeof TABS[number]['id'];
 type NavIconName = typeof TABS[number]['icon'];
 
 const NAV_GROUPS: { label: string; items: TabId[] }[] = [
-  { label: 'Navigation', items: ['dashboard', 'plans', 'reserves', 'messages', 'terrain'] },
+  { label: 'Navigation', items: ['dashboard', 'inventory', 'plans', 'reserves', 'messages', 'terrain'] },
 ];
 
 type WebI18nValue = {
@@ -317,6 +328,7 @@ function useWebI18n() {
 }
 
 const TAB_LABEL_FALLBACK: Partial<Record<string, string>> = {
+  inventory: 'Stock',
   chantiers: 'Chantiers',
   journal: 'Journal',
   pointage: 'Pointage',
@@ -667,6 +679,7 @@ const ROLE_LABELS: Record<string, string> = {
   admin: 'Administrateur',
   conducteur: 'Conducteur de travaux',
   chef_equipe: "Chef d'équipe",
+  magasinier: 'Magasinier',
   sous_traitant: 'Sous-traitant',
   observateur: 'Observateur',
 };
@@ -789,6 +802,10 @@ function resolveWebPermissions(profile: Profile | null): WebPermissions {
     canUpdateAttendance: base.canUpdateAttendance ?? false,
     canMovePins: base.canMovePins ?? false,
     canEditChantier: base.canEditChantier ?? false,
+    canViewInventory: base.canViewInventory ?? false,
+    canRecordInventory: base.canRecordInventory ?? false,
+    canAdjustInventory: base.canAdjustInventory ?? false,
+    canExportInventory: base.canExportInventory ?? false,
   };
   if (role === 'super_admin') return merged;
   const override = profilePermissionsOverride(profile);
@@ -835,6 +852,22 @@ function canMovePins(profile: Profile | null) {
 
 function canEditChantier(profile: Profile | null) {
   return resolveWebPermissions(profile).canEditChantier;
+}
+
+function canViewInventory(profile: Profile | null) {
+  return resolveWebPermissions(profile).canViewInventory;
+}
+
+function canRecordInventory(profile: Profile | null) {
+  return resolveWebPermissions(profile).canRecordInventory;
+}
+
+function canAdjustInventory(profile: Profile | null) {
+  return resolveWebPermissions(profile).canAdjustInventory;
+}
+
+function canExportInventory(profile: Profile | null) {
+  return resolveWebPermissions(profile).canExportInventory;
 }
 
 function isSubcontractor(profile: Profile | null) {
@@ -2639,6 +2672,20 @@ export default function BuildTrackWebPage() {
     setLanguagePreference: handleWebLanguagePreferenceChange,
   }), [deviceLanguage, handleWebLangChange, handleWebLanguagePreferenceChange, webLang, webLanguagePreference]);
   const { t } = i18n;
+  const isWarehouseWebUser = profile?.role === 'magasinier';
+  const visibleNavigationGroups: { label: string; items: TabId[] }[] = isWarehouseWebUser
+    ? [{ label: 'Navigation', items: ['inventory', 'settings'] }]
+    : NAV_GROUPS.map(group => ({
+        ...group,
+        items: group.items.filter(tabId => tabId !== 'inventory' || canViewInventory(profile)),
+      }));
+
+  useEffect(() => {
+    if (isWarehouseWebUser && activeTab !== 'inventory' && activeTab !== 'settings') {
+      setActiveTab('inventory');
+      setMobileNavOpen(false);
+    }
+  }, [activeTab, isWarehouseWebUser]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -2735,6 +2782,18 @@ export default function BuildTrackWebPage() {
   useEffect(() => {
     if (!session?.user?.id || !profile?.organization_id) return;
     const orgFilter = `organization_id=eq.${profile.organization_id}`;
+    if (profile.role === 'magasinier') {
+      const warehouseChannel = supabaseBrowser
+        .channel(`web-live-inventory-${session.user.id}`)
+        .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'inventory_products', filter: orgFilter }, (payload: any) => {
+          setData(prev => ({ ...prev, inventoryProducts: mergeRealtimeRow(prev.inventoryProducts, payload) }));
+        })
+        .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'inventory_movements', filter: orgFilter }, (payload: any) => {
+          setData(prev => ({ ...prev, inventoryMovements: mergeRealtimeRow(prev.inventoryMovements, payload) }));
+        })
+        .subscribe();
+      return () => { supabaseBrowser.removeChannel(warehouseChannel); };
+    }
     const channel = supabaseBrowser
       .channel('web-live')
       .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'messages', filter: orgFilter }, (payload: any) => {
@@ -2761,11 +2820,17 @@ export default function BuildTrackWebPage() {
           };
         });
       })
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'inventory_products', filter: orgFilter }, (payload: any) => {
+        setData(prev => ({ ...prev, inventoryProducts: mergeRealtimeRow(prev.inventoryProducts, payload) }));
+      })
+      .on('postgres_changes' as any, { event: '*', schema: 'public', table: 'inventory_movements', filter: orgFilter }, (payload: any) => {
+        setData(prev => ({ ...prev, inventoryMovements: mergeRealtimeRow(prev.inventoryMovements, payload) }));
+      })
       .subscribe();
     return () => {
       supabaseBrowser.removeChannel(channel);
     };
-  }, [session?.user?.id, profile?.organization_id]);
+  }, [session?.user?.id, profile?.organization_id, profile?.role]);
 
   // Persistance du suivi de lecture des messages (par utilisateur).
   useEffect(() => {
@@ -2856,6 +2921,34 @@ export default function BuildTrackWebPage() {
       }
       setReportLanguage(preferredLang);
       setProfile({ ...loadedProfile, preferred_language: profileLanguage });
+
+      if (loadedProfile.role === 'magasinier') {
+        const [chantiers, companies, organizations, notificationPreferences, inventoryProducts, inventoryMovements] = await Promise.all([
+          fetchScopedTable('chantiers', loadedProfile, { order: 'created_at', onError }),
+          fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError }),
+          fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError }),
+          fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError }),
+          fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError }),
+          fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError }),
+        ]);
+        setStorageUsage(null);
+        setData({
+          ...EMPTY_DATA,
+          chantiers,
+          companies,
+          organizations,
+          notificationPreferences,
+          inventoryProducts,
+          inventoryMovements,
+        });
+        setActiveTab('inventory');
+        setSelectedProjectId(prev => prev !== 'all' && chantiers.some((chantier: any) => chantier.id === prev) ? prev : chantiers[0]?.id ?? 'all');
+        if (failedTables.length) {
+          setError(`Certaines données de stock n'ont pas pu être chargées (${failedTables.join(', ')}). Cliquez sur Synchroniser pour réessayer.`);
+        }
+        return;
+      }
+
       const { data: storageGuardrail, error: storageGuardrailError } = await (supabaseBrowser as any).rpc('get_storage_usage_guardrail', {
         p_warning_mb: 850,
         p_critical_mb: 950,
@@ -2900,9 +2993,11 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at', onError }),
         fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError }),
       ]);
-      const [journalEntries, checklists] = await Promise.all([
+      const [journalEntries, checklists, inventoryProducts, inventoryMovements] = await Promise.all([
         fetchScopedTable('journal_entries', loadedProfile, { order: 'entry_date', onError }),
         fetchScopedTable('checklists', loadedProfile, { order: 'created_at', onError }),
+        canViewInventory(loadedProfile) ? fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError }) : Promise.resolve([]),
+        canViewInventory(loadedProfile) ? fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError }) : Promise.resolve([]),
       ]);
 
       const visibleScopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies);
@@ -2939,6 +3034,8 @@ export default function BuildTrackWebPage() {
         notificationPreferences,
         journalEntries,
         checklists,
+        inventoryProducts,
+        inventoryMovements,
       };
       setData(nextData);
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
@@ -5293,7 +5390,7 @@ export default function BuildTrackWebPage() {
           <span className={styles.sidebarToggleChevron} aria-hidden="true" />
         </button>
         <nav className={styles.navList} aria-label={t('common.mainMenu')}>
-          {NAV_GROUPS.map(group => (
+          {visibleNavigationGroups.map(group => (
             <div key={group.label} className={styles.navSection}>
               <span className={styles.navSectionLabel}>{t(`nav.group.${group.label.toLowerCase()}`)}</span>
               <div className={styles.navSectionItems}>
@@ -5392,6 +5489,26 @@ export default function BuildTrackWebPage() {
           <div className={styles.loadingBlock}>{t('common.loadingData')}</div>
         ) : (
           <>
+            {activeTab === 'inventory' && (
+              canViewInventory(profile) ? (
+                <InventoryWebView
+                  products={data.inventoryProducts}
+                  movements={data.inventoryMovements}
+                  projects={data.chantiers}
+                  companies={data.companies}
+                  selectedProjectId={selectedProjectId}
+                  organizationId={profile?.organization_id}
+                  canRecord={canRecordInventory(profile)}
+                  canAdjust={canAdjustInventory(profile)}
+                  canExport={canExportInventory(profile)}
+                  onReload={async () => {
+                    if (session.user) await loadEverything(session.user, { background: true });
+                  }}
+                />
+              ) : (
+                <RestrictedTool title="Stock chantier" />
+              )
+            )}
             {activeTab === 'dashboard' && (
               <Dashboard
                 stats={stats}
@@ -12403,12 +12520,15 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   const canManageProject = isAdmin(profile);
   const canEditAttendance = canUpdateAttendance(profile);
   const isSubcontractor = profile?.role === 'sous_traitant';
+  const isWarehouseUser = profile?.role === 'magasinier';
   const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: IonIconName }> = [
     { id: 'compte', label: t('settings.account'), icon: 'person-circle-outline' },
     { id: 'notifications', label: t('settings.notifications'), icon: 'notifications-outline' },
-    { id: 'project', label: t('settings.project'), icon: 'construct-outline' },
-    ...(!isSubcontractor ? [{ id: 'attendance' as const, label: t('settings.attendance'), icon: 'people-outline' as const }] : []),
-    { id: 'integrations', label: t('settings.integrations'), icon: 'apps-outline' },
+    ...(!isWarehouseUser ? [
+      { id: 'project' as const, label: t('settings.project'), icon: 'construct-outline' as const },
+      ...(!isSubcontractor ? [{ id: 'attendance' as const, label: t('settings.attendance'), icon: 'people-outline' as const }] : []),
+      { id: 'integrations' as const, label: t('settings.integrations'), icon: 'apps-outline' as const },
+    ] : []),
   ];
   const visibleCompanies = data.companies;
   const projectDisplayName = selectedProject?.name ?? (selectedProjectId === 'all' ? 'Tous les chantiers' : 'Chantier');
@@ -12422,8 +12542,10 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   }, [profile?.name]);
 
   useEffect(() => {
-    if (settingsTab === 'attendance' && isSubcontractor) setSettingsTab('compte');
-  }, [isSubcontractor, settingsTab]);
+    if ((settingsTab === 'attendance' && isSubcontractor) || (isWarehouseUser && settingsTab !== 'compte' && settingsTab !== 'notifications')) {
+      setSettingsTab('compte');
+    }
+  }, [isSubcontractor, isWarehouseUser, settingsTab]);
 
   useEffect(() => {
     setProjectNameDraft(selectedProject?.name ?? '');

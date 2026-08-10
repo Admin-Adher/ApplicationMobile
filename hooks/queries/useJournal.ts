@@ -233,7 +233,7 @@ export function useJournal() {
         return cached ?? [];
       }
     },
-    enabled: !!user && startupReady,
+    enabled: !!user && user.role !== 'magasinier' && startupReady,
   });
 
   const persist = useCallback((entries: JournalEntryWithChantier[]) => {

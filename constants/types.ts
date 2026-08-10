@@ -3,7 +3,7 @@ export type ReservePriority = 'low' | 'medium' | 'high' | 'critical';
 export type ReserveKind = 'reserve' | 'observation';
 export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'delayed';
 export type DocumentType = 'plan' | 'report' | 'technical' | 'photo' | 'other';
-export type UserRole = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'observateur' | 'sous_traitant';
+export type UserRole = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'magasinier' | 'observateur' | 'sous_traitant';
 
 export interface UserPermissions {
   canCreate: boolean;

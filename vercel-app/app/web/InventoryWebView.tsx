@@ -1,0 +1,446 @@
+'use client';
+
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { supabaseBrowser } from '@/lib/supabase-browser';
+import styles from './inventory.module.css';
+
+type InventoryMode = 'home' | 'in' | 'out' | 'stock' | 'history';
+
+type InventoryProductRow = {
+  id: string;
+  organization_id?: string | null;
+  chantier_id: string;
+  reference: string;
+  designation?: string | null;
+  barcode?: string | null;
+  photo_url?: string | null;
+  current_stock?: number | null;
+  total_entries?: number | null;
+  total_exits?: number | null;
+  min_stock?: number | null;
+  location?: string | null;
+  supplier?: string | null;
+};
+
+type InventoryMovementRow = {
+  id: string;
+  chantier_id: string;
+  product_id: string;
+  movement_type: 'in' | 'out';
+  quantity: number;
+  stock_before?: number | null;
+  stock_after?: number | null;
+  reference?: string | null;
+  designation?: string | null;
+  supplier?: string | null;
+  building_name?: string | null;
+  zone_name?: string | null;
+  company_id?: string | null;
+  company_name?: string | null;
+  person_name?: string | null;
+  comment?: string | null;
+  user_name?: string | null;
+  created_at?: string | null;
+};
+
+type Props = {
+  products: InventoryProductRow[];
+  movements: InventoryMovementRow[];
+  projects: any[];
+  companies: any[];
+  selectedProjectId: string;
+  organizationId?: string | null;
+  canRecord: boolean;
+  canAdjust: boolean;
+  canExport: boolean;
+  onReload: () => Promise<void> | void;
+};
+
+type FormState = {
+  reference: string;
+  barcode: string;
+  designation: string;
+  quantity: string;
+  supplier: string;
+  location: string;
+  minStock: string;
+  buildingName: string;
+  zoneName: string;
+  companyId: string;
+  personName: string;
+  comment: string;
+  allowNegative: boolean;
+};
+
+const EMPTY_FORM: FormState = {
+  reference: '', barcode: '', designation: '', quantity: '', supplier: '', location: '', minStock: '0',
+  buildingName: '', zoneName: '', companyId: '', personName: '', comment: '', allowNegative: false,
+};
+
+function normalizeReference(value: string) {
+  return value.trim().toUpperCase().replace(/[\s-]+/g, '');
+}
+
+function numberValue(value: unknown) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function csvCell(value: unknown) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: unknown[][]) {
+  const content = `\uFEFF${rows.map(row => row.map(csvCell).join(';')).join('\n')}`;
+  const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+export default function InventoryWebView({
+  products,
+  movements,
+  projects,
+  companies,
+  selectedProjectId,
+  organizationId,
+  canRecord,
+  canAdjust,
+  canExport,
+  onReload,
+}: Props) {
+  const [mode, setMode] = useState<InventoryMode>('home');
+  const [search, setSearch] = useState('');
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [photo, setPhoto] = useState<File | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scannerStreamRef = useRef<MediaStream | null>(null);
+  const scannerFrameRef = useRef<number | null>(null);
+
+  const activeProjectId = selectedProjectId === 'all' ? '' : selectedProjectId;
+  const scopedProducts = useMemo(
+    () => products.filter(product => !activeProjectId || String(product.chantier_id) === String(activeProjectId)),
+    [activeProjectId, products],
+  );
+  const scopedMovements = useMemo(
+    () => movements
+      .filter(movement => !activeProjectId || String(movement.chantier_id) === String(activeProjectId))
+      .sort((a, b) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime()),
+    [activeProjectId, movements],
+  );
+  const filteredProducts = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase('fr');
+    const normalized = normalizeReference(search);
+    if (!needle) return scopedProducts;
+    return scopedProducts.filter(product =>
+      String(product.reference ?? '').toLocaleLowerCase('fr').includes(needle)
+      || normalizeReference(product.reference ?? '').includes(normalized)
+      || String(product.designation ?? '').toLocaleLowerCase('fr').includes(needle)
+      || String(product.barcode ?? '').includes(search.trim()),
+    );
+  }, [scopedProducts, search]);
+  const filteredMovements = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase('fr');
+    if (!needle) return scopedMovements;
+    return scopedMovements.filter(movement => [
+      movement.reference,
+      movement.designation,
+      movement.building_name,
+      movement.zone_name,
+      movement.company_name,
+      movement.person_name,
+      movement.comment,
+      movement.user_name,
+    ].some(value => String(value ?? '').toLocaleLowerCase('fr').includes(needle)));
+  }, [scopedMovements, search]);
+  const lowStockProducts = scopedProducts.filter(product =>
+    numberValue(product.current_stock) <= numberValue(product.min_stock),
+  );
+  const totalUnits = scopedProducts.reduce((sum, product) => sum + numberValue(product.current_stock), 0);
+  const selectedProduct = scopedProducts.find(product => product.id === selectedProductId) ?? null;
+  const selectedCompany = companies.find(company => String(company.id) === form.companyId);
+
+  useEffect(() => () => stopScanner(), []);
+
+  function patchForm(patch: Partial<FormState>) {
+    setForm(current => ({ ...current, ...patch }));
+  }
+
+  function selectProduct(product: InventoryProductRow) {
+    setSelectedProductId(product.id);
+    setForm(current => ({
+      ...current,
+      reference: product.reference ?? '',
+      barcode: product.barcode ?? '',
+      designation: product.designation ?? product.reference ?? '',
+      supplier: product.supplier ?? '',
+      location: product.location ?? '',
+      minStock: String(numberValue(product.min_stock)),
+    }));
+  }
+
+  function resolveTypedProduct(reference = form.reference, barcode = form.barcode) {
+    const normalized = normalizeReference(reference);
+    const found = scopedProducts.find(product =>
+      (!!barcode.trim() && String(product.barcode ?? '') === barcode.trim())
+      || (!!normalized && normalizeReference(product.reference ?? '') === normalized),
+    );
+    if (found) selectProduct(found);
+    else setSelectedProductId(null);
+    return found ?? null;
+  }
+
+  function openMovement(nextMode: 'in' | 'out', product?: InventoryProductRow) {
+    setMode(nextMode);
+    setError('');
+    setNotice('');
+    setPhoto(null);
+    setForm({ ...EMPTY_FORM });
+    setSelectedProductId(null);
+    if (product) selectProduct(product);
+  }
+
+  function stopScanner() {
+    if (scannerFrameRef.current != null) cancelAnimationFrame(scannerFrameRef.current);
+    scannerFrameRef.current = null;
+    scannerStreamRef.current?.getTracks().forEach(track => track.stop());
+    scannerStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setScannerOpen(false);
+  }
+
+  async function startScanner() {
+    setScanError('');
+    const BarcodeDetectorCtor = (window as any).BarcodeDetector;
+    if (!BarcodeDetectorCtor) {
+      setScanError("Ce navigateur ne prend pas en charge la lecture native. Utilisez l'application mobile ou saisissez le code.");
+      return;
+    }
+    try {
+      setScannerOpen(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+      scannerStreamRef.current = stream;
+      if (!videoRef.current) return;
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      const detector = new BarcodeDetectorCtor({ formats: ['qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'] });
+      const detect = async () => {
+        if (!videoRef.current || !scannerStreamRef.current) return;
+        try {
+          const codes = await detector.detect(videoRef.current);
+          const rawValue = String(codes?.[0]?.rawValue ?? '').trim();
+          if (rawValue) {
+            patchForm({ barcode: rawValue, reference: form.reference || rawValue });
+            const found = scopedProducts.find(product => String(product.barcode ?? '') === rawValue);
+            if (found) selectProduct(found);
+            stopScanner();
+            return;
+          }
+        } catch {}
+        scannerFrameRef.current = requestAnimationFrame(detect);
+      };
+      scannerFrameRef.current = requestAnimationFrame(detect);
+    } catch (scanFailure: any) {
+      stopScanner();
+      setScanError(scanFailure?.message ?? "Impossible d'ouvrir la caméra.");
+    }
+  }
+
+  async function uploadPhoto(file: File, productId: string) {
+    const extension = file.name.split('.').pop()?.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'jpg';
+    const safeOrg = String(organizationId ?? 'organization').replace(/[^a-z0-9_-]/gi, '_');
+    const path = `${safeOrg}/inventory/${activeProjectId}/${productId}-${Date.now()}.${extension}`;
+    const { data, error: uploadError } = await supabaseBrowser.storage
+      .from('photos')
+      .upload(path, file, { contentType: file.type || 'image/jpeg', upsert: false });
+    if (uploadError) throw uploadError;
+    return supabaseBrowser.storage.from('photos').getPublicUrl(data.path).data.publicUrl;
+  }
+
+  async function submitMovement(event: React.FormEvent) {
+    event.preventDefault();
+    if (mode !== 'in' && mode !== 'out') return;
+    setError('');
+    setNotice('');
+    if (!canRecord) return setError("Votre rôle n'autorise pas l'enregistrement de mouvements.");
+    if (!activeProjectId) return setError('Sélectionnez un chantier.');
+    const existing = selectedProduct ?? resolveTypedProduct();
+    const reference = form.reference.trim().toUpperCase();
+    const quantity = Number(form.quantity);
+    if (!reference) return setError('La référence est obligatoire.');
+    if (!Number.isFinite(quantity) || quantity <= 0) return setError('La quantité doit être supérieure à zéro.');
+    if (mode === 'out' && !existing) return setError("Cette référence n'existe pas dans le stock du chantier.");
+    if (mode === 'out' && !form.buildingName.trim()) return setError('La destination est obligatoire pour une sortie.');
+    if (!existing && !form.designation.trim()) return setError('La désignation est obligatoire pour une nouvelle référence.');
+    if (mode === 'out' && existing && quantity > numberValue(existing.current_stock) && !(canAdjust && form.allowNegative)) {
+      return setError(`Stock insuffisant : ${numberValue(existing.current_stock)} unité(s) disponible(s).`);
+    }
+
+    setSaving(true);
+    try {
+      const productId = existing?.id ?? crypto.randomUUID();
+      const movementId = crypto.randomUUID();
+      const operationId = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const photoUrl = photo ? await uploadPhoto(photo, productId) : existing?.photo_url ?? null;
+      const designation = (existing?.designation ?? form.designation).trim() || reference;
+      const { data: rpcData, error: rpcError } = await (supabaseBrowser.rpc as any)('record_inventory_movement', {
+        p_operation_id: operationId,
+        p_movement: {
+          id: movementId,
+          chantier_id: activeProjectId,
+          product_id: productId,
+          movement_type: mode,
+          quantity,
+          reference,
+          barcode: form.barcode.trim() || existing?.barcode || null,
+          supplier: form.supplier.trim() || existing?.supplier || null,
+          location: form.location.trim() || existing?.location || null,
+          building_name: form.buildingName.trim() || null,
+          zone_name: form.zoneName.trim() || null,
+          company_id: form.companyId || null,
+          company_name: selectedCompany?.name ?? null,
+          person_name: form.personName.trim() || null,
+          comment: form.comment.trim() || null,
+          created_at: now,
+        },
+        p_product: {
+          id: productId,
+          reference,
+          designation,
+          barcode: form.barcode.trim() || existing?.barcode || null,
+          photo_url: photoUrl,
+          min_stock: numberValue(form.minStock),
+          location: form.location.trim() || existing?.location || null,
+          supplier: form.supplier.trim() || existing?.supplier || null,
+        },
+        p_allow_negative: canAdjust && form.allowNegative,
+      });
+      if (rpcError) throw rpcError;
+      const outcome = Array.isArray(rpcData) ? rpcData[0] : rpcData;
+      if (!outcome || outcome.status !== 'ok') throw new Error(outcome?.message ?? 'Mouvement refusé par le serveur.');
+      await onReload();
+      setNotice(`${mode === 'in' ? 'Entrée' : 'Sortie'} enregistrée. Nouveau stock : ${numberValue(outcome.stock_after)}.`);
+      setForm({ ...EMPTY_FORM });
+      setSelectedProductId(null);
+      setPhoto(null);
+      setMode('home');
+    } catch (submitError: any) {
+      setError(submitError?.message ?? String(submitError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function exportStock() {
+    downloadCsv(`stock-${activeProjectId || 'chantier'}.csv`, [
+      ['Référence', 'Désignation', 'Stock', 'Entrées', 'Sorties', 'Minimum', 'Localisation', 'Fournisseur', 'Code-barres'],
+      ...filteredProducts.map(product => [product.reference, product.designation, numberValue(product.current_stock), numberValue(product.total_entries), numberValue(product.total_exits), numberValue(product.min_stock), product.location, product.supplier, product.barcode]),
+    ]);
+  }
+
+  function exportHistory() {
+    downloadCsv(`mouvements-stock-${activeProjectId || 'chantier'}.csv`, [
+      ['Date', 'Type', 'Référence', 'Désignation', 'Quantité', 'Avant', 'Après', 'Destination', 'Zone', 'Entreprise', 'Personne', 'Utilisateur', 'Commentaire'],
+      ...filteredMovements.map(movement => [movement.created_at, movement.movement_type === 'in' ? 'Entrée' : 'Sortie', movement.reference, movement.designation, movement.quantity, movement.stock_before, movement.stock_after, movement.building_name, movement.zone_name, movement.company_name, movement.person_name, movement.user_name, movement.comment]),
+    ]);
+  }
+
+  return (
+    <div className={styles.root}>
+      <div className={styles.hero}>
+        <div>
+          <p className={styles.eyebrow}>Gestion de stock chantier</p>
+          <h2>Stock en temps réel</h2>
+          <p>Entrée → scan/référence → quantité → validation</p>
+        </div>
+        <button type="button" className={styles.refreshButton} onClick={() => void onReload()} disabled={saving}>Actualiser</button>
+      </div>
+
+      {error ? <div className={styles.error} role="alert">{error}<button type="button" onClick={() => setError('')}>×</button></div> : null}
+      {notice ? <div className={styles.notice} role="status">{notice}<button type="button" onClick={() => setNotice('')}>×</button></div> : null}
+      {scanError ? <div className={styles.error} role="alert">{scanError}<button type="button" onClick={() => setScanError('')}>×</button></div> : null}
+
+      <div className={styles.actions}>
+        <button type="button" className={mode === 'in' ? styles.actionActive : ''} onClick={() => openMovement('in')} disabled={!canRecord}>
+          <span className={styles.actionIcon}>↓</span><strong>ENTRÉE</strong><small>Réceptionner du matériel</small>
+        </button>
+        <button type="button" className={mode === 'out' ? styles.actionActive : ''} onClick={() => openMovement('out')} disabled={!canRecord}>
+          <span className={`${styles.actionIcon} ${styles.exitIcon}`}>↑</span><strong>SORTIE</strong><small>Envoyer vers une zone</small>
+        </button>
+        <button type="button" className={mode === 'stock' ? styles.actionActive : ''} onClick={() => setMode('stock')}>
+          <span className={styles.actionIcon}>▦</span><strong>STOCK</strong><small>Consulter les références</small>
+        </button>
+        <button type="button" className={mode === 'history' ? styles.actionActive : ''} onClick={() => setMode('history')}>
+          <span className={styles.actionIcon}>◷</span><strong>HISTORIQUE</strong><small>Tracer les mouvements</small>
+        </button>
+      </div>
+
+      <div className={styles.kpis}>
+        <div><strong>{scopedProducts.length}</strong><span>Références</span></div>
+        <div><strong>{totalUnits}</strong><span>Unités en stock</span></div>
+        <div className={lowStockProducts.length ? styles.lowKpi : ''}><strong>{lowStockProducts.length}</strong><span>Stocks faibles</span></div>
+        <div><strong>{scopedMovements.length}</strong><span>Mouvements</span></div>
+      </div>
+
+      {(mode === 'in' || mode === 'out') && (
+        <form className={styles.formCard} onSubmit={submitMovement}>
+          <div className={styles.formHeading}>
+            <div><span>{mode === 'in' ? 'Entrée de matériel' : 'Sortie de matériel'}</span><h3>{mode === 'in' ? 'Ajouter au stock' : 'Déduire du stock'}</h3></div>
+            <button type="button" className={styles.closeButton} onClick={() => { stopScanner(); setMode('home'); }}>×</button>
+          </div>
+          <div className={styles.scanRow}>
+            <label><span>Référence *</span><input list="inventory-products" value={form.reference} onChange={event => { patchForm({ reference: event.target.value }); setSelectedProductId(null); }} onBlur={() => resolveTypedProduct()} placeholder="ABC-12580" autoFocus /></label>
+            <label><span>Code-barres / QR</span><input value={form.barcode} onChange={event => { patchForm({ barcode: event.target.value }); setSelectedProductId(null); }} onBlur={() => resolveTypedProduct()} inputMode="numeric" /></label>
+            <button type="button" className={styles.scanButton} onClick={() => scannerOpen ? stopScanner() : void startScanner()}>{scannerOpen ? 'Fermer caméra' : 'Scanner'}</button>
+          </div>
+          <datalist id="inventory-products">{scopedProducts.map(product => <option key={product.id} value={product.reference}>{product.designation}</option>)}</datalist>
+          {scannerOpen ? <div className={styles.scanner}><video ref={videoRef} muted playsInline /><div className={styles.scanFrame} /></div> : null}
+          {selectedProduct ? <div className={styles.foundProduct}><strong>Produit trouvé</strong><span>{selectedProduct.designation}</span><b>{numberValue(selectedProduct.current_stock)} en stock</b></div> : null}
+          <div className={styles.formGrid}>
+            <label className={styles.wide}><span>Désignation *</span><input value={form.designation} onChange={event => patchForm({ designation: event.target.value })} disabled={!!selectedProduct} placeholder="Vanne DN25" /></label>
+            <label><span>Quantité *</span><input value={form.quantity} onChange={event => patchForm({ quantity: event.target.value })} type="number" min="0.001" step="any" /></label>
+            <label><span>Stock après mouvement</span><input value={selectedProduct ? String(numberValue(selectedProduct.current_stock) + (mode === 'in' ? 1 : -1) * numberValue(form.quantity)) : mode === 'in' ? form.quantity : ''} readOnly /></label>
+            {mode === 'in' ? <>
+              <label><span>Fournisseur</span><input value={form.supplier} onChange={event => patchForm({ supplier: event.target.value })} /></label>
+              <label><span>Emplacement</span><input value={form.location} onChange={event => patchForm({ location: event.target.value })} placeholder="Magasin principal" /></label>
+              <label><span>Stock minimum</span><input value={form.minStock} onChange={event => patchForm({ minStock: event.target.value })} type="number" min="0" /></label>
+              <label><span>Photo du produit</span><input type="file" accept="image/*" capture="environment" onChange={event => setPhoto(event.target.files?.[0] ?? null)} /></label>
+            </> : <>
+              <label><span>Bâtiment / destination *</span><input value={form.buildingName} onChange={event => patchForm({ buildingName: event.target.value })} placeholder="Service Building" /></label>
+              <label><span>Zone</span><input value={form.zoneName} onChange={event => patchForm({ zoneName: event.target.value })} /></label>
+              <label><span>Entreprise</span><select value={form.companyId} onChange={event => patchForm({ companyId: event.target.value })}><option value="">Non renseignée</option>{companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}</select></label>
+              <label><span>Personne</span><input value={form.personName} onChange={event => patchForm({ personName: event.target.value })} /></label>
+            </>}
+            <label className={styles.wide}><span>Commentaire</span><textarea value={form.comment} onChange={event => patchForm({ comment: event.target.value })} rows={3} /></label>
+            {mode === 'out' && canAdjust && selectedProduct && numberValue(form.quantity) > numberValue(selectedProduct.current_stock) ? <label className={styles.checkbox}><input type="checkbox" checked={form.allowNegative} onChange={event => patchForm({ allowNegative: event.target.checked })} /><span>Autoriser exceptionnellement le stock négatif</span></label> : null}
+          </div>
+          <div className={styles.formActions}><button type="button" onClick={() => setMode('home')}>Annuler</button><button type="submit" disabled={saving}>{saving ? 'Enregistrement…' : mode === 'in' ? "VALIDER L'ENTRÉE" : 'VALIDER LA SORTIE'}</button></div>
+        </form>
+      )}
+
+      {(mode === 'home' || mode === 'stock' || mode === 'history') && (
+        <section className={styles.tableCard}>
+          <div className={styles.tableToolbar}>
+            <div><h3>{mode === 'history' ? 'Historique des mouvements' : mode === 'stock' ? 'Tableau de stock' : 'Stock chantier'}</h3><p>{mode === 'history' ? `${filteredMovements.length} mouvement(s)` : `${filteredProducts.length} référence(s)`}</p></div>
+            <div className={styles.tableTools}><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Rechercher référence, produit, destination…" />{canExport ? <button type="button" onClick={mode === 'history' ? exportHistory : exportStock}>Excel / CSV</button> : null}{canExport ? <button type="button" onClick={() => window.print()}>PDF</button> : null}</div>
+          </div>
+          {mode === 'history' ? (
+            <div className={styles.tableScroll}><table><thead><tr><th>Date</th><th>Type</th><th>Référence</th><th>Désignation</th><th>Qté</th><th>Stock</th><th>Destination</th><th>Entreprise</th><th>Utilisateur</th><th>Commentaire</th></tr></thead><tbody>{filteredMovements.map(movement => <tr key={movement.id}><td>{movement.created_at ? new Date(movement.created_at).toLocaleString('fr-FR') : '—'}</td><td><span className={movement.movement_type === 'in' ? styles.inBadge : styles.outBadge}>{movement.movement_type === 'in' ? 'Entrée' : 'Sortie'}</span></td><td><strong>{movement.reference}</strong></td><td>{movement.designation}</td><td>{movement.movement_type === 'in' ? '+' : '−'}{movement.quantity}</td><td>{numberValue(movement.stock_before)} → {numberValue(movement.stock_after)}</td><td>{movement.building_name || movement.zone_name || '—'}</td><td>{movement.company_name || '—'}</td><td>{movement.user_name || '—'}</td><td>{movement.comment || '—'}</td></tr>)}</tbody></table>{!filteredMovements.length ? <p className={styles.empty}>Aucun mouvement enregistré.</p> : null}</div>
+          ) : (
+            <div className={styles.tableScroll}><table><thead><tr><th>Photo</th><th>Référence</th><th>Désignation</th><th>Stock</th><th>Entrées</th><th>Sorties</th><th>Minimum</th><th>Localisation</th><th>Actions</th></tr></thead><tbody>{filteredProducts.map(product => { const low = numberValue(product.current_stock) <= numberValue(product.min_stock); return <tr key={product.id} className={low ? styles.lowRow : ''}><td>{product.photo_url ? <img className={styles.productPhoto} src={product.photo_url} alt="" /> : <span className={styles.photoPlaceholder}>▦</span>}</td><td><strong>{product.reference}</strong>{product.barcode ? <small>{product.barcode}</small> : null}</td><td>{product.designation || product.reference}</td><td><b className={low ? styles.lowStock : ''}>{numberValue(product.current_stock)}</b>{low ? <small className={styles.warning}>Stock faible</small> : null}</td><td>{numberValue(product.total_entries)}</td><td>{numberValue(product.total_exits)}</td><td>{numberValue(product.min_stock)}</td><td>{product.location || '—'}</td><td><div className={styles.rowActions}>{canRecord ? <button type="button" onClick={() => openMovement('in', product)}>+ Entrée</button> : null}{canRecord ? <button type="button" onClick={() => openMovement('out', product)}>− Sortie</button> : null}</div></td></tr>; })}</tbody></table>{!filteredProducts.length ? <p className={styles.empty}>Aucun produit dans ce chantier.</p> : null}</div>
+          )}
+        </section>
+      )}
+    </div>
+  );
+}

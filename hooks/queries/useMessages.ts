@@ -100,6 +100,7 @@ export function useMessages() {
     // Clear stale messages from previous account immediately
     setMessages([]);
     loadedChannelIdsRef.current.clear();
+    if (user.role === 'magasinier') return;
     // Bug 6: namespace cache by userId so different accounts don't share cached messages
     const cacheKey = isSupabaseConfigured ? MESSAGES_CACHE_PREFIX + user.id : MOCK_MESSAGES_KEY;
     AsyncStorage.getItem(cacheKey).then(raw => {
@@ -124,10 +125,10 @@ export function useMessages() {
     if (!isSupabaseConfigured) return;
     loadedChannelIdsRef.current.clear();
     loadRecentMessages();
-  }, [user?.id, reconnectSeq]);
+  }, [user?.id, user?.role, reconnectSeq]);
 
   async function loadRecentMessages() {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured || user?.role === 'magasinier') return;
     // Guard: don't hit Supabase with an expired JWT — it returns [] under RLS
     // and would clear all cached messages. Also avoids a pointless round-trip.
     if (!(await isSupabaseSessionValid())) return;
@@ -195,7 +196,7 @@ export function useMessages() {
   loadRecentMessagesRef.current = () => { loadRecentMessages(); };
 
   useEffect(() => {
-    if (!isSupabaseConfigured || !user) return;
+    if (!isSupabaseConfigured || !user || user.role === 'magasinier') return;
 
     const channelName = `messages-realtime-v2-${user.id}`;
     const globalSub = supabase
@@ -251,7 +252,7 @@ export function useMessages() {
       });
 
     return () => { supabase.removeChannel(globalSub); };
-  }, [user?.id, reconnectSeq]);
+  }, [user?.id, user?.role, reconnectSeq]);
 
   const addMessage = useCallback((
     channelId: string,

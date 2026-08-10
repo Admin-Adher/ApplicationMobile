@@ -68,7 +68,7 @@ export function useProfiles() {
         return (cached?.length ? cached : MOCK_PROFILES);
       }
     },
-    enabled: !!user,
+    enabled: !!user && user.role !== 'magasinier',
   });
 
   return {

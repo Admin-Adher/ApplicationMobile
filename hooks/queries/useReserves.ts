@@ -369,7 +369,7 @@ export function useReserves() {
         return cached ?? [];
       }
     },
-    enabled: !!user,
+    enabled: !!user && user.role !== 'magasinier',
   });
 
   const persist = useCallback((reserves: Reserve[]) => {

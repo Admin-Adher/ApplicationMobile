@@ -68,7 +68,7 @@ export function useDocuments() {
         return cached ?? [];
       }
     },
-    enabled: !!user && startupReady,
+    enabled: !!user && user.role !== 'magasinier' && startupReady,
   });
 
   const persist = useCallback((documents: Document[]) => {

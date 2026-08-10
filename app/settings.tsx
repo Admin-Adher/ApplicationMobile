@@ -57,6 +57,7 @@ const ROLE_COLORS: Record<string, string> = {
   admin:        '#EF4444',
   conducteur:   '#3B82F6',
   chef_equipe:  '#F59E0B',
+  magasinier:   '#0F766E',
   observateur:  '#6B7280',
   sous_traitant:'#10B981',
 };
@@ -121,6 +122,13 @@ export default function SettingsScreen() {
   const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
   const isSousTraitant = user?.role === 'sous_traitant';
+  const isWarehouseUser = user?.role === 'magasinier';
+
+  useEffect(() => {
+    if (isWarehouseUser && activeTab !== 'compte' && activeTab !== 'notifications') {
+      setActiveTab('compte');
+    }
+  }, [activeTab, isWarehouseUser]);
 
   type DiagState = {
     loading: boolean;
@@ -315,7 +323,7 @@ export default function SettingsScreen() {
 
   const diagIssues: { level: 'error' | 'warn'; msg: string }[] = [];
   if (diag && !diag.loading && !diag.error) {
-    const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'super_admin'];
+    const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'magasinier', 'super_admin'];
     if (diag.serverOrgId && user?.organizationId && diag.serverOrgId !== user.organizationId) {
       diagIssues.push({ level: 'error', msg: t('settings.diagnostic.orgMismatch', { local: user.organizationId.slice(0, 8), server: diag.serverOrgId.slice(0, 8) }) });
     }
@@ -614,17 +622,24 @@ export default function SettingsScreen() {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-      <Header title={t('common.settings')} subtitle={t('settings.accountAndProject')} showBack />
+      <Header
+        title={t('common.settings')}
+        subtitle={isWarehouseUser ? user?.roleLabel : t('settings.accountAndProject')}
+        showBack
+        onBack={isWarehouseUser ? () => router.replace('/inventory' as any) : undefined}
+      />
 
       <PageContainer maxWidth={820}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
         {[
           { key: 'compte',       icon: 'person-circle-outline', label: t('settings.account'),          nav: false },
           { key: 'notifications', icon: 'notifications-outline', label: t('settings.notifications'),   nav: false },
-          ...((user?.role === 'admin' || user?.role === 'super_admin') ? [{ key: 'abonnement', icon: 'card-outline', label: t('settings.subscription'), nav: true }] : []),
-          { key: 'project',      icon: 'construct-outline',     label: t('settings.project'),          nav: false },
-          ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: t('settings.attendance', { count: totalDays }), nav: false }] : []),
-          { key: 'integrations', icon: 'apps-outline',          label: t('settings.integrations'), nav: false },
+          ...(!isWarehouseUser ? [
+            ...((user?.role === 'admin' || user?.role === 'super_admin') ? [{ key: 'abonnement', icon: 'card-outline', label: t('settings.subscription'), nav: true }] : []),
+            { key: 'project',      icon: 'construct-outline',     label: t('settings.project'),          nav: false },
+            ...(!isSousTraitant ? [{ key: 'attendance', icon: 'people-outline', label: t('settings.attendance', { count: totalDays }), nav: false }] : []),
+            { key: 'integrations', icon: 'apps-outline',          label: t('settings.integrations'), nav: false },
+          ] : []),
         ].map(tab => (
           <TouchableOpacity
             key={tab.key}
@@ -1413,7 +1428,7 @@ export default function SettingsScreen() {
         )}
       </ScrollView>
       </PageContainer>
-      <BottomNavBar />
+      {!isWarehouseUser && <BottomNavBar />}
     </KeyboardAvoidingView>
   );
 }

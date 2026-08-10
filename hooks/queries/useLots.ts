@@ -85,7 +85,7 @@ export function useLots() {
         return (cached?.length ? cached : STANDARD_LOTS);
       }
     },
-    enabled: !!user && startupReady,
+    enabled: !!user && user.role !== 'magasinier' && startupReady,
   });
 
   const persist = useCallback((lots: Lot[]) => {

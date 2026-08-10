@@ -12,13 +12,15 @@ import { useAuth } from '@/context/AuthContext';
 import { useInventory, normalizeInventoryReference, fetchInventoryMovementsForExport } from '@/hooks/queries/useInventory';
 import { exportInventoryPdf } from '@/lib/inventoryExport';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
+import { isWarehouseRole } from '@/lib/roleNavigation';
 
 export default function InventoryHomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const copy = useInventoryCopy();
   const { activeChantier } = useApp();
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
+  const isWarehouseUser = isWarehouseRole(user?.role);
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const [search, setSearch] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -38,7 +40,7 @@ export default function InventoryHomeScreen() {
   if (!permissions.canViewInventory) {
     return (
       <View style={styles.root}>
-        <Header title={copy.module} showBack backFallback="/(tabs)/more" />
+        <Header title={copy.module} showBack={!isWarehouseUser} backFallback="/(tabs)/more" />
         <InventoryEmpty icon="lock-closed-outline" title={copy.restricted} />
       </View>
     );
@@ -47,7 +49,13 @@ export default function InventoryHomeScreen() {
   if (!activeChantier) {
     return (
       <View style={styles.root}>
-        <Header title={copy.module} showBack backFallback="/(tabs)/more" />
+        <Header
+          title={copy.module}
+          showBack={!isWarehouseUser}
+          backFallback="/(tabs)/more"
+          rightIcon={isWarehouseUser ? 'settings-outline' : undefined}
+          onRightPress={isWarehouseUser ? () => router.push('/settings' as any) : undefined}
+        />
         <InventoryEmpty icon="business-outline" title={copy.noSite} />
         <TouchableOpacity style={styles.primaryButton} onPress={openChantierSwitcher}>
           <Text style={styles.primaryButtonText}>{copy.chooseSite}</Text>
@@ -81,16 +89,35 @@ export default function InventoryHomeScreen() {
       <Header
         title={copy.module}
         subtitle={activeChantier.name}
-        showBack
+        showBack={!isWarehouseUser}
         backFallback="/(tabs)/more"
-        rightIcon={permissions.canExportInventory ? 'download-outline' : undefined}
-        onRightPress={permissions.canExportInventory ? handlePdfExport : undefined}
+        rightActions={isWarehouseUser ? (
+          <View style={styles.headerActions}>
+            {permissions.canExportInventory && (
+              <TouchableOpacity style={styles.headerAction} onPress={handlePdfExport} accessibilityLabel={copy.exportPdf}>
+                <Ionicons name="download-outline" size={21} color={C.primary} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.headerAction} onPress={() => router.push('/settings' as any)} accessibilityLabel="Paramètres">
+              <Ionicons name="settings-outline" size={21} color={C.primary} />
+            </TouchableOpacity>
+          </View>
+        ) : undefined}
+        rightIcon={!isWarehouseUser && permissions.canExportInventory ? 'download-outline' : undefined}
+        onRightPress={!isWarehouseUser && permissions.canExportInventory ? handlePdfExport : undefined}
       />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
         keyboardShouldPersistTaps="handled"
         refreshControl={undefined}
       >
+        {isWarehouseUser && (
+          <TouchableOpacity style={styles.siteButton} onPress={openChantierSwitcher}>
+            <Ionicons name="business-outline" size={17} color={C.primary} />
+            <Text style={styles.siteButtonText}>{activeChantier.name}</Text>
+            <Ionicons name="chevron-down" size={16} color={C.textSub} />
+          </TouchableOpacity>
+        )}
         <InventorySearch value={search} onChangeText={setSearch} />
         {!!search && (
           <View style={styles.searchResults}>
@@ -159,6 +186,10 @@ export default function InventoryHomeScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, gap: 16 },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  headerAction: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.primaryBg },
+  siteButton: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 13, paddingVertical: 11, borderRadius: 13, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
+  siteButtonText: { flex: 1, color: C.text, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   primaryButton: { alignSelf: 'center', backgroundColor: C.primary, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 13 },
   primaryButtonText: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 },
   searchResults: { gap: 8 },

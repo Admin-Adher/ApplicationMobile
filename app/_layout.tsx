@@ -17,6 +17,7 @@ import '@/lib/i18n';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient } from '@/lib/queryClient';
 import { asyncStoragePersister } from '@/lib/queryPersister';
+import { canWarehouseRoleAccessRootSegment, isWarehouseRole, WAREHOUSE_HOME_ROUTE } from '@/lib/roleNavigation';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AppAlertHost } from '@/lib/appAlert';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
@@ -207,7 +208,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [isAuthenticated]);
 
   useEffect(() => {
-    if (!isAuthenticated || routeBlocking) return;
+    if (!isAuthenticated || routeBlocking || isWarehouseRole(user?.role)) return;
     const routeSegments = segments as string[];
     const seg0 = routeSegments[0];
     const seg1 = routeSegments[1];
@@ -215,17 +216,18 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       const tab = seg1 ? `/(tabs)/${seg1}` : '/(tabs)';
       AsyncStorage.setItem(LAST_TAB_KEY, tab).catch(() => {});
     }
-  }, [segments, isAuthenticated, routeBlocking]);
+  }, [segments, isAuthenticated, routeBlocking, user?.role]);
 
   useEffect(() => {
     if (routeBlocking || !isAuthenticated || hasRestoredTab.current) return;
     hasRestoredTab.current = true;
+    if (isWarehouseRole(user?.role)) return;
     AsyncStorage.getItem(LAST_TAB_KEY).then((savedTab) => {
       if (savedTab && savedTab !== '/(tabs)' && savedTab !== '/(tabs)/index') {
         router.replace(savedTab as any);
       }
     }).catch(() => {});
-  }, [routeBlocking, isAuthenticated]);
+  }, [routeBlocking, isAuthenticated, user?.role]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -235,8 +237,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
     if (!isAuthenticated && !inPublic) {
       router.replace('/login');
-    } else if (isAuthenticated && seg0 === 'login') {
-      router.replace('/(tabs)');
     } else if (
       isAuthenticated &&
       user &&
@@ -245,6 +245,15 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       seg0 !== 'pending-invite'
     ) {
       router.replace('/pending-invite');
+    } else if (
+      isAuthenticated &&
+      user?.organizationId &&
+      isWarehouseRole(user.role) &&
+      !canWarehouseRoleAccessRootSegment(seg0)
+    ) {
+      router.replace(WAREHOUSE_HOME_ROUTE);
+    } else if (isAuthenticated && seg0 === 'login') {
+      router.replace('/(tabs)');
     } else if (isAuthenticated && seg0 === 'pending-invite' && user?.organizationId) {
       router.replace('/(tabs)');
     }

@@ -5,6 +5,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   admin: 'Administrator',
   conducteur: 'Construction manager',
   chef_equipe: 'Team lead',
+  magasinier: 'Storekeeper',
   observateur: 'Observer',
   sous_traitant: 'Subcontractor',
 };

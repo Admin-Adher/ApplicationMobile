@@ -65,7 +65,7 @@ export function useVisites() {
         return cached ?? [];
       }
     },
-    enabled: !!user && startupReady,
+    enabled: !!user && user.role !== 'magasinier' && startupReady,
   });
 
   const persist = useCallback((visites: Visite[]) => {
