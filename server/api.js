@@ -6,6 +6,12 @@ const nodemailer = require('nodemailer');
 const crypto = require('crypto');
 const http = require('http');
 const emailTemplates = require('./email-templates');
+const {
+  claimInventoryBarcodeLookup: claimSharedInventoryBarcodeLookup,
+  completeInventoryBarcodeLookup: completeSharedInventoryBarcodeLookup,
+  markInventoryBarcodeNotFound: markSharedInventoryBarcodeNotFound,
+  releaseInventoryBarcodeLookup: releaseSharedInventoryBarcodeLookup,
+} = require('./inventory-barcode-cache');
 
 const app = express();
 app.use(express.json());
@@ -980,17 +986,76 @@ app.post('/api/inventory-barcode-lookup', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Configuration serveur manquante', code: 'server_not_configured' });
   const profile = await authenticatedProfile(req, supabase);
   if (!profile) return res.status(401).json({ error: 'Session invalide', code: 'invalid_session' });
-  if (!allowInventoryBarcodeLookup(profile.id)) {
-    return res.status(429).json({ error: 'Trop de recherches, reessayez dans une minute.', code: 'rate_limited' });
-  }
 
   const code = normalizeInventoryBarcodeLookupCode(req.body?.code);
   const language = String(req.body?.language || 'fr').split('-')[0].toLowerCase();
   if (code.length < 4) return res.status(400).json({ error: 'Code-barres invalide', code: 'invalid_barcode' });
+
+  let cacheClaim = null;
+  try {
+    cacheClaim = await claimSharedInventoryBarcodeLookup(supabase, code);
+    if (cacheClaim.state === 'hit' && cacheClaim.match?.designation) {
+      return res.json({
+        match: cacheClaim.match,
+        provider: 'supabase-cache',
+        cachedProvider: cacheClaim.cachedProvider,
+        providersTried: [],
+        cacheHit: true,
+      });
+    }
+    if (cacheClaim.state === 'negative_hit') {
+      return res.status(404).json({
+        error: 'Produit introuvable',
+        code: 'product_not_found',
+        provider: 'supabase-cache',
+        cacheHit: true,
+      });
+    }
+    if (cacheClaim.state === 'pending') {
+      return res.status(409).json({
+        error: 'Recherche identique deja en cours',
+        code: 'lookup_in_progress',
+        retryAfterMs: cacheClaim.retryAfterMs || 500,
+      });
+    }
+  } catch (error) {
+    // Cache deployment/outage must not disable the existing provider chain.
+    console.warn('[inventory-barcode-cache] unavailable:', error?.message || error);
+    cacheClaim = null;
+  }
+
+  // Shared cache hits are free; only real external searches consume the
+  // per-user rate-limit budget.
+  if (!allowInventoryBarcodeLookup(profile.id)) {
+    if (cacheClaim?.state === 'claimed') {
+      await releaseSharedInventoryBarcodeLookup(supabase, code, cacheClaim.leaseToken).catch(() => {});
+    }
+    return res.status(429).json({ error: 'Trop de recherches, reessayez dans une minute.', code: 'rate_limited' });
+  }
+
   try {
     const search = await searchInventoryWebProvidersServer(code, language);
     const match = selectInventoryWebMatch(search.results, code);
-    if (!match) return res.status(404).json({ error: 'Produit introuvable', code: 'product_not_found' });
+    if (!match) {
+      if (cacheClaim?.state === 'claimed') {
+        await markSharedInventoryBarcodeNotFound(supabase, code, cacheClaim.leaseToken)
+          .catch(error => console.warn('[inventory-barcode-cache] negative cache failed:', error?.message || error));
+      }
+      return res.status(404).json({ error: 'Produit introuvable', code: 'product_not_found' });
+    }
+    if (cacheClaim?.state === 'claimed') {
+      try {
+        await completeSharedInventoryBarcodeLookup(supabase, code, cacheClaim.leaseToken, match, {
+          provider: search.provider,
+          providersTried: search.providersTried,
+          fallbackReason: search.fallbackReason,
+          lookupVersion: 1,
+        });
+      } catch (error) {
+        console.warn('[inventory-barcode-cache] completion failed:', error?.message || error);
+        await releaseSharedInventoryBarcodeLookup(supabase, code, cacheClaim.leaseToken).catch(() => {});
+      }
+    }
     return res.json({
       match,
       provider: search.provider,
@@ -998,6 +1063,9 @@ app.post('/api/inventory-barcode-lookup', async (req, res) => {
       fallbackReason: search.fallbackReason,
     });
   } catch (error) {
+    if (cacheClaim?.state === 'claimed') {
+      await releaseSharedInventoryBarcodeLookup(supabase, code, cacheClaim.leaseToken).catch(() => {});
+    }
     console.error('[inventory-barcode-lookup]', error?.message || error);
     const notConfigured = error?.message?.includes('configured');
     return res.status(notConfigured ? 503 : 502).json({

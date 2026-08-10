@@ -9,7 +9,7 @@ Après lecture du symbole par `expo-camera`, BuildTrack recherche la désignatio
 3. [Open Products Facts](https://world.openproductsfacts.org/) ;
 4. [Open Food Facts](https://world.openfoodfacts.org/) ;
 5. [UPCitemdb](https://www.upcitemdb.com/) pour un GTIN généraliste exact ;
-6. recherche web authentifiée côté serveur ;
+6. catalogue partagé Supabase, puis recherche web authentifiée côté serveur en cas d’absence ;
 7. saisie manuelle ou photographie/OCR de l’étiquette.
 
 La référence interne et le code-barres restent modifiables. Une réponse distante ne remplace jamais une désignation que l’utilisateur a déjà saisie. Une sortie reste interdite si le produit identifié n’existe pas dans le stock BuildTrack du chantier.
@@ -46,6 +46,36 @@ Les clés ne doivent jamais être préfixées par `EXPO_PUBLIC_`, incluses dans 
 Le serveur limite chaque utilisateur à 20 recherches par minute, exige une session Supabase valide et n’accepte qu’un code court. La requête porte sur le GTIN exact, sans filtre de pays : un catalogue fabricant allemand ou mondial ne doit pas disparaître parce que le téléphone est en français. Jusqu’à 20 résultats sont analysés en un appel. Tant que Tavily répond normalement, SerpAPI n'est pas consommé. Après épuisement du quota Tavily, un circuit mémoire évite de l'interroger de nouveau avant le mois suivant sur les instances encore actives ; une nouvelle instance peut effectuer une vérification avant de basculer.
 
 Un résultat n’est retenu que si le code exact apparaît dans son titre, son extrait, un extrait complémentaire ou son URL. Les titres génériques tels que « ACCESSOIRES 2026 » sont rejetés, même s’ils contiennent le GTIN dans un vaste catalogue. Les références fabricant, modèles, dimensions, calibres, capacités et conditionnements sont conservés dans la proposition. Les agrégateurs génériques de codes-barres sont exclus afin de réduire les faux positifs. Un résultat web validé est conservé sept jours dans le cache du téléphone ; les catalogues ouverts restent conservés trente jours.
+
+### Catalogue partagé et économie de quota
+
+Avant d’appeler Tavily ou SerpAPI, l’Edge Function et l’API BuildTrack consultent
+`private.inventory_barcode_catalog`. Une fiche trouvée par la recherche web y est
+conservée sans expiration automatique. Le même code scanné ensuite depuis un
+autre téléphone, un autre chantier ou le site web est donc renvoyé directement
+par Supabase avec `provider: "supabase-cache"`, sans requête facturée auprès
+d’un moteur de recherche.
+
+Seules les métadonnées publiques du produit sont mutualisées : code-barres,
+désignation fournisseur, marque, photo, URL source et niveau de confiance. Le
+catalogue ne contient ni organisation, ni chantier, ni utilisateur. Les noms,
+emplacements et commentaires propres au stock restent dans les tables métier.
+La table appartient au schéma privé, applique RLS et ses RPC d’écriture sont
+révoquées pour `public`, `anon` et `authenticated` ; seul le rôle serveur
+`service_role` peut les exécuter.
+
+Lors de la première recherche d’un code inconnu, une concession de 20 secondes
+est prise atomiquement en base. Si deux appareils scannent simultanément le même
+code, le second attend le résultat du premier au lieu de consommer une deuxième
+requête Tavily/SerpAPI. Un résultat positif n’expire pas automatiquement. Un
+résultat « introuvable » expire après sept jours afin de permettre une nouvelle
+tentative si le produit est indexé ultérieurement ; une indisponibilité technique
+du fournisseur n’est jamais enregistrée comme un produit introuvable.
+
+Le client essaie l’Edge Function puis l’API BuildTrack de manière strictement
+séquentielle. L’API secondaire n’est appelée que si l’Edge Function ne renvoie
+aucune fiche, ce qui évite le double débit de quota provoqué par des appels en
+parallèle. Ce chemin est commun à l’application mobile et au site web.
 
 ## Vérification rapide
 

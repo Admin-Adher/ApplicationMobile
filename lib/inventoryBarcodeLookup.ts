@@ -13,6 +13,7 @@ import {
   settleWithFallback,
   type InventoryBarcodeMatch,
 } from '@/lib/inventoryBarcodeCore';
+import { firstSuccessfulSequentially } from '@/lib/sequentialFallback';
 
 // Parser/provider rules changed materially: invalidate matches accepted by the
 // former detector, including UPC descriptions with a broken separator or an
@@ -141,7 +142,7 @@ async function lookupWebProvider(
         });
         if (!response.ok) return null;
         const payload = await response.json();
-        if (!payload?.match?.designation || payload.match.source !== 'web') return null;
+        if (!payload?.match?.designation || !payload.match.source) return null;
         return payload.match as InventoryBarcodeMatch;
       })(), timeoutMs, null);
       if (match) return match;
@@ -153,8 +154,7 @@ async function lookupWebProvider(
     return null;
   }
 
-  const matches = await Promise.all(endpoints.map(requestEndpoint));
-  return matches.find((match): match is InventoryBarcodeMatch => Boolean(match)) ?? null;
+  return firstSuccessfulSequentially(endpoints, requestEndpoint);
 }
 
 function emitPartialMatch(

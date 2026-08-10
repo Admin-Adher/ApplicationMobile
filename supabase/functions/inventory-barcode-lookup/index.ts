@@ -1,9 +1,18 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
+import { createClient } from 'npm:@supabase/supabase-js@2.105.4';
 import {
   InventoryWebSearchError,
   searchInventoryBarcodeWeb,
   type InventoryWebSearchResult as SearchResult,
 } from '../_shared/inventoryWebSearchProviders.ts';
+import {
+  claimInventoryBarcodeLookup,
+  completeInventoryBarcodeLookup,
+  markInventoryBarcodeNotFound,
+  releaseInventoryBarcodeLookup,
+  type InventoryBarcodeCacheClient,
+  type InventoryBarcodeCacheMatch,
+} from '../_shared/inventoryBarcodeCache.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -15,6 +24,35 @@ const blockedHosts = [
   'openfoodfacts.', 'openproductsfacts.', 'google.', 'bing.', 'duckduckgo.',
 ];
 const requestWindows = new Map<string, number[]>();
+const BARCODE_LOOKUP_VERSION = 1;
+let cachedCatalogClient: InventoryBarcodeCacheClient | null | undefined;
+
+function inventoryBarcodeCatalogClient(): InventoryBarcodeCacheClient | null {
+  if (cachedCatalogClient !== undefined) return cachedCatalogClient;
+  const url = Deno.env.get('SUPABASE_URL');
+  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  if (!url || !serviceRoleKey) {
+    cachedCatalogClient = null;
+    return null;
+  }
+  cachedCatalogClient = createClient(url, serviceRoleKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  }) as unknown as InventoryBarcodeCacheClient;
+  return cachedCatalogClient;
+}
+
+async function releaseCatalogLeaseQuietly(
+  client: InventoryBarcodeCacheClient | null,
+  code: string,
+  leaseToken: string,
+): Promise<void> {
+  if (!client) return;
+  try {
+    await releaseInventoryBarcodeLookup(client, code, leaseToken);
+  } catch (error) {
+    console.warn('[inventory-barcode-cache] lease release failed', error);
+  }
+}
 
 function json(payload: unknown, status = 200): Response {
   return Response.json(payload, {
@@ -161,7 +199,7 @@ function inferBrand(result: SearchResult, url: URL, designation: string): string
   return btpBrandAliases.find(([alias]) => context.includes(alias))?.[1];
 }
 
-function selectMatch(results: SearchResult[], code: string) {
+function selectMatch(results: SearchResult[], code: string): InventoryBarcodeCacheMatch | null {
   const needle = compact(code);
   const ranked: Array<{
     designation: string;
@@ -259,13 +297,62 @@ Deno.serve(async request => {
   if (request.method !== 'POST') return json({ error: 'Méthode non autorisée' }, 405);
   const identity = authenticatedIdentity(request);
   if (!identity) return json({ error: 'Session invalide', code: 'invalid_session' }, 401);
-  if (!allowRequest(identity)) return json({ error: 'Trop de recherches' }, 429);
 
+  let cacheClient: InventoryBarcodeCacheClient | null = null;
+  let leaseToken = '';
+  let ownsCatalogLease = false;
+  let lookupCode = '';
   try {
     const body = await request.json();
     const code = normalizeCode(body?.code);
+    lookupCode = code;
     const language = String(body?.language ?? 'fr').split('-')[0].toLowerCase();
     if (code.length < 4) return json({ error: 'Code-barres invalide' }, 400);
+
+    cacheClient = inventoryBarcodeCatalogClient();
+    leaseToken = crypto.randomUUID();
+    if (cacheClient) {
+      try {
+        const claim = await claimInventoryBarcodeLookup(cacheClient, code, leaseToken);
+        if (claim.state === 'hit' && claim.match?.designation) {
+          return json({
+            match: claim.match,
+            provider: 'supabase-cache',
+            cachedProvider: claim.cachedProvider,
+            providersTried: [],
+            cacheHit: true,
+          });
+        }
+        if (claim.state === 'negative_hit') {
+          return json({
+            error: 'Produit introuvable',
+            code: 'product_not_found',
+            provider: 'supabase-cache',
+            cacheHit: true,
+          }, 404);
+        }
+        if (claim.state === 'pending') {
+          return json({
+            error: 'Recherche identique déjà en cours',
+            code: 'lookup_in_progress',
+            retryAfterMs: claim.retryAfterMs ?? 500,
+          }, 409);
+        }
+        ownsCatalogLease = claim.state === 'claimed';
+      } catch (error) {
+        // A cache outage must not disable barcode resolution. The provider
+        // chain remains available and the next deployment/request can retry.
+        console.warn('[inventory-barcode-cache] unavailable', error);
+        cacheClient = null;
+      }
+    }
+
+    // Cache hits are intentionally free. Rate limiting applies only to a real
+    // external provider lookup.
+    if (!allowRequest(identity)) {
+      if (ownsCatalogLease) await releaseCatalogLeaseQuietly(cacheClient, code, leaseToken);
+      return json({ error: 'Trop de recherches' }, 429);
+    }
 
     const search = await searchInventoryBarcodeWeb({
       code,
@@ -274,6 +361,30 @@ Deno.serve(async request => {
       serpApiKey: Deno.env.get('SERPAPI_API_KEY'),
     });
     const match = selectMatch(search.results, code);
+    if (match && ownsCatalogLease && cacheClient) {
+      try {
+        await completeInventoryBarcodeLookup(cacheClient, code, leaseToken, match, {
+          provider: search.provider,
+          providersTried: search.providersTried,
+          fallbackReason: search.fallbackReason,
+          lookupVersion: BARCODE_LOOKUP_VERSION,
+        });
+        ownsCatalogLease = false;
+      } catch (error) {
+        console.warn('[inventory-barcode-cache] completion failed', error);
+        await releaseCatalogLeaseQuietly(cacheClient, code, leaseToken);
+        ownsCatalogLease = false;
+      }
+    } else if (!match && ownsCatalogLease && cacheClient) {
+      try {
+        await markInventoryBarcodeNotFound(cacheClient, code, leaseToken);
+        ownsCatalogLease = false;
+      } catch (error) {
+        console.warn('[inventory-barcode-cache] negative cache failed', error);
+        await releaseCatalogLeaseQuietly(cacheClient, code, leaseToken);
+        ownsCatalogLease = false;
+      }
+    }
     return match
       ? json({
         match,
@@ -283,6 +394,7 @@ Deno.serve(async request => {
       })
       : json({ error: 'Produit introuvable', code: 'product_not_found', provider: search.provider }, 404);
   } catch (error) {
+    if (ownsCatalogLease) await releaseCatalogLeaseQuietly(cacheClient, lookupCode, leaseToken);
     console.error('[inventory-barcode-lookup]', error);
     if (error instanceof InventoryWebSearchError) {
       const notConfigured = error.message.includes('configured');
