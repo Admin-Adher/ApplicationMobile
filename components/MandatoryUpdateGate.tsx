@@ -1,7 +1,5 @@
-import { useState } from 'react';
 import {
   ActivityIndicator,
-  Linking,
   Modal,
   SafeAreaView,
   StyleSheet,
@@ -12,6 +10,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
+import { useApkInstaller } from '@/hooks/useApkInstaller';
 
 export default function MandatoryUpdateGate() {
   const { t } = useTranslation();
@@ -22,19 +21,23 @@ export default function MandatoryUpdateGate() {
     downloadUrl,
     refresh,
   } = useAppUpdate();
-  const [opening, setOpening] = useState(false);
+  const {
+    state,
+    progressPercent,
+    isBusy,
+    startUpdate,
+  } = useApkInstaller({
+    downloadUrl,
+    releaseLabel: minimumAndroidBuild > 0 ? `Build ${minimumAndroidBuild}` : null,
+  });
 
   if (!updateRequired) return null;
 
-  const openUpdate = async () => {
-    if (opening) return;
-    setOpening(true);
-    try {
-      await Linking.openURL(downloadUrl);
-    } finally {
-      setOpening(false);
-    }
-  };
+  const primaryLabel = state === 'downloading'
+    ? t('updateBanner.downloading', { pct: progressPercent })
+    : state === 'opening'
+      ? t('updateBanner.opening')
+      : t('mandatoryUpdate.download');
 
   return (
     <Modal visible animationType="fade" statusBarTranslucent onRequestClose={() => {}}>
@@ -62,15 +65,29 @@ export default function MandatoryUpdateGate() {
           <TouchableOpacity
             style={styles.primaryButton}
             activeOpacity={0.85}
-            disabled={opening}
-            onPress={openUpdate}
+            disabled={isBusy}
+            onPress={() => { void startUpdate(); }}
           >
-            {opening
+            {isBusy
               ? <ActivityIndicator color="#FFFFFF" />
               : <Ionicons name="download-outline" size={22} color="#FFFFFF" />}
-            <Text style={styles.primaryButtonText}>{t('mandatoryUpdate.download')}</Text>
+            <Text style={styles.primaryButtonText}>{primaryLabel}</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => { void refresh(); }}>
+          {state === 'downloading' && (
+            <View style={styles.progressTrack}>
+              <View
+                style={[
+                  styles.progressFill,
+                  { width: `${Math.max(2, progressPercent)}%` },
+                ]}
+              />
+            </View>
+          )}
+          <TouchableOpacity
+            style={[styles.secondaryButton, isBusy && styles.secondaryButtonDisabled]}
+            disabled={isBusy}
+            onPress={() => { void refresh(); }}
+          >
             <Ionicons name="refresh" size={18} color="#123B73" />
             <Text style={styles.secondaryButtonText}>{t('mandatoryUpdate.checkAgain')}</Text>
           </TouchableOpacity>
@@ -169,6 +186,18 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_700Bold',
     fontSize: 16,
   },
+  progressTrack: {
+    height: 5,
+    marginTop: 10,
+    borderRadius: 999,
+    overflow: 'hidden',
+    backgroundColor: '#DDE6F0',
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#123B73',
+  },
   secondaryButton: {
     minHeight: 48,
     flexDirection: 'row',
@@ -176,6 +205,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     marginTop: 8,
+  },
+  secondaryButtonDisabled: {
+    opacity: 0.45,
   },
   secondaryButtonText: {
     color: '#123B73',

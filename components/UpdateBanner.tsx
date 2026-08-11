@@ -1,14 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform, Alert, AppState, AppStateStatus } from 'react-native';
+import { useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Clipboard from 'expo-clipboard';
-import * as FileSystem from 'expo-file-system/legacy';
-import * as Sharing from 'expo-sharing';
-import * as IntentLauncher from 'expo-intent-launcher';
 import { useTranslation } from 'react-i18next';
 import { useAppUpdate } from '@/hooks/useAppUpdate';
-
-type DownloadState = 'idle' | 'downloading' | 'opening';
+import { useApkInstaller } from '@/hooks/useApkInstaller';
 
 export default function UpdateBanner() {
   const { t } = useTranslation();
@@ -24,37 +19,12 @@ export default function UpdateBanner() {
     acknowledgeJustUpdated,
     currentLabel,
   } = useAppUpdate();
-  const [state, setState] = useState<DownloadState>('idle');
-  const [progress, setProgress] = useState(0);
-  const resumableRef = useRef<FileSystem.DownloadResumable | null>(null);
-  const downloadedUriRef = useRef<string | null>(null);
-  const installLaunchedRef = useRef(false);
-  const stateRef = useRef<DownloadState>('idle');
-
-  useEffect(() => {
-    stateRef.current = state;
-  }, [state]);
-
-  // Quand l'utilisateur revient dans l'app après l'écran d'installation
-  // Android (qu'il ait validé ou annulé), on remet le bouton à zéro et on
-  // nettoie le fichier APK en cache pour ne pas accumuler.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', async (next: AppStateStatus) => {
-      if (next === 'active' && installLaunchedRef.current) {
-        installLaunchedRef.current = false;
-        if (stateRef.current !== 'idle') {
-          setState('idle');
-          setProgress(0);
-        }
-        const uri = downloadedUriRef.current;
-        downloadedUriRef.current = null;
-        if (uri) {
-          try { await FileSystem.deleteAsync(uri, { idempotent: true }); } catch {}
-        }
-      }
-    });
-    return () => { sub.remove(); };
-  }, []);
+  const {
+    state,
+    progressPercent: pct,
+    isBusy,
+    startUpdate,
+  } = useApkInstaller({ downloadUrl, releaseLabel: latestLabel });
 
   // Auto-dismiss du toast de succès au bout de 8 s.
   useEffect(() => {
@@ -89,144 +59,6 @@ export default function UpdateBanner() {
 
   if (!updateAvailable) return null;
 
-  const fallbackToBrowser = async () => {
-    try {
-      const supported = await Linking.canOpenURL(downloadUrl);
-      if (supported) {
-        await Linking.openURL(downloadUrl);
-      } else if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.open(downloadUrl, '_blank');
-      } else {
-        await Clipboard.setStringAsync(downloadUrl);
-        Alert.alert(t('updateBanner.linkCopiedTitle'), t('updateBanner.linkCopiedText'));
-      }
-    } catch {
-      try {
-        await Clipboard.setStringAsync(downloadUrl);
-        Alert.alert(t('updateBanner.linkCopiedTitle'), t('updateBanner.linkCopiedText'));
-      } catch {}
-    }
-  };
-
-  const handleUpdate = async () => {
-    if (state !== 'idle') return;
-
-    // Sur le web on garde l'ouverture dans un nouvel onglet
-    if (Platform.OS === 'web') {
-      await fallbackToBrowser();
-      return;
-    }
-
-    // Sur iOS on ne devrait jamais arriver ici (updateAvailable=false sur iOS),
-    // mais par sécurité on retombe sur le navigateur.
-    if (Platform.OS !== 'android') {
-      await fallbackToBrowser();
-      return;
-    }
-
-    try {
-      setState('downloading');
-      setProgress(0);
-
-      const fileName = `buildtrack-${latestLabel ? latestLabel.replace(/\s+/g, '-').toLowerCase() : 'release'}.apk`;
-      const targetUri = (FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '') + fileName;
-
-      // On supprime un éventuel téléchargement précédent du même nom pour
-      // éviter qu'expo-file-system reprenne un fichier corrompu.
-      try { await FileSystem.deleteAsync(targetUri, { idempotent: true }); } catch {}
-
-      const resumable = FileSystem.createDownloadResumable(
-        downloadUrl,
-        targetUri,
-        {},
-        (p) => {
-          if (p.totalBytesExpectedToWrite > 0) {
-            setProgress(p.totalBytesWritten / p.totalBytesExpectedToWrite);
-          }
-        },
-      );
-      resumableRef.current = resumable;
-
-      const result = await resumable.downloadAsync();
-      resumableRef.current = null;
-
-      if (!result?.uri) {
-        throw new Error(t('updateBanner.downloadInterrupted'));
-      }
-
-      downloadedUriRef.current = result.uri;
-      setState('opening');
-
-      // Étape 1 : convertir le file:// en content:// (FileProvider Expo).
-      // Indispensable depuis Android 7 (FileUriExposedException sinon).
-      let contentUri: string | null = null;
-      try {
-        contentUri = await FileSystem.getContentUriAsync(result.uri);
-      } catch {
-        contentUri = null;
-      }
-
-      // Étape 2 : ouvrir directement le programme d'installation de paquets
-      // via ACTION_VIEW. C'est le seul intent qui déclenche l'écran natif
-      // « Voulez-vous installer cette application ? ».
-      let installLaunched = false;
-      if (contentUri) {
-        try {
-          await IntentLauncher.startActivityAsync(
-            'android.intent.action.VIEW',
-            {
-              data: contentUri,
-              flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-              type: 'application/vnd.android.package-archive',
-            },
-          );
-          installLaunched = true;
-          installLaunchedRef.current = true;
-        } catch {
-          installLaunched = false;
-        }
-      }
-
-      // Étape 3 : si l'intent VIEW a échoué (vieux Android, OEM, etc.),
-      // on retombe sur le sheet de partage en dernier recours.
-      if (!installLaunched) {
-        const canShare = await Sharing.isAvailableAsync();
-        if (canShare) {
-          installLaunchedRef.current = true;
-          await Sharing.shareAsync(result.uri, {
-            mimeType: 'application/vnd.android.package-archive',
-            dialogTitle: t('updateBanner.installDialogTitle'),
-            UTI: 'public.archive',
-          });
-        } else {
-          await fallbackToBrowser();
-          // Le navigateur n'a pas de retour à gérer côté AppState.
-          setState('idle');
-          setProgress(0);
-        }
-      }
-
-      // NB : on ne reset PAS state/progress ici quand l'install est lancée.
-      // Le listener AppState s'en charge au retour de l'utilisateur, ce qui
-      // évite que le bouton repasse à « Mettre à jour » avant que l'écran
-      // d'installation soit même affiché.
-    } catch (err) {
-      resumableRef.current = null;
-      setState('idle');
-      setProgress(0);
-      Alert.alert(
-        t('updateBanner.downloadImpossibleTitle'),
-        t('updateBanner.downloadImpossibleText'),
-        [
-          { text: t('common.cancel'), style: 'cancel' },
-          { text: t('updateBanner.open'), onPress: () => { fallbackToBrowser(); } },
-        ],
-      );
-    }
-  };
-
-  const isBusy = state !== 'idle';
-  const pct = Math.round(progress * 100);
   const buttonLabel =
     state === 'downloading'
       ? t('updateBanner.downloading', { pct })
@@ -258,7 +90,7 @@ export default function UpdateBanner() {
       </View>
       <TouchableOpacity
         style={[styles.updateBtn, isBusy && styles.updateBtnBusy]}
-        onPress={handleUpdate}
+        onPress={() => { void startUpdate(); }}
         activeOpacity={0.85}
         disabled={isBusy}
       >
