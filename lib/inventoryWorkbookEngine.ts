@@ -1,3 +1,5 @@
+import { inventoryDocumentCopy, type InventoryDocumentCopy, type InventoryDocumentLanguage } from './inventoryDocumentCopy';
+
 export type InventoryWorkbookKind = 'stock' | 'history' | 'entries' | 'exits' | 'by_building' | 'by_company' | 'reorder';
 
 export type InventoryWorkbookProduct = {
@@ -41,7 +43,7 @@ type StyledWorkbook = {
   SheetNames: string[];
   Sheets: Record<string, any>;
   Props?: Record<string, unknown>;
-  __buildTrackStyles?: { sheets: Record<string, SheetStyleMeta> };
+  __buildTrackStyles?: { sheets: Record<string, SheetStyleMeta>; excelDateFormat: string };
 };
 
 type XlsxRuntime = {
@@ -166,10 +168,10 @@ function movementDate(value: Date | string | number): Date | string {
   return Number.isNaN(date.getTime()) ? String(value ?? '') : date;
 }
 
-function statusFor(product: InventoryWorkbookProduct): 'DISPONIBLE' | 'STOCK FAIBLE' | 'RUPTURE' {
-  if (product.currentStock <= 0) return 'RUPTURE';
-  if (product.minStock > 0 && product.currentStock <= product.minStock) return 'STOCK FAIBLE';
-  return 'DISPONIBLE';
+function statusFor(product: InventoryWorkbookProduct, copy: InventoryDocumentCopy): string {
+  if (product.currentStock <= 0) return copy.status.out;
+  if (product.minStock > 0 && product.currentStock <= product.minStock) return copy.status.low;
+  return copy.status.available;
 }
 
 function productsToOrder(products: InventoryWorkbookProduct[]): InventoryWorkbookProduct[] {
@@ -181,11 +183,12 @@ function productsToOrder(products: InventoryWorkbookProduct[]): InventoryWorkboo
 function consumptionBy(
   movements: InventoryWorkbookMovement[],
   key: (movement: InventoryWorkbookMovement) => string,
+  notProvided: string,
 ): Array<[string, number]> {
   const totals = new Map<string, number>();
   for (const movement of movements) {
     if (movement.movementType !== 'out') continue;
-    const label = key(movement).trim() || 'Non renseigné';
+    const label = key(movement).trim() || notProvided;
     totals.set(label, (totals.get(label) ?? 0) + numberValue(movement.quantity));
   }
   return [...totals.entries()].sort((a, b) => b[1] - a[1]);
@@ -218,11 +221,13 @@ function createDataSheet(
   headers: string[],
   data: unknown[][],
   widths: number[],
+  noData: string,
   options: {
     numericColumns?: number[];
     dateColumns?: number[];
     wrapColumns?: number[];
     statusColumn?: number;
+    statusValues?: { low: string; out: string };
     warningNumberColumns?: number[];
     linkColumns?: number[];
     tabColor?: string;
@@ -234,7 +239,7 @@ function createDataSheet(
     [subtitle],
     [],
     headers,
-    ...(empty ? [['Aucune donnée disponible pour cette sélection.']] : data),
+    ...(empty ? [[noData]] : data),
   ];
   const sheet = xlsx.utils.aoa_to_sheet(rows, { cellDates: true });
   const lastColumn = Math.max(headers.length - 1, 0);
@@ -269,9 +274,9 @@ function createDataSheet(
   if (!empty && options.statusColumn != null) {
     data.forEach((row, index) => {
       const value = String(row[options.statusColumn!] ?? '');
-      meta.cellStyles[address(xlsx, index + 4, options.statusColumn!)] = value === 'RUPTURE'
+      meta.cellStyles[address(xlsx, index + 4, options.statusColumn!)] = value === options.statusValues?.out
         ? STYLE.out
-        : value === 'STOCK FAIBLE'
+        : value === options.statusValues?.low
           ? STYLE.low
           : STYLE.ok;
     });
@@ -298,7 +303,7 @@ function appendStyledSheet(
   build: SheetBuild,
 ): void {
   xlsx.utils.book_append_sheet(workbook, build.sheet, name.slice(0, 31));
-  if (!workbook.__buildTrackStyles) workbook.__buildTrackStyles = { sheets: {} };
+  if (!workbook.__buildTrackStyles) workbook.__buildTrackStyles = { sheets: {}, excelDateFormat: 'dd/mm/yyyy hh:mm' };
   workbook.__buildTrackStyles.sheets[name.slice(0, 31)] = build.meta;
 }
 
@@ -311,11 +316,12 @@ function createStockSheet(
   products: InventoryWorkbookProduct[],
   chantierName: string,
   generatedAt: Date,
+  copy: InventoryDocumentCopy,
 ): SheetBuild {
   const data = products.map(product => [
     product.reference,
     product.designation,
-    statusFor(product),
+    statusFor(product, copy),
     product.currentStock,
     product.minStock,
     Math.max(product.minStock - product.currentStock, 0),
@@ -328,18 +334,19 @@ function createStockSheet(
   ]);
   const build = createDataSheet(
     xlsx,
-    'BuildTrack — État du stock',
-    `${chantierName} · généré le ${generatedAt.toLocaleString('fr-FR')}`,
-    ['Référence', 'Désignation', 'Statut', 'Stock actuel', 'Stock minimum', 'À commander', 'Entrées', 'Sorties', 'Localisation', 'Fournisseur', 'Code-barres / QR', 'Photo'],
+    `BuildTrack — ${copy.workbook.title.stock}`,
+    `${chantierName} · ${copy.workbook.generatedOn} ${generatedAt.toLocaleString(copy.locale)}`,
+    copy.workbook.headers.stock,
     data,
     [18, 34, 17, 14, 15, 15, 12, 12, 24, 24, 20, 38],
-    { numericColumns: [3, 4, 5, 6, 7], statusColumn: 2, warningNumberColumns: [5], linkColumns: [11], tabColor: '145DA0' },
+    copy.noData,
+    { numericColumns: [3, 4, 5, 6, 7], statusColumn: 2, statusValues: copy.status, warningNumberColumns: [5], linkColumns: [11], tabColor: '145DA0' },
   );
   products.forEach((product, index) => {
     const row = index + 5;
     const formulaCell = `F${row}`;
     setFormula(build.sheet, formulaCell, `MAX(E${row}-D${row},0)`, Math.max(product.minStock - product.currentStock, 0));
-    if (product.photoUrl?.startsWith('http')) build.sheet[`L${row}`].l = { Target: product.photoUrl, Tooltip: 'Ouvrir la photo du produit' };
+    if (product.photoUrl?.startsWith('http')) build.sheet[`L${row}`].l = { Target: product.photoUrl, Tooltip: copy.workbook.photoTooltip };
   });
   return build;
 }
@@ -349,12 +356,13 @@ function createReorderSheet(
   products: InventoryWorkbookProduct[],
   chantierName: string,
   generatedAt: Date,
+  copy: InventoryDocumentCopy,
 ): SheetBuild {
   const reorder = productsToOrder(products);
   const data = reorder.map(product => [
     product.reference,
     product.designation,
-    statusFor(product),
+    statusFor(product, copy),
     product.currentStock,
     product.minStock,
     Math.max(product.minStock - product.currentStock, 0),
@@ -364,12 +372,13 @@ function createReorderSheet(
   ]);
   const build = createDataSheet(
     xlsx,
-    'BuildTrack — Produits à commander',
-    `${chantierName} · priorité calculée à partir du stock minimum · ${generatedAt.toLocaleString('fr-FR')}`,
-    ['Référence', 'Désignation', 'Statut', 'Stock actuel', 'Minimum', 'Quantité suggérée', 'Localisation', 'Fournisseur', 'Code-barres / QR'],
+    `BuildTrack — ${copy.workbook.title.reorder}`,
+    `${chantierName} · ${copy.workbook.minimumStockPriority} · ${generatedAt.toLocaleString(copy.locale)}`,
+    copy.workbook.headers.reorder,
     data,
     [18, 34, 17, 14, 14, 18, 24, 24, 20],
-    { numericColumns: [3, 4, 5], statusColumn: 2, warningNumberColumns: [5], tabColor: 'D97706' },
+    copy.noData,
+    { numericColumns: [3, 4, 5], statusColumn: 2, statusValues: copy.status, warningNumberColumns: [5], tabColor: 'D97706' },
   );
   reorder.forEach((product, index) => {
     const row = index + 5;
@@ -384,12 +393,13 @@ function createMovementSheet(
   movements: InventoryWorkbookMovement[],
   chantierName: string,
   generatedAt: Date,
+  copy: InventoryDocumentCopy,
   filter?: 'in' | 'out',
 ): SheetBuild {
   const selected = filter ? movements.filter(movement => movement.movementType === filter) : movements;
   const data = selected.map(movement => [
     movementDate(movement.createdAt),
-    movement.movementType === 'in' ? 'ENTRÉE' : 'SORTIE',
+    movement.movementType === 'in' ? copy.movement.in : copy.movement.out,
     movement.reference,
     movement.designation,
     movement.quantity,
@@ -406,10 +416,11 @@ function createMovementSheet(
   const build = createDataSheet(
     xlsx,
     `BuildTrack — ${title}`,
-    `${chantierName} · ${selected.length} mouvement(s) · généré le ${generatedAt.toLocaleString('fr-FR')}`,
-    ['Date et heure', 'Type', 'Référence', 'Désignation', 'Quantité', 'Stock avant', 'Stock après', 'Utilisateur', 'Bâtiment', 'Zone', 'Entreprise', 'Personne', 'Fournisseur', 'Commentaire'],
+    `${chantierName} · ${copy.workbook.movementCount(selected.length)} · ${copy.workbook.generatedOn} ${generatedAt.toLocaleString(copy.locale)}`,
+    copy.workbook.headers.movements,
     data,
     [21, 12, 18, 32, 12, 14, 14, 22, 24, 22, 24, 22, 24, 42],
+    copy.noData,
     { numericColumns: [4, 5, 6], dateColumns: [0], wrapColumns: [13], tabColor: filter === 'in' ? '0E9F6E' : filter === 'out' ? 'DC2626' : '6B7280' },
   );
   selected.forEach((movement, index) => {
@@ -425,16 +436,18 @@ function createConsumptionSheet(
   totals: Array<[string, number]>,
   chantierName: string,
   generatedAt: Date,
+  copy: InventoryDocumentCopy,
 ): SheetBuild {
   const totalQuantity = totals.reduce((sum, [, quantity]) => sum + quantity, 0);
   const data = totals.map(([name, quantity]) => [name, quantity, totalQuantity > 0 ? quantity / totalQuantity : 0]);
   const build = createDataSheet(
     xlsx,
     `BuildTrack — ${title}`,
-    `${chantierName} · consommation issue des sorties · ${generatedAt.toLocaleString('fr-FR')}`,
-    [label, 'Quantité sortie', 'Part du total'],
+    `${chantierName} · ${copy.workbook.consumptionFromIssues} · ${generatedAt.toLocaleString(copy.locale)}`,
+    [label, copy.workbook.headers.consumptionBuilding[1], copy.workbook.headers.consumptionBuilding[2]],
     data,
     [38, 20, 18],
+    copy.noData,
     { numericColumns: [1, 2], tabColor: '7C3AED' },
   );
   totals.forEach(([_, quantity], index) => {
@@ -451,6 +464,7 @@ function createSummarySheet(
   movements: InventoryWorkbookMovement[],
   chantierName: string,
   generatedAt: Date,
+  copy: InventoryDocumentCopy,
 ): SheetBuild {
   const reorder = productsToOrder(products);
   const totalStock = products.reduce((sum, product) => sum + numberValue(product.currentStock), 0);
@@ -459,7 +473,7 @@ function createSummarySheet(
   const lowRows = reorder.slice(0, 10).map(product => [
     product.reference,
     product.designation,
-    statusFor(product),
+    statusFor(product, copy),
     product.currentStock,
     product.minStock,
     Math.max(product.minStock - product.currentStock, 0),
@@ -467,16 +481,16 @@ function createSummarySheet(
     product.supplier ?? '',
   ]);
   const rows: unknown[][] = [
-    ['BuildTrack — Tableau de bord stock'],
-    [`Chantier : ${chantierName}`],
-    [`Généré le ${generatedAt.toLocaleString('fr-FR')} · les cellules calculées restent modifiables dans Excel`],
+    [`BuildTrack — ${copy.workbook.title.summary}`],
+    [`${copy.workbook.siteLabel} : ${chantierName}`],
+    [`${copy.workbook.generatedOn} ${generatedAt.toLocaleString(copy.locale)} · ${copy.workbook.calculatedCellsHint}`],
     [],
     [products.length, '', totalStock, '', reorder.length, '', movements.length, '', totalEntries, '', totalExits, ''],
-    ['RÉFÉRENCES', '', 'UNITÉS EN STOCK', '', 'À COMMANDER', '', 'MOUVEMENTS', '', 'QUANTITÉ ENTRÉE', '', 'QUANTITÉ SORTIE', ''],
+    [copy.workbook.kpi.references, '', copy.workbook.kpi.units, '', copy.workbook.kpi.reorder, '', copy.workbook.kpi.movements, '', copy.workbook.kpi.entries, '', copy.workbook.kpi.exits, ''],
     [],
-    ['Priorités de réapprovisionnement'],
-    ['Référence', 'Désignation', 'Statut', 'Stock', 'Minimum', 'Qté suggérée', 'Localisation', 'Fournisseur'],
-    ...(lowRows.length ? lowRows : [['Aucun produit sous son seuil minimum.']]),
+    [copy.workbook.restockPriorities],
+    copy.workbook.headers.summaryReorder,
+    ...(lowRows.length ? lowRows : [[copy.workbook.noBelowMinimum]]),
   ];
   const sheet = xlsx.utils.aoa_to_sheet(rows, { cellDates: true });
   sheet['!cols'] = [18, 28, 18, 4, 18, 4, 18, 24, 19, 4, 19, 4].map(width => ({ wch: width }));
@@ -517,23 +531,23 @@ function createSummarySheet(
   });
   lowRows.forEach((row, index) => {
     const status = String(row[2]);
-    meta.cellStyles[`C${index + 10}`] = status === 'RUPTURE' ? STYLE.out : STYLE.low;
+    meta.cellStyles[`C${index + 10}`] = status === copy.status.out ? STYLE.out : STYLE.low;
     if (numberValue(row[5]) > 0) meta.cellStyles[`F${index + 10}`] = STYLE.warningNumber;
   });
 
   const stockEnd = Math.max(products.length + 4, 5);
   const movementEnd = Math.max(movements.length + 4, 5);
   if (products.length) {
-    setFormula(sheet, 'A5', `COUNTA('État du stock'!A5:A${stockEnd})`, products.length);
-    setFormula(sheet, 'C5', `SUM('État du stock'!D5:D${stockEnd})`, totalStock);
+    setFormula(sheet, 'A5', `COUNTA('${copy.workbook.sheet.stock}'!A5:A${stockEnd})`, products.length);
+    setFormula(sheet, 'C5', `SUM('${copy.workbook.sheet.stock}'!D5:D${stockEnd})`, totalStock);
   }
   if (reorder.length) {
-    setFormula(sheet, 'E5', `COUNTA('À commander'!A5:A${reorder.length + 4})`, reorder.length);
+    setFormula(sheet, 'E5', `COUNTA('${copy.workbook.sheet.reorder}'!A5:A${reorder.length + 4})`, reorder.length);
   }
   if (movements.length) {
-    setFormula(sheet, 'G5', `COUNTA('Mouvements'!A5:A${movementEnd})`, movements.length);
-    setFormula(sheet, 'I5', `SUMIF('Mouvements'!B5:B${movementEnd},"ENTRÉE",'Mouvements'!E5:E${movementEnd})`, totalEntries);
-    setFormula(sheet, 'K5', `SUMIF('Mouvements'!B5:B${movementEnd},"SORTIE",'Mouvements'!E5:E${movementEnd})`, totalExits);
+    setFormula(sheet, 'G5', `COUNTA('${copy.workbook.sheet.movements}'!A5:A${movementEnd})`, movements.length);
+    setFormula(sheet, 'I5', `SUMIF('${copy.workbook.sheet.movements}'!B5:B${movementEnd},"${copy.movement.in}",'${copy.workbook.sheet.movements}'!E5:E${movementEnd})`, totalEntries);
+    setFormula(sheet, 'K5', `SUMIF('${copy.workbook.sheet.movements}'!B5:B${movementEnd},"${copy.movement.out}",'${copy.workbook.sheet.movements}'!E5:E${movementEnd})`, totalExits);
   }
   return { sheet, meta };
 }
@@ -545,50 +559,55 @@ export function buildInventoryWorkbookEngine(
   movements: InventoryWorkbookMovement[],
   chantierName: string,
   generatedAt = new Date(),
+  language: InventoryDocumentLanguage = 'fr',
 ): StyledWorkbook {
+  const copy = inventoryDocumentCopy(language);
   const workbook = xlsx.utils.book_new();
+  workbook.__buildTrackStyles = { sheets: {}, excelDateFormat: copy.excelDateFormat };
   workbook.Props = {
     Title: `BuildTrack - Stock - ${chantierName}`,
-    Subject: 'Classeur opérationnel de gestion de stock chantier',
+    Subject: copy.workbook.subject,
     Author: 'BuildTrack',
     Company: 'BuildTrack',
     CreatedDate: generatedAt,
   };
 
-  appendStyledSheet(xlsx, workbook, 'État du stock', createStockSheet(xlsx, products, chantierName, generatedAt));
-  appendStyledSheet(xlsx, workbook, 'À commander', createReorderSheet(xlsx, products, chantierName, generatedAt));
-  appendStyledSheet(xlsx, workbook, 'Mouvements', createMovementSheet(xlsx, 'Historique des mouvements', movements, chantierName, generatedAt));
-  appendStyledSheet(xlsx, workbook, 'Entrées', createMovementSheet(xlsx, 'Entrées de matériel', movements, chantierName, generatedAt, 'in'));
-  appendStyledSheet(xlsx, workbook, 'Sorties', createMovementSheet(xlsx, 'Sorties de matériel', movements, chantierName, generatedAt, 'out'));
-  appendStyledSheet(xlsx, workbook, 'Par bâtiment', createConsumptionSheet(
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.stock, createStockSheet(xlsx, products, chantierName, generatedAt, copy));
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.reorder, createReorderSheet(xlsx, products, chantierName, generatedAt, copy));
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.movements, createMovementSheet(xlsx, copy.workbook.title.movements, movements, chantierName, generatedAt, copy));
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.entries, createMovementSheet(xlsx, copy.workbook.title.entries, movements, chantierName, generatedAt, copy, 'in'));
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.exits, createMovementSheet(xlsx, copy.workbook.title.exits, movements, chantierName, generatedAt, copy, 'out'));
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.byBuilding, createConsumptionSheet(
     xlsx,
-    'Consommation par bâtiment',
-    'Bâtiment / zone',
-    consumptionBy(movements, movement => [movement.buildingName, movement.zoneName].filter(Boolean).join(' / ')),
+    copy.workbook.title.byBuilding,
+    copy.workbook.headers.consumptionBuilding[0],
+    consumptionBy(movements, movement => [movement.buildingName, movement.zoneName].filter(Boolean).join(' / '), copy.notProvided),
     chantierName,
     generatedAt,
+    copy,
   ));
-  appendStyledSheet(xlsx, workbook, 'Par entreprise', createConsumptionSheet(
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.byCompany, createConsumptionSheet(
     xlsx,
-    'Consommation par entreprise',
-    'Entreprise',
-    consumptionBy(movements, movement => movement.companyName ?? ''),
+    copy.workbook.title.byCompany,
+    copy.workbook.headers.consumptionCompany[0],
+    consumptionBy(movements, movement => movement.companyName ?? '', copy.notProvided),
     chantierName,
     generatedAt,
+    copy,
   ));
-  appendStyledSheet(xlsx, workbook, 'Synthèse', createSummarySheet(xlsx, products, movements, chantierName, generatedAt));
+  appendStyledSheet(xlsx, workbook, copy.workbook.sheet.summary, createSummarySheet(xlsx, products, movements, chantierName, generatedAt, copy));
 
   const focusByKind: Record<InventoryWorkbookKind, string> = {
-    stock: 'État du stock',
-    history: 'Mouvements',
-    entries: 'Entrées',
-    exits: 'Sorties',
-    by_building: 'Par bâtiment',
-    by_company: 'Par entreprise',
-    reorder: 'À commander',
+    stock: copy.workbook.sheet.stock,
+    history: copy.workbook.sheet.movements,
+    entries: copy.workbook.sheet.entries,
+    exits: copy.workbook.sheet.exits,
+    by_building: copy.workbook.sheet.byBuilding,
+    by_company: copy.workbook.sheet.byCompany,
+    reorder: copy.workbook.sheet.reorder,
   };
   const focus = focusByKind[kind];
-  workbook.SheetNames = ['Synthèse', focus, ...workbook.SheetNames.filter(name => name !== 'Synthèse' && name !== focus)];
+  workbook.SheetNames = [copy.workbook.sheet.summary, focus, ...workbook.SheetNames.filter(name => name !== copy.workbook.sheet.summary && name !== focus)];
   return workbook;
 }
 
@@ -598,8 +617,11 @@ function applyCellStyles(xml: string, styles: Record<string, number>): string {
     if (!addressMatch) return match;
     const style = styles[addressMatch[1]];
     if (style == null) return match;
-    const cleanAttributes = attributes.replace(/\s+s="\d+"/g, '');
-    return `<c${cleanAttributes} s="${style}">`;
+    const selfClosing = /\/\s*$/.test(attributes);
+    const cleanAttributes = attributes
+      .replace(/\s*\/\s*$/, '')
+      .replace(/\s+s="\d+"/g, '');
+    return `<c${cleanAttributes} s="${style}"${selfClosing ? '/>' : '>'}`;
   });
 }
 
@@ -609,7 +631,12 @@ function applySheetView(xml: string, meta: SheetStyleMeta): string {
     : '';
   return xml.replace(
     /<sheetViews><sheetView\b([^>]*)\/?>(?:<\/sheetView>)?<\/sheetViews>/,
-    (_match, attributes: string) => `<sheetViews><sheetView${attributes.replace(/\s+showGridLines="[^"]*"/g, '')} showGridLines="0">${pane}</sheetView></sheetViews>`,
+    (_match, attributes: string) => {
+      const cleanAttributes = attributes
+        .replace(/\s*\/\s*$/, '')
+        .replace(/\s+showGridLines="[^"]*"/g, '');
+      return `<sheetViews><sheetView${cleanAttributes} showGridLines="0">${pane}</sheetView></sheetViews>`;
+    },
   );
 }
 
@@ -641,7 +668,8 @@ export function writeInventoryWorkbookBytesEngine(
     cellDates: true,
   });
   const files = zip.unzipSync(raw instanceof Uint8Array ? raw : new Uint8Array(raw));
-  files['xl/styles.xml'] = zip.strToU8(XLSX_STYLES_XML);
+  const excelDateFormat = workbook.__buildTrackStyles?.excelDateFormat ?? 'dd/mm/yyyy hh:mm';
+  files['xl/styles.xml'] = zip.strToU8(XLSX_STYLES_XML.replace('dd/mm/yyyy hh:mm', excelDateFormat));
   const styleMeta = workbook.__buildTrackStyles?.sheets ?? {};
   workbook.SheetNames.forEach((name, index) => {
     const path = `xl/worksheets/sheet${index + 1}.xml`;

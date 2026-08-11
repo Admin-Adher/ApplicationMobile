@@ -116,7 +116,9 @@ export default function SettingsScreen() {
   const {
     deviceLanguage,
     effectiveLanguage,
+    exportLanguage,
     languagePreference,
+    setExportLanguage,
     setLanguagePreference,
     supportedLanguages,
   } = useLanguage();
@@ -660,6 +662,7 @@ export default function SettingsScreen() {
   const roleColor = ROLE_COLORS[user?.role ?? 'observateur'] ?? C.primary;
   const userInitials = user ? user.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase() : '??';
   const activeLanguage = supportedLanguages.find(lang => lang.code === effectiveLanguage) ?? supportedLanguages[0];
+  const activeExportLanguage = supportedLanguages.find(lang => lang.code === exportLanguage) ?? supportedLanguages[0];
   const appLocale = effectiveLanguage === 'en' ? 'en-US' : effectiveLanguage === 'es' ? 'es-ES' : 'fr-FR';
 
   return (
@@ -757,6 +760,39 @@ export default function SettingsScreen() {
                 })}
               </View>
               <Text style={styles.languageHint}>{t('settings.languageAutoHint')}</Text>
+
+              <View style={styles.languageDivider} />
+              <View style={styles.cardTitleRow}>
+                <Ionicons name="document-text-outline" size={16} color={C.primary} />
+                <Text style={styles.cardTitle}>{t('settings.exportLanguage')}</Text>
+              </View>
+              <Text style={styles.prefSub}>{t('settings.exportLanguageDescription')}</Text>
+              <View style={styles.languageSummary}>
+                <View style={styles.languageBadge}>
+                  <Text style={styles.languageBadgeText}>{activeExportLanguage.label}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.prefTitle}>{activeExportLanguage.nativeName}</Text>
+                  <Text style={styles.prefSub}>{t('settings.exportLanguageSaved')}</Text>
+                </View>
+              </View>
+              <View style={styles.languageOptions} accessibilityRole="radiogroup" accessibilityLabel={t('settings.exportLanguage')}>
+                {supportedLanguages.map(lang => {
+                  const active = exportLanguage === lang.code;
+                  return (
+                    <TouchableOpacity
+                      key={`export-${lang.code}`}
+                      accessibilityRole="radio"
+                      accessibilityState={{ checked: active }}
+                      style={[styles.languageOption, active && styles.languageOptionActive]}
+                      onPress={() => { void setExportLanguage(lang.code); }}
+                    >
+                      <Text style={[styles.languageOptionCode, active && styles.languageOptionCodeActive]}>{lang.label}</Text>
+                      <Text style={[styles.languageOptionText, active && styles.languageOptionTextActive]}>{lang.nativeName}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
             </View>
 
             <View style={styles.profileCard}>
@@ -1782,6 +1818,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     marginTop: 8,
   },
+  languageDivider: { height: 1, backgroundColor: C.borderLight, marginVertical: 18 },
 
   emptyHistory: { alignItems: 'center', paddingVertical: 40, gap: 10 },
   emptyTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },

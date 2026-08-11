@@ -19,6 +19,8 @@ import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
+import ExportLanguageSelector from '@/components/ExportLanguageSelector';
 import { Reserve, SitePlan, ReserveStatus } from '@/constants/types';
 import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
@@ -39,6 +41,7 @@ import ReservesSheet from '@/components/plans/ReservesSheet';
 import BuildingPickerSheet, { type BuildingItem } from '@/components/BuildingPickerSheet';
 import LevelPickerSheet, { type LevelItem } from '@/components/LevelPickerSheet';
 import { ensurePlanCached } from '@/lib/planCache';
+import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 import {
   buildReservePhotoStackHtml,
@@ -269,6 +272,7 @@ async function exportPlanPDF(
   t?: TFunc,
   locale: string = 'fr-FR',
 ) {
+  const languageCode = locale.split('-')[0].toUpperCase();
   const displayBuilding = planBuilding || reserves.find(r => !!r.building)?.building || '';
   const displayLevel = planLevel || reserves.find(r => !!r.level)?.level || '';
   const planLocationParts = [
@@ -470,10 +474,10 @@ ${fallbackCanvasScript ? `<script>${fallbackCanvasScript}<\/script>` : ''}
     try {
       if (action === 'print') {
         // Native: open the OS print/save dialog (no share sheet).
-        await printPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName]));
+        await printPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName, languageCode]));
       } else {
         // Native: open the OS share sheet (WhatsApp, Mail, Drive, etc.).
-        await exportPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName]));
+        await exportPDFHelper(html, buildPdfFilename('Plan', [planLevel, planName, planBuilding, chantierName, languageCode]));
       }
     } catch {
       Alert.alert(t?.('common.error') ?? 'Error', t?.('plansScreen.alerts.pdfFailed') ?? 'Unable to generate the PDF.');
@@ -845,16 +849,18 @@ ${orphanSectionHtml}
     }
   } else {
     if (action === 'print') {
-      await printPDFHelper(html, buildPdfFilename('Rapport_Plans', [chantierName]));
+      await printPDFHelper(html, buildPdfFilename('Rapport_Plans', [chantierName, locale.split('-')[0].toUpperCase()]));
     } else {
-      await exportPDFHelper(html, buildPdfFilename('Rapport_Plans', [chantierName]));
+      await exportPDFHelper(html, buildPdfFilename('Rapport_Plans', [chantierName, locale.split('-')[0].toUpperCase()]));
     }
   }
 }
 
 export default function PlansScreen() {
-  const { t, i18n } = useTranslation();
-  const pdfLocale = useMemo(() => localeFromLanguage(i18n.language), [i18n.language]);
+  const { t } = useTranslation();
+  const { exportLanguage, setExportLanguage } = useLanguage();
+  const exportT = useMemo(() => getExportTranslator(exportLanguage) as unknown as TFunc, [exportLanguage]);
+  const pdfLocale = useMemo(() => localeForExportLanguage(exportLanguage), [exportLanguage]);
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const {
@@ -1755,7 +1761,7 @@ export default function PlansScreen() {
         companies,
         pdfViewerRef,
         action,
-        t,
+        exportT,
         pdfLocale,
       );
       setPdfModalVisible(false);
@@ -1764,7 +1770,7 @@ export default function PlansScreen() {
     } finally {
       setPdfLoading(false);
     }
-  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan, enrichReservesForPdf, t]);
+  }, [pdfScope, globalReportPreviewCount, activeChantier, chantierPlans, chantierReserves, globalReportCompany, globalReportStatusFilter, companies, pdfFilteredList, currentPlan, pinNumberMap, pinSizeScale, capturePreRenderPlan, enrichReservesForPdf, exportT, pdfLocale, t]);
 
   const handleEmailReport = useCallback(async () => {
     const emails = globalReportEmailTo
@@ -1847,7 +1853,7 @@ export default function PlansScreen() {
         chantierName: activeChantier?.name ?? '',
         companyFilter: globalReportCompany,
         generatedAt: new Date().toISOString(),
-        language: i18n.resolvedLanguage ?? i18n.language,
+        language: exportLanguage,
         plans: plansPayload,
         reserves: reservesPayload,
         recipients: emails,
@@ -1860,7 +1866,7 @@ export default function PlansScreen() {
       }
 
       const count = filteredReserves.length;
-      const filename = buildPdfFilename('Rapport_Plans', [activeChantier?.name ?? 'rapport']);
+      const filename = buildPdfFilename('Rapport_Plans', [activeChantier?.name ?? 'rapport', exportLanguage.toUpperCase()]);
 
       if (result.pdfBase64) {
         try {
@@ -1895,7 +1901,7 @@ export default function PlansScreen() {
     } finally {
       setGlobalReportEmailLoading(false);
     }
-  }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier, enrichReservesForPdf, t, commonReserveText]);
+  }, [globalReportEmailTo, globalReportPreviewCount, chantierReserves, chantierPlans, globalReportCompany, globalReportStatusFilter, activeChantier, enrichReservesForPdf, exportLanguage, t, commonReserveText]);
 
   const pinSize = Math.max(isTablet ? 11 : 9, Math.min(isTablet ? 18 : 14, Math.round((isTablet ? 15 : 11) * pinSizeScale)));
   const clusterSize = Math.max(isTablet ? 18 : 15, Math.min(isTablet ? 28 : 22, Math.round((isTablet ? 23 : 18) * pinSizeScale)));
@@ -4152,6 +4158,9 @@ export default function PlansScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.pdfLanguageCard}>
+              <ExportLanguageSelector value={exportLanguage} onChange={setExportLanguage} />
+            </View>
             {/* Scope toggle: Ce plan / Rapport global */}
             <View style={styles.pdfScopeRow}>
               <TouchableOpacity
@@ -5333,6 +5342,7 @@ const styles = StyleSheet.create({
   pdfModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   pdfModalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12, maxHeight: '90%', width: '100%', maxWidth: 560 },
   pdfModalHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  pdfLanguageCard: { padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.borderLight, backgroundColor: C.bg },
   pdfOptionGroup: { gap: 6 },
   pdfOption: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   pdfOptionActive: { backgroundColor: C.primary, borderColor: C.primary },

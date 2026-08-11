@@ -18,6 +18,7 @@ import { router } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useApp } from '@/context/AppContext';
 import { useSettings } from '@/context/SettingsContext';
 import { usePointage } from '@/context/PointageContext';
@@ -27,6 +28,7 @@ import { JournalEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { isValidDateFR } from '@/lib/dateUtils';
+import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
 
 const WEATHER_OPTIONS = ['sunny', 'cloudy', 'partlyCloudy', 'rain', 'storm', 'snow', 'fog', 'wind', 'snowShowers', 'showers'] as const;
 const WEATHER_ICON_BY_KEY: Record<(typeof WEATHER_OPTIONS)[number], string> = {
@@ -110,15 +112,20 @@ function frToISO(frDate: string): string {
   return `${parts[2]}-${parts[1]}-${parts[0]}`;
 }
 
-function buildJournalHTML(entries: JournalEntry[], projectName: string, t: (key: string, options?: any) => string): string {
-  const exportDate = formatDateFR(new Date());
-  const docRef = `JC-${formatDateFR(new Date()).replace(/\//g, '')}`;
+function buildJournalHTML(entries: JournalEntry[], projectName: string, t: (key: string, options?: any) => string, locale = 'fr-FR'): string {
+  const exportDate = new Date().toLocaleDateString(locale);
+  const docRef = `JC-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}`;
+  const localizedDate = (value: string) => {
+    const parts = value.split('/').map(Number);
+    if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return value;
+    return new Date(parts[2], parts[1] - 1, parts[0]).toLocaleDateString(locale);
+  };
 
   const totalWorkers = entries.reduce((s, e) => s + (e.workerCount || 0), 0);
   const avgWorkers = entries.length > 0 ? Math.round(totalWorkers / entries.length) : 0;
   const entriesWithIncidents = entries.filter(e => e.incidents && e.incidents.trim()).length;
   const dateRange = entries.length > 0
-    ? `${entries[entries.length - 1].date} → ${entries[0].date}`
+    ? `${localizedDate(entries[entries.length - 1].date)} → ${localizedDate(entries[0].date)}`
     : '—';
 
   const rows = entries.map((e, idx) => {
@@ -131,7 +138,7 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string, t: (key:
       : '';
     return `
       <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
-        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;white-space:nowrap;font-size:11px">${escapeHtml(e.date)}</td>
+        <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:700;white-space:nowrap;font-size:11px">${escapeHtml(localizedDate(e.date))}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:12px">${escapeHtml(e.weather)}${escapeHtml(weatherExtra)}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;font-weight:700;font-size:13px;color:#003082">${e.workerCount}</td>
         <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;line-height:1.5">
@@ -188,7 +195,7 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string, t: (key:
         <div style="font-size:11px;color:#1A2742;line-height:1.5">${escapeHtml(t('journal.pdf.certificationText'))}</div>
       </div>
     </div>
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
   return wrapHTML(body, t('journal.pdf.documentTitle', { project: projectName }));
@@ -197,6 +204,7 @@ function buildJournalHTML(entries: JournalEntry[], projectName: string, t: (key:
 export default function JournalScreen() {
   const { t } = useTranslation();
   const { user, permissions } = useAuth();
+  const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();
   const { getEntriesForDate } = usePointage();
   const { activeChantierId } = useApp();
@@ -333,8 +341,9 @@ export default function JournalScreen() {
       return;
     }
     try {
-      const html = buildJournalHTML(entries, projectName, t);
-      await exportPDFHelper(html, buildPdfFilename(t('journal.pdf.filename'), [projectName]));
+      const exportT = getExportTranslator(exportLanguage) as unknown as (key: string, options?: any) => string;
+      const html = buildJournalHTML(entries, projectName, exportT, localeForExportLanguage(exportLanguage));
+      await exportPDFHelper(html, buildPdfFilename(exportT('journal.pdf.filename'), [projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('common.error'), e?.message ?? t('journal.pdfError'));
     }
@@ -414,7 +423,7 @@ export default function JournalScreen() {
             {permissions.canExport && (
               <TouchableOpacity style={styles.exportBtn} onPress={handleExportPDF}>
                 <Ionicons name="download-outline" size={14} color={C.primary} />
-                <Text style={styles.exportBtnText}>PDF</Text>
+                <Text style={styles.exportBtnText}>PDF · {exportLanguage.toUpperCase()}</Text>
               </TouchableOpacity>
             )}
           </View>

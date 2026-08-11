@@ -16,6 +16,7 @@ import {
 } from '@/lib/pdfBase';
 import { buildPdfFilename } from '@/lib/pdfFilename';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useApp } from '@/context/AppContext';
 import Header from '@/components/Header';
@@ -25,6 +26,7 @@ import { showAlert } from '@/lib/appAlert';
 import PageContainer from '@/components/PageContainer';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
+import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
 
 const CRR_TEMPLATE_DEFS = [
   {
@@ -47,8 +49,13 @@ const CRR_TEMPLATE_DEFS = [
 
 const MEETING_KEY = 'buildtrack_meetings_v1';
 
-function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: string, options?: any) => string): string {
-  const exportDate = nowTimestampFR();
+function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: string, options?: any) => string, locale = 'fr-FR'): string {
+  const exportDate = new Date().toLocaleString(locale);
+  const localizedDate = (value: string) => {
+    const parts = value.split('/').map(Number);
+    if (parts.length !== 3 || parts.some(part => !Number.isFinite(part))) return value;
+    return new Date(parts[2], parts[1] - 1, parts[0]).toLocaleDateString(locale);
+  };
   const docRef = `CRR-${report.date.replace(/\//g, '')}-${report.id.slice(0, 6).toUpperCase()}`;
   const doneCount = report.actions.filter(a => a.status === 'done').length;
   const pendingCount = report.actions.length - doneCount;
@@ -91,7 +98,7 @@ function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: s
   const body = `
     ${buildLetterhead(t('meetingReport.pdf.title'), report.subject, docRef, exportDate, projectName)}
     ${buildInfoGrid([
-      { label: t('meetingReport.pdf.meetingDate'), value: report.date },
+      { label: t('meetingReport.pdf.meetingDate'), value: localizedDate(report.date) },
       { label: t('meetingReport.pdf.location'), value: report.location || t('meetingReport.notSpecified') },
       { label: t('meetingReport.pdf.redactedBy'), value: report.redactedBy },
       { label: t('meetingReport.pdf.actionsTotal'), value: t('meetingReport.pdf.actionsDone', { done: doneCount, total: report.actions.length }) },
@@ -125,7 +132,7 @@ function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: s
         <div class="sig-name">${escapeHtml(report.redactedBy)}</div>
       </div>
     </div>
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
   return wrapHTML(body, t('meetingReport.pdf.documentTitle', { subject: report.subject }));
@@ -135,6 +142,7 @@ export default function MeetingReportScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const { user, permissions } = useAuth();
+  const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();
   const { reserves, companies, activeChantierId } = useApp();
   const [reports, setReports] = useState<MeetingReport[]>([]);
@@ -274,8 +282,9 @@ export default function MeetingReportScreen() {
       return;
     }
     try {
-      const html = buildMeetingHTML(report, projectName, t);
-      await exportPDFHelper(html, buildPdfFilename('CR_Reunion', [report.subject, report.location, projectName]));
+      const exportT = getExportTranslator(exportLanguage) as unknown as (key: string, options?: any) => string;
+      const html = buildMeetingHTML(report, projectName, exportT, localeForExportLanguage(exportLanguage));
+      await exportPDFHelper(html, buildPdfFilename('CR_Reunion', [report.subject, report.location, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('common.error'), e?.message ?? t('meetingReport.pdfError'));
     }

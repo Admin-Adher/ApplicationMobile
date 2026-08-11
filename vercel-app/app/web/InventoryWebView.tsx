@@ -11,6 +11,18 @@ import {
 import styles from './inventory.module.css';
 
 type InventoryMode = 'home' | 'in' | 'out' | 'stock' | 'history';
+type ExportLanguage = 'fr' | 'en' | 'es';
+
+const INVENTORY_EXPORT_UI_COPY: Record<ExportLanguage, {
+  language: string;
+  workbook: string;
+  pdf: string;
+  pdfError: string;
+}> = {
+  fr: { language: 'Langue du document', workbook: 'Classeur Excel', pdf: 'Rapport PDF', pdfError: 'Le rapport PDF n’a pas pu être généré.' },
+  en: { language: 'Document language', workbook: 'Excel workbook', pdf: 'PDF report', pdfError: 'The PDF report could not be generated.' },
+  es: { language: 'Idioma del documento', workbook: 'Libro Excel', pdf: 'Informe PDF', pdfError: 'No se pudo generar el informe PDF.' },
+};
 
 type InventoryProductRow = {
   id: string;
@@ -60,6 +72,9 @@ type Props = {
   canManage: boolean;
   canAdjust: boolean;
   canExport: boolean;
+  uiLanguage: ExportLanguage;
+  exportLanguage: ExportLanguage;
+  onExportLanguageChange: (language: ExportLanguage) => void;
   onReload: () => Promise<void> | void;
 };
 
@@ -120,8 +135,12 @@ export default function InventoryWebView({
   canManage,
   canAdjust,
   canExport,
+  uiLanguage,
+  exportLanguage,
+  onExportLanguageChange,
   onReload,
 }: Props) {
+  const exportUiCopy = INVENTORY_EXPORT_UI_COPY[uiLanguage];
   const [mode, setMode] = useState<InventoryMode>('home');
   const [search, setSearch] = useState('');
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
@@ -451,7 +470,8 @@ export default function InventoryWebView({
       downloadInventoryWorkbook({
         kind,
         chantierName,
-        filename: `buildtrack-${kind === 'history' ? 'mouvements-stock' : 'stock'}-${safeFilename(chantierName)}-${date}.xlsx`,
+        language: exportLanguage,
+        filename: `buildtrack-${kind === 'history' ? 'mouvements-stock' : 'stock'}-${safeFilename(chantierName)}-${exportLanguage}-${date}.xlsx`,
         products: exportedProducts.map(product => ({
           reference: product.reference,
           designation: product.designation || product.reference,
@@ -488,6 +508,67 @@ export default function InventoryWebView({
 
   const exportStock = () => void exportWorkbook('stock');
   const exportHistory = () => void exportWorkbook('history');
+
+  async function printInventoryPdf() {
+    try {
+      setError('');
+      const { buildInventoryPdfHtml } = await import('../../../lib/inventoryPdfDocument');
+      const chantierName = projects.find(project => String(project.id) === String(activeProjectId))?.name
+        ?? (activeProjectId ? 'Chantier BuildTrack' : 'Tous les chantiers');
+      const html = buildInventoryPdfHtml(
+        filteredProducts.map(product => ({
+          reference: product.reference,
+          designation: product.designation || product.reference,
+          photoUrl: product.photo_url,
+          currentStock: numberValue(product.current_stock),
+          minStock: numberValue(product.min_stock),
+          totalEntries: numberValue(product.total_entries),
+          totalExits: numberValue(product.total_exits),
+          location: product.location,
+          supplier: product.supplier,
+          barcode: product.barcode,
+        })),
+        filteredMovements.map(movement => ({
+          createdAt: movement.created_at ?? '',
+          movementType: movement.movement_type,
+          reference: movement.reference ?? '',
+          designation: movement.designation ?? movement.reference ?? '',
+          quantity: numberValue(movement.quantity),
+          stockBefore: numberValue(movement.stock_before),
+          stockAfter: numberValue(movement.stock_after),
+          userName: movement.user_name,
+          buildingName: movement.building_name,
+          zoneName: movement.zone_name,
+          companyName: movement.company_name,
+          personName: movement.person_name,
+          supplier: movement.supplier,
+          comment: movement.comment,
+        })),
+        chantierName,
+        exportLanguage,
+      );
+      const frame = document.createElement('iframe');
+      frame.title = 'BuildTrack inventory PDF';
+      frame.setAttribute('aria-hidden', 'true');
+      frame.style.position = 'fixed';
+      frame.style.width = '1px';
+      frame.style.height = '1px';
+      frame.style.right = '0';
+      frame.style.bottom = '0';
+      frame.style.border = '0';
+      frame.onload = () => {
+        window.setTimeout(() => {
+          frame.contentWindow?.focus();
+          frame.contentWindow?.print();
+          window.setTimeout(() => frame.remove(), 1_500);
+        }, 120);
+      };
+      frame.srcdoc = html;
+      document.body.appendChild(frame);
+    } catch (exportError: any) {
+      setError(exportError?.message ?? exportUiCopy.pdfError);
+    }
+  }
 
   return (
     <div className={styles.root}>
@@ -585,7 +666,12 @@ export default function InventoryWebView({
         <section className={styles.tableCard}>
           <div className={styles.tableToolbar}>
             <div><h3>{mode === 'history' ? 'Historique des mouvements' : mode === 'stock' ? 'Tableau de stock' : 'Stock chantier'}</h3><p>{mode === 'history' ? `${filteredMovements.length} mouvement(s)` : `${filteredProducts.length} référence(s)`}</p></div>
-            <div className={styles.tableTools}><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Rechercher référence, produit, destination…" />{canExport ? <button type="button" onClick={mode === 'history' ? exportHistory : exportStock}>Classeur Excel</button> : null}{canExport ? <button type="button" onClick={() => window.print()}>PDF</button> : null}</div>
+            <div className={styles.tableTools}>
+              <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Rechercher référence, produit, destination…" />
+              {canExport ? <div className={styles.exportLanguage} role="radiogroup" aria-label={exportUiCopy.language}><span>{exportUiCopy.language}</span>{(['fr', 'en', 'es'] as const).map(language => <button key={language} type="button" role="radio" aria-checked={exportLanguage === language} className={exportLanguage === language ? styles.exportLanguageActive : ''} onClick={() => onExportLanguageChange(language)}>{language.toUpperCase()}</button>)}</div> : null}
+              {canExport ? <button type="button" onClick={mode === 'history' ? exportHistory : exportStock}>{exportUiCopy.workbook}</button> : null}
+              {canExport ? <button type="button" onClick={() => void printInventoryPdf()}>{exportUiCopy.pdf}</button> : null}
+            </div>
           </div>
           {mode === 'history' ? (
             <div className={styles.tableScroll}><table><thead><tr><th>Date</th><th>Type</th><th>Référence</th><th>Désignation</th><th>Qté</th><th>Stock</th><th>Destination</th><th>Entreprise</th><th>Utilisateur</th><th>Commentaire</th></tr></thead><tbody>{filteredMovements.map(movement => <tr key={movement.id}><td>{movement.created_at ? new Date(movement.created_at).toLocaleString('fr-FR') : '—'}</td><td><span className={movement.movement_type === 'in' ? styles.inBadge : styles.outBadge}>{movement.movement_type === 'in' ? 'Entrée' : 'Sortie'}</span></td><td><strong>{movement.reference}</strong></td><td>{movement.designation}</td><td>{movement.movement_type === 'in' ? '+' : '−'}{movement.quantity}</td><td>{numberValue(movement.stock_before)} → {numberValue(movement.stock_after)}</td><td>{movement.building_name || movement.zone_name || '—'}</td><td>{movement.company_name || '—'}</td><td>{movement.user_name || '—'}</td><td>{movement.comment || '—'}</td></tr>)}</tbody></table>{!filteredMovements.length ? <p className={styles.empty}>Aucun mouvement enregistré.</p> : null}</div>

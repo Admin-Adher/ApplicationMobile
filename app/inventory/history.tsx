@@ -4,10 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
+import ExportLanguageSelector from '@/components/ExportLanguageSelector';
 import { InventoryEmpty, InventoryMovementCard, InventorySearch } from '@/components/inventory/InventoryCards';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { fetchInventoryMovementsForExport, useInventory } from '@/hooks/queries/useInventory';
 import { exportInventoryPdf, exportInventoryXlsx, type InventoryExportKind } from '@/lib/inventoryExport';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
@@ -20,6 +22,7 @@ export default function InventoryHistoryScreen() {
   const copy = useInventoryCopy();
   const { activeChantier } = useApp();
   const { permissions } = useAuth();
+  const { exportLanguage, setExportLanguage } = useLanguage();
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const [search, setSearch] = useState('');
   const [filter, setFilter] = useState<MovementFilter>('all');
@@ -47,8 +50,8 @@ export default function InventoryHistoryScreen() {
     setExporting(true);
     try {
       const movements = await fetchInventoryMovementsForExport(activeChantier.id, inventory.movements);
-      if (kind === 'pdf') await exportInventoryPdf(inventory.products, movements, activeChantier.name);
-      else await exportInventoryXlsx(kind, inventory.products, movements, activeChantier.name);
+      if (kind === 'pdf') await exportInventoryPdf(inventory.products, movements, activeChantier.name, exportLanguage);
+      else await exportInventoryXlsx(kind, inventory.products, movements, activeChantier.name, exportLanguage);
     } catch (error: any) {
       Alert.alert(copy.error, error?.message ?? String(error));
     } finally {
@@ -93,6 +96,7 @@ export default function InventoryHistoryScreen() {
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setExportOpen(false)}>
           <View style={styles.exportCard} onStartShouldSetResponder={() => true}>
             <Text style={styles.exportTitle}>{copy.export}</Text>
+            <View style={styles.exportLanguage}><ExportLanguageSelector value={exportLanguage} onChange={setExportLanguage} /></View>
             <ScrollView style={{ maxHeight: 430 }} contentContainerStyle={{ gap: 7 }}>
               {([
                 ['pdf', 'document-text-outline', copy.exportPdf],
@@ -121,4 +125,5 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg }, listContent: { padding: 14 }, listHeader: { gap: 10, marginBottom: 13 },
   filters: { gap: 7 }, filter: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface }, filterText: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11 }, resultCount: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 11 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,20,48,0.5)', justifyContent: 'flex-end', padding: 14 }, exportCard: { backgroundColor: C.surface, borderRadius: 20, padding: 16, gap: 8 }, exportTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 18, marginBottom: 4 }, exportOption: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.border, borderRadius: 13, paddingHorizontal: 11 }, exportIcon: { width: 35, height: 35, borderRadius: 10, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' }, exportLabel: { flex: 1, color: C.text, fontFamily: 'Inter_500Medium', fontSize: 13 }, cancelButton: { alignItems: 'center', paddingVertical: 12 }, cancelText: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 13 }, busy: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,31,82,0.38)', alignItems: 'center', justifyContent: 'center' },
+  exportLanguage: { padding: 12, borderWidth: 1, borderColor: C.borderLight, borderRadius: 14, backgroundColor: C.bg, marginBottom: 2 },
 });

@@ -19,10 +19,12 @@ import {
 import { getISOWeek } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 import PageContainer from '@/components/PageContainer';
+import ExportLanguageSelector from '@/components/ExportLanguageSelector';
 import BottomNavBar from '@/components/BottomNavBar';
 import {
   buildPhotoAnnotationsOverlayHtml,
@@ -39,6 +41,7 @@ import {
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText, hasCustomReserveDescription } from '@/lib/reserveDescription';
 import { reserveMatchesCompany } from '@/lib/reserveVisibility';
+import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
 
 type TFunc = (key: string, options?: Record<string, any>) => string;
 
@@ -99,9 +102,9 @@ function buildLotSummaryRows(reserves: any[], companies: any[], t: TFunc): strin
   }).join('') || `<tr><td colspan="5" style="padding:12px;text-align:center;color:#059669">${escapeHtml(t('reportsPdf.noReserve'))}</td></tr>`;
 }
 
-function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, projectName: string, t: TFunc): string {
-  const now = new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-  const today = new Date().toLocaleDateString();
+function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, projectName: string, t: TFunc, locale = 'fr-FR'): string {
+  const now = new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  const today = new Date().toLocaleDateString(locale);
   const docRef = `RJ-${today.replace(/\//g, '')}`;
 
   const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
@@ -191,14 +194,14 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
       <tbody>${reserveRows || `<tr><td style="${tdS};color:#059669" colspan="7">${escapeHtml(t('reportsPdf.noActiveReserve'))}</td></tr>`}</tbody>
     </table>
 
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
   return wrapHTML(body, t('reportsPdf.dailyDocumentTitle', { projectName }));
 }
 
-function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, weekNum: number, projectName: string, t: TFunc): string {
-  const today = new Date().toLocaleDateString();
+function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, weekNum: number, projectName: string, t: TFunc, locale = 'fr-FR'): string {
+  const today = new Date().toLocaleDateString(locale);
   const docRef = `RH-S${weekNum}-${new Date().getFullYear()}`;
 
   const openIncidents = incidents.filter((i: any) => i.status !== 'resolved');
@@ -286,20 +289,20 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
       ).join('') || `<tr><td style="${tdS};color:#059669" colspan="5">${escapeHtml(t('reportsPdf.noOpenIncidentThisWeek'))}</td></tr>`}</tbody>
     </table>
 
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
   return wrapHTML(body, t('reportsPdf.weeklyDocumentTitle', { week: weekNum, projectName }));
 }
 
-function buildIncidentHTML(incident: any, projectName: string, t: TFunc): string {
+function buildIncidentHTML(incident: any, projectName: string, t: TFunc, locale = 'fr-FR'): string {
   const severityBg: Record<string, string> = { minor: '#F3F4F6', moderate: '#FFFBEB', major: '#FEF2F2', critical: '#FDF2F8' };
   const severityColor: Record<string, string> = { minor: '#6B7280', moderate: '#D97706', major: '#DC2626', critical: '#9D174D' };
   const statusColor: Record<string, string> = { open: '#DC2626', investigating: '#D97706', resolved: '#059669' };
   const statusBg: Record<string, string> = { open: '#FEF2F2', investigating: '#FFFBEB', resolved: '#ECFDF5' };
   const sevBg = severityBg[incident.severity] ?? '#F3F4F6';
   const sevCol = severityColor[incident.severity] ?? '#6B7280';
-  const today = new Date().toLocaleDateString();
+  const today = new Date().toLocaleDateString(locale);
   const docRef = `INC-${incident.id}`;
 
   const infoItems = [
@@ -334,15 +337,15 @@ function buildIncidentHTML(incident: any, projectName: string, t: TFunc): string
       <div style="background:#ECFDF5;border-radius:10px;padding:14px 18px;margin-bottom:14px;border-left:4px solid #059669;font-size:13px;color:#1A2742;line-height:1.6">
         ${escapeHtml(t('reportsPdf.resolvedSentence', { date: incident.closedAt, by: incident.closedBy ? t('reportsPdf.byName', { name: incident.closedBy }) : '' }))}
       </div>` : ''}
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
   return wrapHTML(body, t('reportsPdf.incidentDocumentTitle', { id: incident.id }));
 }
 
-async function buildCompanyReserveHTML(company: any, companyReserves: any[], projectName: string, t: TFunc): Promise<string> {
-  const now = new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
-  const today = new Date().toLocaleDateString();
+async function buildCompanyReserveHTML(company: any, companyReserves: any[], projectName: string, t: TFunc, locale = 'fr-FR'): Promise<string> {
+  const now = new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
+  const today = new Date().toLocaleDateString(locale);
   const docRef = `BON-${company.name.slice(0, 4).toUpperCase().replace(/\s/g, '')}-${today.replace(/\//g, '')}`;
   const priorityColors = RESERVE_PRIORITY_COLORS as Record<string, string>;
   const statusColors = RESERVE_STATUS_COLORS as Record<string, string>;
@@ -431,18 +434,26 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
         <div class="sig-date">Date : _______________</div>
       </div>
     </div>
-    ${buildDocFooter(projectName)}
+    ${buildDocFooter(projectName, { locale })}
   `;
 
   return wrapHTML(body, t('reportsPdf.reserveSlipDocumentTitle', { company: company.name }));
 }
 
-function buildCsvReport(reserves: any[], t: TFunc): string {
-  const header = ['ID', t('reportsPdf.title'), t('reportsPdf.status'), t('reportsPdf.priority'), t('reportsPdf.building'), 'Zone', t('reportsPdf.level'), t('reportsPdf.company'), t('reportsPdf.createdDate'), t('reportsPdf.deadline'), t('reportsPdf.closedDate'), t('reportsPdf.closedBy')];
+function buildCsvReport(reserves: any[], t: TFunc, locale: string): string {
+  const localizedDate = (value?: string | null) => {
+    if (!value || value === '—') return value ?? '';
+    const frenchDate = value.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+    const parsed = frenchDate
+      ? new Date(Number(frenchDate[3]), Number(frenchDate[2]) - 1, Number(frenchDate[1]))
+      : new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString(locale);
+  };
+  const header = ['ID', t('reportsPdf.title'), t('reportsPdf.status'), t('reportsPdf.priority'), t('reportsPdf.building'), t('reportsPdf.zone'), t('reportsPdf.level'), t('reportsPdf.company'), t('reportsPdf.createdDate'), t('reportsPdf.deadline'), t('reportsPdf.closedDate'), t('reportsPdf.closedBy')];
   const rows = reserves.map(r => [
     r.id, `"${r.title}"`, reserveStatusLabel(t, r.status), reservePriorityLabel(t, r.priority),
-    r.building, r.zone, r.level, `"${r.company}"`, r.createdAt, r.deadline,
-    r.closedAt ?? '', `"${r.closedBy ?? ''}"`,
+    r.building, r.zone, r.level, `"${r.company}"`, localizedDate(r.createdAt), localizedDate(r.deadline),
+    localizedDate(r.closedAt), `"${r.closedBy ?? ''}"`,
   ]);
   return [header, ...rows].map(row => row.join(';')).join('\n');
 }
@@ -451,10 +462,13 @@ export default function RapportsScreen() {
   const { t } = useTranslation();
   const { reserves, companies, tasks, stats, chantiers, activeChantierId, photos } = useApp();
   const { user, permissions } = useAuth();
+  const { exportLanguage, setExportLanguage } = useLanguage();
   const { projectName } = useSettings();
   const { incidents } = useIncidents();
   const userName = user?.name ?? t('reportsScreen.buildTrackTeam');
   const router = useRouter();
+  const exportT = getExportTranslator(exportLanguage) as unknown as TFunc;
+  const exportLocale = localeForExportLanguage(exportLanguage);
 
   if (user?.role === 'sous_traitant') {
     return (
@@ -487,13 +501,13 @@ export default function RapportsScreen() {
     }
     try {
       const html = type === 'daily'
-        ? buildDailyHTML(pdfReserves, companies, tasks, incidents, stats, userName, projectName, t)
-        : buildWeeklyHTML(pdfReserves, companies, tasks, incidents, stats, userName, weekNum, projectName, t);
+        ? buildDailyHTML(pdfReserves, companies, tasks, incidents, stats, userName, projectName, exportT, exportLocale)
+        : buildWeeklyHTML(pdfReserves, companies, tasks, incidents, stats, userName, weekNum, projectName, exportT, exportLocale);
       await exportPDFHelper(
         html,
         type === 'daily'
-          ? buildPdfFilename('Rapport_Journalier', [projectName])
-          : buildPdfFilename('Rapport_Hebdomadaire', [`Semaine_${weekNum}`, projectName]),
+          ? buildPdfFilename('Rapport_Journalier', [projectName, exportLanguage.toUpperCase()])
+          : buildPdfFilename('Rapport_Hebdomadaire', [`Semaine_${weekNum}`, projectName, exportLanguage.toUpperCase()]),
       );
     } catch (e: any) {
       showAlert(t('common.error'), t('reportsScreen.pdfError', { error: e?.message ?? e }));
@@ -506,20 +520,20 @@ export default function RapportsScreen() {
       return;
     }
     try {
-      const csv = buildCsvReport(reserves, t);
+      const csv = `\uFEFF${buildCsvReport(reserves, exportT, exportLocale)}`;
 
       if (Platform.OS === 'web') {
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
-        link.download = `buildtrack_reserves_${new Date().toLocaleDateString().replace(/\//g, '-')}.csv`;
+        link.download = `buildtrack_reserves_${exportLanguage}_${new Date().toISOString().slice(0, 10)}.csv`;
         link.click();
         URL.revokeObjectURL(url);
         return;
       }
 
-      const filename = `buildtrack_reserves_${Date.now()}.csv`;
+      const filename = `buildtrack_reserves_${exportLanguage}_${Date.now()}.csv`;
       const fileUri = FileSystem.cacheDirectory + filename;
       await FileSystem.writeAsStringAsync(fileUri, csv, { encoding: FileSystem.EncodingType.UTF8 });
 
@@ -540,6 +554,11 @@ export default function RapportsScreen() {
 
       <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {permissions.canExport ? (
+          <View style={styles.exportLanguageCard}>
+            <ExportLanguageSelector compact value={exportLanguage} onChange={setExportLanguage} />
+          </View>
+        ) : null}
         <View style={styles.reportCard}>
           <View style={styles.reportHeader}>
             <Ionicons name="document-text" size={20} color={C.inProgress} />
@@ -655,8 +674,8 @@ export default function RapportsScreen() {
                     <TouchableOpacity
                       onPress={async () => {
                         try {
-                          const html = buildIncidentHTML(i, projectName, t);
-                          await exportPDFHelper(html, buildPdfFilename('Incident', [i.id, i.title, projectName]));
+                          const html = buildIncidentHTML(i, projectName, exportT, exportLocale);
+                          await exportPDFHelper(html, buildPdfFilename('Incident', [i.id, i.title, projectName, exportLanguage.toUpperCase()]));
                         } catch (e: any) {
                           showAlert(t('common.error'), e?.message ?? t('reportsScreen.pdfGenerateError'));
                         }
@@ -708,8 +727,8 @@ export default function RapportsScreen() {
                       style={styles.exportBtn}
                       onPress={async () => {
                         try {
-                          const html = await buildCompanyReserveHTML(company, companyReserves, projectName, t);
-                          await exportPDFHelper(html, buildPdfFilename('Bon_Reserves', [company.name, projectName]));
+                          const html = await buildCompanyReserveHTML(company, companyReserves, projectName, exportT, exportLocale);
+                          await exportPDFHelper(html, buildPdfFilename('Bon_Reserves', [company.name, projectName, exportLanguage.toUpperCase()]));
                         } catch (e: any) {
                           showAlert(t('common.error'), e?.message ?? t('reportsScreen.pdfGenerateError'));
                         }
@@ -786,6 +805,7 @@ function StatItem({ label, val, color }: { label: string; val: number; color: st
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, paddingBottom: 40 },
+  exportLanguageCard: { backgroundColor: C.surface, borderRadius: 14, padding: 14, marginBottom: 16, borderWidth: 1, borderColor: C.border },
   reportCard: { backgroundColor: C.surface, borderRadius: 14, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: C.border },
   reportHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.border },
   reportTitle: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text },

@@ -18,12 +18,14 @@ import { buildPdfFilename } from '@/lib/pdfFilename';
 import { getISOWeekKey } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useSettings } from '@/context/SettingsContext';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import { Reserve, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import { isOverdue } from '@/lib/reserveUtils';
 import { reserveMatchesCompany } from '@/lib/reserveVisibility';
+import { getExportTranslator } from '@/lib/exportLanguage';
 
 type TFunc = (key: string, options?: Record<string, any>) => string;
 
@@ -106,9 +108,10 @@ function buildAnalyticsPDF(
 }
 
 export default function AnalyticsScreen() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { reserves, companies, lots } = useApp();
   const { user, permissions } = useAuth();
+  const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();
   const router = useRouter();
   const userName = user?.name ?? t('photosScreen.teamFallback');
@@ -184,8 +187,9 @@ export default function AnalyticsScreen() {
       return;
     }
     try {
-      const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName, t, i18n.resolvedLanguage ?? i18n.language);
-      await exportPDFHelper(html, buildPdfFilename('Tableau_Bord_Analytique', [projectName]));
+      const exportT = getExportTranslator(exportLanguage) as unknown as TFunc;
+      const html = buildAnalyticsPDF(weekStats, companyStats, reserves, projectName, userName, exportT, exportLanguage);
+      await exportPDFHelper(html, buildPdfFilename('Tableau_Bord_Analytique', [projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('common.error'), e?.message ?? t('analyticsScreen.pdfError'));
     }
@@ -197,7 +201,7 @@ export default function AnalyticsScreen() {
         title={t('analyticsScreen.title')}
         subtitle={t('analyticsScreen.subtitle')}
         showBack
-        rightLabel={permissions.canExport ? 'PDF' : undefined}
+        rightLabel={permissions.canExport ? `PDF · ${exportLanguage.toUpperCase()}` : undefined}
         onRightPress={permissions.canExport ? handleExportPDF : undefined}
       />
 

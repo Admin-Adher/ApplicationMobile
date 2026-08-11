@@ -6,6 +6,7 @@ import i18n from '@/lib/i18n';
 import {
   AppLanguage,
   DEFAULT_APP_LANGUAGE,
+  EXPORT_LANGUAGE_STORAGE_KEY,
   LanguagePreference,
   SUPPORTED_APP_LANGUAGES,
   isLanguagePreference,
@@ -18,18 +19,22 @@ const LANGUAGE_PREFERENCE_KEY = 'buildtrack_language_preference_v1';
 type LanguageContextValue = {
   deviceLanguage: AppLanguage;
   effectiveLanguage: AppLanguage;
+  exportLanguage: AppLanguage;
   isLoadingLanguage: boolean;
   languagePreference: LanguagePreference;
   setLanguagePreference: (next: LanguagePreference) => Promise<void>;
+  setExportLanguage: (next: AppLanguage) => Promise<void>;
   supportedLanguages: typeof SUPPORTED_APP_LANGUAGES;
 };
 
 const LanguageContext = createContext<LanguageContextValue>({
   deviceLanguage: DEFAULT_APP_LANGUAGE,
   effectiveLanguage: DEFAULT_APP_LANGUAGE,
+  exportLanguage: DEFAULT_APP_LANGUAGE,
   isLoadingLanguage: true,
   languagePreference: 'auto',
   setLanguagePreference: async () => {},
+  setExportLanguage: async () => {},
   supportedLanguages: SUPPORTED_APP_LANGUAGES,
 });
 
@@ -46,8 +51,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   const { user, updateUserPreferredLanguage } = useAuth();
   const [deviceLanguage, setDeviceLanguage] = useState<AppLanguage>(detectDeviceLanguage);
   const [languagePreference, setLanguagePreferenceState] = useState<LanguagePreference>('auto');
+  const [exportLanguage, setExportLanguageState] = useState<AppLanguage>(DEFAULT_APP_LANGUAGE);
   const [isLoadingLanguage, setIsLoadingLanguage] = useState(true);
   const [hasStoredPreference, setHasStoredPreference] = useState(false);
+  const [hasStoredExportLanguage, setHasStoredExportLanguage] = useState(false);
   const profileSyncSeqRef = useRef(0);
 
   useEffect(() => {
@@ -69,6 +76,22 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(EXPORT_LANGUAGE_STORAGE_KEY)
+      .then(raw => {
+        if (cancelled) return;
+        const stored = normalizeAppLanguage(raw);
+        if (stored) {
+          setExportLanguageState(stored);
+          setHasStoredExportLanguage(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (hasStoredPreference || isLoadingLanguage) return;
     if (user?.preferredLanguage) {
       setLanguagePreferenceState(user.preferredLanguage);
@@ -83,6 +106,10 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     if (languagePreference !== 'auto') return languagePreference;
     return user?.preferredLanguage ?? deviceLanguage ?? DEFAULT_APP_LANGUAGE;
   }, [deviceLanguage, languagePreference, user?.preferredLanguage]);
+
+  useEffect(() => {
+    if (!hasStoredExportLanguage) setExportLanguageState(effectiveLanguage);
+  }, [effectiveLanguage, hasStoredExportLanguage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -113,14 +140,22 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
     }
   }, [updateUserPreferredLanguage, user?.id]);
 
+  const setExportLanguage = useCallback(async (next: AppLanguage) => {
+    setExportLanguageState(next);
+    setHasStoredExportLanguage(true);
+    await AsyncStorage.setItem(EXPORT_LANGUAGE_STORAGE_KEY, next);
+  }, []);
+
   const value = useMemo<LanguageContextValue>(() => ({
     deviceLanguage,
     effectiveLanguage,
+    exportLanguage,
     isLoadingLanguage,
     languagePreference,
     setLanguagePreference,
+    setExportLanguage,
     supportedLanguages: SUPPORTED_APP_LANGUAGES,
-  }), [deviceLanguage, effectiveLanguage, isLoadingLanguage, languagePreference, setLanguagePreference]);
+  }), [deviceLanguage, effectiveLanguage, exportLanguage, isLoadingLanguage, languagePreference, setExportLanguage, setLanguagePreference]);
 
   return (
     <LanguageContext.Provider value={value}>

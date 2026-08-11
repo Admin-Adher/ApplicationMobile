@@ -288,6 +288,7 @@ const EMPTY_DATA: WebState = {
 const PDFJS_VERSION = '6.2.108';
 const WEB_LANGUAGE_PREFERENCE_KEY = 'buildtrack-web-language-preference-v1';
 const WEB_LANGUAGE_LEGACY_KEY = 'buildtrack-web-language';
+const WEB_EXPORT_LANGUAGE_KEY = 'buildtrack-export-language-v1';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 const PHOTO_ANNOTATION_COLORS = ['#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#FFFFFF', '#111827'];
 const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
@@ -879,6 +880,12 @@ function canMovePins(profile: Profile | null) {
 
 function canEditChantier(profile: Profile | null) {
   return resolveWebPermissions(profile).canEditChantier;
+}
+
+function readStoredExportLanguage(): SupportedLang | null {
+  if (typeof window === 'undefined') return null;
+  const value = window.localStorage.getItem(WEB_EXPORT_LANGUAGE_KEY);
+  return value === 'fr' || value === 'en' || value === 'es' ? value : null;
 }
 
 function canViewInventory(profile: Profile | null) {
@@ -2586,7 +2593,17 @@ export default function BuildTrackWebPage() {
   const [editingReserveId, setEditingReserveId] = useState<string | null>(null);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [visitDraft, setVisitDraft] = useState<VisitDraft>(() => createVisitDraft('', ''));
-  const [reportLanguage, setReportLanguage] = useState<'fr' | 'en' | 'es'>('fr');
+  const [initialReportLanguage] = useState<SupportedLang | null>(readStoredExportLanguage);
+  const [reportLanguage, setReportLanguageState] = useState<SupportedLang>(() => initialReportLanguage ?? getBrowserLang());
+  const [hasStoredReportLanguage, setHasStoredReportLanguage] = useState(() => initialReportLanguage !== null);
+  const setReportLanguage = useCallback((nextLanguage: SupportedLang) => {
+    setReportLanguageState(nextLanguage);
+    setHasStoredReportLanguage(true);
+    if (typeof window !== 'undefined') window.localStorage.setItem(WEB_EXPORT_LANGUAGE_KEY, nextLanguage);
+  }, []);
+  const syncReportLanguageWithInterface = useCallback((nextLanguage: SupportedLang) => {
+    if (!hasStoredReportLanguage) setReportLanguageState(nextLanguage);
+  }, [hasStoredReportLanguage]);
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -2619,7 +2636,7 @@ export default function BuildTrackWebPage() {
     setDeviceLanguage(nextDeviceLanguage);
     setWebLanguagePreferenceState(nextPreference);
     setWebLangState(nextLang);
-    setReportLanguage(nextLang);
+    syncReportLanguageWithInterface(nextLang);
     storeWebLanguagePreference(nextPreference, nextLang);
 
     const profileId = profile?.id ?? authUser?.id;
@@ -2637,7 +2654,7 @@ export default function BuildTrackWebPage() {
       ...previous,
       profiles: previous.profiles.map(user => user.id === profileId ? { ...user, preferred_language: nextProfileLanguage } : user),
     }));
-  }, [authUser?.id, profile?.id]);
+  }, [authUser?.id, profile?.id, syncReportLanguageWithInterface]);
 
   const handleWebLangChange = useCallback(async (nextLang: SupportedLang) => {
     await handleWebLanguagePreferenceChange(nextLang);
@@ -2654,7 +2671,7 @@ export default function BuildTrackWebPage() {
         setDeviceLanguage(nextDeviceLanguage);
         if (webLanguagePreference === 'auto' && !profile?.preferred_language) {
           setWebLangState(nextDeviceLanguage);
-          setReportLanguage(nextDeviceLanguage);
+          syncReportLanguageWithInterface(nextDeviceLanguage);
           storeWebLanguagePreference('auto', nextDeviceLanguage);
         }
       };
@@ -2662,7 +2679,7 @@ export default function BuildTrackWebPage() {
       return () => window.removeEventListener('languagechange', updateDeviceLanguage);
     }
     return undefined;
-  }, [profile?.preferred_language, webLanguagePreference]);
+  }, [profile?.preferred_language, syncReportLanguageWithInterface, webLanguagePreference]);
 
   const i18n = useMemo<WebI18nValue>(() => ({
     lang: webLang,
@@ -2928,7 +2945,7 @@ export default function BuildTrackWebPage() {
           window.localStorage.setItem(WEB_LANGUAGE_LEGACY_KEY, preferredLang);
         }
       }
-      setReportLanguage(preferredLang);
+      syncReportLanguageWithInterface(preferredLang);
       setProfile({ ...loadedProfile, preferred_language: profileLanguage });
 
       if (loadedProfile.role === 'magasinier') {
@@ -4192,7 +4209,7 @@ export default function BuildTrackWebPage() {
         const nextLang = resolveWebLanguagePreference(nextPreference, patch.preferred_language ?? null, deviceLanguage);
         setWebLanguagePreferenceState(nextPreference);
         setWebLangState(nextLang);
-        setReportLanguage(nextLang);
+        syncReportLanguageWithInterface(nextLang);
         storeWebLanguagePreference(nextPreference, nextLang);
       }
     }
@@ -5518,6 +5535,9 @@ export default function BuildTrackWebPage() {
                   canManage={canManageInventoryProducts(profile)}
                   canAdjust={canAdjustInventory(profile)}
                   canExport={canExportInventory(profile)}
+                  uiLanguage={webLang}
+                  exportLanguage={reportLanguage}
+                  onExportLanguageChange={setReportLanguage}
                   onReload={async () => {
                     if (session.user) await loadEverything(session.user, { background: true });
                   }}
@@ -5583,6 +5603,7 @@ export default function BuildTrackWebPage() {
                 onGenerateReservePdf={(reserve: any, language: TextLang) => generateWebReport('individual_reserve', { reserve, language })}
                 generatingReport={generatingReport}
                 defaultReportLanguage={reportLanguage}
+                onReportLanguageChange={setReportLanguage}
                 canUseAssistant={isAdmin(profile)}
                 editable={canEdit(profile)}
                 canCreateReserve={canCreate(profile)}
@@ -5623,6 +5644,7 @@ export default function BuildTrackWebPage() {
                 }
                 generatingReport={generatingReport}
                 defaultReportLanguage={reportLanguage}
+                onReportLanguageChange={setReportLanguage}
                 editable={canEdit(profile)}
                 canCreatePlan={canCreate(profile)}
                 canDeletePlan={canDelete(profile)}
@@ -5748,6 +5770,8 @@ export default function BuildTrackWebPage() {
                 onUpdateVisit={updateVisitWeb}
                 onDeleteVisit={deleteVisitWeb}
                 onGenerateVisitReport={(visit: any, language: 'fr' | 'en' | 'es') => generateWebReport('visit_report', { visit, language })}
+                reportLanguage={reportLanguage}
+                setReportLanguage={setReportLanguage}
                 generatingReport={generatingReport}
                 restricted={profile?.role === 'sous_traitant'}
                 editable={canEdit(profile)}
@@ -5839,6 +5863,8 @@ export default function BuildTrackWebPage() {
                 languagePreference={webLanguagePreference}
                 deviceLanguage={deviceLanguage}
                 onUpdateLanguagePreference={handleWebLanguagePreferenceChange}
+                exportLanguage={reportLanguage}
+                onUpdateExportLanguage={setReportLanguage}
                 onUpdateOwnProfile={updateOwnProfile}
                 onUpdateNotificationField={updateNotificationField}
                 onUpdateProject={updateProjectSettings}
@@ -6485,6 +6511,7 @@ function ReservesView(props: {
   onGenerateReservePdf: (reserve: any, language: TextLang) => Promise<void> | void;
   generatingReport: string | null;
   defaultReportLanguage: TextLang;
+  onReportLanguageChange: (language: TextLang) => void;
   canUseAssistant: boolean;
   editable: boolean;
   canCreateReserve: boolean;
@@ -7260,7 +7287,10 @@ function ReservesView(props: {
                       type="button"
                       className={pdfLanguage === option.value ? styles.reservePdfLangActiveWeb : ''}
                       disabled={pdfBusy}
-                      onClick={() => setPdfLanguage(option.value)}
+                      onClick={() => {
+                        setPdfLanguage(option.value);
+                        props.onReportLanguageChange(option.value);
+                      }}
                     >
                       {option.label}
                     </button>
@@ -8268,6 +8298,7 @@ function PlansView({
   onGeneratePlansPdf,
   generatingReport,
   defaultReportLanguage,
+  onReportLanguageChange,
   editable,
   canCreatePlan,
   canDeletePlan,
@@ -9634,7 +9665,10 @@ function PlansView({
                       type="button"
                       className={plansPdfLanguage === option.value ? styles.reservePdfLangActiveWeb : ''}
                       disabled={plansPdfBusy}
-                      onClick={() => setPlansPdfLanguage(option.value)}
+                      onClick={() => {
+                        setPlansPdfLanguage(option.value);
+                        onReportLanguageChange(option.value);
+                      }}
                     >
                       {option.label}
                     </button>
@@ -9690,6 +9724,8 @@ function VisitesView({
   canCreate,
   canDelete,
   canExport,
+  reportLanguage,
+  setReportLanguage,
 }: any) {
   const [statusFilter, setStatusFilter] = useState<'all' | VisitDraft['status']>('all');
   const [selectedVisitId, setSelectedVisitId] = useState<string>('');
@@ -9697,7 +9733,6 @@ function VisitesView({
   const [attachSearch, setAttachSearch] = useState('');
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
   const [attachSelectedIds, setAttachSelectedIds] = useState<string[]>([]);
-  const [reportLanguage, setReportLanguage] = useState<'fr' | 'en' | 'es'>('fr');
   const [locationVisitId, setLocationVisitId] = useState('');
   const [locationSearch, setLocationSearch] = useState('');
   const [locationDraft, setLocationDraft] = useState<{
@@ -12487,7 +12522,7 @@ function IonIcon({ name }: { name: IonIconName }) {
   return <i aria-hidden="true" className={styles.ionIcon}>{IONICON_CODEPOINTS[name]}</i>;
 }
 
-function SettingsView({ profile, authUser, data, scoped, selectedProjectId, preferences, languagePreference, deviceLanguage, onUpdateLanguagePreference, onUpdateOwnProfile, onUpdateNotificationField, onUpdateProject, onUpdateCompanyField, onOpenTab, onOpenAdmin, onLogout }: {
+function SettingsView({ profile, authUser, data, scoped, selectedProjectId, preferences, languagePreference, deviceLanguage, onUpdateLanguagePreference, exportLanguage, onUpdateExportLanguage, onUpdateOwnProfile, onUpdateNotificationField, onUpdateProject, onUpdateCompanyField, onOpenTab, onOpenAdmin, onLogout }: {
   profile: Profile | null;
   authUser: SupabaseUser | null;
   data: WebState;
@@ -12497,6 +12532,8 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   languagePreference: WebLanguagePreference;
   deviceLanguage: SupportedLang;
   onUpdateLanguagePreference: (preference: WebLanguagePreference) => void | Promise<void>;
+  exportLanguage: SupportedLang;
+  onUpdateExportLanguage: (language: SupportedLang) => void;
   onUpdateOwnProfile: (patch: Partial<Profile>) => Promise<void>;
   onUpdateNotificationField: (field: string, value: boolean | string) => void;
   onUpdateProject: (projectId: string, patch: Record<string, any>) => Promise<void>;
@@ -12508,6 +12545,7 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   const { lang, t } = useWebI18n();
   const [settingsTab, setSettingsTab] = useState<SettingsTabId>('compte');
   const activeLanguage = WEB_LANGUAGES.find(item => item.code === lang) ?? WEB_LANGUAGES[0];
+  const activeExportLanguage = WEB_LANGUAGES.find(item => item.code === exportLanguage) ?? WEB_LANGUAGES[0];
   const [displayName, setDisplayName] = useState(profile?.name ?? '');
   const [savingName, setSavingName] = useState(false);
   const [nameMessage, setNameMessage] = useState<{ ok: boolean; text: string } | null>(null);
@@ -12735,6 +12773,38 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
             })}
           </div>
           <small className={styles.languageHint}>{t('settings.languageAutoHint')}</small>
+        </div>
+        <div className={styles.languageManager}>
+          <div className={styles.languageManagerTitle}>
+            <span><IonIcon name="albums-outline" /></span>
+            <strong>{t('settings.exportLanguage')}</strong>
+          </div>
+          <p>{t('settings.exportLanguageDescription')}</p>
+          <div className={styles.languageSummary}>
+            <span>{activeExportLanguage.shortLabel}</span>
+            <div>
+              <strong>{activeExportLanguage.nativeName}</strong>
+              <small>{t('settings.exportLanguageSaved')}</small>
+            </div>
+          </div>
+          <div className={styles.languageOptions} role="radiogroup" aria-label={t('settings.exportLanguage')}>
+            {WEB_LANGUAGES.map(option => {
+              const active = exportLanguage === option.code;
+              return (
+                <button
+                  key={`export-${option.code}`}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  className={active ? styles.languageOptionActive : ''}
+                  onClick={() => onUpdateExportLanguage(option.code)}
+                >
+                  <span>{option.shortLabel}</span>
+                  <strong>{option.nativeName}</strong>
+                </button>
+              );
+            })}
+          </div>
         </div>
         <div className={styles.accountProfileCard}>
           <div className={styles.accountAvatar}>{profileInitials}</div>

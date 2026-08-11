@@ -9,6 +9,7 @@ import {
   type InventoryWorkbookMovement,
   type InventoryWorkbookProduct,
 } from './inventoryWorkbookEngine';
+import type { InventoryDocumentLanguage } from './inventoryDocumentCopy';
 
 export type InventoryExportKind = InventoryWorkbookKind;
 
@@ -52,6 +53,7 @@ export function buildInventoryWorkbook(
   movements: InventoryMovement[],
   chantierName: string,
   generatedAt = new Date(),
+  language: InventoryDocumentLanguage = 'fr',
 ): XLSX.WorkBook {
   return buildInventoryWorkbookEngine(
     XLSX as any,
@@ -60,6 +62,7 @@ export function buildInventoryWorkbook(
     movements.map(normalizeMovement),
     chantierName,
     generatedAt,
+    language,
   ) as XLSX.WorkBook;
 }
 

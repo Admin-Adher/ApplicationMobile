@@ -4,11 +4,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
+import ExportLanguageSelector from '@/components/ExportLanguageSelector';
 import { InventoryEmpty, InventoryMovementCard, InventoryProductCard, InventorySearch } from '@/components/inventory/InventoryCards';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useInventory, normalizeInventoryReference, fetchInventoryMovementsForExport } from '@/hooks/queries/useInventory';
 import { exportInventoryPdf } from '@/lib/inventoryExport';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
@@ -20,6 +22,7 @@ export default function InventoryHomeScreen() {
   const copy = useInventoryCopy();
   const { activeChantier } = useApp();
   const { permissions, user } = useAuth();
+  const { exportLanguage, setExportLanguage } = useLanguage();
   const isWarehouseUser = isWarehouseRole(user?.role);
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const [search, setSearch] = useState('');
@@ -69,7 +72,7 @@ export default function InventoryHomeScreen() {
     setExporting(true);
     try {
       const movements = await fetchInventoryMovementsForExport(activeChantier.id, inventory.movements);
-      await exportInventoryPdf(inventory.products, movements, activeChantier.name);
+      await exportInventoryPdf(inventory.products, movements, activeChantier.name, exportLanguage);
     } catch (error: any) {
       Alert.alert(copy.error, error?.message ?? String(error));
     } finally {
@@ -117,6 +120,11 @@ export default function InventoryHomeScreen() {
             <Text style={styles.siteButtonText}>{activeChantier.name}</Text>
             <Ionicons name="chevron-down" size={16} color={C.textSub} />
           </TouchableOpacity>
+        )}
+        {permissions.canExportInventory && (
+          <View style={styles.exportLanguageCard}>
+            <ExportLanguageSelector compact value={exportLanguage} onChange={setExportLanguage} />
+          </View>
         )}
         <InventorySearch value={search} onChangeText={setSearch} />
         {!!search && (
@@ -190,6 +198,7 @@ const styles = StyleSheet.create({
   headerAction: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.primaryBg },
   siteButton: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 13, paddingVertical: 11, borderRadius: 13, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
   siteButtonText: { flex: 1, color: C.text, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
+  exportLanguageCard: { padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
   primaryButton: { alignSelf: 'center', backgroundColor: C.primary, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 13 },
   primaryButtonText: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 },
   searchResults: { gap: 8 },

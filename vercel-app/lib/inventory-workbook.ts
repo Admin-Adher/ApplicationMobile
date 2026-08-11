@@ -7,6 +7,7 @@ import {
   type InventoryWorkbookMovement,
   type InventoryWorkbookProduct,
 } from '../../lib/inventoryWorkbookEngine';
+import type { InventoryDocumentLanguage } from '../../lib/inventoryDocumentCopy';
 
 export type {
   InventoryWorkbookKind,
@@ -20,6 +21,7 @@ type DownloadInventoryWorkbookOptions = {
   movements: InventoryWorkbookMovement[];
   chantierName: string;
   filename: string;
+  language: InventoryDocumentLanguage;
 };
 
 export function downloadInventoryWorkbook({
@@ -28,6 +30,7 @@ export function downloadInventoryWorkbook({
   movements,
   chantierName,
   filename,
+  language,
 }: DownloadInventoryWorkbookOptions): void {
   const workbook = buildInventoryWorkbookEngine(
     XLSX as any,
@@ -35,6 +38,8 @@ export function downloadInventoryWorkbook({
     products,
     movements,
     chantierName,
+    new Date(),
+    language,
   );
   const bytes = writeInventoryWorkbookBytesEngine(XLSX as any, {
     strFromU8,

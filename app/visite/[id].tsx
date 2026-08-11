@@ -837,7 +837,7 @@ function buildVisitePDF(
 export default function VisiteDetailScreen() {
   const router = useRouter();
   const { t } = useTranslation();
-  const { effectiveLanguage } = useLanguage();
+  const { exportLanguage, setExportLanguage } = useLanguage();
   const { id } = useLocalSearchParams<{ id: string }>();
   const {
     visites,
@@ -874,7 +874,7 @@ export default function VisiteDetailScreen() {
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
   const [attachSubmitting, setAttachSubmitting] = useState(false);
   const [reserveVisitActionLoadingId, setReserveVisitActionLoadingId] = useState<string | null>(null);
-  const [reportLanguage, setReportLanguage] = useState<VisitReportLanguage>(effectiveLanguage as VisitReportLanguage);
+  const reportLanguage = exportLanguage as VisitReportLanguage;
 
   const visite = visites.find(v => v.id === id);
   const visiteReserveIds = useMemo(() => new Set(visite?.reserveIds ?? []), [visite?.reserveIds]);
@@ -1621,7 +1621,7 @@ export default function VisiteDetailScreen() {
                   <TouchableOpacity
                     key={item.code}
                     style={[styles.reportLanguageChip, active && styles.reportLanguageChipActive]}
-                    onPress={() => setReportLanguage(item.code)}
+                    onPress={() => { void setExportLanguage(item.code); }}
                     activeOpacity={0.8}
                   >
                     <Text style={[styles.reportLanguageChipCode, active && styles.reportLanguageChipCodeActive]}>

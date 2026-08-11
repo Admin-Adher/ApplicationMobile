@@ -7,10 +7,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
+import ExportLanguageSelector from '@/components/ExportLanguageSelector';
 import { InventoryEmpty, InventoryProductCard, InventorySearch } from '@/components/inventory/InventoryCards';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { fetchInventoryMovementsForExport, normalizeInventoryReference, useInventory } from '@/hooks/queries/useInventory';
 import { exportInventoryPdf, exportInventoryXlsx, type InventoryExportKind } from '@/lib/inventoryExport';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
@@ -22,6 +24,7 @@ export default function InventoryStockScreen() {
   const copy = useInventoryCopy();
   const { activeChantier } = useApp();
   const { permissions } = useAuth();
+  const { exportLanguage, setExportLanguage } = useLanguage();
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const [search, setSearch] = useState('');
   const [lowOnly, setLowOnly] = useState(params.low === '1');
@@ -51,8 +54,8 @@ export default function InventoryStockScreen() {
       const movements = needsFullHistory
         ? await fetchInventoryMovementsForExport(activeChantier.id, inventory.movements)
         : inventory.movements;
-      if (kind === 'pdf') await exportInventoryPdf(inventory.products, movements, activeChantier.name);
-      else await exportInventoryXlsx(kind, inventory.products, movements, activeChantier.name);
+      if (kind === 'pdf') await exportInventoryPdf(inventory.products, movements, activeChantier.name, exportLanguage);
+      else await exportInventoryXlsx(kind, inventory.products, movements, activeChantier.name, exportLanguage);
     } catch (error: any) {
       Alert.alert(copy.error, error?.message ?? String(error));
     } finally {
@@ -99,6 +102,7 @@ export default function InventoryStockScreen() {
         <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setExportOpen(false)}>
           <View style={styles.exportCard} onStartShouldSetResponder={() => true}>
             <Text style={styles.exportTitle}>{copy.export}</Text>
+            <View style={styles.exportLanguage}><ExportLanguageSelector value={exportLanguage} onChange={setExportLanguage} /></View>
             <ScrollView style={styles.exportOptions} contentContainerStyle={styles.exportOptionsContent} showsVerticalScrollIndicator={false}>
               {([
                 ['pdf', 'document-text-outline', copy.exportPdf],
@@ -131,5 +135,6 @@ const styles = StyleSheet.create({
   fabRow: { position: 'absolute', left: 14, right: 14, flexDirection: 'row', gap: 9 }, fab: { flex: 1, height: 52, borderRadius: 15, flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center', shadowColor: '#001F52', shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 }, fabText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 12 },
   modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,20,48,0.5)', justifyContent: 'flex-end', padding: 14 }, exportCard: { backgroundColor: C.surface, borderRadius: 20, padding: 16, gap: 8 }, exportTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 18, marginBottom: 4 }, exportOption: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.border, borderRadius: 13, paddingHorizontal: 11 }, exportIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' }, exportLabel: { flex: 1, color: C.text, fontFamily: 'Inter_500Medium', fontSize: 13 }, cancelButton: { alignItems: 'center', paddingVertical: 12 }, cancelText: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   exportOptions: { maxHeight: 400 }, exportOptionsContent: { gap: 8 },
+  exportLanguage: { padding: 12, borderWidth: 1, borderColor: C.borderLight, borderRadius: 14, backgroundColor: C.bg, marginBottom: 2 },
   busy: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,31,82,0.38)', alignItems: 'center', justifyContent: 'center' },
 });

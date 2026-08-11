@@ -17,6 +17,8 @@ import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
+import ExportLanguageSelector from '@/components/ExportLanguageSelector';
 import { Reserve, ReserveStatus, ReservePriority, ReserveKind, SitePlan as SitePlanType } from '@/constants/types';
 import ReserveCard from '@/components/ReserveCard';
 import DateInput from '@/components/DateInput';
@@ -43,6 +45,7 @@ import {
   RESERVE_STATUS_LABELS as STATUS_LABELS,
 } from '@/lib/reserveLabels';
 import { getReserveDescriptionText, hasCustomReserveDescription, isReserveDescriptionMissing } from '@/lib/reserveDescription';
+import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
 import { detectTextLanguage, TEXT_ASSIST_LANGUAGES, textAssistAdvancedCacheKey, TextAssistContext, TextAssistLanguage } from '@/lib/textAssist';
 import { requestAdvancedTranslation } from '@/lib/textAssistOnline';
 import {
@@ -63,14 +66,19 @@ function reservePriorityLabel(t: TranslateFn, priority: ReservePriority) {
   return t(`reserveLabels.priority.${priority}`, { defaultValue: PRIORITY_LABELS[priority] ?? priority });
 }
 
-function buildReservesCSV(reserves: Reserve[], t: TranslateFn): string {
+function buildReservesCSV(reserves: Reserve[], t: TranslateFn, locale: string): string {
   const header = t('reservesScreen.report.csvHeader');
+  const localizedDate = (value?: string | null) => {
+    if (!value || value === '—') return '—';
+    const parsed = parseDeadline(value) ?? new Date(value);
+    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString(locale);
+  };
   const rows = reserves.map(r => {
     const esc = (v: string) => `"${(v ?? '').replace(/"/g, '""')}"`;
     return [
       esc(r.id), esc(r.title), esc(t('reservesScreen.report.buildingPrefix', { building: r.building })), esc(r.zone), esc(r.level),
       esc((r.companies ?? (r.company ? [r.company] : [])).join('; ')), esc(reservePriorityLabel(t, r.priority)), esc(reserveStatusLabel(t, r.status)),
-      esc(r.createdAt), esc(r.deadline ?? '—'), esc(getReserveDescriptionText(r.description, r.title, '')),
+      esc(localizedDate(r.createdAt)), esc(localizedDate(r.deadline)), esc(getReserveDescriptionText(r.description, r.title, '')),
     ].join(',');
   });
   return [header, ...rows].join('\n');
@@ -240,20 +248,22 @@ async function generateReportPDF(action: 'share' | 'print',
   </div></body></html>`;
 
   const fileBase = t('reservesScreen.report.fileName');
+  const languageCode = locale.split('-')[0].toUpperCase();
   if (action === 'print') {
-    await printPDFHelper(html, buildPdfFilename(fileBase, [chantierName]));
+    await printPDFHelper(html, buildPdfFilename(fileBase, [chantierName, languageCode]));
   } else {
-    await exportPDFHelper(html, buildPdfFilename(fileBase, [chantierName]));
+    await exportPDFHelper(html, buildPdfFilename(fileBase, [chantierName, languageCode]));
   }
 }
 
 export default function ReservesScreen() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
   const { reserves, deletedReserves, companies, isLoading, chantiers, activeChantierId, setActiveChantier, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, restoreReserve, permanentlyDeleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
   const { permissions, user } = useAuth();
+  const { exportLanguage, setExportLanguage } = useLanguage();
   // Droit de positionner/déplacer des pastilles sur les plans (même règle que
   // l'écran Plans : la permission est optionnelle et vaut true par défaut).
   const canMovePins: boolean = Object.prototype.hasOwnProperty.call(permissions, 'canMovePins')
@@ -546,17 +556,18 @@ export default function ReservesScreen() {
   );
 
   function handleExportCSV() {
-    const csv = buildReservesCSV(filtered, t);
+    const exportT = getExportTranslator(exportLanguage) as unknown as TranslateFn;
+    const csv = buildReservesCSV(filtered, exportT, localeForExportLanguage(exportLanguage));
     if (Platform.OS === 'web') {
       const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `reserves_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      a.download = `reserves_export_${exportLanguage}_${new Date().toISOString().slice(0, 10)}.csv`;
       a.click();
       URL.revokeObjectURL(url);
     } else {
-      Share.share({ title: t('reservesScreen.exports.csvTitle'), message: buildReservesCSV(filtered, t) }).catch(() => {});
+      Share.share({ title: exportT('reservesScreen.exports.csvTitle'), message: csv }).catch(() => {});
     }
   }
 
@@ -567,8 +578,8 @@ export default function ReservesScreen() {
       const chantierName = chantierFilter !== 'all'
         ? chantiers.find(c => c.id === chantierFilter)?.name ?? t('reservesScreen.projectFallback')
         : t('reservesScreen.allProjects');
-      const pdfLocale = i18n.language?.startsWith('es') ? 'es-ES' : i18n.language?.startsWith('en') ? 'en-US' : 'fr-FR';
-      await generateReportPDF(action, enrichReserveListForPdf(list, photos), chantierName, lots, t, pdfLocale);
+      const exportT = getExportTranslator(exportLanguage) as unknown as TranslateFn;
+      await generateReportPDF(action, enrichReserveListForPdf(list, photos), chantierName, lots, exportT, localeForExportLanguage(exportLanguage));
     } catch (e) {
       Alert.alert(t('common.error'), t('reservesScreen.alerts.pdfFailed'));
     } finally {
@@ -1050,7 +1061,7 @@ export default function ReservesScreen() {
         chantierName,
         companyFilter,
         generatedAt: new Date().toISOString(),
-        language: i18n.resolvedLanguage ?? i18n.language,
+        language: exportLanguage,
         reserves: reservesPayload,
         recipients: emails,
         sendByEmail: true,
@@ -1061,7 +1072,7 @@ export default function ReservesScreen() {
       }
       if (result.pdfBase64) {
         try {
-          const filename = buildPdfFilename('Rapport_Reserves', [chantierName]);
+          const filename = buildPdfFilename('Rapport_Reserves', [chantierName, exportLanguage.toUpperCase()]);
           const fileUri = (FileSystem.cacheDirectory ?? '') + filename;
           await FileSystem.writeAsStringAsync(fileUri, result.pdfBase64, { encoding: FileSystem.EncodingType.Base64 });
           const canShare = await Sharing.isAvailableAsync();
@@ -1086,7 +1097,7 @@ export default function ReservesScreen() {
     } finally {
       setEmailReportLoading(false);
     }
-  }, [emailReportTo, getSelectedReservesForEmail, photos, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle, t]);
+  }, [emailReportTo, exportLanguage, getSelectedReservesForEmail, photos, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle, t]);
 
   const pdfPreviewCount = useMemo(() => {
     if (pdfExportMode === 'all') return filtered.length;
@@ -2639,6 +2650,9 @@ export default function ReservesScreen() {
             </View>
 
             <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ gap: 12, paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
+            <View style={styles.pdfLanguageCard}>
+              <ExportLanguageSelector value={exportLanguage} onChange={setExportLanguage} />
+            </View>
             <View style={styles.pdfOptionGroup}>
               <TouchableOpacity
                 style={[styles.pdfOption, pdfExportMode === 'all' && styles.pdfOptionActive]}
@@ -3800,6 +3814,7 @@ const styles = StyleSheet.create({
   pdfModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center', padding: 16 },
   pdfModalCard: { backgroundColor: C.surface, borderRadius: 18, padding: 16, gap: 12, maxHeight: '90%', width: '100%', maxWidth: 560 },
   pdfModalHeaderRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
+  pdfLanguageCard: { padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.borderLight, backgroundColor: C.bg },
   pdfOptionGroup: { gap: 6 },
   pdfOption: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.surface2, borderWidth: 1, borderColor: C.border },
   pdfOptionActive: { backgroundColor: C.primary, borderColor: C.primary },

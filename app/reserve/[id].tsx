@@ -31,6 +31,7 @@ import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
 import DictationTextInput from '@/components/DictationTextInput';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { useSettings } from '@/context/SettingsContext';
 import { generateAndSendIndividualReserve } from '@/lib/email/client';
@@ -51,6 +52,7 @@ import {
   isRemotePdfAssetUri,
 } from '@/lib/pdfReserveHelpers';
 import { buildPdfFilename } from '@/lib/pdfFilename';
+import { getExportTranslator } from '@/lib/exportLanguage';
 import {
   RESERVE_PRIORITY_COLORS,
   RESERVE_PRIORITY_LABELS,
@@ -285,6 +287,28 @@ function reservePdfLocale(language: ReservePdfLanguage): string {
   return 'fr-FR';
 }
 
+function parseReservePdfDate(value?: string | null): Date | null {
+  if (!value || value === '—') return null;
+  const frenchDate = value.match(/^(\d{2})\/(\d{2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (frenchDate) {
+    const [, day, month, year, hour = '0', minute = '0'] = frenchDate;
+    const parsed = new Date(Number(year), Number(month) - 1, Number(day), Number(hour), Number(minute));
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatReservePdfDate(value: string | undefined | null, locale: string): string {
+  const parsed = parseReservePdfDate(value);
+  return parsed ? parsed.toLocaleDateString(locale) : (value || '—');
+}
+
+function formatReservePdfTimestamp(value: string | undefined | null, locale: string): string {
+  const parsed = parseReservePdfDate(value);
+  return parsed ? parsed.toLocaleString(locale) : (value || '—');
+}
+
 function buildReservePDF(
   reserve: Reserve,
   projectName: string,
@@ -301,6 +325,8 @@ function buildReservePDF(
   const pdfLang = reservePdfLanguage(options.language);
   const copy = RESERVE_PDF_COPY[pdfLang];
   const locale = reservePdfLocale(pdfLang);
+  const pdfDate = (value?: string | null) => formatReservePdfDate(value, locale);
+  const pdfTimestamp = (value?: string | null) => formatReservePdfTimestamp(value, locale);
   const statusColors = RESERVE_STATUS_COLORS as Record<string, string>;
   const statusLabels = options.statusLabels ?? RESERVE_STATUS_LABELS_FEMININE as Record<string, string>;
   const priorityLabels = options.priorityLabels ?? RESERVE_PRIORITY_LABELS as Record<string, string>;
@@ -451,7 +477,7 @@ document.head.appendChild(s);
   const commentsHtml = reserve.comments.length > 0
     ? reserve.comments.slice(-3).map(c =>
         `<div style="padding:6px 10px;background:#F9FAFB;border-radius:6px;margin-bottom:5px;border-left:3px solid #1A6FD8">
-          <div style="font-size:9px;color:#5E738A;margin-bottom:2px"><strong>${c.author}</strong> · ${formatTimestampFR(c.createdAt)}</div>
+          <div style="font-size:9px;color:#5E738A;margin-bottom:2px"><strong>${c.author}</strong> · ${pdfTimestamp(c.createdAt)}</div>
           <div style="font-size:11px;color:#1A2742">${c.content}</div>
         </div>`
       ).join('')
@@ -459,7 +485,7 @@ document.head.appendChild(s);
 
   const historyRows = [...reserve.history].reverse().slice(0, 5).map(h =>
     `<tr>
-      <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;white-space:nowrap">${formatTimestampFR(h.createdAt)}</td>
+      <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;white-space:nowrap">${pdfTimestamp(h.createdAt)}</td>
       <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;font-weight:600">${h.action}</td>
       <td style="padding:4px 8px;font-size:10px;border-bottom:1px solid #EEF3FA;color:#6B7280">${h.author}</td>
       ${h.oldValue && h.newValue
@@ -474,7 +500,7 @@ document.head.appendChild(s);
           <div style="font-size:9px;color:#5E738A;text-transform:uppercase;letter-spacing:0.6px;font-weight:700;margin-bottom:6px">${copy.liftSignature}</div>
           <div style="font-size:10px;color:#5E738A;margin-bottom:6px">${copy.signer} : <strong>${reserve.enterpriseSignataire ?? copy.noValue}</strong></div>
           <img src="${svgStringToDataUrl(reserve.enterpriseSignature!)}" style="width:180px;height:55px;object-fit:contain;border-bottom:2px solid #1A2742;display:block;margin-bottom:4px" />
-          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ ${copy.liftAcknowledgedOn} ${formatDate(reserve.enterpriseAcknowledgedAt)}</div>` : ''}
+          ${reserve.enterpriseAcknowledgedAt ? `<div style="font-size:9px;color:#059669">✓ ${copy.liftAcknowledgedOn} ${pdfDate(reserve.enterpriseAcknowledgedAt)}</div>` : ''}
         </div>
       </div>`
     : `<div style="display:flex;gap:20px">
@@ -532,9 +558,9 @@ document.head.appendChild(s);
         </div>
       </div>
       <div style="text-align:right;font-size:10px;color:#6B7280;flex-shrink:0;margin-left:16px">
-        <div>${copy.createdOn} <strong style="color:#1A2742">${formatDate(reserve.createdAt)}</strong></div>
-        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ ${copy.closedOn} ${formatDate(reserve.closedAt)}</div>` : ''}
-        <div style="margin-top:4px">${copy.deadline} : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${formatDate(reserve.deadline)}</strong></div>
+        <div>${copy.createdOn} <strong style="color:#1A2742">${pdfDate(reserve.createdAt)}</strong></div>
+        ${reserve.closedAt ? `<div style="color:#059669;margin-top:2px;font-weight:700">✓ ${copy.closedOn} ${pdfDate(reserve.closedAt)}</div>` : ''}
+        <div style="margin-top:4px">${copy.deadline} : <strong style="color:${reserve.closedAt ? '#059669' : '#DC2626'}">${pdfDate(reserve.deadline)}</strong></div>
         <div style="font-size:9px;color:#9CA3AF;margin-top:4px">${copy.generatedOn} ${new Date().toLocaleDateString(locale)}</div>
       </div>
     </div>
@@ -606,9 +632,10 @@ export default function ReserveDetailScreen() {
   const insets = useSafeAreaInsets();
   const { id, requestLift } = useLocalSearchParams<{ id: string; requestLift?: string }>();
   const router = useRouter();
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { reserves, tasks, updateReserveStatus, updateReserveFields, deleteReserve, addComment, updateComment, deleteComment, companies, channels, addPhoto, sitePlans, activeChantierId, chantiers, photos } = useApp();
   const { user, permissions } = useAuth();
+  const { exportLanguage } = useLanguage();
   const { isOnline } = useNetwork();
   const { projectName } = useSettings();
   const [comment, setComment] = useState('');
@@ -1231,12 +1258,17 @@ export default function ReserveDetailScreen() {
         .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
       const pinNumInPlan = (planReservesForNum.findIndex(r => r.id === reserve.id) + 1) || 1;
 
+      const exportT = getExportTranslator(exportLanguage);
       const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData, pinNumInPlan, {
-        language: i18n.resolvedLanguage ?? i18n.language,
-        statusLabels,
-        priorityLabels,
+        language: exportLanguage,
+        statusLabels: {
+          open: exportT('reserveLabels.status.open'), in_progress: exportT('reserveLabels.status.in_progress'), waiting: exportT('reserveLabels.status.waiting'), verification: exportT('reserveLabels.status.verification'), closed: exportT('reserveLabels.status.closed'),
+        },
+        priorityLabels: {
+          critical: exportT('reserveLabels.priority.critical'), high: exportT('reserveLabels.priority.high'), medium: exportT('reserveLabels.priority.medium'), low: exportT('reserveLabels.priority.low'),
+        },
       });
-      await exportPDFHelper(html, buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName]));
+      await exportPDFHelper(html, buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       console.error('[exportPDF] Fiche réserve', e);
       Alert.alert(t('common.error'), e?.message ?? t('reserveDetail.alerts.pdfError'));
@@ -1302,7 +1334,7 @@ export default function ReserveDetailScreen() {
       const result = await generateAndSendIndividualReserve({
         chantierName: projectName,
         companyColor: company?.color ?? undefined,
-        language: i18n.resolvedLanguage ?? i18n.language,
+        language: exportLanguage,
         planUri,
         planX,
         planY,
@@ -1335,7 +1367,7 @@ export default function ReserveDetailScreen() {
       }
       if (result.pdfBase64) {
         try {
-          const filename = buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName]);
+          const filename = buildPdfFilename('Reserve', [reserve.id, reserve.title, projectName, exportLanguage.toUpperCase()]);
           const fileUri = (FileSystem.cacheDirectory ?? '') + filename;
           await FileSystem.writeAsStringAsync(fileUri, result.pdfBase64, { encoding: FileSystem.EncodingType.Base64 });
           const canShare = await Sharing.isAvailableAsync();

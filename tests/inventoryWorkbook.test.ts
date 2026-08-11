@@ -70,9 +70,50 @@ describe('inventory Excel workbook', () => {
     expect(stylesXml).toContain('cellXfs count="23"');
     expect(stockXml).toContain('showGridLines="0"');
     expect(stockXml).toContain('ySplit="4"');
+    expect(stockXml).not.toMatch(/<sheetView[^>]*\/\s+showGridLines/);
+    expect(stockXml).not.toMatch(/<c\b[^>]*\/\s+s="/);
     expect(stockXml).toContain('autoFilter ref="A4:L8"');
     expect(stockXml).toMatch(/<c r="C6"[^>]* s="15">/);
     expect(stockXml).toMatch(/<c r="C7"[^>]* s="16">/);
     expect(inventoryWorkbookToBase64(workbook).startsWith('UEsDB')).toBe(true);
+  });
+
+  it.each([
+    {
+      language: 'fr' as const,
+      sheets: ['Synthèse', 'État du stock', 'À commander', 'Mouvements', 'Entrées', 'Sorties', 'Par bâtiment', 'Par entreprise'],
+      stockHeaders: ['Référence', 'Désignation'],
+      lowStatus: 'STOCK FAIBLE',
+      receipt: 'ENTRÉE',
+      dateFormat: 'dd/mm/yyyy hh:mm',
+    },
+    {
+      language: 'en' as const,
+      sheets: ['Summary', 'Stock status', 'To reorder', 'Movements', 'Receipts', 'Issues', 'By building', 'By company'],
+      stockHeaders: ['Reference', 'Description'],
+      lowStatus: 'LOW STOCK',
+      receipt: 'RECEIPT',
+      dateFormat: 'mm/dd/yyyy hh:mm',
+    },
+    {
+      language: 'es' as const,
+      sheets: ['Resumen', 'Estado del stock', 'Por pedir', 'Movimientos', 'Entradas', 'Salidas', 'Por edificio', 'Por empresa'],
+      stockHeaders: ['Referencia', 'Descripción'],
+      lowStatus: 'STOCK BAJO',
+      receipt: 'ENTRADA',
+      dateFormat: 'dd/mm/yyyy hh:mm',
+    },
+  ])('localizes every worksheet and operational label in $language', ({ language, sheets, stockHeaders, lowStatus, receipt, dateFormat }) => {
+    const workbook = buildInventoryWorkbook('stock', products, movements, 'Tropicalia', new Date('2026-08-11T10:00:00Z'), language);
+    const bytes = new Uint8Array(inventoryWorkbookToArrayBuffer(workbook));
+    const files = unzipSync(bytes);
+    const parsed = XLSX.read(bytes, { type: 'array', cellDates: true });
+
+    expect(parsed.SheetNames).toEqual(sheets);
+    expect(parsed.Sheets[sheets[1]].A4.v).toBe(stockHeaders[0]);
+    expect(parsed.Sheets[sheets[1]].B4.v).toBe(stockHeaders[1]);
+    expect(parsed.Sheets[sheets[1]].C6.v).toBe(lowStatus);
+    expect(parsed.Sheets[sheets[3]].B5.v).toBe(receipt);
+    expect(strFromU8(files['xl/styles.xml'])).toContain(`formatCode="${dateFormat}"`);
   });
 });

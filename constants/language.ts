@@ -2,6 +2,7 @@ export type AppLanguage = 'fr' | 'en' | 'es';
 export type LanguagePreference = 'auto' | AppLanguage;
 
 export const DEFAULT_APP_LANGUAGE: AppLanguage = 'fr';
+export const EXPORT_LANGUAGE_STORAGE_KEY = 'buildtrack_export_language_v1';
 
 export const SUPPORTED_APP_LANGUAGES: Array<{
   code: AppLanguage;

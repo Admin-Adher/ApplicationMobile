@@ -72,3 +72,47 @@
 @media (max-width: 900px) { .actions, .kpis { grid-template-columns: repeat(2,minmax(0,1fr)); } .scanRow { grid-template-columns: 1fr; } .tableToolbar { align-items: stretch; flex-direction: column; } .tableTools { flex-wrap: wrap; } .tableTools input { min-width: 0; flex: 1 1 100%; } }
 @media (max-width: 560px) { .root { gap: 12px; } .hero { align-items: flex-start; flex-direction: column; padding: 18px; } .actions { gap: 8px; } .actions > button { min-height: 112px; padding: 13px; } .kpis { grid-template-columns: 1fr 1fr; } .formGrid { grid-template-columns: 1fr; } .wide { grid-column: auto; } .formActions { flex-direction: column-reverse; } .formActions button { width: 100%; } }
 @media print { .actions, .kpis, .hero, .tableTools, .rowActions { display: none !important; } .root, .tableCard { box-shadow: none; border: 0; } }
+.exportLanguage {
+  display: inline-flex;
+  min-height: 52px;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 5px 4px 10px;
+  border: 1px solid #d9e2ec;
+  border-radius: 10px;
+  background: #f7f9fc;
+}
+
+.exportLanguage > span {
+  margin-right: 3px;
+  color: #5d7088;
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.exportLanguage > button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  color: #5d7088;
+  background: transparent;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: .04em;
+}
+
+.exportLanguage > button:hover,
+.exportLanguage > button:focus-visible {
+  border-color: #9bb1cb;
+  outline: 2px solid transparent;
+}
+
+.exportLanguage > button.exportLanguageActive {
+  border-color: #003082;
+  color: #003082;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(7, 27, 58, .08);
+}

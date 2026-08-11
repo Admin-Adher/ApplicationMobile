@@ -28,6 +28,7 @@ import {
 } from '@/lib/pdfBase';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { useSettings } from '@/context/SettingsContext';
 import { Opr, OprItem, OprSignatory, OprStatus, PhotoAnnotation, Reserve } from '@/constants/types';
 import Header from '@/components/Header';
@@ -37,6 +38,7 @@ import { showAlert } from '@/lib/appAlert';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
+import { getExportTranslator } from '@/lib/exportLanguage';
 import LocationPicker from '@/components/LocationPicker';
 import {
   buildPhotoAnnotationsOverlayHtml,
@@ -675,9 +677,10 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string, 
 }
 
 export default function OprScreen() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus, photos } = useApp();
   const { user, permissions } = useAuth();
+  const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();
 
   const [showNew, setShowNew] = useState(false);
@@ -881,8 +884,9 @@ export default function OprScreen() {
 
   async function exportOprPDF(opr: Opr) {
     try {
-      const html = buildOprPDF(opr, projectName, t, i18n.resolvedLanguage ?? i18n.language);
-      await exportPDFHelper(html, buildPdfFilename('PV_OPR', [opr.id, opr.title, opr.level, projectName]));
+      const exportT = getExportTranslator(exportLanguage) as unknown as TFunc;
+      const html = buildOprPDF(opr, projectName, exportT, exportLanguage);
+      await exportPDFHelper(html, buildPdfFilename('PV_OPR', [opr.id, opr.title, opr.level, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('oprScreen.pdfError'), e?.message ?? '');
     }
@@ -890,8 +894,8 @@ export default function OprScreen() {
 
   async function exportLeveePDF(opr: Opr) {
     try {
-      const html = await buildPvLeveePDF(opr, enrichedReserves, projectName, i18n.resolvedLanguage ?? i18n.language);
-      await exportPDFHelper(html, buildPdfFilename('PV_Levee_OPR', [opr.id, opr.title, opr.level, projectName]));
+      const html = await buildPvLeveePDF(opr, enrichedReserves, projectName, exportLanguage);
+      await exportPDFHelper(html, buildPdfFilename('PV_Levee_OPR', [opr.id, opr.title, opr.level, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('oprScreen.pdfError'), e?.message ?? '');
     }
@@ -899,8 +903,9 @@ export default function OprScreen() {
 
   async function exportConvocationPDF(opr: Opr) {
     try {
-      const html = buildConvocationPDF(opr, projectName, user?.name ?? t('oprScreen.constructionManager'), i18n.resolvedLanguage ?? i18n.language);
-      await exportPDFHelper(html, buildPdfFilename('Convocation_OPR', [opr.id, opr.title, opr.level, projectName]));
+      const exportT = getExportTranslator(exportLanguage) as unknown as TFunc;
+      const html = buildConvocationPDF(opr, projectName, user?.name ?? exportT('oprScreen.constructionManager'), exportLanguage);
+      await exportPDFHelper(html, buildPdfFilename('Convocation_OPR', [opr.id, opr.title, opr.level, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('oprScreen.pdfError'), e?.message ?? '');
     }

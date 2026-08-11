@@ -14,11 +14,13 @@ import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useLanguage } from '@/context/LanguageContext';
 import { usePointage } from '@/context/PointageContext';
 import { useSettings } from '@/context/SettingsContext';
 import Header from '@/components/Header';
 import { TimeEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -101,6 +103,7 @@ export default function PointageScreen() {
   const { t } = useTranslation();
   const { companies, tasks } = useApp();
   const { user, permissions } = useAuth();
+  const { exportLanguage } = useLanguage();
   const { entries, addEntry, updateEntry, deleteEntry } = usePointage();
   const { defaultArrivalTime } = useSettings();
   const router = useRouter();
@@ -430,17 +433,20 @@ export default function PointageScreen() {
   }
 
   async function handleExportCSV() {
+    const exportT = getExportTranslator(exportLanguage);
+    const exportLocale = localeForExportLanguage(exportLanguage);
+    const formatCsvDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString(exportLocale);
     const weekEntries = entries.filter(e => weekDates.includes(e.date))
       .sort((a, b) => a.date.localeCompare(b.date) || a.arrivalTime.localeCompare(b.arrivalTime));
     if (weekEntries.length === 0) {
       showAlert(t('pointage.noDataTitle'), t('pointage.noWeeklyData'));
       return;
     }
-    const header = t('pointage.csvHeader');
+    const header = exportT('pointage.csvHeader');
     const rows = weekEntries.map(e => {
       const h = calcHours(e.arrivalTime, e.departureTime);
       const cols = [
-        formatDate(e.date),
+        formatCsvDate(e.date),
         e.workerName,
         e.companyName,
         e.arrivalTime,
@@ -452,11 +458,11 @@ export default function PointageScreen() {
       ];
       return cols.map(c => `"${c}"`).join(',');
     });
-    const csv = [header, ...rows].join('\n');
-    const weekLabel = `${formatDate(weekDates[0])}_${formatDate(weekDates[6])}`.replace(/\//g, '-');
-    const filename = `${t('pointage.csvFilename')}_${weekLabel}.csv`;
+    const csv = `\uFEFF${[header, ...rows].join('\n')}`;
+    const weekLabel = `${weekDates[0]}_${weekDates[6]}`;
+    const filename = `${exportT('pointage.csvFilename')}_${exportLanguage}_${weekLabel}.csv`;
     if (Platform.OS === 'web') {
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = filename; a.click();
@@ -601,7 +607,7 @@ export default function PointageScreen() {
         <View style={styles.kpiDivider} />
         <TouchableOpacity style={styles.kpiExportBtn} onPress={handleExportCSV}>
           <Ionicons name="download-outline" size={16} color={C.primary} />
-          <Text style={styles.kpiExportText}>CSV</Text>
+          <Text style={styles.kpiExportText}>CSV · {exportLanguage.toUpperCase()}</Text>
         </TouchableOpacity>
       </View>
 
