@@ -68,7 +68,7 @@ const WEB_PERMISSION_DEFS: { key: keyof WebPermissions; label: string; descripti
   { key: 'canViewInventory', label: 'Consulter le stock', description: 'Produits, alertes et historique des mouvements', inventory: true },
   { key: 'canRecordInventory', label: 'Enregistrer entrées et sorties', description: 'Créer les références pendant une entrée', inventory: true },
   { key: 'canManageInventoryProducts', label: 'Gérer les fiches produits', description: 'Références, photos, emplacements et stocks minimums', inventory: true },
-  { key: 'canExportInventory', label: 'Exporter le stock', description: 'Exports Excel/CSV et PDF', inventory: true },
+  { key: 'canExportInventory', label: 'Exporter le stock', description: 'Exports Excel, Word, CSV et PDF', inventory: true },
   { key: 'canAdjustInventory', label: 'Autoriser le stock négatif', description: 'Exception sensible, désactivée par défaut pour le magasinier', inventory: true },
   { key: 'canCreate', label: 'Créer des réserves', description: 'Ajouter de nouvelles réserves sur les plans', inventory: false },
   { key: 'canEdit', label: 'Modifier toutes les réserves', description: "Éditer les réserves de l'organisation", inventory: false },

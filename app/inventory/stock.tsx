@@ -14,7 +14,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import { fetchInventoryMovementsForExport, normalizeInventoryReference, useInventory } from '@/hooks/queries/useInventory';
-import { exportInventoryPdf, exportInventoryXlsx, type InventoryExportKind } from '@/lib/inventoryExport';
+import { exportInventoryDocx, exportInventoryPdf, exportInventoryXlsx, type InventoryExportKind } from '@/lib/inventoryExport';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
 
 export default function InventoryStockScreen() {
@@ -45,16 +45,17 @@ export default function InventoryStockScreen() {
     });
   }, [inventory.products, lowOnly, search]);
 
-  async function runExport(kind: InventoryExportKind | 'pdf') {
+  async function runExport(kind: InventoryExportKind | 'pdf' | 'docx') {
     if (!activeChantier) return;
     setExportOpen(false);
     setExporting(true);
     try {
-      const needsFullHistory = kind === 'pdf' || !['stock', 'reorder'].includes(kind);
+      const needsFullHistory = kind === 'pdf' || kind === 'docx' || !['stock', 'reorder'].includes(kind);
       const movements = needsFullHistory
         ? await fetchInventoryMovementsForExport(activeChantier.id, inventory.movements)
         : inventory.movements;
       if (kind === 'pdf') await exportInventoryPdf(inventory.products, movements, activeChantier.name, exportLanguage);
+      else if (kind === 'docx') await exportInventoryDocx(inventory.products, movements, activeChantier.name, exportLanguage);
       else await exportInventoryXlsx(kind, inventory.products, movements, activeChantier.name, exportLanguage);
     } catch (error: any) {
       Alert.alert(copy.error, error?.message ?? String(error));
@@ -106,6 +107,7 @@ export default function InventoryStockScreen() {
             <ScrollView style={styles.exportOptions} contentContainerStyle={styles.exportOptionsContent} showsVerticalScrollIndicator={false}>
               {([
                 ['pdf', 'document-text-outline', copy.exportPdf],
+                ['docx', 'reader-outline', copy.exportDocx],
                 ['stock', 'grid-outline', copy.exportStockCsv],
                 ['entries', 'arrow-down-circle-outline', copy.exportEntriesCsv],
                 ['exits', 'arrow-up-circle-outline', copy.exportExitsCsv],

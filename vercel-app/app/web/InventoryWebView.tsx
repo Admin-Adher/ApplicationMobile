@@ -16,12 +16,14 @@ type ExportLanguage = 'fr' | 'en' | 'es';
 const INVENTORY_EXPORT_UI_COPY: Record<ExportLanguage, {
   language: string;
   workbook: string;
+  word: string;
   pdf: string;
+  wordError: string;
   pdfError: string;
 }> = {
-  fr: { language: 'Langue du document', workbook: 'Classeur Excel', pdf: 'Rapport PDF', pdfError: 'Le rapport PDF n’a pas pu être généré.' },
-  en: { language: 'Document language', workbook: 'Excel workbook', pdf: 'PDF report', pdfError: 'The PDF report could not be generated.' },
-  es: { language: 'Idioma del documento', workbook: 'Libro Excel', pdf: 'Informe PDF', pdfError: 'No se pudo generar el informe PDF.' },
+  fr: { language: 'Langue du document', workbook: 'Classeur Excel', word: 'Rapport Word', pdf: 'Rapport PDF', wordError: 'Le rapport Word n’a pas pu être généré.', pdfError: 'Le rapport PDF n’a pas pu être généré.' },
+  en: { language: 'Document language', workbook: 'Excel workbook', word: 'Word report', pdf: 'PDF report', wordError: 'The Word report could not be generated.', pdfError: 'The PDF report could not be generated.' },
+  es: { language: 'Idioma del documento', workbook: 'Libro Excel', word: 'Informe Word', pdf: 'Informe PDF', wordError: 'No se pudo generar el informe Word.', pdfError: 'No se pudo generar el informe PDF.' },
 };
 
 type InventoryProductRow = {
@@ -123,6 +125,40 @@ function numberValue(value: unknown) {
 
 function safeFilename(value: string) {
   return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
+}
+
+function normalizeExportProduct(product: InventoryProductRow) {
+  return {
+    reference: product.reference,
+    designation: product.designation || product.reference,
+    photoUrl: product.photo_url,
+    currentStock: numberValue(product.current_stock),
+    minStock: numberValue(product.min_stock),
+    totalEntries: numberValue(product.total_entries),
+    totalExits: numberValue(product.total_exits),
+    location: product.location,
+    supplier: product.supplier,
+    barcode: product.barcode,
+  };
+}
+
+function normalizeExportMovement(movement: InventoryMovementRow) {
+  return {
+    createdAt: movement.created_at ?? '',
+    movementType: movement.movement_type,
+    reference: movement.reference ?? '',
+    designation: movement.designation ?? movement.reference ?? '',
+    quantity: numberValue(movement.quantity),
+    stockBefore: numberValue(movement.stock_before),
+    stockAfter: numberValue(movement.stock_after),
+    userName: movement.user_name,
+    buildingName: movement.building_name,
+    zoneName: movement.zone_name,
+    companyName: movement.company_name,
+    personName: movement.person_name,
+    supplier: movement.supplier,
+    comment: movement.comment,
+  };
 }
 
 export default function InventoryWebView({
@@ -472,34 +508,8 @@ export default function InventoryWebView({
         chantierName,
         language: exportLanguage,
         filename: `buildtrack-${kind === 'history' ? 'mouvements-stock' : 'stock'}-${safeFilename(chantierName)}-${exportLanguage}-${date}.xlsx`,
-        products: exportedProducts.map(product => ({
-          reference: product.reference,
-          designation: product.designation || product.reference,
-          photoUrl: product.photo_url,
-          currentStock: numberValue(product.current_stock),
-          minStock: numberValue(product.min_stock),
-          totalEntries: numberValue(product.total_entries),
-          totalExits: numberValue(product.total_exits),
-          location: product.location,
-          supplier: product.supplier,
-          barcode: product.barcode,
-        })),
-        movements: filteredMovements.map(movement => ({
-          createdAt: movement.created_at ?? '',
-          movementType: movement.movement_type,
-          reference: movement.reference ?? '',
-          designation: movement.designation ?? movement.reference ?? '',
-          quantity: numberValue(movement.quantity),
-          stockBefore: numberValue(movement.stock_before),
-          stockAfter: numberValue(movement.stock_after),
-          userName: movement.user_name,
-          buildingName: movement.building_name,
-          zoneName: movement.zone_name,
-          companyName: movement.company_name,
-          personName: movement.person_name,
-          supplier: movement.supplier,
-          comment: movement.comment,
-        })),
+        products: exportedProducts.map(normalizeExportProduct),
+        movements: filteredMovements.map(normalizeExportMovement),
       });
     } catch (exportError: any) {
       setError(exportError?.message ?? 'Le classeur Excel n’a pas pu être généré.');
@@ -509,6 +519,25 @@ export default function InventoryWebView({
   const exportStock = () => void exportWorkbook('stock');
   const exportHistory = () => void exportWorkbook('history');
 
+  async function exportInventoryWord() {
+    try {
+      setError('');
+      const { downloadInventoryDocx } = await import('@/lib/inventory-docx');
+      const chantierName = projects.find(project => String(project.id) === String(activeProjectId))?.name
+        ?? (activeProjectId ? 'Chantier BuildTrack' : 'Tous les chantiers');
+      const date = new Date().toISOString().slice(0, 10);
+      downloadInventoryDocx({
+        chantierName,
+        language: exportLanguage,
+        filename: `buildtrack-stock-${safeFilename(chantierName)}-${exportLanguage}-${date}.docx`,
+        products: filteredProducts.map(normalizeExportProduct),
+        movements: filteredMovements.map(normalizeExportMovement),
+      });
+    } catch (exportError: any) {
+      setError(exportError?.message ?? exportUiCopy.wordError);
+    }
+  }
+
   async function printInventoryPdf() {
     try {
       setError('');
@@ -516,34 +545,8 @@ export default function InventoryWebView({
       const chantierName = projects.find(project => String(project.id) === String(activeProjectId))?.name
         ?? (activeProjectId ? 'Chantier BuildTrack' : 'Tous les chantiers');
       const html = buildInventoryPdfHtml(
-        filteredProducts.map(product => ({
-          reference: product.reference,
-          designation: product.designation || product.reference,
-          photoUrl: product.photo_url,
-          currentStock: numberValue(product.current_stock),
-          minStock: numberValue(product.min_stock),
-          totalEntries: numberValue(product.total_entries),
-          totalExits: numberValue(product.total_exits),
-          location: product.location,
-          supplier: product.supplier,
-          barcode: product.barcode,
-        })),
-        filteredMovements.map(movement => ({
-          createdAt: movement.created_at ?? '',
-          movementType: movement.movement_type,
-          reference: movement.reference ?? '',
-          designation: movement.designation ?? movement.reference ?? '',
-          quantity: numberValue(movement.quantity),
-          stockBefore: numberValue(movement.stock_before),
-          stockAfter: numberValue(movement.stock_after),
-          userName: movement.user_name,
-          buildingName: movement.building_name,
-          zoneName: movement.zone_name,
-          companyName: movement.company_name,
-          personName: movement.person_name,
-          supplier: movement.supplier,
-          comment: movement.comment,
-        })),
+        filteredProducts.map(normalizeExportProduct),
+        filteredMovements.map(normalizeExportMovement),
         chantierName,
         exportLanguage,
       );
@@ -670,6 +673,7 @@ export default function InventoryWebView({
               <input value={search} onChange={event => setSearch(event.target.value)} placeholder="Rechercher référence, produit, destination…" />
               {canExport ? <div className={styles.exportLanguage} role="radiogroup" aria-label={exportUiCopy.language}><span>{exportUiCopy.language}</span>{(['fr', 'en', 'es'] as const).map(language => <button key={language} type="button" role="radio" aria-checked={exportLanguage === language} className={exportLanguage === language ? styles.exportLanguageActive : ''} onClick={() => onExportLanguageChange(language)}>{language.toUpperCase()}</button>)}</div> : null}
               {canExport ? <button type="button" onClick={mode === 'history' ? exportHistory : exportStock}>{exportUiCopy.workbook}</button> : null}
+              {canExport ? <button type="button" onClick={() => void exportInventoryWord()}>{exportUiCopy.word}</button> : null}
               {canExport ? <button type="button" onClick={() => void printInventoryPdf()}>{exportUiCopy.pdf}</button> : null}
             </div>
           </div>

@@ -5,6 +5,11 @@ import type { InventoryMovement, InventoryProduct } from '@/constants/types';
 import { exportPDF } from '@/lib/pdfBase';
 import { buildInventoryPdfHtml } from '@/lib/inventoryPdfDocument';
 import { inventoryDocumentCopy } from '@/lib/inventoryDocumentCopy';
+import {
+  buildInventoryDocx,
+  inventoryDocxToArrayBuffer,
+  inventoryDocxToBase64,
+} from '@/lib/inventoryDocx';
 import type { ExportLanguage } from '@/lib/exportLanguage';
 import {
   buildInventoryWorkbook,
@@ -47,6 +52,40 @@ async function shareXlsx(kind: InventoryExportKind, products: InventoryProduct[]
   });
 }
 
+async function shareDocx(
+  products: InventoryProduct[],
+  movements: InventoryMovement[],
+  chantierName: string,
+  filename: string,
+  language: ExportLanguage,
+): Promise<void> {
+  const bytes = buildInventoryDocx(products, movements, chantierName, language);
+  if (Platform.OS === 'web') {
+    const blob = new Blob([inventoryDocxToArrayBuffer(bytes)], {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    return;
+  }
+  const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;
+  if (!baseDir) throw new Error('Répertoire d’export indisponible.');
+  const uri = `${baseDir}${filename}`;
+  await FileSystem.writeAsStringAsync(uri, inventoryDocxToBase64(bytes), { encoding: FileSystem.EncodingType.Base64 });
+  if (!(await Sharing.isAvailableAsync())) throw new Error('Partage de fichier indisponible sur cet appareil.');
+  await Sharing.shareAsync(uri, {
+    mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    dialogTitle: filename,
+    UTI: 'org.openxmlformats.wordprocessingml.document',
+  });
+}
+
 export async function exportInventoryXlsx(
   kind: InventoryExportKind,
   products: InventoryProduct[],
@@ -70,4 +109,21 @@ export async function exportInventoryPdf(
   const html = buildInventoryPdfHtml(products, movements, chantierName, language);
   const date = new Date().toISOString().slice(0, 10);
   await exportPDF(html, `buildtrack-${copy.filename.stock}-${safeFilename(chantierName)}-${language}-${date}.pdf`);
+}
+
+export async function exportInventoryDocx(
+  products: InventoryProduct[],
+  movements: InventoryMovement[],
+  chantierName: string,
+  language: ExportLanguage,
+): Promise<void> {
+  const copy = inventoryDocumentCopy(language);
+  const date = new Date().toISOString().slice(0, 10);
+  await shareDocx(
+    products,
+    movements,
+    chantierName,
+    `buildtrack-${copy.filename.stock}-${safeFilename(chantierName)}-${language}-${date}.docx`,
+    language,
+  );
 }
