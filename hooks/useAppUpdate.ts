@@ -1,25 +1,38 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useTranslation } from 'react-i18next';
 import { supabase } from '@/lib/supabase';
 import { currentApplicationVersion, currentBuildNumber } from '@/lib/clientVersion';
+import {
+  APK_DOWNLOAD_URL,
+  AppRelease,
+  cleanSemver,
+  isCachedReleaseFresh,
+  isReleaseNewer,
+  parseAppReleasePayload,
+  resolveLatestAppRelease,
+  subscribeToAppRelease,
+} from '@/lib/appUpdateRelease';
 
-const RELEASES_API = 'https://api.github.com/repos/Admin-Adher/ApplicationMobile/releases/latest';
-export const APK_DOWNLOAD_URL = 'https://github.com/Admin-Adher/ApplicationMobile/releases/latest/download/buildtrack-release.apk';
-
-const CACHE_KEY = 'app.update.latestRelease.v3';
+const CACHE_KEY = 'app.update.latestRelease.v4';
 const DISMISS_KEY = 'app.update.dismissedBuild.v3';
 const LAST_SEEN_BUILD_KEY = 'app.update.lastSeenBuild.v1';
 const JUST_UPDATED_ACK_KEY = 'app.update.justUpdatedAck.v1';
 const SECURITY_REQUIREMENTS_KEY = 'app.security.requirements.v1';
 
-interface CachedRelease {
-  tag: string;
-  buildNumber: number | null;
-  semver: string | null;
-  fetchedAt: number;
-  publishedAt?: string | null;
-  notes?: string;
+let sharedDismissedBuild: string | null | undefined;
+const dismissedBuildListeners = new Set<(value: string | null) => void>();
+
+function publishDismissedBuild(value: string | null) {
+  sharedDismissedBuild = value;
+  for (const listener of dismissedBuildListeners) listener(value);
+}
+
+function subscribeToDismissedBuild(listener: (value: string | null) => void): () => void {
+  dismissedBuildListeners.add(listener);
+  if (sharedDismissedBuild !== undefined) listener(sharedDismissedBuild);
+  return () => { dismissedBuildListeners.delete(listener); };
 }
 
 interface SecurityRequirements {
@@ -38,73 +51,70 @@ const DEFAULT_REQUIREMENTS: SecurityRequirements = {
   fetchedAt: 0,
 };
 
-function cleanSemver(value: string | null | undefined): string | null {
-  if (!value) return null;
-  const match = String(value).match(/(\d+)\.(\d+)(?:\.(\d+))?/);
-  if (!match) return null;
-  return `${match[1]}.${match[2]}.${match[3] ?? '0'}`;
-}
-
-function extractBuildNumber(tag: string | null | undefined): number | null {
-  if (!tag) return null;
-  const match = String(tag).match(/(?:build[-_]?|^v)(\d+)/i);
-  if (match) return Number.parseInt(match[1], 10);
-  const numbers = String(tag).match(/(\d+)/g);
-  return numbers?.length === 1 ? Number.parseInt(numbers[0], 10) : null;
-}
-
-function compareSemver(left: string, right: string): number {
-  const a = left.split('.').map(value => Number.parseInt(value, 10) || 0);
-  const b = right.split('.').map(value => Number.parseInt(value, 10) || 0);
-  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
-    if ((a[index] ?? 0) > (b[index] ?? 0)) return 1;
-    if ((a[index] ?? 0) < (b[index] ?? 0)) return -1;
-  }
-  return 0;
-}
+export type AppUpdateCheckStatus = 'idle' | 'cached' | 'checking' | 'fresh' | 'unavailable';
 
 function currentSemver(): string {
   const version = currentApplicationVersion();
   return cleanSemver(version) ?? version;
 }
 
-function formatRelativeFr(iso: string | null): string | null {
+function formatRelative(iso: string | null, language: string): string | null {
   if (!iso) return null;
   const timestamp = Date.parse(iso);
   if (Number.isNaN(timestamp)) return null;
-  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
-  if (minutes < 1) return "à l'instant";
-  if (minutes < 60) return `il y a ${minutes} min`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `il y a ${hours} h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `il y a ${days} j`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `il y a ${weeks} sem.`;
-  const months = Math.floor(days / 30);
-  if (months < 12) return `il y a ${months} mois`;
-  const years = Math.floor(days / 365);
-  return `il y a ${years} an${years > 1 ? 's' : ''}`;
+
+  const elapsedSeconds = Math.round((timestamp - Date.now()) / 1000);
+  const ranges: Array<[Intl.RelativeTimeFormatUnit, number]> = [
+    ['year', 365 * 24 * 60 * 60],
+    ['month', 30 * 24 * 60 * 60],
+    ['week', 7 * 24 * 60 * 60],
+    ['day', 24 * 60 * 60],
+    ['hour', 60 * 60],
+    ['minute', 60],
+  ];
+  const locale = language.toLowerCase().startsWith('es')
+    ? 'es'
+    : language.toLowerCase().startsWith('fr')
+      ? 'fr'
+      : 'en';
+
+  try {
+    const formatter = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
+    for (const [unit, seconds] of ranges) {
+      if (Math.abs(elapsedSeconds) >= seconds) {
+        return formatter.format(Math.round(elapsedSeconds / seconds), unit);
+      }
+    }
+    return formatter.format(Math.round(elapsedSeconds / 60), 'minute');
+  } catch {
+    return null;
+  }
 }
 
 export interface AppUpdateState {
   loading: boolean;
+  checkStatus: AppUpdateCheckStatus;
   updateAvailable: boolean;
+  updateDetected: boolean;
+  isUpToDate: boolean;
+  isDismissed: boolean;
   updateRequired: boolean;
   minimumAndroidBuild: number;
   currentLabel: string;
   latestLabel: string | null;
   latestPublishedAt: string | null;
+  lastSuccessfulCheckAt: number | null;
   publishedRelative: string | null;
   downloadUrl: string;
   dismiss: () => Promise<void>;
-  refresh: () => Promise<void>;
+  refresh: () => Promise<boolean>;
   justUpdated: boolean;
   justUpdatedFromBuild: number | null;
   acknowledgeJustUpdated: () => Promise<void>;
 }
 
 export function useAppUpdate(): AppUpdateState {
+  const { i18n } = useTranslation();
   const currentBuild = currentBuildNumber();
   const installedSemver = currentSemver();
   const currentLabel = currentBuild != null ? `Build ${currentBuild}` : installedSemver;
@@ -113,39 +123,38 @@ export function useAppUpdate(): AppUpdateState {
   const [latestBuild, setLatestBuild] = useState<number | null>(null);
   const [latestSemver, setLatestSemver] = useState<string | null>(null);
   const [latestPublishedAt, setLatestPublishedAt] = useState<string | null>(null);
+  const [latestDownloadUrl, setLatestDownloadUrl] = useState<string>(APK_DOWNLOAD_URL);
+  const [lastSuccessfulCheckAt, setLastSuccessfulCheckAt] = useState<number | null>(null);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checkStatus, setCheckStatus] = useState<AppUpdateCheckStatus>('idle');
   const [justUpdated, setJustUpdated] = useState(false);
   const [justUpdatedFromBuild, setJustUpdatedFromBuild] = useState<number | null>(null);
   const [requirements, setRequirements] = useState<SecurityRequirements>(DEFAULT_REQUIREMENTS);
 
-  const applyRelease = useCallback((release: CachedRelease) => {
+  const applyRelease = useCallback((release: AppRelease) => {
     setLatestTag(release.tag || null);
     setLatestBuild(release.buildNumber);
     setLatestSemver(release.semver);
     setLatestPublishedAt(release.publishedAt ?? null);
+    setLatestDownloadUrl(release.downloadUrl || APK_DOWNLOAD_URL);
+    setLastSuccessfulCheckAt(release.fetchedAt);
   }, []);
 
-  const fetchLatest = useCallback(async () => {
+  useEffect(() => subscribeToAppRelease(applyRelease), [applyRelease]);
+  useEffect(() => subscribeToDismissedBuild(setDismissed), []);
+
+  const checkLatestRelease = useCallback(async (force: boolean): Promise<boolean> => {
+    setCheckStatus('checking');
     try {
-      const response = await fetch(RELEASES_API, {
-        headers: { Accept: 'application/vnd.github+json' },
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      const tag = String(data?.tag_name ?? data?.name ?? '');
-      const release: CachedRelease = {
-        tag,
-        buildNumber: extractBuildNumber(tag),
-        semver: cleanSemver(tag) ?? cleanSemver(data?.name),
-        fetchedAt: Date.now(),
-        publishedAt: data?.published_at ?? data?.created_at ?? null,
-        notes: data?.body,
-      };
+      const release = await resolveLatestAppRelease({ force });
       applyRelease(release);
       await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(release));
+      setCheckStatus('fresh');
+      return true;
     } catch {
-      // Keep the cached release when GitHub is temporarily unreachable.
+      setCheckStatus('unavailable');
+      return false;
     }
   }, [applyRelease]);
 
@@ -165,15 +174,28 @@ export function useAppUpdate(): AppUpdateState {
       setRequirements(next);
       await AsyncStorage.setItem(SECURITY_REQUIREMENTS_KEY, JSON.stringify(next));
     } catch {
-      // Fail closed to the last control-plane value while offline.
+      // Keep the last signed control-plane value while offline.
     }
   }, []);
 
-  const refresh = useCallback(async () => {
+  const runRefresh = useCallback(async (force: boolean): Promise<boolean> => {
     setLoading(true);
-    await Promise.all([fetchLatest(), fetchSecurityRequirements()]);
+    const [releaseResolved] = await Promise.all([
+      checkLatestRelease(force),
+      fetchSecurityRequirements(),
+    ]);
     setLoading(false);
-  }, [fetchLatest, fetchSecurityRequirements]);
+    return releaseResolved;
+  }, [checkLatestRelease, fetchSecurityRequirements]);
+
+  const refresh = useCallback(async () => {
+    const resolved = await runRefresh(true);
+    if (resolved) {
+      await AsyncStorage.removeItem(DISMISS_KEY).catch(() => {});
+      publishDismissedBuild(null);
+    }
+    return resolved;
+  }, [runRefresh]);
 
   useEffect(() => {
     let cancelled = false;
@@ -185,9 +207,17 @@ export function useAppUpdate(): AppUpdateState {
           AsyncStorage.getItem(SECURITY_REQUIREMENTS_KEY),
         ]);
         if (!cancelled && releaseRaw) {
-          try { applyRelease(JSON.parse(releaseRaw) as CachedRelease); } catch {}
+          try {
+            const raw = JSON.parse(releaseRaw) as Record<string, unknown>;
+            const cachedAt = typeof raw.fetchedAt === 'number' ? raw.fetchedAt : 0;
+            const cached = parseAppReleasePayload(raw, cachedAt);
+            if (cached) {
+              applyRelease(cached);
+              setCheckStatus(isCachedReleaseFresh(cached) ? 'cached' : 'idle');
+            }
+          } catch {}
         }
-        if (!cancelled) setDismissed(dismissedRaw);
+        if (!cancelled) publishDismissedBuild(dismissedRaw);
         if (!cancelled && requirementRaw) {
           try {
             const cached = JSON.parse(requirementRaw) as SecurityRequirements;
@@ -212,10 +242,10 @@ export function useAppUpdate(): AppUpdateState {
         }
       } catch {}
 
-      if (!cancelled) await refresh();
+      if (!cancelled) await runRefresh(false);
     })();
     return () => { cancelled = true; };
-  }, [applyRelease, currentBuild, refresh]);
+  }, [applyRelease, currentBuild, runRefresh]);
 
   const acknowledgeJustUpdated = useCallback(async () => {
     setJustUpdated(false);
@@ -229,32 +259,46 @@ export function useAppUpdate(): AppUpdateState {
   else if (latestSemver) latestLabel = latestSemver;
   else if (latestTag) latestLabel = latestTag;
 
-  const isNewer = latestBuild != null && currentBuild != null
-    ? latestBuild > currentBuild
-    : Boolean(latestSemver && compareSemver(latestSemver, installedSemver) > 0);
+  const isNewer = isReleaseNewer(
+    { buildNumber: latestBuild, semver: latestSemver },
+    currentBuild,
+    installedSemver,
+  );
   const dismissKey = latestBuild != null ? `build:${latestBuild}` : (latestTag ?? '');
   const isDismissed = Boolean(dismissed && dismissed === dismissKey);
   const updateRequired = Platform.OS === 'android'
     && requirements.privateMediaStorage
     && requirements.minimumAndroidBuild > 0
     && (currentBuild == null || currentBuild < requirements.minimumAndroidBuild);
+  const updateDetected = updateRequired || (isNewer && Platform.OS !== 'ios');
+  const isUpToDate = checkStatus === 'fresh' && !updateDetected && latestLabel != null;
 
   const dismiss = useCallback(async () => {
     if (updateRequired || !dismissKey) return;
     await AsyncStorage.setItem(DISMISS_KEY, dismissKey).catch(() => {});
-    setDismissed(dismissKey);
+    publishDismissedBuild(dismissKey);
   }, [dismissKey, updateRequired]);
+
+  const publishedRelative = useMemo(
+    () => formatRelative(latestPublishedAt, i18n.resolvedLanguage ?? i18n.language ?? 'en'),
+    [i18n.language, i18n.resolvedLanguage, latestPublishedAt],
+  );
 
   return {
     loading,
+    checkStatus,
     updateAvailable: updateRequired || (isNewer && !isDismissed && Platform.OS !== 'ios'),
+    updateDetected,
+    isUpToDate,
+    isDismissed,
     updateRequired,
     minimumAndroidBuild: requirements.minimumAndroidBuild,
     currentLabel,
     latestLabel: latestLabel ?? (requirements.minimumAndroidBuild > 0 ? `Build ${requirements.minimumAndroidBuild}` : null),
     latestPublishedAt,
-    publishedRelative: formatRelativeFr(latestPublishedAt),
-    downloadUrl: requirements.downloadUrl,
+    lastSuccessfulCheckAt,
+    publishedRelative,
+    downloadUrl: updateRequired ? requirements.downloadUrl : latestDownloadUrl,
     dismiss,
     refresh,
     justUpdated,

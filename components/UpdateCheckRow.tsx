@@ -7,24 +7,38 @@ import { useAppUpdate } from '@/hooks/useAppUpdate';
 
 export default function UpdateCheckRow() {
   const { t } = useTranslation();
-  const { currentLabel, latestLabel, updateAvailable, refresh, loading } = useAppUpdate();
+  const {
+    currentLabel,
+    latestLabel,
+    updateDetected,
+    isUpToDate,
+    checkStatus,
+    refresh,
+    loading,
+  } = useAppUpdate();
   const [checking, setChecking] = useState(false);
   const [justChecked, setJustChecked] = useState(false);
+  const [lastCheckSucceeded, setLastCheckSucceeded] = useState<boolean | null>(null);
 
   const handleCheck = async () => {
     setChecking(true);
     setJustChecked(false);
-    await refresh();
+    const succeeded = await refresh();
+    setLastCheckSucceeded(succeeded);
     setChecking(false);
     setJustChecked(true);
     setTimeout(() => setJustChecked(false), 2500);
   };
 
   let statusText = t('updateCheck.installed', { label: currentLabel });
-  if (latestLabel && !updateAvailable) {
-    statusText = t('updateCheck.upToDateStatus', { current: currentLabel });
-  } else if (latestLabel && updateAvailable) {
+  if (latestLabel && updateDetected) {
     statusText = t('updateCheck.availableStatus', { current: currentLabel, latest: latestLabel });
+  } else if (isUpToDate) {
+    statusText = t('updateCheck.upToDateStatus', { current: currentLabel });
+  } else if (checkStatus === 'unavailable') {
+    statusText = t('updateCheck.unavailableStatus', { current: currentLabel });
+  } else if (latestLabel && checkStatus === 'cached') {
+    statusText = t('updateCheck.cachedStatus', { current: currentLabel, latest: latestLabel });
   }
 
   const isBusy = checking || loading;
@@ -40,10 +54,15 @@ export default function UpdateCheckRow() {
       >
         {isBusy ? (
           <ActivityIndicator size="small" color={C.primary} />
-        ) : justChecked && !updateAvailable ? (
+        ) : justChecked && lastCheckSucceeded && isUpToDate ? (
           <>
             <Ionicons name="checkmark-circle" size={14} color="#10B981" />
             <Text style={[styles.btnText, { color: '#10B981' }]}>{t('updateCheck.upToDate')}</Text>
+          </>
+        ) : justChecked && lastCheckSucceeded === false ? (
+          <>
+            <Ionicons name="warning-outline" size={14} color="#C65A26" />
+            <Text style={[styles.btnText, { color: '#C65A26' }]}>{t('updateCheck.retry')}</Text>
           </>
         ) : (
           <>

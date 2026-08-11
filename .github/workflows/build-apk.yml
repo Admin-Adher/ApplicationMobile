@@ -173,6 +173,43 @@ jobs:
           cp android/app/build/outputs/apk/release/*.apk release-assets/buildtrack-release.apk
           ls -lh release-assets/
 
+      - name: Create release metadata
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          node - <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+          const apk = fs.readFileSync('release-assets/buildtrack-release.apk');
+          const buildNumber = Number.parseInt(process.env.BUILD_NUMBER || '', 10);
+          if (!Number.isSafeInteger(buildNumber) || buildNumber <= 0) {
+            throw new Error('Invalid release build number');
+          }
+          const tag = `android-build-${buildNumber}`;
+          const repository = process.env.REPOSITORY;
+          const downloadUrl = `https://github.com/${repository}/releases/download/${tag}/buildtrack-release.apk`;
+          const manifest = {
+            schemaVersion: 1,
+            buildNumber,
+            version: config.expo.version,
+            tag,
+            commit: process.env.COMMIT_SHA,
+            publishedAt: new Date().toISOString(),
+            downloadUrl,
+            apk: {
+              name: 'buildtrack-release.apk',
+              url: downloadUrl,
+              size: apk.byteLength,
+              sha256: crypto.createHash('sha256').update(apk).digest('hex'),
+            },
+          };
+          fs.writeFileSync('release-assets/buildtrack-release.json', `${JSON.stringify(manifest, null, 2)}\n`);
+          NODE
+          cat release-assets/buildtrack-release.json
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
@@ -192,6 +229,8 @@ jobs:
 
             Téléchargement direct (pointe toujours vers la dernière version) :
             https://github.com/${{ github.repository }}/releases/latest/download/buildtrack-release.apk
-          files: release-assets/buildtrack-release.apk
+          files: |
+            release-assets/buildtrack-release.apk
+            release-assets/buildtrack-release.json
           make_latest: 'true'
           prerelease: false

@@ -57,7 +57,10 @@ export default function UpdateBanner() {
     );
   }
 
-  if (!updateAvailable) return null;
+  // The mandatory security gate is the single presentation for a blocked
+  // build. Keeping this optional Terrain banner mounted as well is duplicate
+  // update UI and can start two installers.
+  if (!updateAvailable || updateRequired) return null;
 
   const buttonLabel =
     state === 'downloading'
@@ -96,7 +99,7 @@ export default function UpdateBanner() {
       >
         <Text style={styles.updateBtnText} numberOfLines={1}>{buttonLabel}</Text>
       </TouchableOpacity>
-      {!isBusy && !updateRequired && (
+      {!isBusy && (
         <TouchableOpacity style={styles.closeBtn} onPress={dismiss} hitSlop={8}>
           <Ionicons name="close" size={18} color="#FFFFFFCC" />
         </TouchableOpacity>

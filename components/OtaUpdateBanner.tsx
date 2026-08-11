@@ -3,10 +3,12 @@ import { View, Text, TouchableOpacity, StyleSheet, Animated, Platform } from 're
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { useOtaUpdate } from '@/hooks/useOtaUpdate';
+import { useAppUpdate } from '@/hooks/useAppUpdate';
 
 export default function OtaUpdateBanner() {
   const { t } = useTranslation();
   const { updateReady, applyUpdate } = useOtaUpdate();
+  const { loading: apkCheckLoading, updateDetected: apkUpdateDetected } = useAppUpdate();
   const translateY = useRef(new Animated.Value(-80)).current;
   const visible = useRef(false);
 
@@ -22,7 +24,9 @@ export default function OtaUpdateBanner() {
     }
   }, [updateReady, translateY]);
 
-  if (!updateReady || Platform.OS === 'web') return null;
+  // An APK release already has its own richer Terrain flow (download progress
+  // + package installer). Never stack the OTA pop-in over that same release.
+  if (!updateReady || apkCheckLoading || apkUpdateDetected || Platform.OS === 'web') return null;
 
   return (
     <Animated.View style={[styles.container, { transform: [{ translateY }] }]}>
