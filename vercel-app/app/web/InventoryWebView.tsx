@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { privateMediaUrl, uploadRegisteredWebFile } from '@/lib/private-media-client';
+import {
+  startWebBarcodeScanner,
+  webBarcodeCameraErrorMessage,
+  type WebBarcodeScannerControls,
+} from '../../../lib/webBarcodeScanner';
 import styles from './inventory.module.css';
 
 type InventoryMode = 'home' | 'in' | 'out' | 'stock' | 'history';
@@ -101,18 +106,8 @@ function numberValue(value: unknown) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function csvCell(value: unknown) {
-  return `"${String(value ?? '').replace(/"/g, '""')}"`;
-}
-
-function downloadCsv(filename: string, rows: unknown[][]) {
-  const content = `\uFEFF${rows.map(row => row.map(csvCell).join(';')).join('\n')}`;
-  const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = filename;
-  link.click();
-  URL.revokeObjectURL(url);
+function safeFilename(value: string) {
+  return value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-|-$/g, '').toLowerCase();
 }
 
 export default function InventoryWebView({
@@ -139,10 +134,10 @@ export default function InventoryWebView({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerLoading, setScannerLoading] = useState(false);
   const [scanError, setScanError] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const scannerStreamRef = useRef<MediaStream | null>(null);
-  const scannerFrameRef = useRef<number | null>(null);
+  const scannerControlsRef = useRef<WebBarcodeScannerControls | null>(null);
 
   const activeProjectId = selectedProjectId === 'all' ? '' : selectedProjectId;
   const scopedProducts = useMemo(
@@ -250,48 +245,79 @@ export default function InventoryWebView({
   }
 
   function stopScanner() {
-    if (scannerFrameRef.current != null) cancelAnimationFrame(scannerFrameRef.current);
-    scannerFrameRef.current = null;
-    scannerStreamRef.current?.getTracks().forEach(track => track.stop());
-    scannerStreamRef.current = null;
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+    const stream = videoRef.current?.srcObject as MediaStream | null | undefined;
+    stream?.getTracks().forEach(track => track.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
+    setScannerLoading(false);
     setScannerOpen(false);
+  }
+
+  async function enrichScannedBarcode(rawValue: string) {
+    patchForm({ barcode: rawValue, reference: form.reference || rawValue });
+    const found = scopedProducts.find(product => String(product.barcode ?? '') === rawValue);
+    if (found) {
+      selectProduct(found);
+      setNotice(`Produit trouvé : ${found.designation || found.reference}.`);
+      return;
+    }
+
+    try {
+      const { data } = await supabaseBrowser.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      const response = await fetch('/api/inventory-barcode-lookup', {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ code: rawValue, language: navigator.language || 'fr' }),
+      });
+      if (!response.ok) return;
+      const payload = await response.json();
+      const match = payload?.match;
+      if (!match?.designation) return;
+      setForm(current => ({
+        ...current,
+        barcode: rawValue,
+        reference: current.reference || rawValue,
+        designation: current.designation || String(match.designation),
+        supplier: current.supplier || String(match.brand ?? ''),
+      }));
+      setNotice(`Produit identifié : ${String(match.designation)}. Vérifiez la variante avant validation.`);
+    } catch {
+      // Le code reste saisi même si l'enrichissement catalogue est indisponible.
+    }
   }
 
   async function startScanner() {
     setScanError('');
-    const BarcodeDetectorCtor = (window as any).BarcodeDetector;
-    if (!BarcodeDetectorCtor) {
-      setScanError("Ce navigateur ne prend pas en charge la lecture native. Utilisez l'application mobile ou saisissez le code.");
-      return;
-    }
+    setScannerLoading(true);
     try {
       setScannerOpen(true);
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
-      scannerStreamRef.current = stream;
-      if (!videoRef.current) return;
-      videoRef.current.srcObject = stream;
-      await videoRef.current.play();
-      const detector = new BarcodeDetectorCtor({ formats: ['qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf'] });
-      const detect = async () => {
-        if (!videoRef.current || !scannerStreamRef.current) return;
-        try {
-          const codes = await detector.detect(videoRef.current);
-          const rawValue = String(codes?.[0]?.rawValue ?? '').trim();
-          if (rawValue) {
-            patchForm({ barcode: rawValue, reference: form.reference || rawValue });
-            const found = scopedProducts.find(product => String(product.barcode ?? '') === rawValue);
-            if (found) selectProduct(found);
-            stopScanner();
-            return;
-          }
-        } catch {}
-        scannerFrameRef.current = requestAnimationFrame(detect);
-      };
-      scannerFrameRef.current = requestAnimationFrame(detect);
+      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      if (!videoRef.current) throw new Error('Aperçu caméra indisponible.');
+      let detectedDuringStart = false;
+      const controls = await startWebBarcodeScanner({
+        video: videoRef.current,
+        loadZXing: () => import('@zxing/browser'),
+        onDetected: result => {
+          detectedDuringStart = true;
+          stopScanner();
+          void enrichScannedBarcode(result.text);
+        },
+      });
+      if (detectedDuringStart) controls.stop();
+      else {
+        scannerControlsRef.current = controls;
+        setScannerLoading(false);
+      }
     } catch (scanFailure: any) {
       stopScanner();
-      setScanError(scanFailure?.message ?? "Impossible d'ouvrir la caméra.");
+      setScanError(webBarcodeCameraErrorMessage(scanFailure, "Impossible d'ouvrir la caméra."));
     }
   }
 
@@ -414,19 +440,54 @@ export default function InventoryWebView({
     }
   }
 
-  function exportStock() {
-    downloadCsv(`stock-${activeProjectId || 'chantier'}.csv`, [
-      ['Référence', 'Désignation', 'Stock', 'Entrées', 'Sorties', 'Minimum', 'Localisation', 'Fournisseur', 'Code-barres'],
-      ...filteredProducts.map(product => [product.reference, product.designation, numberValue(product.current_stock), numberValue(product.total_entries), numberValue(product.total_exits), numberValue(product.min_stock), product.location, product.supplier, product.barcode]),
-    ]);
+  async function exportWorkbook(kind: 'stock' | 'history') {
+    try {
+      setError('');
+      const { downloadInventoryWorkbook } = await import('@/lib/inventory-workbook');
+      const chantierName = projects.find(project => String(project.id) === String(activeProjectId))?.name
+        ?? (activeProjectId ? 'Chantier BuildTrack' : 'Tous les chantiers');
+      const date = new Date().toISOString().slice(0, 10);
+      const exportedProducts = kind === 'history' ? scopedProducts : filteredProducts;
+      downloadInventoryWorkbook({
+        kind,
+        chantierName,
+        filename: `buildtrack-${kind === 'history' ? 'mouvements-stock' : 'stock'}-${safeFilename(chantierName)}-${date}.xlsx`,
+        products: exportedProducts.map(product => ({
+          reference: product.reference,
+          designation: product.designation || product.reference,
+          photoUrl: product.photo_url,
+          currentStock: numberValue(product.current_stock),
+          minStock: numberValue(product.min_stock),
+          totalEntries: numberValue(product.total_entries),
+          totalExits: numberValue(product.total_exits),
+          location: product.location,
+          supplier: product.supplier,
+          barcode: product.barcode,
+        })),
+        movements: filteredMovements.map(movement => ({
+          createdAt: movement.created_at ?? '',
+          movementType: movement.movement_type,
+          reference: movement.reference ?? '',
+          designation: movement.designation ?? movement.reference ?? '',
+          quantity: numberValue(movement.quantity),
+          stockBefore: numberValue(movement.stock_before),
+          stockAfter: numberValue(movement.stock_after),
+          userName: movement.user_name,
+          buildingName: movement.building_name,
+          zoneName: movement.zone_name,
+          companyName: movement.company_name,
+          personName: movement.person_name,
+          supplier: movement.supplier,
+          comment: movement.comment,
+        })),
+      });
+    } catch (exportError: any) {
+      setError(exportError?.message ?? 'Le classeur Excel n’a pas pu être généré.');
+    }
   }
 
-  function exportHistory() {
-    downloadCsv(`mouvements-stock-${activeProjectId || 'chantier'}.csv`, [
-      ['Date', 'Type', 'Référence', 'Désignation', 'Quantité', 'Avant', 'Après', 'Destination', 'Zone', 'Entreprise', 'Personne', 'Utilisateur', 'Commentaire'],
-      ...filteredMovements.map(movement => [movement.created_at, movement.movement_type === 'in' ? 'Entrée' : 'Sortie', movement.reference, movement.designation, movement.quantity, movement.stock_before, movement.stock_after, movement.building_name, movement.zone_name, movement.company_name, movement.person_name, movement.user_name, movement.comment]),
-    ]);
-  }
+  const exportStock = () => void exportWorkbook('stock');
+  const exportHistory = () => void exportWorkbook('history');
 
   return (
     <div className={styles.root}>
@@ -474,7 +535,7 @@ export default function InventoryWebView({
           <div className={styles.scanRow}>
             <label><span>Référence *</span><input list="inventory-products" value={form.reference} onChange={event => { patchForm({ reference: event.target.value }); setSelectedProductId(null); }} onBlur={() => resolveTypedProduct()} placeholder="ABC-12580" autoFocus /></label>
             <label><span>Code-barres / QR</span><input value={form.barcode} onChange={event => { patchForm({ barcode: event.target.value }); setSelectedProductId(null); }} onBlur={() => resolveTypedProduct()} inputMode="numeric" /></label>
-            <button type="button" className={styles.scanButton} onClick={() => scannerOpen ? stopScanner() : void startScanner()}>{scannerOpen ? 'Fermer caméra' : 'Scanner'}</button>
+            <button type="button" className={styles.scanButton} onClick={() => scannerOpen ? stopScanner() : void startScanner()}>{scannerLoading ? 'Ouverture…' : scannerOpen ? 'Fermer caméra' : 'Scanner'}</button>
           </div>
           <datalist id="inventory-products">{scopedProducts.map(product => <option key={product.id} value={product.reference}>{product.designation}</option>)}</datalist>
           {scannerOpen ? <div className={styles.scanner}><video ref={videoRef} muted playsInline /><div className={styles.scanFrame} /></div> : null}
@@ -524,7 +585,7 @@ export default function InventoryWebView({
         <section className={styles.tableCard}>
           <div className={styles.tableToolbar}>
             <div><h3>{mode === 'history' ? 'Historique des mouvements' : mode === 'stock' ? 'Tableau de stock' : 'Stock chantier'}</h3><p>{mode === 'history' ? `${filteredMovements.length} mouvement(s)` : `${filteredProducts.length} référence(s)`}</p></div>
-            <div className={styles.tableTools}><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Rechercher référence, produit, destination…" />{canExport ? <button type="button" onClick={mode === 'history' ? exportHistory : exportStock}>Excel / CSV</button> : null}{canExport ? <button type="button" onClick={() => window.print()}>PDF</button> : null}</div>
+            <div className={styles.tableTools}><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Rechercher référence, produit, destination…" />{canExport ? <button type="button" onClick={mode === 'history' ? exportHistory : exportStock}>Classeur Excel</button> : null}{canExport ? <button type="button" onClick={() => window.print()}>PDF</button> : null}</div>
           </div>
           {mode === 'history' ? (
             <div className={styles.tableScroll}><table><thead><tr><th>Date</th><th>Type</th><th>Référence</th><th>Désignation</th><th>Qté</th><th>Stock</th><th>Destination</th><th>Entreprise</th><th>Utilisateur</th><th>Commentaire</th></tr></thead><tbody>{filteredMovements.map(movement => <tr key={movement.id}><td>{movement.created_at ? new Date(movement.created_at).toLocaleString('fr-FR') : '—'}</td><td><span className={movement.movement_type === 'in' ? styles.inBadge : styles.outBadge}>{movement.movement_type === 'in' ? 'Entrée' : 'Sortie'}</span></td><td><strong>{movement.reference}</strong></td><td>{movement.designation}</td><td>{movement.movement_type === 'in' ? '+' : '−'}{movement.quantity}</td><td>{numberValue(movement.stock_before)} → {numberValue(movement.stock_after)}</td><td>{movement.building_name || movement.zone_name || '—'}</td><td>{movement.company_name || '—'}</td><td>{movement.user_name || '—'}</td><td>{movement.comment || '—'}</td></tr>)}</tbody></table>{!filteredMovements.length ? <p className={styles.empty}>Aucun mouvement enregistré.</p> : null}</div>

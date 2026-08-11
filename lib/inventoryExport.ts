@@ -40,7 +40,7 @@ async function shareXlsx(kind: InventoryExportKind, products: InventoryProduct[]
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
     return;
   }
   const baseDir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory;

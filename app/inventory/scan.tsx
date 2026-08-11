@@ -1,9 +1,12 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type Ref } from 'react';
 import { ActivityIndicator, Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { CameraView, type BarcodeScanningResult, useCameraPermissions } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Header from '@/components/Header';
+import InventoryWebBarcodeCamera, {
+  type InventoryWebBarcodeCameraHandle,
+} from '@/components/inventory/InventoryWebBarcodeCamera';
 import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { persistLocalPhoto } from '@/lib/storage';
@@ -16,7 +19,7 @@ export default function InventoryScanScreen() {
   const params = useLocalSearchParams<{ mode?: string }>();
   const mode = params.mode === 'out' ? 'out' : 'in';
   const { permissions } = useAuth();
-  const cameraRef = useRef<CameraView | null>(null);
+  const cameraRef = useRef<CameraView | InventoryWebBarcodeCameraHandle | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [torch, setTorch] = useState(false);
@@ -46,9 +49,10 @@ export default function InventoryScanScreen() {
     if (!cameraRef.current || takingPhoto || recognizing) return;
     setTakingPhoto(true);
     try {
-      const picture = await cameraRef.current.takePictureAsync({ quality: 0.68, skipProcessing: Platform.OS === 'android' });
-      if (picture?.uri) {
-        const photoUri = await persistLocalPhoto(picture.uri);
+      const picture = await cameraRef.current.takePictureAsync({ quality: 0.68, skipProcessing: Platform.OS === 'android' } as any);
+      const pictureUri = picture && 'uri' in picture ? picture.uri : undefined;
+      if (pictureUri) {
+        const photoUri = await persistLocalPhoto(pictureUri);
         setTakingPhoto(false);
         setRecognizing(true);
         try {
@@ -106,15 +110,26 @@ export default function InventoryScanScreen() {
     <View style={styles.root}>
       <Header title={mode === 'in' ? copy.scanEntry : copy.scanExit} showBack backFallback="/inventory" />
       <View style={styles.cameraWrap}>
-        <CameraView
-          ref={cameraRef}
-          style={StyleSheet.absoluteFill}
-          facing="back"
-          mode="picture"
-          enableTorch={torch}
-          onBarcodeScanned={scanned ? undefined : handleBarcode}
-          barcodeScannerSettings={{ barcodeTypes: ['aztec', 'ean13', 'ean8', 'qr', 'pdf417', 'upc_e', 'datamatrix', 'code39', 'code93', 'itf14', 'codabar', 'code128', 'upc_a'] }}
-        />
+        {Platform.OS === 'web' ? (
+          <InventoryWebBarcodeCamera
+            ref={cameraRef as Ref<InventoryWebBarcodeCameraHandle>}
+            active={!scanned}
+            torch={torch}
+            errorMessage={copy.cameraUnavailable}
+            retryLabel={copy.retryCamera}
+            onDetected={result => handleBarcode({ data: result.data, type: result.type } as BarcodeScanningResult)}
+          />
+        ) : (
+          <CameraView
+            ref={cameraRef as Ref<CameraView>}
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            mode="picture"
+            enableTorch={torch}
+            onBarcodeScanned={scanned ? undefined : handleBarcode}
+            barcodeScannerSettings={{ barcodeTypes: ['aztec', 'ean13', 'ean8', 'qr', 'pdf417', 'upc_e', 'datamatrix', 'code39', 'code93', 'itf14', 'codabar', 'code128', 'upc_a'] }}
+          />
+        )}
         <View style={styles.overlay} pointerEvents="box-none">
           <View style={styles.topOverlay}>
             <Text style={styles.scanHint}>{copy.scanHint}</Text>
