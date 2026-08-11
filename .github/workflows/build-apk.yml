@@ -66,6 +66,21 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Stamp Android build number
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: |
+          node - <<'NODE'
+          const fs = require('fs');
+          const config = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+          const buildNumber = Number.parseInt(process.env.BUILD_NUMBER || '', 10);
+          if (!Number.isSafeInteger(buildNumber) || buildNumber <= 0) {
+            throw new Error('Invalid GitHub run number for Android versionCode');
+          }
+          config.expo.android.versionCode = buildNumber;
+          fs.writeFileSync('app.json', `${JSON.stringify(config, null, 2)}\n`);
+          NODE
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
