@@ -1,0 +1,15 @@
+name = "buildtrack-files"
+main = "./r2-public-worker.js"
+account_id = "5da3d4bc18c3d1e7b668366b5fb0408b"
+compatibility_date = "2026-06-11"
+preview_urls = false
+
+[[r2_buckets]]
+binding = "FILES"
+bucket_name = "buildtrack-files"
+
+[observability]
+enabled = true
+
+[observability.logs]
+enabled = true
