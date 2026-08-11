@@ -19,6 +19,8 @@ import { subscribeSessionExpiry, isSessionExpired, notifySessionRecovered } from
 import { clearSupabaseRestTokenCache } from '@/lib/supabaseRest';
 import i18n from '@/lib/i18n';
 import { ROLE_PERMISSIONS, resolvePermissions } from '@/lib/permissions';
+import { clearMediaDiskCache, setMediaCacheUserId } from '@/lib/media';
+import { clearPlanCache } from '@/lib/planCache';
 
 export { ROLE_PERMISSIONS, resolvePermissions } from '@/lib/permissions';
 
@@ -333,12 +335,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
+  const privateCacheOwnerRef = useRef<string | null | undefined>(undefined);
 
   // Keep the React Query persister namespaced by the active user so that the
   // hydrated cache can never bleed across accounts (User A logs out, User B
   // logs in → User B should never see User A's reserves, even briefly).
   useEffect(() => {
     setPersisterUserId(user?.id ?? null);
+  }, [user?.id]);
+
+  // Keep offline media usable across restarts for the same account, but purge
+  // every private file when the device changes account or signs out.
+  useEffect(() => {
+    const nextOwner = user?.id ?? null;
+    const previousOwner = privateCacheOwnerRef.current;
+    privateCacheOwnerRef.current = nextOwner;
+    setMediaCacheUserId(nextOwner);
+    if (previousOwner === undefined || previousOwner === nextOwner) return;
+    void Promise.allSettled([clearMediaDiskCache(), clearPlanCache()]);
   }, [user?.id]);
 
   // ── Terminal session-expiry → prompt a clean re-login ──────────────────────
@@ -1085,6 +1099,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
     setIsOfflineSession(false);
     clearCachedProfile();
+    await Promise.allSettled([clearMediaDiskCache(), clearPlanCache()]);
   }
 
   // Clean re-authentication after a terminal session expiry. We funnel through

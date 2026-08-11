@@ -15,6 +15,8 @@ const integrity = source('supabase/migrations/20260810193111_enforce_tenant_inte
 const media = source('supabase/migrations/20260810193713_add_private_tenant_media_registry.sql');
 const followup = source('supabase/migrations/20260811000500_index_tenant_fks_and_harden_legacy_helpers.sql');
 const visibilityHardening = source('supabase/migrations/20260811001700_fix_chantier_visibility_search_path.sql');
+const mediaCutover = source('supabase/migrations/20260811080502_finalize_private_media_cutover.sql');
+const mediaReconciliation = source('supabase/migrations/20260811082302_reconcile_legacy_media_links_before_cutover.sql');
 
 describe('tenant A x object B authorization matrix', () => {
   const actors = [
@@ -153,6 +155,43 @@ describe('private media architecture contract', () => {
     expect(media).toContain("a.status = 'ready' and a.completed_at < now() - interval '24 hours'");
     expect(media).toContain('not exists (\n        select 1 from public.tenant_media_links');
   });
+
+  it('fails closed before the final public-storage cutover', () => {
+    expect(mediaCutover).toContain('create or replace function private.media_cutover_preflight');
+    expect(mediaCutover).toContain("'unresolved_owned_refs'");
+    expect(mediaCutover).toContain('p_public_r2_retired is not true');
+    expect(mediaCutover).toContain('p_minimum_android_build');
+    expect(mediaCutover).toContain('set public = false');
+    expect(mediaCutover).toContain('tenantless_current_reference');
+    expect(mediaCutover).toContain('unregistered_storage_object');
+  });
+
+  it('publishes only safe client requirements and enforces the protocol server-side', () => {
+    expect(mediaCutover).toContain('create or replace function public.get_client_security_requirements');
+    expect(mediaCutover).toContain('minimum_media_protocol');
+    const serverAuth = source('vercel-app/lib/server-auth.ts');
+    expect(serverAuth).toContain('enforceprivatemediaclient');
+    expect(serverAuth).toContain('x-buildtrack-media-protocol');
+    expect(serverAuth).toContain('android_build_upgrade_required');
+  });
+
+  it('scopes native media and offline plan caches to the authenticated user', () => {
+    const mediaClient = source('lib/media.ts');
+    const planCache = source('lib/planCache.ts');
+    expect(mediaClient).toContain('btmedia-v2');
+    expect(mediaClient).toContain('offlinemediauserid');
+    expect(mediaClient).toContain('clearmediadiskcache');
+    expect(planCache).toContain('plans_cache_v2');
+    expect(planCache).toContain('authenticated session required for plan cache');
+    expect(planCache).toContain('removelegacyunscopedcache');
+  });
+
+  it('rebuilds legacy links instead of garbage-collecting current media', () => {
+    expect(mediaReconciliation).toContain('create or replace function private.media_text_values_in_json');
+    expect(mediaReconciliation).toContain('perform private.register_legacy_media');
+    expect(mediaReconciliation).toContain("when public.tenant_media_objects.status = 'delete_pending' then 'legacy'");
+    expect(mediaReconciliation).toContain('from private.current_media_references()');
+  });
 });
 
 describe('single canonical server contract', () => {
@@ -178,6 +217,7 @@ describe('single canonical server contract', () => {
     ]) {
       const routeSource = source(route);
       expect(routeSource, route).toContain('authenticaterequest');
+      expect(routeSource, route).toContain('enforceprivatemediaclient');
       expect(routeSource, route).not.toContain('r2keyfrompublicurl');
     }
   });

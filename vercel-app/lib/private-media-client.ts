@@ -11,6 +11,12 @@ const listeners = new Set<() => void>();
 let resolveScheduled = false;
 let resolving = false;
 
+const PRIVATE_MEDIA_HEADERS = {
+  'X-BuildTrack-Client': 'web',
+  'X-BuildTrack-Client-Version': 'web-current',
+  'X-BuildTrack-Media-Protocol': '1',
+};
+
 function isRegistryBackedRef(value: string) {
   return /^btmedia:\/\/[0-9a-f-]{36}$/i.test(value)
     || /\/storage\/v1\/object\/public\/(photos|documents)\//i.test(value)
@@ -40,6 +46,7 @@ async function flushResolveQueue() {
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${token}`,
+            ...PRIVATE_MEDIA_HEADERS,
           },
           body: JSON.stringify({ refs }),
         });
@@ -118,7 +125,11 @@ export async function uploadRegisteredWebFile(
 
   const reservationResponse = await fetch('/api/storage/presign', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...PRIVATE_MEDIA_HEADERS,
+    },
     body: JSON.stringify({
       kind: bucket === 'photos' ? 'photo' : 'document',
       filename,
@@ -148,7 +159,11 @@ export async function uploadRegisteredWebFile(
 
   const completeResponse = await fetch('/api/storage/complete', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+      ...PRIVATE_MEDIA_HEADERS,
+    },
     body: JSON.stringify({ assetId: reservation.assetId }),
   });
   const completed = await completeResponse.json().catch(() => ({}));

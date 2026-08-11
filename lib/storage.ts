@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
 import i18n from '@/lib/i18n';
 import { canonicalApiBaseUrl } from './apiBase';
+import { privateMediaClientHeaders } from './clientVersion';
 
 // ── File reading ──────────────────────────────────────────────────────────────
 // On native, we use fetch(uri) to obtain a proper Blob that the Supabase
@@ -136,6 +137,7 @@ async function requestPresignedUpload(
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${accessToken}`,
+          ...privateMediaClientHeaders(),
         },
         body: JSON.stringify({ kind, filename, contentType, size }),
         signal: controller.signal,
@@ -279,6 +281,7 @@ async function completeRegisteredUpload(reservation: PresignedUpload, tag: strin
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accessToken}`,
+      ...privateMediaClientHeaders(),
     },
     body: JSON.stringify({ assetId: reservation.assetId }),
   });

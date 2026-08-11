@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rateLimit';
-import { authenticateRequest } from '@/lib/server-auth';
+import { authenticateRequest, enforcePrivateMediaClient } from '@/lib/server-auth';
 import { resolveAuthorizedMediaRefs } from '@/lib/private-media-server';
 
 export const dynamic = 'force-dynamic';
@@ -18,7 +18,7 @@ function corsHeaders(req: NextRequest) {
   return {
     'Access-Control-Allow-Origin': allowed.includes(origin) ? origin : allowed[0],
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-BuildTrack-Client, X-BuildTrack-Client-Version, X-BuildTrack-Build, X-BuildTrack-Media-Protocol',
   };
 }
 
@@ -30,6 +30,10 @@ export async function POST(req: NextRequest) {
   const headers = corsHeaders(req);
   const auth = await authenticateRequest(req);
   if (!auth) return NextResponse.json({ error: 'Session invalide' }, { status: 401, headers });
+  const clientGate = await enforcePrivateMediaClient(req, auth.supabase);
+  if (!clientGate.allowed) {
+    return NextResponse.json({ error: clientGate.reason, ...clientGate }, { status: clientGate.status, headers });
+  }
 
   const rate = checkRateLimit(`storage-resolve:${auth.authority.userId}`, 180, 60_000);
   if (!rate.allowed) {

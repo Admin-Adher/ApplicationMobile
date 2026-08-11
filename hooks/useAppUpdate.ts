@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
-import * as Application from 'expo-application';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '@/lib/supabase';
+import { currentApplicationVersion, currentBuildNumber } from '@/lib/clientVersion';
 
 const RELEASES_API = 'https://api.github.com/repos/Admin-Adher/ApplicationMobile/releases/latest';
 export const APK_DOWNLOAD_URL = 'https://github.com/Admin-Adher/ApplicationMobile/releases/latest/download/buildtrack-release.apk';
@@ -11,6 +11,7 @@ const CACHE_KEY = 'app.update.latestRelease.v3';
 const DISMISS_KEY = 'app.update.dismissedBuild.v3';
 const LAST_SEEN_BUILD_KEY = 'app.update.lastSeenBuild.v1';
 const JUST_UPDATED_ACK_KEY = 'app.update.justUpdatedAck.v1';
+const SECURITY_REQUIREMENTS_KEY = 'app.security.requirements.v1';
 
 interface CachedRelease {
   tag: string;
@@ -21,66 +22,76 @@ interface CachedRelease {
   notes?: string;
 }
 
-function cleanSemver(v: string | null | undefined): string | null {
-  if (!v) return null;
-  const m = String(v).match(/(\d+)\.(\d+)(?:\.(\d+))?/);
-  if (!m) return null;
-  return `${m[1]}.${m[2]}.${m[3] ?? '0'}`;
+interface SecurityRequirements {
+  privateMediaStorage: boolean;
+  minimumAndroidBuild: number;
+  minimumMediaProtocol: number;
+  downloadUrl: string;
+  fetchedAt: number;
+}
+
+const DEFAULT_REQUIREMENTS: SecurityRequirements = {
+  privateMediaStorage: false,
+  minimumAndroidBuild: 0,
+  minimumMediaProtocol: 1,
+  downloadUrl: APK_DOWNLOAD_URL,
+  fetchedAt: 0,
+};
+
+function cleanSemver(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = String(value).match(/(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!match) return null;
+  return `${match[1]}.${match[2]}.${match[3] ?? '0'}`;
 }
 
 function extractBuildNumber(tag: string | null | undefined): number | null {
   if (!tag) return null;
-  // Format attendu: "android-build-544", "build-544", "v544", etc.
-  const m = String(tag).match(/(?:build[-_]?|^v)(\d+)/i);
-  if (m) return parseInt(m[1], 10);
-  // Fallback: tout dernier nombre du tag
-  const all = String(tag).match(/(\d+)/g);
-  if (all && all.length === 1) return parseInt(all[0], 10);
-  return null;
+  const match = String(tag).match(/(?:build[-_]?|^v)(\d+)/i);
+  if (match) return Number.parseInt(match[1], 10);
+  const numbers = String(tag).match(/(\d+)/g);
+  return numbers?.length === 1 ? Number.parseInt(numbers[0], 10) : null;
 }
 
-function compareSemver(a: string, b: string): number {
-  const pa = a.split('.').map(n => parseInt(n, 10) || 0);
-  const pb = b.split('.').map(n => parseInt(n, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i++) {
-    const da = pa[i] ?? 0;
-    const db = pb[i] ?? 0;
-    if (da > db) return 1;
-    if (da < db) return -1;
+function compareSemver(left: string, right: string): number {
+  const a = left.split('.').map(value => Number.parseInt(value, 10) || 0);
+  const b = right.split('.').map(value => Number.parseInt(value, 10) || 0);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    if ((a[index] ?? 0) > (b[index] ?? 0)) return 1;
+    if ((a[index] ?? 0) < (b[index] ?? 0)) return -1;
   }
   return 0;
 }
 
-function getCurrentBuildNumber(): number | null {
-  // Source la plus fiable: numéro de build natif de l'APK installé.
-  if (Platform.OS === 'android') {
-    const native = (Application as any).nativeBuildVersion;
-    if (typeof native === 'string' && /^\d+$/.test(native)) {
-      const n = parseInt(native, 10);
-      if (n > 0) return n;
-    }
-  }
-  // Fallback: config Expo (utile sur web et en mode dev).
-  const cfg: any = Constants.expoConfig ?? (Constants as any).manifest;
-  const code = cfg?.android?.versionCode;
-  if (typeof code === 'number') return code;
-  if (typeof code === 'string' && /^\d+$/.test(code)) return parseInt(code, 10);
-  return null;
+function currentSemver(): string {
+  const version = currentApplicationVersion();
+  return cleanSemver(version) ?? version;
 }
 
-function getCurrentSemver(): string {
-  const fromNative = (Application as any).nativeApplicationVersion;
-  if (typeof fromNative === 'string' && fromNative.length > 0) {
-    return cleanSemver(fromNative) ?? fromNative;
-  }
-  const cfg: any = Constants.expoConfig ?? (Constants as any).manifest;
-  return cleanSemver(cfg?.version) ?? '0.0.0';
+function formatRelativeFr(iso: string | null): string | null {
+  if (!iso) return null;
+  const timestamp = Date.parse(iso);
+  if (Number.isNaN(timestamp)) return null;
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60_000));
+  if (minutes < 1) return "à l'instant";
+  if (minutes < 60) return `il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `il y a ${hours} h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `il y a ${days} j`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `il y a ${weeks} sem.`;
+  const months = Math.floor(days / 30);
+  if (months < 12) return `il y a ${months} mois`;
+  const years = Math.floor(days / 365);
+  return `il y a ${years} an${years > 1 ? 's' : ''}`;
 }
 
 export interface AppUpdateState {
   loading: boolean;
   updateAvailable: boolean;
+  updateRequired: boolean;
+  minimumAndroidBuild: number;
   currentLabel: string;
   latestLabel: string | null;
   latestPublishedAt: string | null;
@@ -93,31 +104,10 @@ export interface AppUpdateState {
   acknowledgeJustUpdated: () => Promise<void>;
 }
 
-function formatRelativeFr(iso: string | null): string | null {
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  if (Number.isNaN(t)) return null;
-  const diffMs = Date.now() - t;
-  if (diffMs < 0) return 'à l\'instant';
-  const min = Math.floor(diffMs / 60000);
-  if (min < 1) return 'à l\'instant';
-  if (min < 60) return `il y a ${min} min`;
-  const h = Math.floor(min / 60);
-  if (h < 24) return `il y a ${h} h`;
-  const d = Math.floor(h / 24);
-  if (d < 7) return `il y a ${d} j`;
-  const w = Math.floor(d / 7);
-  if (w < 5) return `il y a ${w} sem.`;
-  const mo = Math.floor(d / 30);
-  if (mo < 12) return `il y a ${mo} mois`;
-  const y = Math.floor(d / 365);
-  return `il y a ${y} an${y > 1 ? 's' : ''}`;
-}
-
 export function useAppUpdate(): AppUpdateState {
-  const currentBuild = getCurrentBuildNumber();
-  const currentSemver = getCurrentSemver();
-  const currentLabel = currentBuild != null ? `Build ${currentBuild}` : currentSemver;
+  const currentBuild = currentBuildNumber();
+  const installedSemver = currentSemver();
+  const currentLabel = currentBuild != null ? `Build ${currentBuild}` : installedSemver;
 
   const [latestTag, setLatestTag] = useState<string | null>(null);
   const [latestBuild, setLatestBuild] = useState<number | null>(null);
@@ -127,23 +117,24 @@ export function useAppUpdate(): AppUpdateState {
   const [loading, setLoading] = useState(true);
   const [justUpdated, setJustUpdated] = useState(false);
   const [justUpdatedFromBuild, setJustUpdatedFromBuild] = useState<number | null>(null);
+  const [requirements, setRequirements] = useState<SecurityRequirements>(DEFAULT_REQUIREMENTS);
 
-  const applyRelease = useCallback((rel: CachedRelease) => {
-    setLatestTag(rel.tag || null);
-    setLatestBuild(rel.buildNumber);
-    setLatestSemver(rel.semver);
-    setLatestPublishedAt(rel.publishedAt ?? null);
+  const applyRelease = useCallback((release: CachedRelease) => {
+    setLatestTag(release.tag || null);
+    setLatestBuild(release.buildNumber);
+    setLatestSemver(release.semver);
+    setLatestPublishedAt(release.publishedAt ?? null);
   }, []);
 
   const fetchLatest = useCallback(async () => {
     try {
-      const res = await fetch(RELEASES_API, {
+      const response = await fetch(RELEASES_API, {
         headers: { Accept: 'application/vnd.github+json' },
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const tag: string = data?.tag_name ?? data?.name ?? '';
-      const payload: CachedRelease = {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const tag = String(data?.tag_name ?? data?.name ?? '');
+      const release: CachedRelease = {
         tag,
         buildNumber: extractBuildNumber(tag),
         semver: cleanSemver(tag) ?? cleanSemver(data?.name),
@@ -151,110 +142,121 @@ export function useAppUpdate(): AppUpdateState {
         publishedAt: data?.published_at ?? data?.created_at ?? null,
         notes: data?.body,
       };
-      applyRelease(payload);
-      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+      applyRelease(release);
+      await AsyncStorage.setItem(CACHE_KEY, JSON.stringify(release));
     } catch {
-      // Réseau / GitHub indisponible — on ignore silencieusement.
-    } finally {
-      setLoading(false);
+      // Keep the cached release when GitHub is temporarily unreachable.
     }
   }, [applyRelease]);
 
+  const fetchSecurityRequirements = useCallback(async () => {
+    try {
+      const { data, error } = await (supabase as any).rpc('get_client_security_requirements');
+      if (error || !data) return;
+      const minimumBuild = Number(data.minimum_android_build ?? 0);
+      const configuredUrl = String(data.download_url ?? APK_DOWNLOAD_URL);
+      const next: SecurityRequirements = {
+        privateMediaStorage: data.private_media_storage === true,
+        minimumAndroidBuild: Number.isSafeInteger(minimumBuild) && minimumBuild > 0 ? minimumBuild : 0,
+        minimumMediaProtocol: Math.max(1, Number(data.minimum_media_protocol ?? 1) || 1),
+        downloadUrl: /^https:\/\//i.test(configuredUrl) ? configuredUrl : APK_DOWNLOAD_URL,
+        fetchedAt: Date.now(),
+      };
+      setRequirements(next);
+      await AsyncStorage.setItem(SECURITY_REQUIREMENTS_KEY, JSON.stringify(next));
+    } catch {
+      // Fail closed to the last control-plane value while offline.
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    await Promise.all([fetchLatest(), fetchSecurityRequirements()]);
+    setLoading(false);
+  }, [fetchLatest, fetchSecurityRequirements]);
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      // Affichage immédiat depuis le cache (s'il existe).
+    void (async () => {
       try {
-        const raw = await AsyncStorage.getItem(CACHE_KEY);
-        if (raw && !cancelled) {
+        const [releaseRaw, dismissedRaw, requirementRaw] = await Promise.all([
+          AsyncStorage.getItem(CACHE_KEY),
+          AsyncStorage.getItem(DISMISS_KEY),
+          AsyncStorage.getItem(SECURITY_REQUIREMENTS_KEY),
+        ]);
+        if (!cancelled && releaseRaw) {
+          try { applyRelease(JSON.parse(releaseRaw) as CachedRelease); } catch {}
+        }
+        if (!cancelled) setDismissed(dismissedRaw);
+        if (!cancelled && requirementRaw) {
           try {
-            const cached: CachedRelease = JSON.parse(raw);
-            if (cached) applyRelease(cached);
+            const cached = JSON.parse(requirementRaw) as SecurityRequirements;
+            if (cached && Number.isFinite(cached.minimumAndroidBuild)) setRequirements(cached);
           } catch {}
         }
-        const d = await AsyncStorage.getItem(DISMISS_KEY);
-        if (!cancelled) setDismissed(d);
       } catch {}
 
-      // Détection « mise à jour réalisée » : on compare le build natif
-      // au dernier build qu'on avait vu lors d'un précédent lancement.
-      // Si le build courant est plus récent et qu'on n'a pas déjà confirmé
-      // cette version, on déclenche le toast de succès.
       try {
         if (currentBuild != null && Platform.OS !== 'web') {
-          const lastSeenRaw = await AsyncStorage.getItem(LAST_SEEN_BUILD_KEY);
-          const ackRaw = await AsyncStorage.getItem(JUST_UPDATED_ACK_KEY);
-          const lastSeen = lastSeenRaw ? parseInt(lastSeenRaw, 10) : null;
-          const ack = ackRaw ? parseInt(ackRaw, 10) : null;
-          if (
-            lastSeen != null &&
-            !Number.isNaN(lastSeen) &&
-            currentBuild > lastSeen &&
-            ack !== currentBuild
-          ) {
-            if (!cancelled) {
-              setJustUpdated(true);
-              setJustUpdatedFromBuild(lastSeen);
-            }
+          const [lastSeenRaw, acknowledgedRaw] = await Promise.all([
+            AsyncStorage.getItem(LAST_SEEN_BUILD_KEY),
+            AsyncStorage.getItem(JUST_UPDATED_ACK_KEY),
+          ]);
+          const lastSeen = lastSeenRaw ? Number.parseInt(lastSeenRaw, 10) : null;
+          const acknowledged = acknowledgedRaw ? Number.parseInt(acknowledgedRaw, 10) : null;
+          if (lastSeen != null && currentBuild > lastSeen && acknowledged !== currentBuild && !cancelled) {
+            setJustUpdated(true);
+            setJustUpdatedFromBuild(lastSeen);
           }
-          // On enregistre toujours le build courant pour la prochaine fois.
           await AsyncStorage.setItem(LAST_SEEN_BUILD_KEY, String(currentBuild));
         }
       } catch {}
 
-      // Toujours rafraîchir en arrière-plan (stale-while-revalidate).
-      if (!cancelled) await fetchLatest();
+      if (!cancelled) await refresh();
     })();
     return () => { cancelled = true; };
-  }, [fetchLatest, applyRelease, currentBuild]);
+  }, [applyRelease, currentBuild, refresh]);
 
   const acknowledgeJustUpdated = useCallback(async () => {
     setJustUpdated(false);
     if (currentBuild != null) {
-      try {
-        await AsyncStorage.setItem(JUST_UPDATED_ACK_KEY, String(currentBuild));
-      } catch {}
+      await AsyncStorage.setItem(JUST_UPDATED_ACK_KEY, String(currentBuild)).catch(() => {});
     }
   }, [currentBuild]);
 
-  // Étiquette à afficher pour la dernière version
   let latestLabel: string | null = null;
   if (latestBuild != null) latestLabel = `Build ${latestBuild}`;
   else if (latestSemver) latestLabel = latestSemver;
   else if (latestTag) latestLabel = latestTag;
 
-  // Détection mise à jour
-  let isNewer = false;
-  if (latestBuild != null && currentBuild != null) {
-    isNewer = latestBuild > currentBuild;
-  } else if (latestSemver) {
-    isNewer = compareSemver(latestSemver, currentSemver) > 0;
-  }
-
-  // Filtre dismiss : on garde caché tant que la dernière étiquette n'a pas changé
+  const isNewer = latestBuild != null && currentBuild != null
+    ? latestBuild > currentBuild
+    : Boolean(latestSemver && compareSemver(latestSemver, installedSemver) > 0);
   const dismissKey = latestBuild != null ? `build:${latestBuild}` : (latestTag ?? '');
-  const isDismissed = !!dismissed && dismissed === dismissKey;
+  const isDismissed = Boolean(dismissed && dismissed === dismissKey);
+  const updateRequired = Platform.OS === 'android'
+    && requirements.privateMediaStorage
+    && requirements.minimumAndroidBuild > 0
+    && (currentBuild == null || currentBuild < requirements.minimumAndroidBuild);
 
   const dismiss = useCallback(async () => {
-    if (!dismissKey) return;
-    try {
-      await AsyncStorage.setItem(DISMISS_KEY, dismissKey);
-      setDismissed(dismissKey);
-    } catch {}
-  }, [dismissKey]);
-
-  const updateAvailable = isNewer && !isDismissed && Platform.OS !== 'ios';
+    if (updateRequired || !dismissKey) return;
+    await AsyncStorage.setItem(DISMISS_KEY, dismissKey).catch(() => {});
+    setDismissed(dismissKey);
+  }, [dismissKey, updateRequired]);
 
   return {
     loading,
-    updateAvailable,
+    updateAvailable: updateRequired || (isNewer && !isDismissed && Platform.OS !== 'ios'),
+    updateRequired,
+    minimumAndroidBuild: requirements.minimumAndroidBuild,
     currentLabel,
-    latestLabel,
+    latestLabel: latestLabel ?? (requirements.minimumAndroidBuild > 0 ? `Build ${requirements.minimumAndroidBuild}` : null),
     latestPublishedAt,
     publishedRelative: formatRelativeFr(latestPublishedAt),
-    downloadUrl: APK_DOWNLOAD_URL,
+    downloadUrl: requirements.downloadUrl,
     dismiss,
-    refresh: fetchLatest,
+    refresh,
     justUpdated,
     justUpdatedFromBuild,
     acknowledgeJustUpdated,

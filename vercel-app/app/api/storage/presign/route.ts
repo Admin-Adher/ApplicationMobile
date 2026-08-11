@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { isR2Configured, presignR2Upload } from '@/lib/r2';
-import { authenticateRequest, createServiceClient } from '@/lib/server-auth';
+import { authenticateRequest, createServiceClient, enforcePrivateMediaClient } from '@/lib/server-auth';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 20;
@@ -22,7 +22,7 @@ function corsHeaders(req: NextRequest) {
   return {
     'Access-Control-Allow-Origin': corsOrigin,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-BuildTrack-Client, X-BuildTrack-Client-Version, X-BuildTrack-Build, X-BuildTrack-Media-Protocol',
   };
 }
 
@@ -37,6 +37,10 @@ export async function POST(req: NextRequest) {
   const auth = await authenticateRequest(req, supabase);
   if (!auth) {
     return NextResponse.json({ error: 'Session invalide' }, { status: 401, headers });
+  }
+  const clientGate = await enforcePrivateMediaClient(req, auth.supabase);
+  if (!clientGate.allowed) {
+    return NextResponse.json({ error: clientGate.reason, ...clientGate }, { status: clientGate.status, headers });
   }
 
   // Large : une visite chantier peut uploader des dizaines de photos d'un coup.

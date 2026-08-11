@@ -24,9 +24,10 @@ jobs:
   publish-ota:
     name: Publish OTA Update (EAS)
     runs-on: ubuntu-latest
-    # Passe silencieusement si OTA_ENABLED n'est pas activé
-    # Pour activer : Settings → Variables → New variable → OTA_ENABLED = true
-    if: vars.OTA_ENABLED == 'true'
+    # Publie automatiquement quand EXPO_TOKEN est configuré. Sans secret, le
+    # job reste vert et l'APK natif continue d'être produit.
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,9 +42,12 @@ jobs:
         run: npm ci --legacy-peer-deps
 
       - name: Publish OTA update
+        if: env.EXPO_TOKEN != ''
         run: npx eas-cli@latest update --channel production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
-        env:
-          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Report unavailable OTA credentials
+        if: env.EXPO_TOKEN == ''
+        run: echo "EXPO_TOKEN absent; APK build remains available but OTA was not published."
 
   # ─── Job 2 : Build APK natif ─────────────────────────────────────────────
   # Reconstruit le APK complet (natif + JS). Nécessaire uniquement quand

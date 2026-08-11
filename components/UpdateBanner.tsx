@@ -14,6 +14,7 @@ export default function UpdateBanner() {
   const { t } = useTranslation();
   const {
     updateAvailable,
+    updateRequired,
     latestLabel,
     publishedRelative,
     downloadUrl,
@@ -63,7 +64,7 @@ export default function UpdateBanner() {
   }, [justUpdated, acknowledgeJustUpdated]);
 
   // Bannière verte de confirmation après une mise à jour réussie
-  if (justUpdated) {
+  if (justUpdated && !updateRequired) {
     return (
       <View style={[styles.banner, styles.bannerSuccess]}>
         <View style={[styles.iconWrap, styles.iconWrapSuccess]}>
@@ -263,7 +264,7 @@ export default function UpdateBanner() {
       >
         <Text style={styles.updateBtnText} numberOfLines={1}>{buttonLabel}</Text>
       </TouchableOpacity>
-      {!isBusy && (
+      {!isBusy && !updateRequired && (
         <TouchableOpacity style={styles.closeBtn} onPress={dismiss} hitSlop={8}>
           <Ionicons name="close" size={18} color="#FFFFFFCC" />
         </TouchableOpacity>

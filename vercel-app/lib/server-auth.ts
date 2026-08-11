@@ -30,6 +30,14 @@ export type AuthenticatedRequest = {
   supabase: SupabaseClient;
 };
 
+export type PrivateMediaClientGate = {
+  allowed: boolean;
+  status: number;
+  reason?: string;
+  minimumAndroidBuild?: number;
+  minimumMediaProtocol?: number;
+};
+
 function supabaseUrl(): string {
   return String(
     process.env.NEXT_PUBLIC_SUPABASE_URL
@@ -88,6 +96,44 @@ export async function authenticateRequest(
       isPlatformAdmin: row.is_platform_admin === true,
     },
   };
+}
+
+export async function enforcePrivateMediaClient(
+  request: Request,
+  client: SupabaseClient,
+): Promise<PrivateMediaClientGate> {
+  const { data, error } = await client.rpc('server_get_private_media_storage_status');
+  if (error || !data) {
+    return { allowed: false, status: 503, reason: 'security_control_plane_unavailable' };
+  }
+  if (data.enabled !== true) return { allowed: true, status: 200 };
+
+  const details = data.details && typeof data.details === 'object' ? data.details : {};
+  const minimumAndroidBuild = Math.max(0, Number(details.minimum_android_build ?? 0) || 0);
+  const minimumMediaProtocol = Math.max(1, Number(details.minimum_media_protocol ?? 1) || 1);
+  const platform = String(request.headers.get('x-buildtrack-client') ?? '').trim().toLowerCase();
+  const protocol = Number(request.headers.get('x-buildtrack-media-protocol') ?? 0);
+  const build = Number(request.headers.get('x-buildtrack-build') ?? 0);
+
+  if (!['android', 'ios', 'web'].includes(platform) || protocol < minimumMediaProtocol) {
+    return {
+      allowed: false,
+      status: 426,
+      reason: 'private_media_client_upgrade_required',
+      minimumAndroidBuild,
+      minimumMediaProtocol,
+    };
+  }
+  if (platform === 'android' && minimumAndroidBuild > 0 && build < minimumAndroidBuild) {
+    return {
+      allowed: false,
+      status: 426,
+      reason: 'android_build_upgrade_required',
+      minimumAndroidBuild,
+      minimumMediaProtocol,
+    };
+  }
+  return { allowed: true, status: 200, minimumAndroidBuild, minimumMediaProtocol };
 }
 
 export function createUserScopedClient(token: string): SupabaseClient | null {
