@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   privateMediaAccess,
   subscribePrivateMedia,
@@ -34,6 +35,7 @@ import {
   type InventoryWorkspaceProps,
   type InventoryMovementFilter,
 } from './inventory-model';
+import { computeFloatingPanelLayout, type FloatingPanelLayout } from './floating-panel';
 import styles from './InventoryWorkspace.module.css';
 
 type FormState = {
@@ -197,10 +199,13 @@ export default function InventoryWorkspace({
   const [scanError, setScanError] = useState('');
   const [lookupState, setLookupState] = useState<LookupState>('idle');
   const [exportOpen, setExportOpen] = useState(false);
+  const [exportPanelLayout, setExportPanelLayout] = useState<FloatingPanelLayout | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<WebBarcodeScannerControls | null>(null);
   const operationPanelRef = useRef<HTMLElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
+  const exportButtonRef = useRef<HTMLButtonElement | null>(null);
+  const exportPanelRef = useRef<HTMLDivElement | null>(null);
 
   const projection = useMemo(() => buildInventoryProjection({
     snapshot,
@@ -266,7 +271,13 @@ export default function InventoryWorkspace({
       if (scannerOpen) stopScanner();
     }
     function onPointerDown(event: PointerEvent) {
-      if (exportOpen && exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (
+        exportOpen
+        && exportMenuRef.current
+        && !exportMenuRef.current.contains(target)
+        && !exportPanelRef.current?.contains(target)
+      ) {
         setExportOpen(false);
       }
     }
@@ -277,6 +288,54 @@ export default function InventoryWorkspace({
       document.removeEventListener('pointerdown', onPointerDown);
     };
   });
+
+  useLayoutEffect(() => {
+    if (!exportOpen) {
+      setExportPanelLayout(null);
+      return;
+    }
+
+    let frame = 0;
+    const updatePosition = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(() => {
+        const anchor = exportButtonRef.current?.getBoundingClientRect();
+        const panel = exportPanelRef.current;
+        if (!anchor || !panel) return;
+
+        const nextLayout = computeFloatingPanelLayout({
+          anchor,
+          panelHeight: panel.scrollHeight,
+          viewportWidth: window.innerWidth,
+          viewportHeight: window.innerHeight,
+        });
+        setExportPanelLayout(current => (
+          current
+          && current.top === nextLayout.top
+          && current.left === nextLayout.left
+          && current.width === nextLayout.width
+          && current.maxHeight === nextLayout.maxHeight
+          && current.placement === nextLayout.placement
+            ? current
+            : nextLayout
+        ));
+      });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    window.visualViewport?.addEventListener('resize', updatePosition);
+    window.visualViewport?.addEventListener('scroll', updatePosition);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+      window.visualViewport?.removeEventListener('resize', updatePosition);
+      window.visualViewport?.removeEventListener('scroll', updatePosition);
+    };
+  }, [exportOpen, language, reportLanguage]);
 
   function patchForm(patch: Partial<FormState>) {
     setForm(current => ({ ...current, ...patch }));
@@ -885,13 +944,27 @@ export default function InventoryWorkspace({
               </label>
               {capabilities.canExport ? (
                 <div className={styles.exportMenu} ref={exportMenuRef}>
-                  <button type="button" className={styles.exportButton} aria-expanded={exportOpen} aria-controls="inventory-export-panel" onClick={() => setExportOpen(value => !value)}>
+                  <button ref={exportButtonRef} type="button" className={styles.exportButton} aria-expanded={exportOpen} aria-haspopup="dialog" aria-controls="inventory-export-panel" onClick={() => setExportOpen(value => !value)}>
                     <InventoryIcon name="download" size={18} />
                     <span>{copy.export}</span>
                     <InventoryIcon name="chevron" size={16} />
                   </button>
-                  {exportOpen ? (
-                    <div id="inventory-export-panel" className={styles.exportPanel}>
+                  {exportOpen && typeof document !== 'undefined' ? createPortal(
+                    <div
+                      id="inventory-export-panel"
+                      ref={exportPanelRef}
+                      className={styles.exportPanel}
+                      role="dialog"
+                      aria-label={copy.exportTitle}
+                      data-placement={exportPanelLayout?.placement ?? 'bottom'}
+                      style={{
+                        top: exportPanelLayout?.top ?? 0,
+                        left: exportPanelLayout?.left ?? 0,
+                        width: exportPanelLayout?.width,
+                        maxHeight: exportPanelLayout?.maxHeight,
+                        visibility: exportPanelLayout ? 'visible' : 'hidden',
+                      }}
+                    >
                       <div><strong>{copy.exportTitle}</strong><span>{copy.documentLanguage}</span></div>
                       <div className={styles.languageSelector} role="radiogroup" aria-label={copy.documentLanguage}>
                         {(['fr', 'en', 'es'] as const).map(reportCode => <button key={reportCode} type="button" role="radio" aria-checked={reportLanguage === reportCode} className={reportLanguage === reportCode ? styles.languageActive : ''} onClick={() => onReportLanguageChange(reportCode)}>{reportCode.toUpperCase()}</button>)}
@@ -899,7 +972,8 @@ export default function InventoryWorkspace({
                       <button type="button" onClick={() => void exportWorkbook()} disabled={!!exporting}><InventoryIcon name="file" /><span><strong>{copy.workbook}</strong><small>.xlsx</small></span>{exporting === 'xlsx' ? <InventoryIcon name="refresh" className={styles.spinning} /> : null}</button>
                       <button type="button" onClick={() => void exportInventoryWord()} disabled={!!exporting}><InventoryIcon name="file" /><span><strong>{copy.word}</strong><small>.docx</small></span>{exporting === 'docx' ? <InventoryIcon name="refresh" className={styles.spinning} /> : null}</button>
                       <button type="button" onClick={() => void printInventoryPdf()} disabled={!!exporting}><InventoryIcon name="file" /><span><strong>{copy.pdf}</strong><small>.pdf</small></span>{exporting === 'pdf' ? <InventoryIcon name="refresh" className={styles.spinning} /> : null}</button>
-                    </div>
+                    </div>,
+                    document.body,
                   ) : null}
                 </div>
               ) : null}

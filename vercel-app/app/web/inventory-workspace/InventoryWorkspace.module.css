@@ -624,19 +624,31 @@
 .exportButton { padding: 0 0.8rem; border: 1px solid var(--inventory-border); background: #fff; color: var(--inventory-blue); }
 .exportButton svg:last-child { transform: rotate(90deg); }
 .exportPanel {
-  position: absolute;
-  z-index: 30;
-  top: calc(100% + 0.5rem);
-  right: 0;
+  --inventory-ink: #071b3a;
+  --inventory-blue: #003082;
+  --inventory-muted: #5d7088;
+  --inventory-border: #d9e2ec;
+  --inventory-paper: #f7f9fc;
+  position: fixed;
+  z-index: 1000;
   display: grid;
   gap: 0.4rem;
   width: min(19rem, calc(100vw - 2rem));
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 0.7rem;
   border: 1px solid var(--inventory-border);
   border-radius: 0.75rem;
   background: #fff;
+  color: var(--inventory-ink);
+  font-family: var(--font-buildtrack-body), Manrope, Arial, sans-serif;
+  scrollbar-gutter: stable;
   box-shadow: 0 18px 40px rgba(7, 27, 58, 0.16);
 }
+.exportPanel button { font: inherit; }
+.exportPanel button:focus-visible { outline: 3px solid color-mix(in srgb, var(--inventory-blue) 20%, transparent); outline-offset: 2px; }
+.exportPanel button:disabled { cursor: not-allowed; opacity: 0.55; }
 .exportPanel > div:first-child { display: grid; gap: 0.1rem; padding: 0.2rem 0.25rem 0.35rem; }
 .exportPanel > div:first-child strong { font-size: 0.8125rem; }
 .exportPanel > div:first-child span { color: var(--inventory-muted); font-size: 0.6875rem; }
@@ -938,7 +950,6 @@
   .dataActions { align-items: stretch; flex-direction: column; }
   .exportMenu,
   .exportButton { width: 100%; }
-  .exportPanel { right: auto; left: 0; width: 100%; box-sizing: border-box; }
   .filterBar { overflow-x: auto; padding: 0.65rem 1rem; }
   .filterBar button { flex: 0 0 auto; }
   .mobileCards { grid-template-columns: 1fr; padding: 0.75rem; }
