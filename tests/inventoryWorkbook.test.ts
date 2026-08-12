@@ -78,6 +78,25 @@ describe('inventory Excel workbook', () => {
     expect(inventoryWorkbookToBase64(workbook).startsWith('UEsDB')).toBe(true);
   });
 
+  it('writes page setup before ignored errors in every worksheet', () => {
+    const workbook = buildInventoryWorkbook('stock', products, movements, 'Tropicalia', new Date('2026-08-11T10:00:00Z'), 'en');
+    const bytes = new Uint8Array(inventoryWorkbookToArrayBuffer(workbook));
+    const files = unzipSync(bytes);
+    const worksheets = Object.entries(files).filter(([path]) => /^xl\/worksheets\/sheet\d+\.xml$/.test(path));
+
+    expect(worksheets).toHaveLength(8);
+    worksheets.forEach(([path, content]) => {
+      const xml = strFromU8(content);
+      const pageMarginsIndex = xml.indexOf('<pageMargins ');
+      const pageSetupIndex = xml.indexOf('<pageSetup ');
+      const ignoredErrorsIndex = xml.indexOf('<ignoredErrors>');
+
+      expect(pageMarginsIndex, path).toBeGreaterThan(-1);
+      expect(pageSetupIndex, path).toBeGreaterThan(pageMarginsIndex);
+      expect(ignoredErrorsIndex, path).toBeGreaterThan(pageSetupIndex);
+    });
+  });
+
   it.each([
     {
       language: 'fr' as const,

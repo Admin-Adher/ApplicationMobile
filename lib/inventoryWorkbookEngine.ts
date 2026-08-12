@@ -648,10 +648,15 @@ function polishWorksheetXml(xml: string, meta: SheetStyleMeta): string {
     `<worksheet$1><sheetPr><tabColor rgb="FF${meta.tabColor}"/><pageSetUpPr fitToPage="1"/></sheetPr>`,
   );
   if (!next.includes('<pageSetup ')) {
-    next = next.replace(
-      '</worksheet>',
-      `<pageSetup orientation="${meta.landscape ? 'landscape' : 'portrait'}" fitToWidth="1" fitToHeight="0"/></worksheet>`,
-    );
+    const pageSetup = `<pageSetup orientation="${meta.landscape ? 'landscape' : 'portrait'}" fitToWidth="1" fitToHeight="0"/>`;
+    const pageMargins = /<pageMargins\b[^>]*\/>/;
+    if (pageMargins.test(next)) {
+      next = next.replace(pageMargins, match => `${match}${pageSetup}`);
+    } else if (next.includes('<ignoredErrors')) {
+      next = next.replace('<ignoredErrors', `${pageSetup}<ignoredErrors`);
+    } else {
+      next = next.replace('</worksheet>', `${pageSetup}</worksheet>`);
+    }
   }
   return next;
 }
