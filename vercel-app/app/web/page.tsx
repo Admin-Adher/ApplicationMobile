@@ -13,6 +13,7 @@ import {
   type SupportedLang,
   type WebTranslator,
 } from '@/lib/i18n';
+import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import {
   isRegistryBackedRef,
@@ -378,6 +379,14 @@ function tabLabel(tabId: TabId, t: WebTranslator) {
   const key = `nav.${tabId}`;
   const translated = t(key);
   return translated === key ? TAB_LABEL_FALLBACK[tabId] ?? translated : translated;
+}
+
+function failedTableList(t: WebTranslator, tables: string[]) {
+  return tables.map(table => {
+    const key = `sync.table.${table}`;
+    const translated = t(key);
+    return translated === key ? table.replaceAll('_', ' ') : translated;
+  }).join(', ');
 }
 
 function readStoredWebLanguagePreference(): { preference: WebLanguagePreference; hasStored: boolean } {
@@ -2572,6 +2581,7 @@ function TextPromptDialog({ request, onSubmit, onCancel }: {
 }
 
 export default function BuildTrackWebPage() {
+  const [authLoadGuard] = useState(createAuthScopedLoadGuard);
   const [session, setSession] = useState<Session | null>(null);
   const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -2728,30 +2738,41 @@ export default function BuildTrackWebPage() {
 
   useEffect(() => {
     let alive = true;
-    supabaseBrowser.auth.getSession().then(({ data: authData }) => {
-      if (!alive) return;
-      setSession(authData.session ?? null);
-      setAuthUser(authData.session?.user ?? null);
-    });
-    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
+    let authEventObserved = false;
+    const applySession = (nextSession: Session | null, event?: string) => {
+      authLoadGuard.setAuthenticatedUser(nextSession?.user?.id ?? null);
       if (nextSession) hadSessionRef.current = true;
-      if (_event === 'SIGNED_OUT' && hadSessionRef.current && !intendedSignOutRef.current) {
+      if (event === 'SIGNED_OUT' && hadSessionRef.current && !intendedSignOutRef.current) {
         setSessionExpiredFlag(true);
       }
-      intendedSignOutRef.current = false;
+      if (event) intendedSignOutRef.current = false;
       setSession(nextSession);
       setAuthUser(nextSession?.user ?? null);
       if (!nextSession) {
         setProfile(null);
         setData(EMPTY_DATA);
         setStorageUsage(null);
+        setError('');
+        setNotice('');
+        setPassword('');
+        setLoading(false);
+        setSyncing(false);
+        setSaving(false);
       }
+    };
+    supabaseBrowser.auth.getSession().then(({ data: authData }) => {
+      if (!alive || authEventObserved) return;
+      applySession(authData.session ?? null);
+    });
+    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
+      authEventObserved = true;
+      applySession(nextSession, _event);
     });
     return () => {
       alive = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [authLoadGuard]);
 
   useEffect(() => {
     if (!session?.user) {
@@ -2916,9 +2937,12 @@ export default function BuildTrackWebPage() {
   }, [reserveModalMode, visitModalOpen]);
 
   async function loadEverything(user: SupabaseUser, opts: { background?: boolean } = {}) {
+    const loadLease = authLoadGuard.begin(user.id);
+    if (!loadLease.isCurrent()) return;
     if (opts.background) setSyncing(true);
     else setLoading(true);
     setError('');
+    let loadT = t;
     const failedTables: string[] = [];
     const onError = (table: string) => {
       if (!failedTables.includes(table)) failedTables.push(table);
@@ -2926,13 +2950,16 @@ export default function BuildTrackWebPage() {
     try {
       let { data: profileRows, error: profileError } = await supabaseBrowser
         .rpc('get_profile_for_current_user');
+      if (!loadLease.isCurrent()) return;
       if (profileError) throw profileError;
       if (!Array.isArray(profileRows) || profileRows.length === 0) {
         const { error: ensureError } = await supabaseBrowser.rpc('ensure_current_user_profile', {
           p_name: user.user_metadata?.full_name ?? null,
         });
+        if (!loadLease.isCurrent()) return;
         if (ensureError) throw ensureError;
         const refreshed = await supabaseBrowser.rpc('get_profile_for_current_user');
+        if (!loadLease.isCurrent()) return;
         profileRows = refreshed.data;
         profileError = refreshed.error;
         if (profileError) throw profileError;
@@ -2940,8 +2967,6 @@ export default function BuildTrackWebPage() {
       const loadedProfile = ((Array.isArray(profileRows) ? profileRows[0] : null) ?? null) as Profile | null;
       if (!loadedProfile) {
         setError(t('login.missingProfile'));
-        setLoading(false);
-        setSyncing(false);
         return;
       }
 
@@ -2952,6 +2977,7 @@ export default function BuildTrackWebPage() {
         : profileLanguage ?? 'auto';
       const nextDeviceLanguage = getBrowserLang();
       const preferredLang = resolveWebLanguagePreference(nextPreference, profileLanguage, nextDeviceLanguage);
+      loadT = createWebT(preferredLang);
       setDeviceLanguage(nextDeviceLanguage);
       setWebLanguagePreferenceState(nextPreference);
       if (preferredLang !== webLang) {
@@ -2972,6 +2998,7 @@ export default function BuildTrackWebPage() {
           fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError }),
           fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError }),
         ]);
+        if (!loadLease.isCurrent()) return;
         setStorageUsage(null);
         setData({
           ...EMPTY_DATA,
@@ -2985,7 +3012,7 @@ export default function BuildTrackWebPage() {
         setActiveTab('inventory');
         setSelectedProjectId(prev => prev !== 'all' && chantiers.some((chantier: any) => chantier.id === prev) ? prev : chantiers[0]?.id ?? 'all');
         if (failedTables.length) {
-          setError(`Certaines données de stock n'ont pas pu être chargées (${failedTables.join(', ')}). Cliquez sur Synchroniser pour réessayer.`);
+          setError(loadT('sync.partialInventoryLoad', { tables: failedTableList(loadT, failedTables) }));
         }
         return;
       }
@@ -2994,6 +3021,7 @@ export default function BuildTrackWebPage() {
         p_warning_mb: 850,
         p_critical_mb: 950,
       });
+      if (!loadLease.isCurrent()) return;
       setStorageUsage(storageGuardrailError ? null : (storageGuardrail as StorageUsageGuardrail));
       const [
         chantiers,
@@ -3034,12 +3062,14 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at', onError }),
         fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError }),
       ]);
+      if (!loadLease.isCurrent()) return;
       const [journalEntries, checklists, inventoryProducts, inventoryMovements] = await Promise.all([
         fetchScopedTable('journal_entries', loadedProfile, { order: 'entry_date', onError }),
         fetchScopedTable('checklists', loadedProfile, { order: 'created_at', onError }),
         canViewInventory(loadedProfile) ? fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError }) : Promise.resolve([]),
         canViewInventory(loadedProfile) ? fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError }) : Promise.resolve([]),
       ]);
+      if (!loadLease.isCurrent()) return;
 
       const visibleScopedReserves = visibleReservesForProfile(reserves, loadedProfile, companies);
       const scopedReserves = visibleScopedReserves.filter((reserve: any) => !isReserveDeleted(reserve));
@@ -3084,13 +3114,15 @@ export default function BuildTrackWebPage() {
       setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
       if (failedTables.length) {
-        setError(`Certaines données n'ont pas pu être chargées (${failedTables.join(', ')}). Cliquez sur Synchroniser pour réessayer.`);
+        setError(loadT('sync.partialLoad', { tables: failedTableList(loadT, failedTables) }));
       }
     } catch (err: any) {
-      setError(err?.message ?? t('login.loadError'));
+      if (loadLease.isCurrent()) setError(err?.message ?? loadT('login.loadError'));
     } finally {
-      setLoading(false);
-      setSyncing(false);
+      if (loadLease.isCurrent()) {
+        setLoading(false);
+        setSyncing(false);
+      }
     }
   }
 
@@ -5389,7 +5421,7 @@ export default function BuildTrackWebPage() {
               <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required />
               <label>{t('common.password')}</label>
               <input value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="current-password" required />
-              {error ? <p className={styles.error}>{error}</p> : null}
+              {error ? <p className={styles.error} role="alert">{error}</p> : null}
               <button disabled={saving}>{saving ? t('common.loggingIn') : t('common.login')}</button>
             </form>
           </section>
