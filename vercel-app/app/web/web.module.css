@@ -867,13 +867,6 @@
     font-size: 13px;
   }
 
-  .dashboardGreetingMark {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    font-size: 20px;
-  }
-
   .dashboardGreeting h2 {
     font-size: 24px;
   }
@@ -1099,94 +1092,33 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
-  padding: 16px;
-  border: 1px solid #dde4ee;
-  border-radius: 18px;
-  background: #fff;
-  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.06);
+  padding: 2px 2px 14px;
+  border-bottom: 1px solid #d9e2ec;
 }
 
 .dashboardGreeting {
   display: flex;
   align-items: center;
-  gap: 12px;
   min-width: 0;
-}
-
-.dashboardLogo {
-  flex: 0 0 auto;
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: #ffcb00;
-  color: #003082;
-  font-size: 24px;
-  font-weight: 950;
 }
 
 .dashboardGreeting h2 {
   margin: 0;
-  color: #0f172a;
-  font-size: 30px;
-  line-height: 1.05;
+  color: #071b3a;
+  font-family: var(--font-buildtrack-display), var(--font-buildtrack-body), Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.1;
 }
 
 .dashboardGreeting span {
   display: block;
   margin-top: 4px;
-  color: #64748b;
-  font-size: 15px;
-}
-
-.dashboardHeroActions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-  gap: 10px;
-  min-width: 0;
-}
-
-.dashboardProjectPill {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 42px;
-  max-width: 280px;
-  border: 1px solid #d8e0ec;
-  border-radius: 12px;
-  background: #f8fafc;
-  color: #0f172a;
-  padding: 9px 12px;
-  font-weight: 850;
-}
-
-.dashboardProjectPill span {
-  flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: #22c55e;
-}
-
-.dashboardQuickActions {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.dashboardQuickActions button {
-  border: 0;
-  border-radius: 12px;
-  background: #003082;
-  color: #fff;
-  padding: 11px 14px;
-  font-weight: 900;
-  cursor: pointer;
+  color: #5d7088;
+  font-size: 14px;
 }
 
 .dashboardKpiGrid,
@@ -11372,23 +11304,6 @@
     align-self: flex-start;
   }
 
-  .dashboardHeroActions {
-    display: grid;
-    grid-template-columns: 1fr;
-    align-items: stretch;
-    width: 100%;
-  }
-
-  .dashboardQuickActions {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: 100%;
-  }
-
-  .dashboardProjectPill {
-    max-width: none;
-  }
-
   .dashboardWideMetric,
   .dashboardStatusRow,
   .dashboardCompanyRow,
@@ -11710,7 +11625,7 @@
   }
 
   .dashboardHero {
-    padding: 16px;
+    padding: 2px 2px 12px;
   }
 
   .dashboardGreeting {
@@ -11721,12 +11636,6 @@
   .dashboardGreeting h2 {
     font-size: clamp(24px, 7vw, 30px);
     line-height: 1.12;
-  }
-
-  .dashboardHeroActions,
-  .dashboardQuickActions,
-  .dashboardQuickActions button {
-    width: 100%;
   }
 
   .dashboardWideMetric,

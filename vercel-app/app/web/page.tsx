@@ -15,9 +15,9 @@ import {
 } from '@/lib/i18n';
 import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
-import { BuildTrackBrand } from '../_components/BuildTrackBrand';
 import { BuildTrackAccess, BuildTrackAccessLoading } from './BuildTrackAccess';
 import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSession';
+import { WorkspaceChrome } from './WorkspaceChrome';
 import {
   isRegistryBackedRef,
   privateMediaAccess,
@@ -2379,95 +2379,6 @@ function channelLabel(channel: any, companies: any[]) {
     return company?.name ?? channel.name;
   }
   return channel?.name ?? channel?.id ?? 'Canal';
-}
-
-function ProjectDropdown({ projects, selectedProjectId, onSelect }: {
-  projects: any[];
-  selectedProjectId: string;
-  onSelect: (projectId: string) => void;
-}) {
-  const { t } = useWebI18n();
-  const [open, setOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement | null>(null);
-  const selectedProject = selectedProjectId === 'all'
-    ? null
-    : projects.find(project => String(project.id) === String(selectedProjectId)) ?? null;
-  const selectedLabel = selectedProject?.name ?? t('common.allProjects');
-  const selectedMeta = selectedProject
-    ? t('projectDropdown.activeProject')
-    : t('projectDropdown.projectCount', { count: projects.length });
-  const options = [
-    { id: 'all', name: t('common.allProjects'), meta: t('projectDropdown.projectCount', { count: projects.length }) },
-    ...projects.map(project => ({
-      id: String(project.id),
-      name: project.name ?? 'Chantier',
-      meta: String(project.location ?? project.city ?? project.address ?? t('projectDropdown.activeProject')),
-    })),
-  ];
-
-  useEffect(() => {
-    if (!open) return undefined;
-    function closeOnOutside(event: globalThis.MouseEvent) {
-      if (!dropdownRef.current?.contains(event.target as Node)) setOpen(false);
-    }
-    function closeOnEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') setOpen(false);
-    }
-    document.addEventListener('mousedown', closeOnOutside);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('mousedown', closeOnOutside);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
-  }, [open]);
-
-  return (
-    <div className={styles.projectDropdown} ref={dropdownRef}>
-      <button
-        type="button"
-        className={styles.projectDropdownButton}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        onClick={() => setOpen(value => !value)}
-      >
-        <span className={styles.projectDropdownDot} aria-hidden="true" />
-        <span className={styles.projectDropdownValue}>
-          <strong>{selectedLabel}</strong>
-          <small>{selectedMeta}</small>
-        </span>
-        <span className={styles.projectDropdownChevron}>
-          <IonIcon name={open ? 'chevron-up' : 'chevron-down'} />
-        </span>
-      </button>
-      {open ? (
-        <div className={styles.projectDropdownMenu} role="listbox" aria-label={t('common.allProjects')}>
-          {options.map(option => {
-            const active = option.id === selectedProjectId;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                role="option"
-                aria-selected={active}
-                className={active ? styles.projectDropdownOptionActive : styles.projectDropdownOption}
-                onClick={() => {
-                  onSelect(option.id);
-                  setOpen(false);
-                }}
-              >
-                <span className={styles.projectDropdownOptionDot} aria-hidden="true" />
-                <span>
-                  <strong>{option.name}</strong>
-                  <small>{option.meta}</small>
-                </span>
-                {active ? <em><IonIcon name="checkmark-circle" /></em> : null}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
-    </div>
-  );
 }
 
 const SUPABASE_PAGE_SIZE = 1000;
@@ -5410,116 +5321,86 @@ export default function BuildTrackWebPage() {
   return (
     <WebI18nContext.Provider value={i18n}>
       <WebStaticI18nBridge />
-      <main className={`${styles.appShell} ${sidebarCollapsed ? styles.appShellCollapsed : ''} ${mobileNavOpen ? styles.appShellMobileNavOpen : ''}`}>
-      {mobileNavOpen && (
-        <button
-          type="button"
-          className={styles.mobileNavScrim}
-          aria-label={t('common.closeMenu')}
-          onClick={() => setMobileNavOpen(false)}
-        />
-      )}
-      <aside className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : ''} ${mobileNavOpen ? styles.sidebarMobileOpen : ''}`}>
-        <div className={styles.sidebarBrandRow}>
-          <div className={styles.sidebarBrand}>
-            <BuildTrackBrand variant="mark" size="sm" />
-            <div>
-              <strong aria-hidden="true">BuildTrack</strong>
-              <span>Web</span>
-            </div>
-          </div>
-          <button
-            type="button"
-            className={styles.mobileNavClose}
-            aria-label={t('common.closeMenu')}
-            onClick={() => setMobileNavOpen(false)}
-          >
-            ×
-          </button>
-        </div>
-        <button
-          type="button"
-          className={`${styles.sidebarToggle} ${sidebarCollapsed ? styles.sidebarToggleCollapsed : ''}`}
-          onClick={() => setSidebarCollapsed(value => !value)}
-          aria-label={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
-          title={sidebarCollapsed ? t('shell.expandSidebar') : t('shell.collapseSidebar')}
-        >
-          <span className={styles.sidebarToggleChevron} aria-hidden="true" />
-        </button>
-        <nav className={styles.navList} aria-label={t('common.mainMenu')}>
-          {visibleNavigationGroups.map(group => (
-            <div key={group.label} className={styles.navSection}>
-              <span className={styles.navSectionLabel}>{t(`nav.group.${group.label.toLowerCase()}`)}</span>
-              <div className={styles.navSectionItems}>
-                {group.items.map(tabId => {
-                  const tab = TABS.find(item => item.id === tabId)!;
-                  const label = tabLabel(tab.id, t);
-                  const navIsActive = activeTab === tab.id || (tab.id === 'terrain' && TERRAIN_CHILD_TABS.has(activeTab));
-                  return (
-                    <button
-                      key={tab.id}
-                      className={navIsActive ? styles.navActive : ''}
-                      onClick={() => { setActiveTab(tab.id); setMobileNavOpen(false); }}
-                      title={sidebarCollapsed ? label : undefined}
-                      aria-label={label}
-                    >
-                      <span className={styles.navIcon}>
-                        <SidebarNavIcon name={tab.icon} active={navIsActive} />
-                      </span>
-                      <span className={styles.navLabel}>{label}</span>
-                      {tab.id === 'messages' && unreadMessagesCount > 0 && (
-                        <span className={styles.navBadge} aria-label={`${unreadMessagesCount} messages non lus`}>
-                          {unreadMessagesCount > 9 ? '9+' : unreadMessagesCount}
-                        </span>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </nav>
-        <div className={styles.userBox}>
-          <strong>{profile?.name ?? authUser.email}</strong>
-          <span>{profile?.role_label ?? profile?.role ?? t('common.user')}</span>
-          <button onClick={handleSignOut} title={t('common.logout')}>
-            <span className={styles.logoutIcon}>⎋</span>
-            <span className={styles.logoutLabel}>{t('common.logout')}</span>
-          </button>
-        </div>
-      </aside>
-
-      <section className={`${styles.workspace} ${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''} ${activeTab === 'chantiers' ? styles.workspaceChantiers : ''}`}>
-        <header className={styles.topbar}>
-          <button
-            type="button"
-            className={styles.mobileNavBtn}
-            aria-label={t('common.openMenu')}
-            onClick={() => setMobileNavOpen(true)}
-          >
-            <span className={styles.mobileNavBtnIcon} aria-hidden="true" />
-          </button>
-          <div className={styles.topbarTitle}>
-            <p className={styles.eyebrow}>{t('shell.cockpitWeb')}</p>
-            <h1>{tabLabel(activeTab, t)}</h1>
-          </div>
-          <div className={styles.topbarActions}>
-            <ProjectDropdown
-              projects={data.chantiers}
-              selectedProjectId={selectedProjectId}
-              onSelect={setSelectedProjectId}
-            />
-            {canCreate(profile) && (
-              <>
-                <button type="button" onClick={() => openReserveCreate()}>{t('common.newReserve')}</button>
-                <button type="button" onClick={openVisitCreate}>{t('common.newVisit')}</button>
-              </>
-            )}
-            <button onClick={() => session.user && loadEverything(session.user, { background: true })} disabled={loading || syncing}>
-              {loading || syncing ? t('common.syncing') : t('common.sync')}
-            </button>
-          </div>
-        </header>
+      <WorkspaceChrome
+        title={tabLabel(activeTab, t)}
+        eyebrow={t('shell.cockpitWeb')}
+        navigationLabel={t('common.mainMenu')}
+        navigationGroups={visibleNavigationGroups.map(group => ({
+          id: group.label.toLowerCase(),
+          label: t(`nav.group.${group.label.toLowerCase()}`),
+          items: group.items.map(tabId => {
+            const tab = TABS.find(item => item.id === tabId)!;
+            const label = tabLabel(tab.id, t);
+            const navIsActive = activeTab === tab.id || (tab.id === 'terrain' && TERRAIN_CHILD_TABS.has(activeTab));
+            const messageBadge = tab.id === 'messages' && unreadMessagesCount > 0
+              ? (unreadMessagesCount > 9 ? '9+' : unreadMessagesCount)
+              : undefined;
+            return {
+              id: tab.id,
+              label,
+              icon: <SidebarNavIcon name={tab.icon} active={navIsActive} />,
+              active: navIsActive,
+              badge: messageBadge,
+              badgeLabel: messageBadge === undefined ? undefined : `${unreadMessagesCount} ${label}`,
+              onSelect: () => {
+                setActiveTab(tab.id);
+                setMobileNavOpen(false);
+              },
+            };
+          }),
+        }))}
+        projects={data.chantiers}
+        selectedProjectId={selectedProjectId}
+        projectLabels={{
+          allProjects: t('common.allProjects'),
+          activeProject: t('projectDropdown.activeProject'),
+          projectCount: t('projectDropdown.projectCount', { count: data.chantiers.length }),
+        }}
+        userName={profile?.name ?? authUser.email ?? t('common.user')}
+        userRole={profile?.role_label ?? profile?.role ?? t('common.user')}
+        logoutLabel={t('common.logout')}
+        openMenuLabel={t('common.openMenu')}
+        closeMenuLabel={t('common.closeMenu')}
+        expandSidebarLabel={t('shell.expandSidebar')}
+        collapseSidebarLabel={t('shell.collapseSidebar')}
+        collapsed={sidebarCollapsed}
+        mobileOpen={mobileNavOpen}
+        actions={[
+          ...(canCreate(profile) ? [
+            {
+              id: 'new-reserve',
+              label: t('common.newReserve'),
+              icon: 'reserve' as const,
+              variant: 'primary' as const,
+              onClick: () => openReserveCreate(),
+            },
+            {
+              id: 'new-visit',
+              label: t('common.newVisit'),
+              icon: 'visit' as const,
+              variant: 'secondary' as const,
+              onClick: openVisitCreate,
+            },
+          ] : []),
+          {
+            id: 'sync',
+            label: loading || syncing ? t('common.syncing') : t('common.sync'),
+            icon: 'sync',
+            variant: 'quiet',
+            disabled: loading || syncing,
+            busy: loading || syncing,
+            onClick: () => {
+              if (session.user) void loadEverything(session.user, { background: true });
+            },
+          },
+        ]}
+        containedWorkspace={activeTab === 'plans' || activeTab === 'reserves' || activeTab === 'visites' || activeTab === 'chantiers'}
+        workspaceClassName={`${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''} ${activeTab === 'chantiers' ? styles.workspaceChantiers : ''}`}
+        onProjectSelect={setSelectedProjectId}
+        onCollapsedChange={setSidebarCollapsed}
+        onMobileOpenChange={setMobileNavOpen}
+        onLogout={handleSignOut}
+      >
 
         {error ? (
           <div className={styles.floatingAlert} role="alert">
@@ -5572,18 +5453,14 @@ export default function BuildTrackWebPage() {
             )}
             {activeTab === 'dashboard' && (
               <Dashboard
-                stats={stats}
                 data={data}
                 scoped={projectScoped}
                 profile={profile}
                 authUser={authUser}
                 selectedProjectId={selectedProjectId}
-                canCreate={canCreate(profile)}
                 setTab={setActiveTab}
                 setSelectedProjectId={setSelectedProjectId}
                 setBuildingFilter={setBuildingFilter}
-                onCreateReserve={() => openReserveCreate()}
-                onCreateVisit={openVisitCreate}
               />
             )}
             {activeTab === 'reserves' && (
@@ -5903,7 +5780,7 @@ export default function BuildTrackWebPage() {
             )}
           </>
         )}
-      </section>
+      </WorkspaceChrome>
       {reserveModalMode && (
         <ReserveModal
           mode={reserveModalMode}
@@ -5930,26 +5807,21 @@ export default function BuildTrackWebPage() {
           onToggleCompany={toggleVisitCompany}
         />
       )}
-      </main>
     </WebI18nContext.Provider>
   );
 }
 
 function Dashboard({
-  stats,
   data,
   scoped,
   profile,
   authUser,
   selectedProjectId,
-  canCreate,
   setTab,
   setSelectedProjectId,
   setBuildingFilter,
-  onCreateReserve,
-  onCreateVisit,
 }: any) {
-  const { locale } = useWebI18n();
+  const { locale, t } = useWebI18n();
   const activeReserves = useMemo<any[]>(() => scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve)), [scoped.reserves]);
   const statusTallies = useMemo(() => {
     const tally: Record<string, number> = { open: 0, in_progress: 0, waiting: 0, verification: 0, closed: 0 };
@@ -6071,24 +5943,11 @@ function Dashboard({
     <div className={styles.dashboardStack}>
       <section className={styles.dashboardHero}>
         <div className={styles.dashboardGreeting}>
-          <div className={styles.dashboardLogo}>B</div>
           <div>
-            <p className={styles.eyebrow}>Dashboard</p>
-            <h2>Bonjour, {firstName}</h2>
+            <p className={styles.eyebrow}>{project?.name ?? t('common.allProjects')}</p>
+            <h2>{t('dashboard.welcome', { name: firstName })}</h2>
             <span>{today}</span>
           </div>
-        </div>
-        <div className={styles.dashboardHeroActions}>
-          <div className={styles.dashboardProjectPill}>
-            <span />
-            {project?.name ?? (selectedProjectId === 'all' ? 'Tous les chantiers' : 'Chantier')}
-          </div>
-          {canCreate && (
-            <div className={styles.dashboardQuickActions}>
-              <button type="button" onClick={onCreateReserve}>Nouvelle réserve</button>
-              <button type="button" onClick={onCreateVisit}>Nouvelle visite</button>
-            </div>
-          )}
         </div>
       </section>
 

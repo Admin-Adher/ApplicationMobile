@@ -120,6 +120,7 @@ const FR: Record<string, string> = {
   'shell.cockpitWeb': 'Cockpit web',
   'shell.expandSidebar': 'Déplier le menu principal',
   'shell.collapseSidebar': 'Plier le menu principal',
+  'dashboard.welcome': 'Bonjour, {name}',
 
   'login.eyebrow': 'BuildTrack Web',
   'login.title': 'Accédez à votre espace chantier',
@@ -558,6 +559,7 @@ const EN: Record<string, string> = {
   'shell.cockpitWeb': 'Web cockpit',
   'shell.expandSidebar': 'Expand main menu',
   'shell.collapseSidebar': 'Collapse main menu',
+  'dashboard.welcome': 'Hello, {name}',
 
   'login.eyebrow': 'BuildTrack Web',
   'login.title': 'Access your site workspace',
@@ -996,6 +998,7 @@ const ES: Record<string, string> = {
   'shell.cockpitWeb': 'Cockpit web',
   'shell.expandSidebar': 'Desplegar menú principal',
   'shell.collapseSidebar': 'Plegar menú principal',
+  'dashboard.welcome': 'Hola, {name}',
 
   'login.eyebrow': 'BuildTrack Web',
   'login.title': 'Accede a tu espacio de obra',
