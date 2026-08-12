@@ -538,6 +538,7 @@
 }
 
 .chart {
+  position: relative;
   min-width: 0;
 }
 
@@ -923,12 +924,15 @@
 
 .srOnly {
   position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
   width: 1px !important;
   height: 1px !important;
   padding: 0 !important;
   margin: -1px !important;
   overflow: hidden !important;
   clip: rect(0, 0, 0, 0) !important;
+  contain: strict !important;
   white-space: nowrap !important;
   border: 0 !important;
 }
