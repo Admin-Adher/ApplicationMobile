@@ -20,6 +20,17 @@ import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSessio
 import { WorkspaceChrome } from './WorkspaceChrome';
 import { DashboardWebView, type DashboardIntent, type DashboardSource } from './dashboard/DashboardWebView';
 import {
+  WorkspaceBackButton,
+  WorkspaceIcon,
+  WorkspacePageHeader,
+  WorkspaceSearch,
+} from './plan-reserve-workspace/WorkspaceChrome';
+import {
+  buildPlanLibraryModel,
+  buildReserveWorkspaceSummary,
+  filterPlanLibraryGroups,
+} from './plan-reserve-workspace/workspace-model';
+import {
   isRegistryBackedRef,
   privateMediaAccess,
   privateMediaUrl,
@@ -30,6 +41,7 @@ import {
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWebView from './InventoryWebView';
+import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
 
 type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'magasinier' | 'sous_traitant' | 'observateur' | string;
@@ -730,6 +742,100 @@ const RESERVE_FILTER_OPTIONS = [
   { key: 'archived', label: 'Archivées' },
   { key: 'deleted', label: 'Corbeille' },
 ] as const;
+
+const PLAN_RESERVE_WORKSPACE_COPY: Record<SupportedLang, {
+  reserves: {
+    description: string;
+    visible: string;
+    active: string;
+    overdue: string;
+    verification: string;
+    create: string;
+    export: string;
+    assistant: string;
+    back: string;
+  };
+  plans: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    plans: string;
+    buildings: string;
+    pins: string;
+    newPlan: string;
+    back: string;
+  };
+}> = {
+  fr: {
+    reserves: {
+      description: 'Priorisez, localisez et levez chaque observation depuis une vue de travail unique.',
+      visible: 'Affichées',
+      active: 'Actives',
+      overdue: 'En retard',
+      verification: 'Validation',
+      create: 'Nouvelle réserve',
+      export: 'Exporter',
+      assistant: 'Assistant',
+      back: 'Retour aux réserves',
+    },
+    plans: {
+      eyebrow: "Documents d'exécution",
+      title: 'Plans du chantier',
+      description: 'Retrouvez un plan, inspectez ses réserves et intervenez directement au bon emplacement.',
+      plans: 'Plans',
+      buildings: 'Bâtiments',
+      pins: 'Épingles',
+      newPlan: 'Nouveau plan',
+      back: 'Retour à la bibliothèque',
+    },
+  },
+  en: {
+    reserves: {
+      description: 'Prioritize, locate and close every snag from one focused workspace.',
+      visible: 'Shown',
+      active: 'Active',
+      overdue: 'Overdue',
+      verification: 'Review',
+      create: 'New snag',
+      export: 'Export',
+      assistant: 'Assistant',
+      back: 'Back to snags',
+    },
+    plans: {
+      eyebrow: 'Construction documents',
+      title: 'Project plans',
+      description: 'Find a plan, inspect its snags and act directly at the right location.',
+      plans: 'Plans',
+      buildings: 'Buildings',
+      pins: 'Pins',
+      newPlan: 'New plan',
+      back: 'Back to the library',
+    },
+  },
+  es: {
+    reserves: {
+      description: 'Priorice, ubique y cierre cada reserva desde un único espacio de trabajo.',
+      visible: 'Mostradas',
+      active: 'Activas',
+      overdue: 'Con retraso',
+      verification: 'Validación',
+      create: 'Nueva reserva',
+      export: 'Exportar',
+      assistant: 'Asistente',
+      back: 'Volver a las reservas',
+    },
+    plans: {
+      eyebrow: 'Documentos de ejecución',
+      title: 'Planos de la obra',
+      description: 'Encuentre un plano, revise sus reservas y actúe directamente en la ubicación correcta.',
+      plans: 'Planos',
+      buildings: 'Edificios',
+      pins: 'Pines',
+      newPlan: 'Nuevo plano',
+      back: 'Volver a la biblioteca',
+    },
+  },
+};
 
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super administrateur',
@@ -5930,6 +6036,8 @@ function ReservesView(props: {
   saving: boolean;
 }) {
   const { allReserves, reserves, selectedReserve } = props;
+  const { lang, t } = useWebI18n();
+  const workspaceCopy = PLAN_RESERVE_WORKSPACE_COPY[lang].reserves;
   const isCompactReserveView = useMediaQuery('(max-width: 1180px)');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
@@ -5951,7 +6059,11 @@ function ReservesView(props: {
   const [liftRequestFile, setLiftRequestFile] = useState<File | null>(null);
   const [liftRequestBusy, setLiftRequestBusy] = useState(false);
   const isTrashView = props.statusFilter === 'deleted';
-  const activeReserves = allReserves.filter(reserve => !isReserveArchived(reserve) && !isReserveDeleted(reserve));
+  const activeReserves = allReserves.filter(reserve => (
+    !isReserveArchived(reserve)
+    && !isReserveDeleted(reserve)
+    && !isReserveClosed(reserve)
+  ));
   const explicitlySelectedReserve = props.selectedReserveId
     ? allReserves.find(reserve => reserve.id === props.selectedReserveId) ?? null
     : null;
@@ -6070,6 +6182,10 @@ function ReservesView(props: {
     props.buildingFilter,
     props.pinFilter,
   ].filter(value => value !== 'all').length + (quickStatusKeys.has(props.statusFilter) ? 0 : 1);
+  const workspaceSummary = useMemo(
+    () => buildReserveWorkspaceSummary(allReserves, reserves),
+    [allReserves, reserves],
+  );
 
   useEffect(() => {
     if (advancedFilterActive || !quickStatusKeys.has(props.statusFilter)) {
@@ -6219,43 +6335,55 @@ function ReservesView(props: {
   }
 
   return (
-    <div className={`${styles.reservesLayout} ${showMobileReserveDetail ? styles.reservesLayoutMobileDetail : ''}`}>
-      {!showMobileReserveDetail && (
-      <section className={`${styles.panel} ${styles.reservesListPanel}`}>
-        <div className={styles.reservePanelHeader}>
-          <div>
-            <p className={styles.eyebrow}>Suivi chantier</p>
-            <h2>{isTrashView ? 'Corbeille' : 'Réserves'}</h2>
-          </div>
-          <div className={styles.reservePanelActions}>
+    <div className={`${styles.reservesLayout} ${workspaceStyles.reserveRoot} ${showMobileReserveDetail ? styles.reservesLayoutMobileDetail : ''}`} data-testid="web-reserves-workspace">
+      <WorkspacePageHeader
+        eyebrow={t('reserves.followUp')}
+        title={isTrashView ? (lang === 'en' ? 'Trash' : lang === 'es' ? 'Papelera' : 'Corbeille') : t('reserves.title')}
+        description={workspaceCopy.description}
+        metrics={[
+          { label: workspaceCopy.visible, value: workspaceSummary.visible },
+          { label: workspaceCopy.active, value: workspaceSummary.active, tone: 'blue' },
+          { label: workspaceCopy.overdue, value: workspaceSummary.overdue, tone: 'danger' },
+          { label: workspaceCopy.verification, value: workspaceSummary.verification, tone: 'orange' },
+        ]}
+        actions={(
+          <>
             {props.canExport && (
               <button
                 type="button"
-                className={styles.reservePdfOpenButton}
                 onClick={() => setPdfModalOpen(true)}
                 disabled={isTrashView || (reserves.length === 0 && !selectedReserve)}
               >
-                PDF
+                <WorkspaceIcon name="document" size={17} />
+                {workspaceCopy.export}
               </button>
             )}
             {!isTrashView && props.canUseAssistant && activeReserves.length > 0 && (
-              <button type="button" className={styles.reserveAssistantOpenButton} onClick={() => setAssistantVisible(true)}>
-                <span>Assistant</span>
-                {assistantMissingDescriptionCount > 0 && <em>{assistantMissingDescriptionCount > 9 ? '9+' : assistantMissingDescriptionCount}</em>}
+              <button type="button" onClick={() => setAssistantVisible(true)}>
+                <WorkspaceIcon name="assistant" size={17} />
+                {workspaceCopy.assistant}
+                {assistantMissingDescriptionCount > 0 ? ` (${assistantMissingDescriptionCount > 9 ? '9+' : assistantMissingDescriptionCount})` : ''}
               </button>
             )}
-            {props.canCreateReserve && <button type="button" className={styles.reserveCreateButton} onClick={props.onCreate}>Créer</button>}
-          </div>
-        </div>
-        <div className={styles.reserveSearchRow}>
-          <span>⌕</span>
-          <input placeholder="Titre, bâtiment, entreprise, lot..." value={props.search} onChange={e => props.setSearch(e.target.value)} />
-          {props.search.trim() && (
-            <button type="button" onClick={() => props.setSearch('')} aria-label="Effacer la recherche">×</button>
-          )}
-        </div>
-        <div className={styles.reserveCompactToolbar}>
-          <div className={styles.reserveFilterRail}>
+            {props.canCreateReserve && (
+              <button type="button" data-primary="true" onClick={props.onCreate}>
+                <WorkspaceIcon name="plus" size={17} />
+                {workspaceCopy.create}
+              </button>
+            )}
+          </>
+        )}
+      />
+      {!showMobileReserveDetail && (
+      <section className={`${styles.panel} ${styles.reservesListPanel}`} data-prw-panel data-prw-reserve-list>
+        <WorkspaceSearch
+          value={props.search}
+          placeholder={t('reserves.searchPlaceholder')}
+          clearLabel={t('common.clearSearch')}
+          onChange={props.setSearch}
+        />
+        <div className={styles.reserveCompactToolbar} data-prw-reserve-toolbar>
+          <div className={styles.reserveFilterRail} data-prw-filter-rail>
             {quickStatusOptions.map(option => {
               const active = props.statusFilter === option.key;
               return (
@@ -6263,6 +6391,7 @@ function ReservesView(props: {
                   key={option.key}
                   type="button"
                   className={active ? styles.reserveFilterChipActive : ''}
+                  data-active={active}
                   onClick={() => props.setStatusFilter(option.key)}
                 >
                   <span>{option.label}</span>
@@ -6274,15 +6403,17 @@ function ReservesView(props: {
           <button
             type="button"
             className={`${styles.reserveFilterToggle} ${showAdvancedFilters ? styles.reserveFilterToggleActive : ''}`}
+            data-prw-filter-toggle
             onClick={() => setShowAdvancedFilters(value => !value)}
           >
+            <WorkspaceIcon name="filter" size={16} />
             Filtres
             {advancedFilterCount > 0 && <em>{advancedFilterCount}</em>}
           </button>
         </div>
         {showAdvancedFilters && (
-          <div className={styles.reserveAdvancedPanel}>
-            <div className={styles.reserveAdvancedStatusGrid}>
+          <div className={styles.reserveAdvancedPanel} data-prw-advanced>
+            <div className={styles.reserveAdvancedStatusGrid} data-prw-advanced-status>
               {advancedStatusOptions.map(option => {
                 const active = props.statusFilter === option.key;
                 return (
@@ -6290,6 +6421,7 @@ function ReservesView(props: {
                     key={option.key}
                     type="button"
                     className={active ? styles.reserveFilterChipActive : ''}
+                    data-active={active}
                     onClick={() => props.setStatusFilter(option.key)}
                   >
                     <span>{option.label}</span>
@@ -6298,7 +6430,7 @@ function ReservesView(props: {
                 );
               })}
             </div>
-            <div className={styles.reserveAdvancedFiltersWeb}>
+            <div className={styles.reserveAdvancedFiltersWeb} data-prw-advanced-controls>
               <select value={props.priorityFilter} onChange={event => props.setPriorityFilter(event.target.value)} aria-label="Filtrer par priorité">
                 <option value="all">Toutes priorités</option>
                 {Object.entries(PRIORITY_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
@@ -6333,15 +6465,17 @@ function ReservesView(props: {
             </div>
           </div>
         )}
-        <div className={styles.reserveListMeta}>
+        <div className={styles.reserveListMeta} data-prw-list-meta>
           <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
           <span>{isTrashView ? 'éléments récupérables' : `${activeReserves.length} active${activeReserves.length > 1 ? 's' : ''}`}</span>
         </div>
-        <div className={styles.reserveList}>
+        <div className={styles.reserveList} data-prw-reserve-rows>
           {reserves.map(reserve => (
             <button
               key={reserve.id}
               className={`${styles.reserveRow} ${selectedReserve?.id === reserve.id ? styles.reserveRowActive : ''}`}
+              data-prw-reserve-row
+              data-selected={selectedReserve?.id === reserve.id}
               onClick={() => openReserveFromList(reserve)}
             >
               <div>
@@ -6729,23 +6863,19 @@ function ReservesView(props: {
       )}
 
       {(!isCompactReserveView || showMobileReserveDetail) && (
-      <section className={`${styles.panel} ${styles.reservesDetailPanel} ${showMobileReserveDetail ? styles.reservesMobileDetailPanel : ''}`}>
+      <section className={`${styles.panel} ${styles.reservesDetailPanel} ${showMobileReserveDetail ? styles.reservesMobileDetailPanel : ''}`} data-prw-panel data-prw-reserve-detail>
         {showMobileReserveDetail && (
-          <button
-            type="button"
-            className={styles.reserveMobileBackButton}
+          <WorkspaceBackButton
+            label={workspaceCopy.back}
             onClick={() => {
               setMobileDetailOpen(false);
               setCommentText('');
             }}
-          >
-            <span>←</span>
-            Retour aux réserves
-          </button>
+          />
         )}
         {detailReserve ? (
           <>
-            <div className={styles.reserveDetailHeader}>
+            <div className={styles.reserveDetailHeader} data-prw-detail-header>
               <div>
                 <p className={styles.eyebrow}>{detailReserve.id}</p>
                 <h2>{detailReserve.title}</h2>
@@ -6753,9 +6883,9 @@ function ReservesView(props: {
               </div>
               <span className={styles.badge}>{PRIORITY_LABELS[detailReserve.priority] ?? detailReserve.priority}</span>
             </div>
-            <div className={styles.reserveDetailBody}>
+            <div className={styles.reserveDetailBody} data-prw-detail-body>
             <p className={styles.description}>{detailReserve.description || 'Aucune description.'}</p>
-            <dl className={styles.metaGrid}>
+            <dl className={styles.metaGrid} data-prw-meta>
               <div><dt>Statut</dt><dd>{STATUS_LABELS[detailReserve.status] ?? detailReserve.status}</dd></div>
               <div><dt>Entreprise</dt><dd>{reserveCompanies(detailReserve).join(', ') || '—'}</dd></div>
               <div><dt>Échéance</dt><dd>{prettyDate(detailReserve.deadline)}</dd></div>
@@ -6766,7 +6896,7 @@ function ReservesView(props: {
               {isTrashView && <div><dt>Supprimée par</dt><dd>{detailReserve.deleted_by ?? '—'}</dd></div>}
             </dl>
             {!isTrashView && canUseReserveWorkflow && (
-              <section className={styles.reserveWorkflowCard}>
+              <section className={styles.reserveWorkflowCard} data-prw-workflow>
                 <div className={styles.reserveWorkflowHeader}>
                   <div>
                     <h3>Tunnel réserve</h3>
@@ -6933,7 +7063,7 @@ function ReservesView(props: {
               </button>
             </div>}
             {props.editable && isTrashView && (
-              <div className={styles.actionBar}>
+              <div className={styles.actionBar} data-prw-actions>
                 <button type="button" onClick={() => props.onRestore(detailReserve)} disabled={props.saving}>Restaurer</button>
                 {props.canPermanentlyDeleteReserve && (
                   <button type="button" className={styles.dangerButton} onClick={() => props.onPermanentDelete(detailReserve)} disabled={props.saving}>
@@ -6943,7 +7073,7 @@ function ReservesView(props: {
               </div>
             )}
             {props.editable && !isTrashView && (
-              <div className={styles.actionBar}>
+              <div className={styles.actionBar} data-prw-actions>
                 <button type="button" onClick={() => props.onEdit(detailReserve)}>Modifier</button>
                 {props.canMovePins && !detailReserve.plan_id && props.onLocateOnPlan && (
                   <button
@@ -6952,7 +7082,7 @@ function ReservesView(props: {
                     onClick={() => props.onLocateOnPlan?.(detailReserve)}
                     title="Placer une pastille sur un plan pour localiser cette réserve"
                   >
-                    📍 Placer sur le plan
+                    <WorkspaceIcon name="pin" size={16} /> Placer sur le plan
                   </button>
                 )}
                 {STATUS_OPTIONS.map(([value, label]) => (
@@ -7742,7 +7872,10 @@ function PlansView({
   canExportReports,
   saving,
 }: any) {
-  const { t } = useWebI18n();
+  const { lang, locale, t } = useWebI18n();
+  const workspaceCopy = PLAN_RESERVE_WORKSPACE_COPY[lang].plans;
+  const isCompactPlanView = useMediaQuery('(max-width: 1180px)');
+  const [mobilePlanOpen, setMobilePlanOpen] = useState(false);
   const [buildingQuery, setBuildingQuery] = useState('');
   const [selectedBuildingKey, setSelectedBuildingKey] = useState('all');
   const [activeFamilyKey, setActiveFamilyKey] = useState('all');
@@ -7915,98 +8048,12 @@ function PlansView({
     }
     return counts;
   }, [reserves]);
-  const buildingGroups = useMemo(() => {
-    const map = new Map<string, {
-      key: string;
-      name: string;
-      plans: any[];
-      planIds: Set<string>;
-      levels: Set<string>;
-      reserveCount: number;
-    }>();
-
-    for (const plan of plans) {
-      const key = getPlanBuildingKey(plan);
-      const group = map.get(key) ?? {
-        key,
-        name: getPlanBuildingName(plan),
-        plans: [],
-        planIds: new Set<string>(),
-        levels: new Set<string>(),
-        reserveCount: 0,
-      };
-      group.plans.push(plan);
-      group.planIds.add(plan.id);
-      const level = getPlanLevelName(plan);
-      if (level) group.levels.add(level);
-      map.set(key, group);
-    }
-
-    const reserveIdsByBuilding = new Map<string, Set<string>>();
-    for (const reserve of reserves) {
-      if (reserve.archived_at || reserve.archivedAt) continue;
-      const keys = new Set<string>();
-      if (reserve.plan_id) {
-        const planGroup = [...map.values()].find(group => group.planIds.has(reserve.plan_id));
-        if (planGroup) keys.add(planGroup.key);
-      }
-      keys.add(getReserveBuildingKey(reserve));
-      keys.forEach(key => {
-        if (!map.has(key)) return;
-        const ids = reserveIdsByBuilding.get(key) ?? new Set<string>();
-        ids.add(reserve.id);
-        reserveIdsByBuilding.set(key, ids);
-      });
-    }
-
-    return [...map.values()]
-      .map(group => ({
-        ...group,
-        reserveCount: reserveIdsByBuilding.get(group.key)?.size ?? 0,
-        levels: [...group.levels].sort((a, b) => a.localeCompare(b, 'fr', { numeric: true, sensitivity: 'base' })),
-        plans: group.plans.sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''), 'fr', { numeric: true, sensitivity: 'base' })),
-      }))
-      .sort((a, b) => {
-        if (a.key === '__none__') return 1;
-        if (b.key === '__none__') return -1;
-        return a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' });
-      });
-  }, [plans, reserves]);
-  const buildingFamilies = useMemo(() => {
-    const buckets = new Map<string, { key: string; label: string; groups: typeof buildingGroups }>();
-    const others: typeof buildingGroups = [];
-
-    for (const group of buildingGroups) {
-      const family = group.key === '__none__' ? null : parseBuildingFamily(group.name);
-      if (!family) {
-        others.push(group);
-        continue;
-      }
-      const bucket = buckets.get(family.key) ?? { key: family.key, label: family.label, groups: [] as typeof buildingGroups };
-      bucket.groups.push(group);
-      buckets.set(family.key, bucket);
-    }
-
-    const realFamilies = [...buckets.values()]
-      .filter(family => family.groups.length >= 2)
-      .sort((a, b) => a.label.localeCompare(b.label, 'fr', { numeric: true, sensitivity: 'base' }));
-    const groupedKeys = new Set(realFamilies.flatMap(family => family.groups.map(group => group.key)));
-    const ungrouped = [
-      ...others,
-      ...[...buckets.values()].flatMap(family => family.groups.filter(group => !groupedKeys.has(group.key))),
-    ].sort((a, b) => a.name.localeCompare(b.name, 'fr', { numeric: true, sensitivity: 'base' }));
-    const useGrouping = realFamilies.length >= 2 && buildingGroups.length >= 8;
-    return {
-      useGrouping,
-      families: useGrouping
-        ? [
-            ...realFamilies,
-            ...(ungrouped.length ? [{ key: '__others__', label: 'Autres', groups: ungrouped }] : []),
-          ]
-        : [],
-      familyOf: new Map(realFamilies.flatMap(family => family.groups.map(group => [group.key, family.key] as const))),
-    };
-  }, [buildingGroups]);
+  const planLibrary = useMemo(
+    () => buildPlanLibraryModel(plans, reserves, locale),
+    [locale, plans, reserves],
+  );
+  const buildingGroups = planLibrary.groups;
+  const buildingFamilies = planLibrary;
   const orderedBuildingFamilies = useMemo(
     () => [...buildingFamilies.families].sort((a, b) => (
       b.groups.length - a.groups.length
@@ -8062,32 +8109,11 @@ function PlansView({
     setBuildingFamilyMenuOpen(false);
     setBuildingFamilyMenuQuery('');
   };
-  const familyFilteredBuildingGroups = useMemo(() => {
-    if (buildingQuery.trim() || !buildingFamilies.useGrouping || activeFamilyKey === 'all') return buildingGroups;
-    return buildingGroups.filter(group => (buildingFamilies.familyOf.get(group.key) ?? '__others__') === activeFamilyKey);
-  }, [activeFamilyKey, buildingFamilies, buildingGroups, buildingQuery]);
-  const filteredBuildingGroups = useMemo(() => {
-    const query = normalizeSearchText(buildingQuery);
-    if (!query) {
-      return familyFilteredBuildingGroups.map(group => ({ ...group, displayPlans: group.plans }));
-    }
-    return familyFilteredBuildingGroups
-      .map(group => {
-        const groupMatches = normalizeSearchText(group.name).includes(query);
-        const displayPlans = groupMatches
-          ? group.plans
-          : group.plans.filter(plan => normalizeSearchText([
-              plan.name,
-              getPlanBuildingName(plan),
-              getPlanLevelName(plan),
-              plan.revision_code,
-              plan.file_type,
-            ].filter(Boolean).join(' ')).includes(query));
-        return { ...group, displayPlans };
-      })
-      .filter(group => group.displayPlans.length > 0);
-  }, [buildingQuery, familyFilteredBuildingGroups]);
-  const totalReserveCount = buildingGroups.reduce((sum, group) => sum + group.reserveCount, 0);
+  const filteredBuildingGroups = useMemo(
+    () => filterPlanLibraryGroups(planLibrary, buildingQuery, activeFamilyKey),
+    [activeFamilyKey, buildingQuery, planLibrary],
+  );
+  const totalReserveCount = planLibrary.reserveCount;
   const recentBuildingGroups = recentBuildingKeys
     .map(key => buildingGroups.find(group => group.key === key))
     .filter(Boolean)
@@ -8100,6 +8126,15 @@ function PlansView({
     setPinPlacementPreview(null);
     setPlanActionsOpen(false);
   }, [selectedPlan?.id]);
+  useEffect(() => {
+    if (!isCompactPlanView) setMobilePlanOpen(false);
+  }, [isCompactPlanView]);
+  useEffect(() => {
+    if (mobilePlanOpen && !selectedPlan) setMobilePlanOpen(false);
+  }, [mobilePlanOpen, selectedPlan]);
+  useEffect(() => {
+    if (isCompactPlanView && placementReserve && selectedPlan) setMobilePlanOpen(true);
+  }, [isCompactPlanView, placementReserve, selectedPlan]);
   useEffect(() => {
     if (!focusedPlanReserveId) return;
     const timer = window.setTimeout(() => setFocusedPlanReserveId(null), 7000);
@@ -8118,6 +8153,10 @@ function PlansView({
       return next;
     });
   };
+  const openPlanFromNavigator = (planId: string) => {
+    setSelectedPlanId(planId);
+    if (isCompactPlanView) setMobilePlanOpen(true);
+  };
   const handleSelectBuildingGroup = (group: { key: string; plans: any[]; displayPlans?: any[] }) => {
     setSelectedBuildingKey(group.key);
     rememberBuildingGroup(group.key);
@@ -8128,7 +8167,7 @@ function PlansView({
     });
     const sourcePlans = group.displayPlans?.length ? group.displayPlans : group.plans;
     if (!sourcePlans.some(plan => plan.id === selectedPlan?.id) && sourcePlans[0]) {
-      setSelectedPlanId(sourcePlans[0].id);
+      openPlanFromNavigator(String(sourcePlans[0].id));
     }
   };
   const openReserveFromPin = (reserveId: string) => {
@@ -8313,39 +8352,50 @@ function PlansView({
   }
 
   return (
-    <div className={`${styles.twoCols} ${styles.plansLayout}`}>
-      <section className={`${styles.panel} ${styles.plansListPanel}`}>
-        <div className={styles.buildingRailHeaderWeb}>
+    <div
+      className={`${styles.twoCols} ${styles.plansLayout} ${workspaceStyles.planRoot}`}
+      data-testid="web-plans-workspace"
+    >
+      <WorkspacePageHeader
+        eyebrow={workspaceCopy.eyebrow}
+        title={workspaceCopy.title}
+        description={workspaceCopy.description}
+        metrics={[
+          { label: workspaceCopy.plans, value: planLibrary.planCount, tone: 'blue' },
+          { label: workspaceCopy.buildings, value: planLibrary.groups.length, tone: 'orange' },
+          { label: workspaceCopy.pins, value: planLibrary.pinnedCount, tone: 'green' },
+        ]}
+        actions={planCanCreate ? (
+          <button type="button" data-primary="true" onClick={() => openPlanModal('create')}>
+            <WorkspaceIcon name="plus" size={19} />
+            <span>{workspaceCopy.newPlan}</span>
+          </button>
+        ) : null}
+      />
+      {(!isCompactPlanView || !mobilePlanOpen) && (
+      <section className={`${styles.panel} ${styles.plansListPanel}`} data-prw-panel data-prw-plan-nav>
+        <div className={styles.buildingRailHeaderWeb} data-prw-plan-nav-header>
           <div>
-            <span>Bâtiments</span>
+            <span>{t('plans.buildings')}</span>
             <strong>{buildingGroups.length}</strong>
           </div>
-          <small>Recherche, familles et plans regroupés.</small>
-          {planCanCreate && (
-            <button type="button" className={styles.tableActionBtn} onClick={() => openPlanModal('create')}>
-              Nouveau plan
-            </button>
-          )}
+          <small>{t('plans.groupedHint')}</small>
         </div>
-        <label className={styles.buildingRailSearchWeb}>
-          <span>⌕</span>
-          <input
-            value={buildingQuery}
-            onChange={event => setBuildingQuery(event.target.value)}
-            placeholder="Rechercher bâtiment, niveau, plan..."
-          />
-          {buildingQuery && (
-            <button type="button" onClick={() => setBuildingQuery('')} aria-label="Effacer la recherche">×</button>
-          )}
-        </label>
+        <WorkspaceSearch
+          value={buildingQuery}
+          onChange={setBuildingQuery}
+          placeholder={t('plans.searchPlaceholder')}
+          clearLabel={t('common.clearSearch')}
+        />
         {buildingFamilies.useGrouping && !buildingQuery && (
-          <div className={styles.buildingFamilyToolbarWeb}>
-            <div className={styles.buildingFamilyRowWeb}>
+          <div className={styles.buildingFamilyToolbarWeb} data-prw-family-toolbar>
+            <div className={styles.buildingFamilyRowWeb} data-prw-family-row>
               {primaryBuildingFamilyOptions.map(option => (
                 <button
                   key={option.key}
                   type="button"
                   className={activeFamilyKey === option.key ? styles.buildingFamilyActiveWeb : ''}
+                  data-active={activeFamilyKey === option.key}
                   onClick={() => handleSelectBuildingFamily(option.key)}
                 >
                   {option.label} <em>{option.count}</em>
@@ -8412,13 +8462,15 @@ function PlansView({
         <button
           type="button"
           className={`${styles.buildingAllRowWeb} ${selectedBuildingKey === 'all' ? styles.buildingGroupActiveWeb : ''}`}
+          data-prw-all-buildings
+          data-selected={selectedBuildingKey === 'all'}
           onClick={() => setSelectedBuildingKey('all')}
         >
-          <span>▦</span>
+          <span><WorkspaceIcon name="building" size={19} /></span>
           <strong>Tous les bâtiments</strong>
           <small>{plans.length} {t('common.plans').toLowerCase()} · {totalReserveCount} {t('common.reserves').toLowerCase()}</small>
         </button>
-        <div className={`${styles.list} ${styles.plansList}`}>
+        <div className={`${styles.list} ${styles.plansList}`} data-prw-plan-list>
           {!buildingQuery && recentBuildingGroups.length > 0 && !hasBuildingFamilyFilter ? (
             <div className={styles.buildingRecentBlockWeb}>
               <div className={styles.buildingMiniSectionTitleWeb}>Récents</div>
@@ -8439,9 +8491,14 @@ function PlansView({
             const isSelectedGroup = selectedBuildingKey === group.key || (selectedBuildingKey === 'all' && selectedPlanBuildingKey === group.key);
             const isExpanded = Boolean(buildingQuery) || isSelectedGroup || expandedBuildingKeys.has(group.key);
             return (
-              <article key={group.key} className={`${styles.buildingGroupWeb} ${isSelectedGroup ? styles.buildingGroupActiveWeb : ''}`}>
-                <button type="button" className={styles.buildingGroupButtonWeb} onClick={() => handleSelectBuildingGroup(group)}>
-                  <span className={styles.buildingGroupIconWeb}>{group.key === '__none__' ? '◇' : '▥'}</span>
+              <article
+                key={group.key}
+                className={`${styles.buildingGroupWeb} ${isSelectedGroup ? styles.buildingGroupActiveWeb : ''}`}
+                data-prw-building-group
+                data-selected={isSelectedGroup}
+              >
+                <button type="button" className={styles.buildingGroupButtonWeb} data-prw-building-button onClick={() => handleSelectBuildingGroup(group)}>
+                  <span className={styles.buildingGroupIconWeb}><WorkspaceIcon name={group.key === '__none__' ? 'plan' : 'building'} size={19} /></span>
                   <div>
                     <strong>{group.name}</strong>
                     <small>
@@ -8452,7 +8509,7 @@ function PlansView({
                   <em>{group.reserveCount}</em>
                 </button>
                 {isExpanded && (
-                  <div className={styles.buildingPlanListWeb}>
+                  <div className={styles.buildingPlanListWeb} data-prw-building-plans>
                     {group.displayPlans.map((plan: any) => {
                       const planReserveCount = reserveCountByPlanId.get(plan.id) ?? 0;
                       return (
@@ -8460,13 +8517,15 @@ function PlansView({
                           key={plan.id}
                           type="button"
                           className={`${styles.buildingPlanRowWeb} ${selectedPlan?.id === plan.id ? styles.selectedRow : ''}`}
+                          data-prw-plan-row
+                          data-selected={selectedPlan?.id === plan.id}
                           onClick={() => {
                             setSelectedBuildingKey(group.key);
                             rememberBuildingGroup(group.key);
-                            setSelectedPlanId(plan.id);
+                            openPlanFromNavigator(String(plan.id));
                           }}
                         >
-                          <span>▤</span>
+                          <span><WorkspaceIcon name="document" size={18} /></span>
                           <div>
                             <strong>{plan.name}</strong>
                             <small>{[getPlanLevelName(plan), plan.revision_code].filter(Boolean).join(' · ') || 'Plan'}</small>
@@ -8486,15 +8545,21 @@ function PlansView({
           {!plans.length && <p className={styles.empty}>Aucun plan dans ce périmètre.</p>}
         </div>
       </section>
-      <section className={`${styles.panel} ${styles.plansPreviewPanel}`}>
+      )}
+      {(!isCompactPlanView || mobilePlanOpen) && (
+      <section className={`${styles.panel} ${styles.plansPreviewPanel}`} data-prw-panel data-prw-plan-preview>
+        {isCompactPlanView ? (
+          <WorkspaceBackButton label={workspaceCopy.back} onClick={() => setMobilePlanOpen(false)} />
+        ) : null}
         {selectedPlan ? (
           <>
-            <div className={`${styles.sectionHeader} ${styles.planPreviewHeader}`}>
+            <div className={`${styles.sectionHeader} ${styles.planPreviewHeader}`} data-prw-plan-preview-header>
               <div className={styles.planPreviewTitle}>
                 <p className={styles.eyebrow}>{selectedPlan.file_type ?? 'plan'}</p>
                 <h2>{selectedPlan.name}</h2>
+                <span>{[getPlanBuildingName(selectedPlan), getPlanLevelName(selectedPlan), selectedPlan.revision_code].filter(Boolean).join(' · ')}</span>
               </div>
-              <div className={styles.planHeaderActions}>
+              <div className={styles.planHeaderActions} data-prw-plan-actions>
                 {planCanExport ? (
                   <button
                     type="button"
@@ -8502,15 +8567,20 @@ function PlansView({
                     onClick={() => setPlansPdfOpen(true)}
                     disabled={!selectedPlan || exportableProjectReserves.length === 0}
                   >
-                    PDF
+                    <WorkspaceIcon name="document" size={18} />
+                    <span>PDF</span>
                   </button>
                 ) : null}
                 {planCanCreate ? (
-                  <button type="button" className={styles.planActionPrimary} onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
+                  <button type="button" className={styles.planActionPrimary} onClick={() => onCreateReserve(selectedPlan)}>
+                    <WorkspaceIcon name="plus" size={18} />
+                    <span>Créer une réserve</span>
+                  </button>
                 ) : null}
                 {selectedPlanResolvedUri ? (
                   <a className={styles.planActionSecondary} href={selectedPlanResolvedUri} target="_blank" rel="noreferrer">
-                    {t('plans.openFile')}
+                    <WorkspaceIcon name="document" size={18} />
+                    <span>{t('plans.openFile')}</span>
                   </a>
                 ) : null}
                 {hasPlanActions ? (
@@ -8518,10 +8588,12 @@ function PlansView({
                     <button
                       type="button"
                       className={styles.planActionMenuButton}
+                      data-prw-more-action
                       aria-expanded={planActionsOpen}
                       onClick={() => setPlanActionsOpen(value => !value)}
                     >
-                      Actions
+                      <WorkspaceIcon name="more" size={19} />
+                      <span>Actions</span>
                     </button>
                     {planActionsOpen && (
                       <div className={styles.planActionMenu}>
@@ -8560,13 +8632,13 @@ function PlansView({
               </div>
             </div>
             {planCanCreate && (
-              <div className={styles.pinToolbar}>
+              <div className={styles.pinToolbar} data-prw-pin-guidance>
                 <div className={styles.pinToolbarIntro}>
                   <strong>Créer une réserve épinglée</strong>
                   <span>Cliquez directement sur le PDF pour créer une nouvelle réserve à l’endroit exact.</span>
                 </div>
                 <div className={styles.pinToolbarAction}>
-                  <span>+</span>
+                  <span><WorkspaceIcon name="pin" size={21} /></span>
                   <div>
                     <strong>Création par clic</strong>
                     <small>L’épingle est mémorisée puis le formulaire de réserve s’ouvre.</small>
@@ -8575,8 +8647,8 @@ function PlansView({
               </div>
             )}
             {placementActive && (
-              <div className={styles.planPlacementBanner}>
-                <span className={styles.planPlacementBadge}>📍</span>
+              <div className={styles.planPlacementBanner} data-prw-placement-banner>
+                <span className={styles.planPlacementBadge}><WorkspaceIcon name="pin" size={20} /></span>
                 <div className={styles.planPlacementText}>
                   <strong>{placementReserve.id} — {placementReserve.title}</strong>
                   <small>Cliquez sur le plan pour placer sa pastille{selectedPlan?.name ? ` sur « ${selectedPlan.name} »` : ''}.</small>
@@ -8586,8 +8658,11 @@ function PlansView({
                 </button>
               </div>
             )}
-            <div className={`${styles.planWorkArea} ${planReservePanelOpen ? styles.planWorkAreaWithReservePanel : styles.planWorkAreaReserveCollapsed}`}>
-              <div className={styles.planCanvas}>
+            <div
+              className={`${styles.planWorkArea} ${planReservePanelOpen ? styles.planWorkAreaWithReservePanel : styles.planWorkAreaReserveCollapsed}`}
+              data-prw-plan-workarea
+            >
+              <div className={styles.planCanvas} data-prw-plan-canvas>
                 {selectedPlanMediaSource && selectedPlanMedia.status === 'resolving' ? (
                   <div className={styles.planMediaState} role="status" aria-live="polite">
                     <span className={styles.webPdfLoadingSpinner} aria-hidden="true" />
@@ -8684,7 +8759,7 @@ function PlansView({
                 )}
               </div>
               {planReservePanelOpen ? (
-                <aside className={styles.planReservePanel}>
+                <aside className={styles.planReservePanel} data-prw-plan-reserves>
                   <div className={styles.planReserveHeader}>
                     <div>
                       <h3>Réserves</h3>
@@ -8706,6 +8781,7 @@ function PlansView({
                       <button
                         key={reserve.id}
                         className={`${styles.planReserveRow} ${selectedPlanReserveId === reserve.id ? styles.planReserveRowActive : ''}`}
+                        data-prw-plan-reserve-row
                         onClick={() => setSelectedPlanReserveId(reserve.id)}
                       >
                         <span className={styles.planReserveNumber} style={{ background: getReservePinColor(reserve, companies ?? []) }}>
@@ -8764,6 +8840,7 @@ function PlansView({
                 <button
                   type="button"
                   className={styles.planReserveCollapsedRail}
+                  data-prw-plan-reserve-rail
                   onClick={() => setPlanReservePanelOpen(true)}
                   aria-expanded={false}
                   aria-label={`Afficher les réserves du plan (${displayPlanReserves.length})`}
@@ -8778,6 +8855,7 @@ function PlansView({
           </>
         ) : <p className={styles.empty}>Sélectionnez un plan.</p>}
       </section>
+      )}
 
       {planModalMode && (
         <div className={styles.modalBackdrop} role="dialog" aria-modal="true" onMouseDown={() => !saving && setPlanModalMode(null)}>
