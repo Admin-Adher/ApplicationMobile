@@ -186,6 +186,35 @@ describe('private media architecture contract', () => {
     expect(planCache).toContain('removelegacyunscopedcache');
   });
 
+  it('never falls back to retired public media URLs in either web client', () => {
+    const nextMediaClient = source('vercel-app/lib/private-media-client.ts');
+    const nextWeb = source('vercel-app/app/web/page.tsx');
+    const expoViewer = source('components/PdfPlanViewer.tsx');
+
+    expect(nextMediaClient).toContain("return { managed: true, status: 'resolving', url: '' }");
+    expect(nextMediaClient).toContain("return { managed: true, status: 'error', url: '', reason: failure.reason }");
+    expect(nextWeb).toContain('const selectedplanmedia = privatemediaaccess(selectedplanmediasource)');
+    expect(nextWeb).toContain('uri={selectedplanresolveduri}');
+    expect(nextWeb).not.toContain('href={selectedplan.uri}');
+    expect(expoViewer).toContain("resolvemediaref(planuri, { cachedisk: false })");
+    expect(expoViewer).toContain('pdfjslib.getdocument({ url: resolvedplanuri');
+    expect(expoViewer).not.toContain('pdfjslib.getdocument({ url: planuri');
+  });
+
+  it('keeps PDF zoom and drawing controls disabled until a plan is ready', () => {
+    const nextWeb = source('vercel-app/app/web/page.tsx');
+    const expoViewer = source('components/PdfPlanViewer.tsx');
+    const nextStyles = source('vercel-app/app/web/web.module.css');
+
+    expect(nextWeb).toContain('const zoomlabel = zoomready && scale != null');
+    expect(nextWeb).toContain('disabled={!zoomready}');
+    expect(nextWeb).toContain('className={styles.webpdferrorcontent}'.toLowerCase());
+    expect(expoViewer).toContain('const viewerready = !loading && !error && cw > 0 && ch > 0');
+    expect(expoViewer).toContain('disabled={!viewerready}');
+    expect(nextStyles).toContain('.webpdferrorcontent');
+    expect(nextStyles).toContain('.planmediastate');
+  });
+
   it('rebuilds legacy links instead of garbage-collecting current media', () => {
     expect(mediaReconciliation).toContain('create or replace function private.media_text_values_in_json');
     expect(mediaReconciliation).toContain('perform private.register_legacy_media');

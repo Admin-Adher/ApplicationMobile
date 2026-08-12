@@ -14,7 +14,15 @@ import {
   type WebTranslator,
 } from '@/lib/i18n';
 import { supabaseBrowser } from '@/lib/supabase-browser';
-import { privateMediaUrl, subscribePrivateMedia, uploadRegisteredWebFile } from '@/lib/private-media-client';
+import {
+  isRegistryBackedRef,
+  privateMediaAccess,
+  privateMediaUrl,
+  resolvePrivateMediaRefs,
+  retryPrivateMedia,
+  subscribePrivateMedia,
+  uploadRegisteredWebFile,
+} from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWebView from './InventoryWebView';
 import styles from './web.module.css';
@@ -1909,17 +1917,21 @@ async function toPdfPlanItemsForReport(plans: any[], reserves: any[]) {
       .filter(Boolean),
   );
 
+  const planItems = plans.map(plan => ({ plan, item: toPdfPlanItem(plan) }));
+  const resolvedUris = await resolvePrivateMediaRefs(
+    planItems.map(({ item }) => item.uri).filter(Boolean),
+  );
   const items: any[] = [];
-  for (const plan of plans) {
-    const item = toPdfPlanItem(plan);
+  for (const { plan, item } of planItems) {
     if (!activePlanIds.has(item.id) || !item.uri || !isPdfPlan(plan, item.uri)) {
       items.push(item);
       continue;
     }
 
-    const renderedUri = isPdfPlan(plan, item.uri)
-      ? await preRenderPdfPageToDataUrl(item.uri, 720)
-      : await imageUrlToPdfDataUrl(item.uri);
+    const clientUri = resolvedUris.get(item.uri) || (!isRegistryBackedRef(item.uri) ? item.uri : '');
+    const renderedUri = clientUri
+      ? await preRenderPdfPageToDataUrl(clientUri, 720)
+      : null;
     items.push(renderedUri
       ? { ...item, uri: renderedUri, fileType: 'image' }
       : item);
@@ -1980,8 +1992,11 @@ async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
 async function getPlanImageForReserveReport(plan: any) {
   const uri = getPlanReportUri(plan);
   if (!uri) return null;
-  if (!isPdfPlan(plan, uri)) return await imageUrlToPdfDataUrl(uri);
-  return await preRenderPdfPageToDataUrl(uri, 720);
+  const resolved = await resolvePrivateMediaRefs([uri]);
+  const clientUri = resolved.get(uri) || (!isRegistryBackedRef(uri) ? uri : '');
+  if (!clientUri) return null;
+  if (!isPdfPlan(plan, clientUri)) return await imageUrlToPdfDataUrl(clientUri);
+  return await preRenderPdfPageToDataUrl(clientUri, 720);
 }
 
 function makeHistory(action: string, author: string, oldValue?: string, newValue?: string) {
@@ -7800,6 +7815,7 @@ function WebPdfPlan({
   onPinDoubleClick: (reserveId: string) => void;
   onClearFocus?: () => void;
 }) {
+  const { t } = useWebI18n();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderTaskRef = useRef<any>(null);
@@ -7817,10 +7833,11 @@ function WebPdfPlan({
     scrollTop: 0,
     moved: false,
   });
-  const [scale, setScale] = useState(0);
+  const [scale, setScale] = useState<number | null>(null);
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(false);
+  const [retryVersion, setRetryVersion] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
@@ -7832,9 +7849,9 @@ function WebPdfPlan({
   const [movePreview, setMovePreview] = useState<PinPlacementPreview | null>(null);
 
   useEffect(() => {
-    setScale(0);
+    setScale(null);
     setPageSize({ width: 0, height: 0 });
-    setError('');
+    setError(false);
     setAnnotationMode(false);
     setLiveDrawing(null);
     setMoveMode(false);
@@ -7867,12 +7884,12 @@ function WebPdfPlan({
   }, []);
 
   useEffect(() => {
-    if (!focusedReserveId || !scale) return;
+    if (!focusedReserveId || scale == null) return;
     const key = `${uri}:${focusedReserveId}`;
     if (lastFocusZoomRef.current === key) return;
     lastFocusZoomRef.current = key;
     setScale(value => {
-      const current = value || scale || 1;
+      const current = value ?? scale ?? 1;
       return Math.min(3, Number((current * 1.8).toFixed(2)));
     });
   }, [focusedReserveId, scale, uri]);
@@ -7897,7 +7914,7 @@ function WebPdfPlan({
 
     async function renderPdfPage() {
       setLoading(true);
-      setError('');
+      setError(false);
       try {
         const pdfjs: any = await import('pdfjs-dist');
         pdfjs.GlobalWorkerOptions.workerSrc ||= `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
@@ -7905,7 +7922,7 @@ function WebPdfPlan({
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
-        if (!scale) {
+        if (scale == null) {
           const availableWidth = Math.max((viewportRef.current?.clientWidth ?? 900) - 32, 320);
           const fitScale = Math.min(1.2, Math.max(0.22, (availableWidth / baseViewport.width) * 1.18));
           setScale(Number(fitScale.toFixed(2)));
@@ -7940,7 +7957,7 @@ function WebPdfPlan({
         if (!cancelled) setLoading(false);
       } catch (pdfError: any) {
         if (cancelled || pdfError?.name === 'RenderingCancelledException') return;
-        setError(pdfError?.message ?? 'Impossible de charger le PDF');
+        setError(true);
         setLoading(false);
       }
     }
@@ -7952,7 +7969,7 @@ function WebPdfPlan({
       renderTaskRef.current?.cancel?.();
       loadingTask?.destroy?.();
     };
-  }, [uri, scale]);
+  }, [retryVersion, scale, uri]);
 
   function pagePointFromEvent(event: MouseEvent<HTMLDivElement> | PointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -8115,18 +8132,37 @@ function WebPdfPlan({
 
   const focusedPin = focusedReserveId ? pins.find(pin => pin.reserve.id === focusedReserveId) : null;
   const activePreview = placementPreview ?? movePreview;
+  const zoomReady = !loading && !error && scale != null && pageSize.width > 0 && pageSize.height > 0;
+  const zoomLabel = zoomReady && scale != null ? `${Math.round(scale * 100)}%` : '—';
+
+  function retryPdfLoad() {
+    setError(false);
+    setPageSize({ width: 0, height: 0 });
+    setScale(null);
+    setRetryVersion(value => value + 1);
+  }
 
   const pdfShell = (
     <div className={`${styles.webPdfShell} ${isFullscreen ? styles.webPdfShellFullscreen : ''}`}>
       <div className={styles.webPdfToolbar}>
         <div className={styles.webPdfZoomControls}>
-          <button type="button" onClick={() => setScale(value => Math.max(0.08, Number(((value || 1) - 0.1).toFixed(2))))}>−</button>
-          <strong>{scale ? Math.round(scale * 100) : '…'}%</strong>
-          <button type="button" onClick={() => setScale(value => Math.min(3, Number(((value || 1) + 0.1).toFixed(2))))}>+</button>
+          <button
+            type="button"
+            aria-label={t('plans.zoomOut')}
+            disabled={!zoomReady}
+            onClick={() => setScale(value => Math.max(0.08, Number(((value ?? 1) - 0.1).toFixed(2))))}
+          >−</button>
+          <strong aria-live="polite">{zoomLabel}</strong>
+          <button
+            type="button"
+            aria-label={t('plans.zoomIn')}
+            disabled={!zoomReady}
+            onClick={() => setScale(value => Math.min(3, Number(((value ?? 1) + 0.1).toFixed(2))))}
+          >+</button>
         </div>
-        <button type="button" onClick={() => setScale(0)}>Adapter</button>
-        <button type="button" onClick={() => { setIsFullscreen(value => !value); setScale(0); }}>
-          {isFullscreen ? 'Réduire' : 'Grand plan'}
+        <button type="button" disabled={!zoomReady} onClick={() => setScale(null)}>{t('plans.fit')}</button>
+        <button type="button" onClick={() => { setIsFullscreen(value => !value); setScale(null); }}>
+          {isFullscreen ? t('plans.reduce') : t('plans.bigPlan')}
         </button>
         {canMovePins && focusedPin && (
           <button
@@ -8152,7 +8188,7 @@ function WebPdfPlan({
             Crayon
           </button>
         )}
-        <a href={uri} target="_blank" rel="noreferrer">Ouvrir le PDF</a>
+        <a href={uri} target="_blank" rel="noreferrer">{t('plans.openPdf')}</a>
       </div>
       {canAnnotate && annotationMode && (
         <div className={styles.webPdfAnnotateControls}>
@@ -8214,11 +8250,20 @@ function WebPdfPlan({
           aria-label={name}
         >
           <canvas ref={canvasRef} className={styles.webPdfCanvas} />
-          {loading && <div className={styles.webPdfLoading}>Chargement du plan…</div>}
+          {loading && (
+            <div className={styles.webPdfLoading} role="status" aria-live="polite">
+              <span className={styles.webPdfLoadingSpinner} aria-hidden="true" />
+              <strong>{t('plans.loadingPdf')}</strong>
+            </div>
+          )}
           {error && (
-            <div className={styles.webPdfError}>
-              <strong>Plan PDF indisponible</strong>
-              <span>{error}</span>
+            <div className={styles.webPdfError} role="alert" aria-live="assertive">
+              <div className={styles.webPdfErrorContent}>
+                <span className={styles.webPdfErrorIcon} aria-hidden="true">!</span>
+                <strong>{t('plans.pdfUnavailable')}</strong>
+                <span>{t('plans.pdfUnavailableBody')}</span>
+                <button type="button" onClick={retryPdfLoad}>{t('plans.retry')}</button>
+              </div>
             </div>
           )}
           <svg
@@ -8343,6 +8388,9 @@ function PlansView({
   const draftBuildings = projectBuildings(projectForDraft);
   const draftBuilding = draftBuildings.find((building: any) => building.id === planDraft.building_id) ?? null;
   const draftLevels = Array.isArray(draftBuilding?.levels) ? draftBuilding.levels : [];
+  const selectedPlanMediaSource = String(selectedPlan?.uri ?? selectedPlan?.url ?? '').trim();
+  const selectedPlanMedia = privateMediaAccess(selectedPlanMediaSource);
+  const selectedPlanResolvedUri = selectedPlanMedia.url;
 
   function makePlanDraft(mode: 'create' | 'edit' | 'revision', plan?: any) {
     const baseProjectId = plan?.chantier_id ?? plan?.chantierId ?? (selectedProjectId !== 'all' ? selectedProjectId : selectedProject?.id ?? projects[0]?.id ?? '');
@@ -9069,7 +9117,11 @@ function PlansView({
                 {planCanCreate ? (
                   <button type="button" className={styles.planActionPrimary} onClick={() => onCreateReserve(selectedPlan)}>Créer une réserve</button>
                 ) : null}
-                {selectedPlan.uri ? <a className={styles.planActionSecondary} href={selectedPlan.uri} target="_blank">Ouvrir</a> : null}
+                {selectedPlanResolvedUri ? (
+                  <a className={styles.planActionSecondary} href={selectedPlanResolvedUri} target="_blank" rel="noreferrer">
+                    {t('plans.openFile')}
+                  </a>
+                ) : null}
                 {hasPlanActions ? (
                   <div className={styles.planActionMenuWrap}>
                     <button
@@ -9145,11 +9197,26 @@ function PlansView({
             )}
             <div className={`${styles.planWorkArea} ${planReservePanelOpen ? styles.planWorkAreaWithReservePanel : styles.planWorkAreaReserveCollapsed}`}>
               <div className={styles.planCanvas}>
-                {selectedPlan.uri && selectedPlan.file_type === 'image' ? (
-                  <img src={selectedPlan.uri} alt={selectedPlan.name} />
-                ) : selectedPlan.uri && selectedPlan.file_type === 'pdf' ? (
+                {selectedPlanMediaSource && selectedPlanMedia.status === 'resolving' ? (
+                  <div className={styles.planMediaState} role="status" aria-live="polite">
+                    <span className={styles.webPdfLoadingSpinner} aria-hidden="true" />
+                    <strong>{t('plans.resolvingMedia')}</strong>
+                    <span>{t('plans.resolvingMediaBody')}</span>
+                  </div>
+                ) : selectedPlanMediaSource && selectedPlanMedia.status === 'error' ? (
+                  <div className={styles.planMediaState} role="alert" aria-live="assertive">
+                    <span className={styles.webPdfErrorIcon} aria-hidden="true">!</span>
+                    <strong>{t('plans.pdfUnavailable')}</strong>
+                    <span>{t('plans.pdfUnavailableBody')}</span>
+                    <button type="button" onClick={() => retryPrivateMedia(selectedPlanMediaSource)}>
+                      {t('plans.retry')}
+                    </button>
+                  </div>
+                ) : selectedPlanResolvedUri && selectedPlan.file_type === 'image' ? (
+                  <img src={selectedPlanResolvedUri} alt={selectedPlan.name} />
+                ) : selectedPlanResolvedUri && selectedPlan.file_type === 'pdf' ? (
                   <WebPdfPlan
-                    uri={selectedPlan.uri}
+                    uri={selectedPlanResolvedUri}
                     name={selectedPlan.name}
                     pins={planPins}
                     focusedReserveId={focusedPlanReserveId}
@@ -9175,7 +9242,7 @@ function PlansView({
                     onClearFocus={() => setFocusedPlanReserveId(null)}
                   />
                 ) : (
-                  <div className={styles.planPlaceholder}>Aperçu web disponible dès que le fichier est accessible.</div>
+                  <div className={styles.planPlaceholder}>{t('plans.previewUnavailable')}</div>
                 )}
                 {selectedPlan.file_type !== 'pdf' && (planCanCreate || placementActive) && (
                   <button

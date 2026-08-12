@@ -13,6 +13,7 @@ import * as pdfjsLib from '@/lib/pdfjs';
 import { getPlanUriCacheFirst, getCachedPlanUri } from '@/lib/planCache';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 import { getReservePinColor } from '@/lib/planPinColor';
+import { isManagedMediaRef, resolveMediaRef } from '@/lib/media';
 import { useNetwork } from '@/context/NetworkContext';
 
 const PALETTE = [
@@ -1827,6 +1828,8 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolvedPlanUri, setResolvedPlanUri] = useState(() => isManagedMediaRef(planUri) ? '' : planUri);
+  const [resolveVersion, setResolveVersion] = useState(0);
   const [pageCount, setPageCount] = useState(0);
   const [page, setPage] = useState(1);
   const [cw, setCw] = useState(0);
@@ -1914,7 +1917,48 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   }, [planId, annotations]);
 
   useEffect(() => {
-    if (!planUri) return;
+    let dead = false;
+    setError(null);
+    setCw(0);
+    setCh(0);
+    setPage(1);
+    setPageCount(0);
+    pdfDocRef.current = null;
+
+    if (!planUri) {
+      setResolvedPlanUri('');
+      setLoading(false);
+      return () => { dead = true; };
+    }
+
+    if (!isManagedMediaRef(planUri)) {
+      setResolvedPlanUri(planUri);
+      return () => { dead = true; };
+    }
+
+    setResolvedPlanUri('');
+    setLoading(true);
+    void resolveMediaRef(planUri, { cacheDisk: false })
+      .then((uri) => {
+        if (dead) return;
+        if (!uri) {
+          setError(t('pdfPlanViewer.loadPdfError'));
+          setLoading(false);
+          return;
+        }
+        setResolvedPlanUri(uri);
+      })
+      .catch(() => {
+        if (dead) return;
+        setError(t('pdfPlanViewer.loadPdfError'));
+        setLoading(false);
+      });
+
+    return () => { dead = true; };
+  }, [planUri, resolveVersion, t]);
+
+  useEffect(() => {
+    if (!resolvedPlanUri) return;
     let dead = false;
     setLoading(true); setError(null); pdfDocRef.current = null; setPageCount(0);
     if (isImagePlan) {
@@ -1947,14 +1991,14 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         onReady?.();
       };
       img.onerror = () => { if (!dead) { setError(t('pdfPlanViewer.loadImageError')); setLoading(false); } };
-      img.src = planUri;
+      img.src = resolvedPlanUri;
     } else {
       (async () => {
         try {
           if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
             pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.2.108/legacy/build/pdf.worker.min.mjs';
           }
-          const doc = await pdfjsLib.getDocument({ url: planUri, withCredentials: false }).promise;
+          const doc = await pdfjsLib.getDocument({ url: resolvedPlanUri, withCredentials: false }).promise;
           if (dead) return;
           pdfDocRef.current = doc;
           setPageCount(doc.numPages);
@@ -1967,7 +2011,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       })();
     }
     return () => { dead = true; };
-  }, [planUri, isImagePlan, t]);
+  }, [resolvedPlanUri, isImagePlan, t]);
 
   useEffect(() => {
     if (!focusedPinId || loading || error) return;
@@ -2025,7 +2069,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
       }
     })();
     return () => { dead = true; };
-  }, [page, planUri, loading, isImagePlan, t]);
+  }, [page, resolvedPlanUri, loading, isImagePlan, t]);
 
   const onSvgDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (mode !== 'annotate') return;
@@ -2513,6 +2557,13 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
   const pageAnns = draws.filter(d => !d.page || d.page === page);
   const pinsOnPage = reserves.filter(r => r.planX != null && r.planY != null);
   const ghostPinsOnPage = ghostReserves.filter(r => r.planX != null && r.planY != null);
+  const viewerReady = !loading && !error && cw > 0 && ch > 0;
+
+  function retryLoad() {
+    setError(null);
+    setResolvedPlanUri('');
+    setResolveVersion(value => value + 1);
+  }
 
   return (
     <View style={s.root}>
@@ -2523,9 +2574,12 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         </View>
       )}
       {error && !loading && (
-        <View style={s.overlay}>
+        <View style={s.overlay} accessibilityRole="alert" accessibilityLiveRegion="assertive">
           <Ionicons name="warning-outline" size={32} color="#EF4444" />
           <Text style={[s.overlayText, { color: '#EF4444', textAlign: 'center', paddingHorizontal: 24 }]}>{error}</Text>
+          <TouchableOpacity style={s.retryBtn} onPress={retryLoad} accessibilityRole="button">
+            <Text style={s.retryTxt}>{t('common.retry')}</Text>
+          </TouchableOpacity>
         </View>
       )}
       {!loading && !error && (
@@ -2679,14 +2733,15 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
             </View>
           )}
           <View style={s.zoomRow}>
-            <TouchableOpacity style={s.ib} onPress={() => doZoom(1 / 1.3)}><Ionicons name="remove" size={15} color={C.text} /></TouchableOpacity>
-            <TouchableOpacity style={s.ib} onPress={resetView}><Ionicons name="scan-outline" size={13} color={C.text} /></TouchableOpacity>
-            <TouchableOpacity style={s.ib} onPress={() => doZoom(1.3)}><Ionicons name="add" size={15} color={C.text} /></TouchableOpacity>
+            <TouchableOpacity style={[s.ib, !viewerReady && s.ibOff]} disabled={!viewerReady} onPress={() => doZoom(1 / 1.3)}><Ionicons name="remove" size={15} color={viewerReady ? C.text : C.textMuted} /></TouchableOpacity>
+            <TouchableOpacity style={[s.ib, !viewerReady && s.ibOff]} disabled={!viewerReady} onPress={resetView}><Ionicons name="scan-outline" size={13} color={viewerReady ? C.text : C.textMuted} /></TouchableOpacity>
+            <TouchableOpacity style={[s.ib, !viewerReady && s.ibOff]} disabled={!viewerReady} onPress={() => doZoom(1.3)}><Ionicons name="add" size={15} color={viewerReady ? C.text : C.textMuted} /></TouchableOpacity>
           </View>
           <View style={{ flex: 1 }} />
           {canAnnotate && (
             <TouchableOpacity
-              style={[s.modeBtn, mode === 'annotate' && s.modeBtnOn]}
+              style={[s.modeBtn, mode === 'annotate' && s.modeBtnOn, !viewerReady && s.ibOff]}
+              disabled={!viewerReady}
               onPress={() => { setMode(m => m === 'view' ? 'annotate' : 'view'); setShowPalette(false); setShowWidths(false); }}
             >
               <Ionicons name={mode === 'annotate' ? 'eye-outline' : 'pencil-outline'} size={13} color={mode === 'annotate' ? '#fff' : C.primary} />
@@ -2698,7 +2753,7 @@ const WebViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(function W
         </View>
 
         {/* Row 2: annotation tools (visible only in annotate mode) */}
-        {mode === 'annotate' && (
+        {mode === 'annotate' && viewerReady && (
           <View style={s.annBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.toolScroll} style={{ flex: 1 }}>
               {TOOLS.map(toolDef => (
@@ -2755,6 +2810,8 @@ const s = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#1A2742', position: 'relative' as any, overflow: 'hidden' as any },
   overlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#1A2742', zIndex: 50 },
   overlayText: { fontSize: 12, color: C.textMuted, fontFamily: 'Inter_400Regular' },
+  retryBtn: { minHeight: 44, minWidth: 120, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 18, borderRadius: 10, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FFFFFF' },
+  retryTxt: { color: '#991B1B', fontSize: 13, fontFamily: 'Inter_700Bold' },
   barWrap: { backgroundColor: C.surface, borderTopWidth: 1, borderTopColor: C.border },
   barRow: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 5 },
   annBar: { flexDirection: 'row', alignItems: 'center', borderTopWidth: 1, borderTopColor: C.border, paddingVertical: 4, paddingLeft: 6, paddingRight: 6 },

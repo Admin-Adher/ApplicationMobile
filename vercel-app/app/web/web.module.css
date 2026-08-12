@@ -5483,26 +5483,107 @@
   position: absolute;
   inset: 0;
   z-index: 7;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24px;
   text-align: center;
 }
 
 .webPdfLoading {
+  flex-direction: column;
+  gap: 12px;
   color: #0f172a;
   background: rgba(255, 255, 255, 0.78);
   font-weight: 800;
 }
 
 .webPdfError {
-  gap: 6px;
   color: #991b1b;
   background: #fff7f7;
 }
 
-.webPdfError span {
+.webPdfLoadingSpinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid rgba(15, 48, 130, 0.16);
+  border-top-color: #0f3082;
+  border-radius: 50%;
+  animation: webPdfSpin 700ms linear infinite;
+}
+
+@keyframes webPdfSpin {
+  to { transform: rotate(360deg); }
+}
+
+.webPdfErrorContent,
+.planMediaState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  max-width: 520px;
+  margin: auto;
   color: #7f1d1d;
+  text-align: center;
+}
+
+.webPdfErrorContent > span:not(.webPdfErrorIcon),
+.planMediaState > span:not(.webPdfErrorIcon):not(.webPdfLoadingSpinner) {
+  color: #7f1d1d;
+  line-height: 1.55;
+}
+
+.webPdfErrorIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid #fecaca;
+  border-radius: 50%;
+  color: #b91c1c;
+  background: #fff;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.webPdfErrorContent button,
+.planMediaState button {
+  min-height: 44px;
+  padding: 10px 18px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  color: #991b1b;
+  background: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.webPdfErrorContent button:hover,
+.planMediaState button:hover {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.webPdfErrorContent button:focus-visible,
+.planMediaState button:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.24);
+  outline-offset: 2px;
+}
+
+.planMediaState {
+  min-height: 420px;
+  padding: 32px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.planMediaState > .webPdfLoadingSpinner + strong,
+.planMediaState > .webPdfLoadingSpinner ~ span {
+  color: #0f172a;
 }
 
 .pdfPinHint {
