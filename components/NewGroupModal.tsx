@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { C } from '@/constants/colors';
-import { Profile } from '@/constants/types';
+import { ChannelMemberIdentity, Profile } from '@/constants/types';
 import { ROLE_LABELS } from '@/constants/roles';
 import { useTranslation } from 'react-i18next';
 
@@ -20,11 +20,12 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   profiles: Profile[];
+  currentUserId: string;
   currentUserName: string;
-  onCreate: (name: string, members: string[], color: string) => void;
+  onCreate: (name: string, members: ChannelMemberIdentity[], color: string) => void;
 }
 
-export default function NewGroupModal({ visible, onClose, profiles, currentUserName, onCreate }: Props) {
+export default function NewGroupModal({ visible, onClose, profiles, currentUserId, currentUserName, onCreate }: Props) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
@@ -34,14 +35,14 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
   const [step, setStep] = useState<'members' | 'name'>('members');
 
   const filtered = useMemo(() => {
-    const others = profiles.filter(p => p.name !== currentUserName);
+    const others = profiles.filter(profile => profile.id !== currentUserId);
     if (!search.trim()) return others;
     const q = search.toLowerCase();
     return others.filter(p =>
       p.name.toLowerCase().includes(q) ||
       t(`roles.${p.role}`, { defaultValue: ROLE_LABELS[p.role] ?? p.role }).toLowerCase().includes(q)
     );
-  }, [profiles, currentUserName, search, t]);
+  }, [profiles, currentUserId, search, t]);
 
   function toggleSelect(p: Profile) {
     setSelected(prev =>
@@ -60,8 +61,7 @@ export default function NewGroupModal({ visible, onClose, profiles, currentUserN
 
   function handleCreate() {
     const name = groupName.trim() || selected.map(p => p.name.split(' ')[0]).join(', ');
-    const members = [currentUserName, ...selected.map(p => p.name)];
-    onCreate(name, members, selectedColor);
+    onCreate(name, selected.map(({ id, name: memberName }) => ({ id, name: memberName })), selectedColor);
     handleClose();
   }
 

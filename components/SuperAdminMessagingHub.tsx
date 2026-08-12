@@ -269,11 +269,11 @@ export default function SuperAdminMessagingHub() {
   }
 
   function handleStartDM(profile: Profile) {
-    const ch = getOrCreateDMChannel(profile.name);
+    const ch = getOrCreateDMChannel({ id: profile.id, name: profile.name });
     goToChannel(ch, false);
   }
 
-  function handleCreateGroup(name: string, members: string[], color: string) {
+  function handleCreateGroup(name: string, members: Array<Pick<Profile, 'id' | 'name'>>, color: string) {
     const ch = addGroupChannel(name, members, color);
     goToChannel(ch, false);
   }
@@ -740,6 +740,7 @@ export default function SuperAdminMessagingHub() {
         visible={showNewDM}
         onClose={() => setShowNewDM(false)}
         onSelect={handleStartDM}
+        currentUserId={user?.id ?? ''}
         currentUserName={user?.name ?? ''}
         profiles={profiles}
       />
@@ -747,6 +748,7 @@ export default function SuperAdminMessagingHub() {
         visible={showNewGroup}
         onClose={() => setShowNewGroup(false)}
         onCreate={handleCreateGroup}
+        currentUserId={user?.id ?? ''}
         currentUserName={user?.name ?? ''}
         profiles={profiles}
       />

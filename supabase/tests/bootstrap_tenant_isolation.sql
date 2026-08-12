@@ -107,9 +107,13 @@ create table public.channels (
   id text primary key,
   organization_id uuid references public.organizations(id),
   name text not null default '',
+  description text,
+  icon text not null default 'chatbubbles',
+  color text not null default '#10B981',
   type text not null default 'general',
   created_by text,
-  members jsonb not null default '[]'::jsonb
+  members jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now()
 );
 
 create table public.chantiers (
@@ -322,6 +326,9 @@ grant select, insert, update, delete on storage.objects to anon, authenticated;
 -- Deterministic A/B fixtures.
 insert into auth.users(id, email, raw_user_meta_data) values
   ('10000000-0000-4000-8000-000000000001', 'a@example.test', '{"full_name":"User A"}'),
+  ('40000000-0000-4000-8000-000000000004', 'a-member@example.test', '{"full_name":"Duplicate Name"}'),
+  ('50000000-0000-4000-8000-000000000005', 'a-outsider@example.test', '{"full_name":"Duplicate Name"}'),
+  ('60000000-0000-4000-8000-000000000006', 'a-admin-outsider@example.test', '{"full_name":"Tenant Admin Outsider"}'),
   ('20000000-0000-4000-8000-000000000002', 'b@example.test', '{"full_name":"User B"}'),
   ('30000000-0000-4000-8000-000000000003', 'none@example.test', '{"full_name":"No Tenant"}');
 
@@ -337,6 +344,9 @@ insert into public.profiles(
   id, name, email, role, role_label, organization_id, company_id
 ) values
   ('10000000-0000-4000-8000-000000000001', 'User A', 'a@example.test', 'admin', 'Administrator', 'aaaaaaaa-0000-4000-8000-000000000001', 'company-a'),
+  ('40000000-0000-4000-8000-000000000004', 'Duplicate Name', 'a-member@example.test', 'observateur', 'Observer', 'aaaaaaaa-0000-4000-8000-000000000001', 'company-a'),
+  ('50000000-0000-4000-8000-000000000005', 'Duplicate Name', 'a-outsider@example.test', 'observateur', 'Observer', 'aaaaaaaa-0000-4000-8000-000000000001', 'company-a'),
+  ('60000000-0000-4000-8000-000000000006', 'Tenant Admin Outsider', 'a-admin-outsider@example.test', 'admin', 'Administrator', 'aaaaaaaa-0000-4000-8000-000000000001', 'company-a'),
   ('20000000-0000-4000-8000-000000000002', 'User B', 'b@example.test', 'admin', 'Administrator', 'bbbbbbbb-0000-4000-8000-000000000002', 'company-b'),
   ('30000000-0000-4000-8000-000000000003', 'No Tenant', 'none@example.test', 'observateur', 'Observer', null, null);
 

@@ -11,7 +11,7 @@ import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { isSameUserName } from '@/lib/mappers';
-import { Channel, Message } from '@/constants/types';
+import { Channel, ChannelMemberIdentity, Message, Profile } from '@/constants/types';
 import NewChannelModal from '@/components/NewChannelModal';
 import EditChannelModal from '@/components/EditChannelModal';
 import NewDMModal from '@/components/NewDMModal';
@@ -375,13 +375,13 @@ export default function MessagesTabScreen() {
     goToChannel(ch);
   }
 
-  function handleCreateGroup(name: string, members: string[], color: string) {
+  function handleCreateGroup(name: string, members: ChannelMemberIdentity[], color: string) {
     const ch = addGroupChannel(name, members, color);
     goToChannel(ch);
   }
 
-  function handleStartDM(profile: { name: string }) {
-    const ch = getOrCreateDMChannel(profile.name);
+  function handleStartDM(profile: Profile) {
+    const ch = getOrCreateDMChannel({ id: profile.id, name: profile.name });
     goToChannel(ch);
   }
 
@@ -1042,6 +1042,7 @@ export default function MessagesTabScreen() {
         visible={showNewGroup}
         onClose={() => setShowNewGroup(false)}
         profiles={profiles}
+        currentUserId={user?.id ?? ''}
         currentUserName={currentUserName}
         onCreate={handleCreateGroup}
       />
@@ -1049,6 +1050,7 @@ export default function MessagesTabScreen() {
         visible={showNewDM}
         onClose={() => setShowNewDM(false)}
         profiles={profiles}
+        currentUserId={user?.id ?? ''}
         currentUserName={currentUserName}
         onSelect={handleStartDM}
       />

@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus, InteractionManager, Platform } from 'react-native';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import {
-  Reserve, Company, Task, Document, Photo, Message, Channel, Profile,
+  Reserve, Company, Task, Document, Photo, Message, Channel, Profile, ChannelMemberIdentity,
   Comment, ReserveStatus, Chantier, SitePlan, Visite, Lot, Opr,
 } from '@/constants/types';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -142,18 +142,18 @@ interface AppContextValue {
   deleteDocument: (id: string) => void;
   addCustomChannel: (name: string, description: string, icon: string, color: string) => Channel;
   removeCustomChannel: (id: string) => void;
-  addGroupChannel: (name: string, members: string[], color: string) => Channel;
+  addGroupChannel: (name: string, members: ChannelMemberIdentity[], color: string) => Channel;
   removeGroupChannel: (id: string) => void;
   renameChannel: (id: string, newName: string) => void;
   updateCustomChannel: (id: string, updates: Partial<Pick<Channel, 'name' | 'description' | 'icon' | 'color'>>) => void;
-  addChannelMember: (id: string, memberName: string) => void;
-  removeChannelMember: (id: string, memberName: string) => void;
+  addChannelMember: (id: string, member: ChannelMemberIdentity) => void;
+  removeChannelMember: (id: string, member: ChannelMemberIdentity) => void;
   pinChannel: (id: string) => { success: boolean; reason?: string };
   unpinChannel: (id: string) => void;
   hideDmChannel: (id: string) => void;
   unhideDmChannel: (id: string) => void;
   maxPinnedChannels: number;
-  getOrCreateDMChannel: (otherName: string) => Channel;
+  getOrCreateDMChannel: (other: ChannelMemberIdentity) => Channel;
   fetchOlderMessages: (channelId: string, beforeCreatedAt: string) => Promise<boolean>;
   fetchChannelMessages: (channelId: string) => Promise<void>;
   refreshChannelMessages: (channelId: string) => Promise<void>;

@@ -565,10 +565,15 @@ export interface Channel {
   color: string;
   type: 'general' | 'building' | 'company' | 'custom' | 'dm' | 'group';
   dmParticipants?: string[];
+  /** Authoritative private-channel membership. Display names stay in members. */
+  memberUserIds?: string[];
   members?: string[];
   createdBy?: string;
+  createdByUserId?: string;
   organizationId?: string;
 }
+
+export type ChannelMemberIdentity = Pick<Profile, 'id' | 'name'>;
 
 export interface Profile {
   id: string;

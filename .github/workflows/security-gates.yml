@@ -105,5 +105,20 @@ jobs:
       - name: Pin chantier visibility helper search path
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260811001700_fix_chantier_visibility_search_path.sql
 
+      - name: Apply private-channel UUID membership migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260812162402_migrate_private_channel_members_to_user_ids.sql
+
+      - name: Remove legacy name-based messaging policies
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260812170011_remove_legacy_name_based_messaging_policies.sql
+
+      - name: Optimize private-channel UUID policies
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260812170144_optimize_private_channel_uuid_policies.sql
+
+      - name: Harden private-channel management scope
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260812170600_harden_private_channel_management.sql
+
+      - name: Reconcile the empty legacy DM alias
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260812171000_reconcile_empty_legacy_dm_alias.sql
+
       - name: Execute user A x object B matrix
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/tenant_isolation_matrix.sql

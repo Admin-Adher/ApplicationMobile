@@ -229,11 +229,13 @@ async function resolveReserveRecipientProfileIds(supabase: any, reserve: any) {
 async function resolveMessageRecipientProfileIds(supabase: any, message: any, requesterProfile: any) {
   const orgId = message.organization_id || requesterProfile?.organization_id;
   if (!orgId) return [];
-  const { data: channel } = await supabase
+  const { data: channel, error: channelError } = await supabase
     .from('channels')
-    .select('id, name, type, members, organization_id')
+    .select('id, name, type, organization_id')
     .eq('id', message.channel_id)
+    .eq('organization_id', orgId)
     .maybeSingle();
+  if (channelError) throw channelError;
 
   if (message.channel_id?.startsWith('company-')) {
     const companyId = message.channel_id.slice('company-'.length);
@@ -244,16 +246,23 @@ async function resolveMessageRecipientProfileIds(supabase: any, message: any, re
       .map((p: any) => p.id);
   }
 
-  const memberNames = Array.isArray(channel?.members) ? channel.members : [];
-  const dmNames = message.channel_id?.startsWith('dm-') ? message.channel_id.slice(3).split('__') : [];
-  const targetNames = Array.from(new Set([...memberNames, ...dmNames].filter(Boolean)))
-    .filter(name => !sameName(name, message.sender));
+  if (!channel) return [];
+
+  if (channel.type === 'group' || channel.type === 'dm') {
+    const { data: memberRows, error: memberError } = await supabase
+      .from('channel_members')
+      .select('user_id')
+      .eq('organization_id', orgId)
+      .eq('channel_id', message.channel_id)
+      .eq('status', 'active');
+    if (memberError) throw memberError;
+    return Array.from(new Set((memberRows ?? [])
+      .map((row: any) => String(row.user_id ?? ''))
+      .filter((userId: string) => userId && userId !== requesterProfile.id)));
+  }
 
   const profiles = await getOrganizationUsers(supabase, orgId);
-  const candidates = targetNames.length > 0
-    ? profiles.filter((p: any) => targetNames.some(name => sameName(name, p.name)))
-    : profiles;
-  return candidates
+  return profiles
     .filter((p: any) => p.id !== requesterProfile.id && !sameName(p.name, message.sender))
     .map((p: any) => p.id);
 }

@@ -19,17 +19,18 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   profiles: Profile[];
+  currentUserId: string;
   currentUserName: string;
   onSelect: (profile: Profile) => void;
 }
 
-export default function NewDMModal({ visible, onClose, profiles, currentUserName, onSelect }: Props) {
+export default function NewDMModal({ visible, onClose, profiles, currentUserId, currentUserName, onSelect }: Props) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const [search, setSearch] = useState('');
 
   const filtered = useMemo(() => {
-    const others = profiles.filter(p => p.name !== currentUserName);
+    const others = profiles.filter(profile => profile.id !== currentUserId);
     if (!search.trim()) return others;
     const q = search.toLowerCase();
     return others.filter(p =>
@@ -37,7 +38,7 @@ export default function NewDMModal({ visible, onClose, profiles, currentUserName
       p.email.toLowerCase().includes(q) ||
       t(`roles.${p.role}`, { defaultValue: ROLE_LABELS[p.role] ?? p.role }).toLowerCase().includes(q)
     );
-  }, [profiles, currentUserName, search, t]);
+  }, [profiles, currentUserId, search, t]);
 
   function handleSelect(p: Profile) {
     onSelect(p);

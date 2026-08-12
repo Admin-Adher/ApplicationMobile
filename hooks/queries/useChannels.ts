@@ -4,7 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
-import { Channel } from '@/constants/types';
+import { Channel, ChannelMemberIdentity } from '@/constants/types';
 import { genId } from '@/lib/utils';
 import { isSupabaseSessionValid } from '@/lib/offlineCache';
 
@@ -22,14 +22,23 @@ export function dmChannelId(nameA: string, nameB: string): string {
   return 'dm-' + [nameA, nameB].sort().join('__');
 }
 
+export function dmChannelIdByUserIds(userIdA: string, userIdB: string): string {
+  return 'dm-' + [userIdA, userIdB].sort().join('__');
+}
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function getDmParticipants(
   channelId: string,
   members?: string[],
   dmParticipants?: string[],
 ): string[] {
-  const fromId = channelId.startsWith('dm-')
+  const encodedParticipants = channelId.startsWith('dm-')
     ? channelId.slice(3).split('__')
     : [];
+  const fromId = encodedParticipants.length === 2 && encodedParticipants.every(value => UUID_PATTERN.test(value))
+    ? []
+    : encodedParticipants;
   const all = [...(dmParticipants ?? []), ...(members ?? []), ...fromId]
     .map(name => String(name).trim())
     .filter(Boolean);
@@ -226,6 +235,30 @@ export function useChannels() {
       }
       console.log('[useChannels] _loadChannelsFromSupabase: loaded', data.length, 'channels');
 
+      const privateChannelIds = data
+        .filter((row: any) => row.type === 'group' || row.type === 'dm')
+        .map((row: any) => String(row.id));
+      const memberUserIdsByChannel = new Map<string, string[]>();
+      if (privateChannelIds.length > 0) {
+        const { data: memberRows, error: memberError } = await (supabase as any)
+          .from('channel_members')
+          .select('channel_id,user_id,status')
+          .in('channel_id', privateChannelIds)
+          .eq('status', 'active')
+          .order('user_id', { ascending: true });
+        if (memberError) {
+          console.warn('[useChannels] channel_members load error:', memberError.code, memberError.message);
+        } else {
+          for (const row of memberRows ?? []) {
+            const channelId = String(row.channel_id);
+            const current = memberUserIdsByChannel.get(channelId) ?? [];
+            const memberId = String(row.user_id);
+            if (!current.includes(memberId)) current.push(memberId);
+            memberUserIdsByChannel.set(channelId, current);
+          }
+        }
+      }
+
       const myName = userNameRef.current;
       const general: Channel[] = [];
       const custom: Channel[] = [];
@@ -239,6 +272,7 @@ export function useChannels() {
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: r.type as 'general' | 'building',
             members, createdBy: r.created_by ?? undefined,
+            createdByUserId: r.created_by_user_id ?? undefined,
             organizationId: r.organization_id ?? undefined,
           });
         } else if (r.type === 'custom') {
@@ -246,12 +280,17 @@ export function useChannels() {
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'custom' as const,
             members, createdBy: r.created_by ?? undefined,
+            createdByUserId: r.created_by_user_id ?? undefined,
+            organizationId: r.organization_id ?? undefined,
           });
         } else if (r.type === 'group') {
           group.push({
             id: r.id, name: r.name, description: r.description ?? '',
             icon: r.icon, color: r.color, type: 'group' as const,
-            members, createdBy: r.created_by ?? undefined,
+            members, memberUserIds: memberUserIdsByChannel.get(String(r.id)) ?? [],
+            createdBy: r.created_by ?? undefined,
+            createdByUserId: r.created_by_user_id ?? undefined,
+            organizationId: r.organization_id ?? undefined,
           });
         } else if (r.type === 'dm') {
           const participants = members;
@@ -263,7 +302,10 @@ export function useChannels() {
             id: r.id, name: otherName, description: r.description ?? '',
             icon: r.icon ?? 'person-circle', color: r.color ?? '#EC4899',
             type: 'dm' as const, members: participants,
+            memberUserIds: memberUserIdsByChannel.get(String(r.id)) ?? [],
             dmParticipants: participants, createdBy: r.created_by ?? undefined,
+            createdByUserId: r.created_by_user_id ?? undefined,
+            organizationId: r.organization_id ?? undefined,
           });
         }
       }
@@ -389,26 +431,71 @@ export function useChannels() {
     }
   }, [enqueueOperation, CUSTOM_CHANNELS_KEY]);
 
+  const privateChannelRpc = useCallback((ch: Channel) => {
+    const memberUserIds = Array.from(new Set(ch.memberUserIds ?? [])).filter(Boolean).sort();
+    const args = {
+      p_channel_id: ch.id,
+      p_type: ch.type,
+      p_name: ch.name,
+      p_description: ch.description ?? '',
+      p_icon: ch.icon ?? (ch.type === 'dm' ? 'person-circle' : 'people-circle'),
+      p_color: ch.color ?? (ch.type === 'dm' ? '#EC4899' : '#7C3AED'),
+      p_member_user_ids: memberUserIds,
+      p_organization_id: ch.organizationId ?? orgIdRef.current ?? null,
+    };
+    return {
+      args,
+      operation: {
+        table: 'channels',
+        op: 'rpc' as const,
+        data: {
+          id: ch.id,
+          type: ch.type,
+          name: ch.name,
+          members: ch.members ?? [],
+          member_user_ids: memberUserIds,
+        },
+        rpc: { fn: 'upsert_private_channel', args },
+      },
+    };
+  }, []);
+
+  const persistPrivateChannel = useCallback(async (ch: Channel): Promise<void> => {
+    const { operation } = privateChannelRpc(ch);
+    if (!isOnlineRef.current) {
+      enqueueOperation(operation);
+      return;
+    }
+    try {
+      const { error } = await (supabase as any).rpc(operation.rpc.fn, operation.rpc.args);
+      if (error) enqueueOperation(operation);
+    } catch {
+      enqueueOperation(operation);
+    }
+  }, [enqueueOperation, privateChannelRpc]);
+
   const saveGroupChannels = useCallback(async (channels: Channel[]) => {
     try { await AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(channels)); } catch {}
     if (!isSupabaseConfigured) return;
-    if (!isOnlineRef.current) {
-      for (const ch of channels) {
-        enqueueOperation({ table: 'channels', op: 'upsert', data: {
-          id: ch.id, name: ch.name, description: ch.description ?? null,
-          icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
-          members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgIdRef.current ?? null,
-        }});
-      }
-      return;
-    }
     const orgId = orgIdRef.current;
     for (const ch of channels) {
+      if (ch.type === 'group' && (ch.memberUserIds?.length ?? 0) >= 2) {
+        await persistPrivateChannel({ ...ch, organizationId: ch.organizationId ?? orgId ?? undefined });
+        continue;
+      }
+
+      // Transitional fallback for a cached group created by an older APK.
+      // The database compatibility trigger accepts it only if every display
+      // name resolves uniquely; UUID-capable channels never use this path.
       const data = {
         id: ch.id, name: ch.name, description: ch.description ?? null,
         icon: ch.icon ?? 'people-circle', color: ch.color ?? '#10B981', type: ch.type,
         members: ch.members ?? [], created_by: ch.createdBy ?? null, organization_id: orgId ?? null,
       };
+      if (!isOnlineRef.current) {
+        enqueueOperation({ table: 'channels', op: 'upsert', data });
+        continue;
+      }
       try {
         const { error } = await (supabase as any).from('channels').upsert(data);
         if (error) enqueueOperation({ table: 'channels', op: 'upsert', data });
@@ -416,7 +503,7 @@ export function useChannels() {
         enqueueOperation({ table: 'channels', op: 'upsert', data });
       }
     }
-  }, [enqueueOperation, GROUP_CHANNELS_KEY]);
+  }, [enqueueOperation, GROUP_CHANNELS_KEY, persistPrivateChannel]);
 
   const savePinnedChannels = useCallback(async (ids: string[]) => {
     try { await AsyncStorage.setItem(PINNED_CHANNELS_KEY, JSON.stringify(ids)); } catch {}
@@ -473,14 +560,25 @@ export function useChannels() {
     }
   }, [saveCustomChannels, enqueueOperation]);
 
-  const addGroupChannel = useCallback((name: string, members: string[], color: string): Channel => {
+  const addGroupChannel = useCallback((name: string, members: ChannelMemberIdentity[], color: string): Channel => {
     const creator = userNameRef.current;
-    const allMembers = creator && !members.includes(creator) ? [creator, ...members] : members;
+    const creatorId = userIdRef.current ?? '';
+    const uniqueMembers = members.filter((member, index, all) =>
+      !!member.id && all.findIndex(candidate => candidate.id === member.id) === index
+    );
+    const allMemberIdentities = creatorId && !uniqueMembers.some(member => member.id === creatorId)
+      ? [{ id: creatorId, name: creator }, ...uniqueMembers]
+      : uniqueMembers;
+    const allMembers = allMemberIdentities.map(member => member.name);
     const newCh: Channel = {
       id: 'group-' + genId(), name,
       description: `Groupe : ${allMembers.join(', ')}`,
       icon: 'people-circle', color, type: 'group',
-      members: allMembers, createdBy: creator,
+      members: allMembers,
+      memberUserIds: allMemberIdentities.map(member => member.id),
+      createdBy: creator,
+      createdByUserId: creatorId || undefined,
+      organizationId: orgIdRef.current ?? undefined,
     };
     setGroupChannels(prev => {
       const updated = [...prev, newCh];
@@ -538,43 +636,74 @@ export function useChannels() {
     if (ch) { _updateAndPersistChannel({ ...ch, name: newName }); return; }
   }, [customChannels, groupChannels, _updateAndPersistChannel]);
 
-  const addChannelMember = useCallback((id: string, memberName: string) => {
+  const addChannelMember = useCallback((id: string, member: ChannelMemberIdentity) => {
     const ch = [...customChannels, ...groupChannels].find(c => c.id === id);
     if (ch) {
       const members = [...(ch.members ?? [])];
-      if (members.includes(memberName)) return;
-      members.push(memberName);
+      if (ch.type !== 'group') {
+        if (members.includes(member.name)) return;
+        members.push(member.name);
+        _updateAndPersistChannel({ ...ch, members });
+        return;
+      }
+      const memberUserIds = [...(ch.memberUserIds ?? [])];
+      if (memberUserIds.includes(member.id)) return;
+      members.push(member.name);
+      memberUserIds.push(member.id);
       _updateAndPersistChannel({
-        ...ch, members,
+        ...ch, members, memberUserIds,
         description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
       });
     } else {
       setChannelMembersOverride(prev => {
         const current = prev[id] ?? [];
-        if (current.includes(memberName)) return prev;
-        const updated = { ...prev, [id]: [...current, memberName] };
+        if (current.includes(member.name)) return prev;
+        const updated = { ...prev, [id]: [...current, member.name] };
         AsyncStorage.setItem(CHANNEL_MEMBERS_OVERRIDE_KEY, JSON.stringify(updated)).catch(() => {});
         return updated;
       });
     }
   }, [customChannels, groupChannels, _updateAndPersistChannel, CHANNEL_MEMBERS_OVERRIDE_KEY]);
 
-  const removeChannelMember = useCallback((id: string, memberName: string) => {
+  const removeChannelMember = useCallback((id: string, member: ChannelMemberIdentity) => {
     const ch = [...customChannels, ...groupChannels].find(c => c.id === id);
     if (ch) {
-      const members = (ch.members ?? []).filter(m => m !== memberName);
-      _updateAndPersistChannel({
-        ...ch, members,
+      if (ch.type !== 'group') {
+        const members = (ch.members ?? []).filter(name => name !== member.name);
+        _updateAndPersistChannel({ ...ch, members });
+        return;
+      }
+      const memberIndex = (ch.memberUserIds ?? []).findIndex(userId => userId === member.id);
+      const memberUserIds = (ch.memberUserIds ?? []).filter(userId => userId !== member.id);
+      const members = (ch.members ?? []).filter((name, index) =>
+        memberIndex >= 0 ? index !== memberIndex : name !== member.name
+      );
+      const updatedChannel = {
+        ...ch, members, memberUserIds,
         description: ch.type === 'group' ? `Groupe : ${members.join(', ')}` : ch.description,
-      });
+      };
+      const currentUserId = userIdRef.current;
+      const isSelfLeave = !!currentUserId
+        && member.id === currentUserId
+        && (ch.createdByUserId ? ch.createdByUserId !== currentUserId : ch.createdBy !== userNameRef.current);
+      if (isSelfLeave) {
+        setGroupChannels(prev => {
+          const next = prev.filter(channel => channel.id !== id);
+          AsyncStorage.setItem(GROUP_CHANNELS_KEY, JSON.stringify(next)).catch(() => {});
+          return next;
+        });
+        void persistPrivateChannel(updatedChannel);
+        return;
+      }
+      _updateAndPersistChannel(updatedChannel);
     } else {
       setChannelMembersOverride(prev => {
-        const updated = { ...prev, [id]: (prev[id] ?? []).filter(m => m !== memberName) };
+        const updated = { ...prev, [id]: (prev[id] ?? []).filter(name => name !== member.name) };
         AsyncStorage.setItem(CHANNEL_MEMBERS_OVERRIDE_KEY, JSON.stringify(updated)).catch(() => {});
         return updated;
       });
     }
-  }, [customChannels, groupChannels, _updateAndPersistChannel, CHANNEL_MEMBERS_OVERRIDE_KEY]);
+  }, [customChannels, groupChannels, _updateAndPersistChannel, CHANNEL_MEMBERS_OVERRIDE_KEY, GROUP_CHANNELS_KEY, persistPrivateChannel]);
 
   const pinChannel = useCallback((id: string): { success: boolean; reason?: string } => {
     if (pinnedChannelIds.includes(id)) return { success: false, reason: 'already_pinned' };
@@ -627,70 +756,75 @@ export function useChannels() {
     saveHiddenDmChannels(next);
   }, [saveHiddenDmChannels]);
 
-  const getOrCreateDMChannel = useCallback((otherName: string): Channel => {
+  const getOrCreateDMChannel = useCallback((other: ChannelMemberIdentity): Channel => {
     const myName = userNameRef.current;
-    const chId = dmChannelId(myName, otherName);
-    const existing = persistedDmChannelsRef.current.find(c => c.id === chId);
+    const myId = userIdRef.current ?? '';
+    const expectedMemberIds = [myId, other.id].filter(Boolean).sort();
+    const uuidChannelId = myId && other.id
+      ? dmChannelIdByUserIds(myId, other.id)
+      : dmChannelId(myName, other.name);
+    const existing = persistedDmChannelsRef.current.find(channel => {
+      const currentIds = [...(channel.memberUserIds ?? [])].filter(Boolean).sort();
+      return (
+        currentIds.length === expectedMemberIds.length
+        && currentIds.every((value, index) => value === expectedMemberIds[index])
+      ) || channel.id === uuidChannelId;
+    });
+    const chId = existing?.id ?? uuidChannelId;
     if (existing) {
       const participants = getDmParticipants(chId, existing.members, existing.dmParticipants);
-      const normalizedParticipants = [myName, otherName, ...participants]
+      const normalizedParticipants = [myName, other.name, ...participants]
         .map(name => String(name).trim())
         .filter(Boolean)
         .filter((name, index, arr) => arr.indexOf(name) === index);
       const displayName = getDmDisplayName(
         { ...existing, members: normalizedParticipants, dmParticipants: normalizedParticipants },
         myName,
-        otherName,
+        other.name,
       );
       const fixedExisting: Channel = {
         ...existing,
         name: displayName,
         description: `Message direct avec ${displayName}`,
         members: normalizedParticipants,
+        memberUserIds: expectedMemberIds,
         dmParticipants: normalizedParticipants,
+        organizationId: existing.organizationId ?? orgIdRef.current ?? undefined,
       };
       if (
         existing.name !== fixedExisting.name ||
         JSON.stringify(existing.members ?? []) !== JSON.stringify(fixedExisting.members ?? []) ||
+        JSON.stringify([...(existing.memberUserIds ?? [])].sort()) !== JSON.stringify(expectedMemberIds) ||
         JSON.stringify(existing.dmParticipants ?? []) !== JSON.stringify(fixedExisting.dmParticipants ?? [])
       ) {
         setPersistedDmChannels(prev => prev.map(c => c.id === chId ? fixedExisting : c));
+        if (isSupabaseConfigured && expectedMemberIds.length === 2) {
+          const repairPromise = persistPrivateChannel(fixedExisting)
+            .finally(() => dmUpsertPromisesRef.current.delete(chId));
+          dmUpsertPromisesRef.current.set(chId, repairPromise);
+        }
       }
       return fixedExisting;
     }
 
-    const participants = [myName, otherName].filter(Boolean);
-    const displayName = getDmDisplayName({ id: chId, name: otherName, members: participants }, myName, otherName);
+    const participants = [myName, other.name].filter(Boolean);
+    const displayName = getDmDisplayName({ id: chId, name: other.name, members: participants }, myName, other.name);
     const newChannel: Channel = {
       id: chId, name: displayName,
       description: `Message direct avec ${displayName}`,
       icon: 'person-circle', color: '#EC4899', type: 'dm',
       members: participants,
+      memberUserIds: expectedMemberIds,
       dmParticipants: participants,
+      createdBy: myName,
+      createdByUserId: myId || undefined,
+      organizationId: orgIdRef.current ?? undefined,
     };
 
-    if (isSupabaseConfigured) {
-      const orgId = orgIdRef.current;
-      const channelData = {
-        id: chId, name: displayName,
-        description: `Message direct avec ${displayName}`,
-        icon: 'person-circle', color: '#EC4899', type: 'dm',
-        members: participants, created_by: myName, organization_id: orgId ?? null,
-      };
-      if (!isOnlineRef.current) {
-        enqueueOperation({ table: 'channels', op: 'upsert', data: channelData });
-      } else {
-        const upsertPromise: Promise<void> = (supabase as any).from('channels').upsert(channelData)
-          .then(({ error }: { error: any }) => {
-            if (error) enqueueOperation({ table: 'channels', op: 'upsert', data: channelData });
-            dmUpsertPromisesRef.current.delete(chId);
-          })
-          .catch(() => {
-            enqueueOperation({ table: 'channels', op: 'upsert', data: channelData });
-            dmUpsertPromisesRef.current.delete(chId);
-          });
-        dmUpsertPromisesRef.current.set(chId, upsertPromise);
-      }
+    if (isSupabaseConfigured && expectedMemberIds.length === 2) {
+      const upsertPromise = persistPrivateChannel(newChannel)
+        .finally(() => dmUpsertPromisesRef.current.delete(chId));
+      dmUpsertPromisesRef.current.set(chId, upsertPromise);
     }
 
     const newPending = new Set(pendingDmChannelIdsRef.current).add(chId);
@@ -701,7 +835,7 @@ export function useChannels() {
     setPersistedDmChannels(prev => prev.some(c => c.id === chId) ? prev : [...prev, newChannel]);
 
     return newChannel;
-  }, [enqueueOperation, PENDING_DM_KEY]);
+  }, [persistPrivateChannel, PENDING_DM_KEY]);
 
   const getDmUpsertPromise = useCallback((channelId: string) => {
     return dmUpsertPromisesRef.current.get(channelId);
@@ -718,6 +852,8 @@ export function useChannels() {
           id: r.id, name: r.name, description: r.description ?? '',
           icon: r.icon, color: r.color, type: r.type,
           members: r.members ?? [], createdBy: r.created_by ?? undefined,
+          createdByUserId: r.created_by_user_id ?? undefined,
+          organizationId: r.organization_id ?? undefined,
         };
         if (r.type === 'custom') {
           setCustomChannels(prev => prev.some(c => c.id === ch.id) ? prev : [...prev, ch]);
@@ -739,6 +875,7 @@ export function useChannels() {
         } else if (r.type === 'general' || r.type === 'building') {
           setGeneralChannels(prev => prev.some(c => c.id === ch.id) ? prev : [...prev, ch]);
         }
+        if (r.type === 'group' || r.type === 'dm') void loadAll();
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'channels' }, (payload: any) => {
         const r = payload.new;
@@ -751,12 +888,15 @@ export function useChannels() {
           id: r.id, name: displayName, description: r.description ?? '',
           icon: r.icon, color: r.color, type: r.type,
           members: participants, createdBy: r.created_by ?? undefined,
+          createdByUserId: r.created_by_user_id ?? undefined,
+          organizationId: r.organization_id ?? undefined,
           ...(r.type === 'dm' ? { dmParticipants: participants } : {}),
         };
         if (r.type === 'custom') setCustomChannels(prev => prev.map(c => c.id === ch.id ? ch : c));
         else if (r.type === 'group') setGroupChannels(prev => prev.map(c => c.id === ch.id ? ch : c));
         else if (r.type === 'dm') setPersistedDmChannels(prev => prev.map(c => c.id === ch.id ? ch : c));
         else setGeneralChannels(prev => prev.map(c => c.id === ch.id ? ch : c));
+        if (r.type === 'group' || r.type === 'dm') void loadAll();
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'channels' }, (payload: any) => {
         const r = payload.old;

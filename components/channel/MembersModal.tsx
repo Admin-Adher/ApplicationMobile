@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
-import { Channel, Profile, User } from '@/constants/types';
+import { Channel, ChannelMemberIdentity, Profile, User } from '@/constants/types';
 import { useApp } from '@/context/AppContext';
 import { getAvatarColor } from './MessageBubble';
 
@@ -14,7 +14,7 @@ interface Props {
   channelId: string;
   channelObj: Channel | undefined;
   liveChannelName: string;
-  liveMembers: string[];
+  liveMemberIdentities: ChannelMemberIdentity[];
   color: string;
   isDMChannel: boolean;
   isGroupChannel: boolean;
@@ -27,13 +27,13 @@ interface Props {
   profiles: Profile[];
   onRenamePress: () => void;
   onAddMemberPress: () => void;
-  removeChannelMember: (id: string, name: string) => void;
+  removeChannelMember: (id: string, member: ChannelMemberIdentity) => void;
   removeCustomChannel: (id: string) => void;
   removeGroupChannel: (id: string) => void;
 }
 
 export default function MembersModal({
-  visible, onClose, channelId, channelObj, liveChannelName, liveMembers,
+  visible, onClose, channelId, channelObj, liveChannelName, liveMemberIdentities,
   color, isDMChannel, isGroupChannel, isEditable, canDelete = false, isCreator, channelIcon,
   user, knownSenders, profiles, onRenamePress, onAddMemberPress,
   removeChannelMember, removeCustomChannel, removeGroupChannel,
@@ -43,7 +43,9 @@ export default function MembersModal({
   const insets = useSafeAreaInsets();
   const { companies } = useApp();
   const isCompanyChannel = channelObj?.type === 'company' || channelId.startsWith('company-');
-  const canManageMembers = isCreator || user?.role === 'admin' || user?.role === 'super_admin';
+  const canManageMembers = isCreator
+    || user?.role === 'super_admin'
+    || ((!isGroupChannel && !isDMChannel) && user?.role === 'admin');
   const companyChannelId = channelObj?.id ?? channelId;
   const companyId = isCompanyChannel && companyChannelId.startsWith('company-')
     ? companyChannelId.slice('company-'.length)
@@ -151,8 +153,14 @@ export default function MembersModal({
                     </TouchableOpacity>
                   )}
                 </View>
-                {liveMembers.length > 0 ? liveMembers.map(name => (
-                  <View key={name} style={styles.memberItem}>
+                {liveMemberIdentities.length > 0 ? liveMemberIdentities.map(member => {
+                  const name = member.name;
+                  const isCurrentUser = member.id === user?.id || (!user?.id && name === user?.name);
+                  const isChannelCreator = channelObj?.createdByUserId
+                    ? member.id === channelObj.createdByUserId
+                    : channelObj?.createdBy === name;
+                  return (
+                  <View key={member.id} style={styles.memberItem}>
                     <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(name) + '25' }]}>
                       <Text style={[styles.memberAvatarText, { color: getAvatarColor(name) }]}>{name.charAt(0)}</Text>
                     </View>
@@ -160,13 +168,13 @@ export default function MembersModal({
                       <Text style={styles.memberName} numberOfLines={1}>{name}</Text>
                       <CompanyPill name={name} />
                     </View>
-                    {name === user?.name && <View style={styles.meBadge}><Text style={styles.meBadgeText}>{t('membersModal.you')}</Text></View>}
-                    {channelObj?.createdBy === name && name !== user?.name && (
+                    {isCurrentUser && <View style={styles.meBadge}><Text style={styles.meBadgeText}>{t('membersModal.you')}</Text></View>}
+                    {isChannelCreator && !isCurrentUser && (
                       <View style={[styles.meBadge, { backgroundColor: C.primary + '15' }]}>
                         <Text style={[styles.meBadgeText, { color: C.primary }]}>{t('membersModal.creator')}</Text>
                       </View>
                     )}
-                    {(isEditable || isGroupChannel) && canManageMembers && name !== channelObj?.createdBy && name !== user?.name && (
+                    {(isEditable || isGroupChannel) && canManageMembers && !isChannelCreator && !isCurrentUser && (
                       <TouchableOpacity
                         style={styles.removeBtn}
                         onPress={() => {
@@ -178,7 +186,7 @@ export default function MembersModal({
                             }),
                             [
                               { text: t('common.cancel'), style: 'cancel' },
-                              { text: t('membersModal.remove'), style: 'destructive', onPress: () => removeChannelMember(channelId, name) },
+                              { text: t('membersModal.remove'), style: 'destructive', onPress: () => removeChannelMember(channelId, member) },
                             ]
                           );
                         }}
@@ -187,7 +195,8 @@ export default function MembersModal({
                       </TouchableOpacity>
                     )}
                   </View>
-                )) : (
+                  );
+                }) : (
                   <View style={{ padding: 16, alignItems: 'center' }}>
                     <Text style={styles.sub}>{t('membersModal.noMember')}</Text>
                   </View>
@@ -227,7 +236,9 @@ export default function MembersModal({
                             text: t('membersModal.leave'), style: 'destructive',
                             onPress: () => {
                               onClose();
-                              removeChannelMember(channelId, user?.name ?? '');
+                              if (user?.id) {
+                                removeChannelMember(channelId, { id: user.id, name: user.name ?? '' });
+                              }
                               router.back();
                             },
                           },

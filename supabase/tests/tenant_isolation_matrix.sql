@@ -89,6 +89,102 @@ select test.expect_error(
   $$insert into public.reserves(id, organization_id, chantier_id) values ('cross-parent', 'aaaaaaaa-0000-4000-8000-000000000001', 'chantier-b')$$,
   'composite foreign keys must reject a tenant B parent under tenant A'
 );
+
+-- Private conversations are authorized by immutable UUID membership. The two
+-- tenant-A candidates intentionally share the same display name: only the UUID
+-- explicitly supplied to the RPC becomes a member.
+select public.upsert_private_channel(
+  'private-channel-a',
+  'group',
+  'Private A',
+  'UUID membership matrix',
+  'people-circle',
+  '#123456',
+  array[
+    '10000000-0000-4000-8000-000000000001'::uuid,
+    '40000000-0000-4000-8000-000000000004'::uuid
+  ],
+  'aaaaaaaa-0000-4000-8000-000000000001'::uuid
+);
+select test.assert_true(
+  (select count(*) from public.channel_members
+   where channel_id = 'private-channel-a' and status = 'active') = 2,
+  'private channel RPC must atomically persist the exact UUID member set'
+);
+select test.expect_error(
+  $$insert into public.channels(id, name, type, members) values (
+    'legacy-ambiguous-private-channel', 'Ambiguous legacy channel', 'group',
+    '["User A", "Duplicate Name"]'::jsonb
+  )$$,
+  'legacy display names with multiple UUID matches must fail closed'
+);
+insert into public.messages(id, sender, content, timestamp, channel_id)
+values (
+  'private-message-a', 'spoofed sender', 'UUID private message',
+  '12/08/2026 16:30', 'private-channel-a'
+);
+select test.assert_true(
+  (select sender_id from public.messages where id = 'private-message-a')
+    = '10000000-0000-4000-8000-000000000001'::uuid,
+  'message sender UUID must be derived from auth.uid()'
+);
+reset role;
+
+-- The selected duplicate-name user can access the channel.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '40000000-0000-4000-8000-000000000004', false);
+select test.assert_true(
+  (select count(*) from public.channels where id = 'private-channel-a') = 1
+  and (select count(*) from public.messages where id = 'private-message-a') = 1,
+  'selected UUID member must retain the private conversation'
+);
+reset role;
+
+-- The same-tenant user with the exact same display name is not a member.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '50000000-0000-4000-8000-000000000005', false);
+select test.assert_true(
+  (select count(*) from public.channels where id = 'private-channel-a') = 0
+  and (select count(*) from public.messages where id = 'private-message-a') = 0
+  and (select count(*) from public.channel_members where channel_id = 'private-channel-a') = 0,
+  'duplicate display name must not grant private-channel access'
+);
+select test.expect_error(
+  $$insert into public.messages(id, sender, content, timestamp, channel_id) values (
+    'private-message-outsider', 'Duplicate Name', 'must be denied',
+    '12/08/2026 16:31', 'private-channel-a'
+  )$$,
+  'same-tenant non-member must not write to a private channel'
+);
+reset role;
+
+-- A tenant administrator who is not a UUID member cannot enumerate or manage
+-- a private conversation. Tenant administration is not a privacy bypass.
+set role authenticated;
+select set_config('request.jwt.claim.sub', '60000000-0000-4000-8000-000000000006', false);
+select test.assert_true(
+  (select count(*) from public.channels where id = 'private-channel-a') = 0
+  and (select count(*) from public.messages where id = 'private-message-a') = 0
+  and (select count(*) from public.channel_members where channel_id = 'private-channel-a') = 0
+  and not public.auth_can_manage_channel(
+    'aaaaaaaa-0000-4000-8000-000000000001'::uuid,
+    'private-channel-a'
+  ),
+  'tenant administrator must not bypass private UUID membership'
+);
+select test.expect_error(
+  $$select public.upsert_private_channel(
+    'private-channel-a', 'group', 'Hijacked private channel', null,
+    'people-circle', '#123456',
+    array[
+      '10000000-0000-4000-8000-000000000001'::uuid,
+      '40000000-0000-4000-8000-000000000004'::uuid,
+      '60000000-0000-4000-8000-000000000006'::uuid
+    ],
+    'aaaaaaaa-0000-4000-8000-000000000001'::uuid
+  )$$,
+  'tenant administrator must not manage a private channel they did not create'
+);
 reset role;
 
 -- Anonymous access stays fail-closed even if a legacy PUBLIC policy and table
@@ -112,6 +208,11 @@ select set_config('request.jwt.claim.sub', '20000000-0000-4000-8000-000000000002
 select test.assert_true(
   (select array_agg(id order by id) from public.reserves) = array['reserve-b'],
   'user B must see only tenant B reserves'
+);
+select test.assert_true(
+  (select count(*) from public.channels where id = 'private-channel-a') = 0
+  and (select count(*) from public.messages where id = 'private-message-a') = 0,
+  'tenant B must not reach tenant A private conversations'
 );
 reset role;
 

@@ -218,14 +218,44 @@ export default function ChannelScreen() {
   const liveChannelName = channelObj?.name ?? channelName ?? t('channel.defaultName');
   const baseMembers: string[] = channelObj?.members ?? (membersParam ? membersParam.split(',').filter(Boolean) : []);
   const overrideMembers: string[] = channelId ? (channelMembersOverride[channelId] ?? []) : [];
-  const liveMembers: string[] = useMemo(() => {
-    const merged = [...baseMembers];
-    overrideMembers.forEach(m => { if (!merged.includes(m)) merged.push(m); });
-    // Le créateur doit toujours apparaître dans la liste des membres
-    const creator = channelObj?.createdBy;
-    if (creator && !merged.includes(creator)) merged.push(creator);
+  const liveMemberIdentities = useMemo(() => {
+    const authoritativeIds = channelObj?.memberUserIds ?? [];
+    const merged = authoritativeIds.length > 0
+      ? authoritativeIds.map((id, index) => ({
+          id,
+          name: profiles.find(profile => profile.id === id)?.name ?? baseMembers[index] ?? id,
+        }))
+      : baseMembers.map((name, index) => {
+          const matches = profiles.filter(profile => profile.name === name);
+          return { id: matches.length === 1 ? matches[0].id : `legacy:${index}:${name}`, name };
+        });
+
+    overrideMembers.forEach((name, index) => {
+      if (merged.some(member => member.name === name)) return;
+      const matches = profiles.filter(profile => profile.name === name);
+      merged.push({ id: matches.length === 1 ? matches[0].id : `override:${index}:${name}`, name });
+    });
+
+    const creatorName = channelObj?.createdBy;
+    const creatorId = channelObj?.createdByUserId;
+    if (creatorName && !merged.some(member =>
+      (creatorId && member.id === creatorId) || (!creatorId && member.name === creatorName)
+    )) {
+      merged.push({ id: creatorId ?? `creator:${creatorName}`, name: creatorName });
+    }
     return merged;
-  }, [baseMembers.join(','), overrideMembers.join(','), channelObj?.createdBy]);
+  }, [
+    channelObj?.memberUserIds?.join(','),
+    baseMembers.join(','),
+    overrideMembers.join(','),
+    channelObj?.createdBy,
+    channelObj?.createdByUserId,
+    profiles,
+  ]);
+  const liveMembers = useMemo(
+    () => liveMemberIdentities.map(member => member.name),
+    [liveMemberIdentities],
+  );
   const displayChannelName = useMemo(() => {
     if (!isDMChannel) return liveChannelName;
     return getDmDisplayName(
@@ -236,8 +266,12 @@ export default function ChannelScreen() {
   const isCompanyChannel = channelObj?.type === 'company' || (channelId?.startsWith('company-') ?? false);
   const isEditable = channelObj?.type === 'custom' || channelObj?.type === 'group';
   const canDelete = channelObj?.type === 'custom' || channelObj?.type === 'group';
-  const isCreator = !!channelObj?.createdBy && channelObj.createdBy === user?.name;
-  const canManageChannelMembers = isCreator || user?.role === 'admin' || user?.role === 'super_admin';
+  const isCreator = channelObj?.createdByUserId
+    ? channelObj.createdByUserId === user?.id
+    : !!channelObj?.createdBy && channelObj.createdBy === user?.name;
+  const canManageChannelMembers = isCreator
+    || user?.role === 'super_admin'
+    || ((!isGroupChannel && !isDMChannel) && user?.role === 'admin');
 
   const [text, setText] = useState('');
   const [replyTo, setReplyTo] = useState<Message | null>(null);
@@ -452,8 +486,11 @@ export default function ChannelScreen() {
   }, [mentionQuery, allMentionNames]);
 
   const addMemberCandidates = useMemo(
-    () => profiles.filter(p => p.name !== user?.name && !liveMembers.includes(p.name)),
-    [profiles, user?.name, liveMembers.join(',')]
+    () => profiles.filter(profile =>
+      profile.id !== user?.id
+      && !liveMemberIdentities.some(member => member.id === profile.id)
+    ),
+    [profiles, user?.id, liveMemberIdentities]
   );
 
   // ── Build AttachItemModal data lists ──
@@ -1132,7 +1169,7 @@ export default function ChannelScreen() {
         channelId={channelId!}
         channelObj={channelObj}
         liveChannelName={displayChannelName}
-        liveMembers={liveMembers}
+        liveMemberIdentities={liveMemberIdentities}
         color={color}
         isDMChannel={isDMChannel}
         isGroupChannel={isGroupChannel}
@@ -1204,7 +1241,7 @@ export default function ChannelScreen() {
                 <TouchableOpacity
                   key={p.id}
                   style={styles.memberItem}
-                  onPress={() => { addChannelMember(channelId!, p.name); setAddMemberVisible(false); }}
+                  onPress={() => { addChannelMember(channelId!, { id: p.id, name: p.name }); setAddMemberVisible(false); }}
                 >
                   <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(p.name) + '25' }]}>
                     <Text style={[styles.memberAvatarText, { color: getAvatarColor(p.name) }]}>{p.name.charAt(0)}</Text>
