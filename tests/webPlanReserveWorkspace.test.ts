@@ -38,7 +38,11 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     const css = read('vercel-app/app/web/plan-reserve-workspace/PlanReserveWorkspace.module.css');
 
     expect(page).toContain('data-prw-plan-reserve-row');
+    expect(page).toContain('data-reserves-open={planReservePanelOpen}');
+    expect(css).toContain("[data-reserves-open='true']");
+    expect(css).toContain("[data-reserves-open='false']");
     expect(css).toContain('grid-template-columns: minmax(0, 1fr) minmax(14rem, 34%)');
+    expect(css).toContain('grid-template-columns: minmax(0, 1fr) 3.5rem');
     expect(css).toContain(".planRoot [data-prw-plan-reserve-row] strong");
     expect(css).toContain('overflow-wrap: anywhere');
     expect(css).toContain(".reserveRoot [data-prw-reserve-row] > div:nth-child(2) > strong");

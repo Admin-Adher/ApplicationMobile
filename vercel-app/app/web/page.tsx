@@ -8661,6 +8661,7 @@ function PlansView({
             <div
               className={`${styles.planWorkArea} ${planReservePanelOpen ? styles.planWorkAreaWithReservePanel : styles.planWorkAreaReserveCollapsed}`}
               data-prw-plan-workarea
+              data-reserves-open={planReservePanelOpen}
             >
               <div className={styles.planCanvas} data-prw-plan-canvas>
                 {selectedPlanMediaSource && selectedPlanMedia.status === 'resolving' ? (

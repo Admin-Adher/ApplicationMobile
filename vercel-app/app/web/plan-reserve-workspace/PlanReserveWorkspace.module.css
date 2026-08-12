@@ -509,8 +509,15 @@
   flex: 1 1 20rem;
   height: auto;
   min-height: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(14rem, 34%);
   gap: 0.75rem;
+}
+
+.planRoot [data-prw-plan-workarea][data-reserves-open='true'] {
+  grid-template-columns: minmax(0, 1fr) minmax(14rem, 34%);
+}
+
+.planRoot [data-prw-plan-workarea][data-reserves-open='false'] {
+  grid-template-columns: minmax(0, 1fr) 3.5rem;
 }
 
 .planRoot [data-prw-plan-canvas] {
@@ -536,9 +543,31 @@
 }
 
 .planRoot [data-prw-plan-reserve-rail] {
+  min-width: 0;
+  width: 3.5rem;
+  padding: 0.6rem 0.25rem;
+  border-color: #d9e2ec;
   border-radius: 0.55rem;
-  background: #fff;
+  background: #f8fafc;
   box-shadow: none;
+}
+
+.planRoot [data-prw-plan-reserve-rail] span {
+  color: var(--prw-muted);
+  font-size: 0.625rem;
+  letter-spacing: 0.08em;
+}
+
+.planRoot [data-prw-plan-reserve-rail] strong,
+.planRoot [data-prw-plan-reserve-rail] b {
+  min-width: 1.75rem;
+  width: 1.75rem;
+  height: 1.75rem;
+  font-size: 0.75rem;
+}
+
+.planRoot [data-prw-plan-reserve-rail] em {
+  display: none;
 }
 
 .reserveRoot :global(button:focus-visible),
@@ -577,6 +606,23 @@
   .planRoot [data-prw-plan-workarea] {
     height: auto;
     min-height: clamp(24rem, 60dvh, 44rem);
+  }
+
+  .planRoot [data-prw-plan-workarea][data-reserves-open='true'],
+  .planRoot [data-prw-plan-workarea][data-reserves-open='false'] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .planRoot [data-prw-plan-reserve-rail] {
+    width: 100%;
+    min-height: 3.75rem;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    padding: 0.55rem 0.75rem;
+  }
+
+  .planRoot [data-prw-plan-reserve-rail] span {
+    writing-mode: horizontal-tb;
+    transform: none;
   }
 }
 
