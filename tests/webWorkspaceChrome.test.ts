@@ -13,6 +13,7 @@ describe('BuildTrack authenticated web workspace', () => {
     expect(page).toContain("import { WorkspaceChrome } from './WorkspaceChrome'");
     expect(page).toContain('<WorkspaceChrome');
     expect(page).not.toContain('function ProjectDropdown');
+    expect(page).toContain('userRole={workspaceRoleLabel(profile, t)}');
     expect(chrome).toContain('<BuildTrackBrand variant="wordmark"');
     expect(chrome).toContain('WorkspaceProjectPicker');
     expect(chrome).toContain('aria-current={item.active');
@@ -51,5 +52,6 @@ describe('BuildTrack authenticated web workspace', () => {
     expect(i18n).toContain("'dashboard.welcome': 'Bonjour, {name}'");
     expect(i18n).toContain("'dashboard.welcome': 'Hello, {name}'");
     expect(i18n).toContain("'dashboard.welcome': 'Hola, {name}'");
+    expect(i18n.match(/'role\.admin'/g)).toHaveLength(3);
   });
 });

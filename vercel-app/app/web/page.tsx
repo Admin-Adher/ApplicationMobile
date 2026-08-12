@@ -384,6 +384,15 @@ function tabLabel(tabId: TabId, t: WebTranslator) {
   return translated === key ? TAB_LABEL_FALLBACK[tabId] ?? translated : translated;
 }
 
+function workspaceRoleLabel(profile: Profile | null, t: WebTranslator) {
+  const key = profile?.role ? `role.${profile.role}` : '';
+  if (key) {
+    const translated = t(key);
+    if (translated !== key) return translated;
+  }
+  return profile?.role_label ?? profile?.role ?? t('common.user');
+}
+
 function failedTableList(t: WebTranslator, tables: string[]) {
   return tables.map(table => {
     const key = `sync.table.${table}`;
@@ -5357,7 +5366,7 @@ export default function BuildTrackWebPage() {
           projectCount: t('projectDropdown.projectCount', { count: data.chantiers.length }),
         }}
         userName={profile?.name ?? authUser.email ?? t('common.user')}
-        userRole={profile?.role_label ?? profile?.role ?? t('common.user')}
+        userRole={workspaceRoleLabel(profile, t)}
         logoutLabel={t('common.logout')}
         openMenuLabel={t('common.openMenu')}
         closeMenuLabel={t('common.closeMenu')}
