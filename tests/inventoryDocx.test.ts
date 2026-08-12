@@ -1,4 +1,6 @@
-import { strFromU8, unzipSync } from 'fflate';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { buildInventoryDocxBytes } from '../lib/inventoryDocxEngine';
 
@@ -33,9 +35,21 @@ const expected = {
 } as const;
 
 describe('inventory DOCX export', () => {
+  it('keeps package resolution in each app instead of the shared engine', () => {
+    const enginePath = fileURLToPath(new URL('../lib/inventoryDocxEngine.ts', import.meta.url));
+    expect(readFileSync(enginePath, 'utf8')).not.toContain("from 'fflate'");
+  });
+
   for (const language of ['fr', 'en', 'es'] as const) {
     it(`creates a valid localized OpenXML package in ${language}`, () => {
-      const bytes = buildInventoryDocxBytes(products, movements, 'Tropicalia & Villas', new Date('2026-08-11T14:00:00.000Z'), language);
+      const bytes = buildInventoryDocxBytes(
+        { strToU8, zipSync },
+        products,
+        movements,
+        'Tropicalia & Villas',
+        new Date('2026-08-11T14:00:00.000Z'),
+        language,
+      );
       expect(bytes.byteLength).toBeGreaterThan(5_000);
 
       const files = unzipSync(bytes);

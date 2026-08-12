@@ -1,4 +1,3 @@
-import { strToU8, zipSync } from 'fflate';
 import { inventoryDocumentCopy, type InventoryDocumentLanguage } from './inventoryDocumentCopy';
 import {
   inventoryWorkbookBytesToBase64,
@@ -14,6 +13,14 @@ type DocxCell = {
   fill?: string;
   color?: string;
   bold?: boolean;
+};
+
+export type InventoryDocxZipRuntime = {
+  strToU8: (text: string) => Uint8Array;
+  zipSync: (
+    files: Record<string, Uint8Array>,
+    options?: { level?: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 },
+  ) => Uint8Array;
 };
 
 type DocxLanguageCopy = {
@@ -328,12 +335,14 @@ function footerXml(language: InventoryDocumentLanguage): string {
 }
 
 export function buildInventoryDocxBytes(
+  zipRuntime: InventoryDocxZipRuntime,
   products: InventoryWorkbookProduct[],
   movements: InventoryWorkbookMovement[],
   chantierName: string,
   generatedAt = new Date(),
   language: InventoryDocumentLanguage = 'fr',
 ): Uint8Array {
+  const { strToU8, zipSync } = zipRuntime;
   const copy = inventoryDocumentCopy(language);
   const isoDate = generatedAt.toISOString();
   const files: Record<string, Uint8Array> = {

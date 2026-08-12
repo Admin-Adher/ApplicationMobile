@@ -1,4 +1,5 @@
 import type { InventoryMovement, InventoryProduct } from '@/constants/types';
+import { strToU8, zipSync } from 'fflate';
 import type { InventoryDocumentLanguage } from './inventoryDocumentCopy';
 import {
   buildInventoryDocxBytes,
@@ -51,6 +52,7 @@ export function buildInventoryDocx(
   generatedAt = new Date(),
 ): Uint8Array {
   return buildInventoryDocxBytes(
+    { strToU8, zipSync },
     products.map(normalizeProduct),
     movements.map(normalizeMovement),
     chantierName,

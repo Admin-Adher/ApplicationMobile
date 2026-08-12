@@ -1,4 +1,5 @@
 import { buildInventoryDocxBytes } from '../../lib/inventoryDocxEngine';
+import { strToU8, zipSync } from 'fflate';
 import type {
   InventoryWorkbookMovement,
   InventoryWorkbookProduct,
@@ -20,7 +21,14 @@ export function downloadInventoryDocx({
   filename,
   language,
 }: DownloadInventoryDocxOptions): void {
-  const bytes = buildInventoryDocxBytes(products, movements, chantierName, new Date(), language);
+  const bytes = buildInventoryDocxBytes(
+    { strToU8, zipSync },
+    products,
+    movements,
+    chantierName,
+    new Date(),
+    language,
+  );
   const blob = new Blob([bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer], {
     type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   });
