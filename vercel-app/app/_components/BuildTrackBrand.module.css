@@ -1,0 +1,59 @@
+.brand {
+  --brand-mark-size: 38px;
+  --brand-radius: 10px;
+  --brand-word-size: 23px;
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  line-height: 1;
+}
+
+.brand[data-size="xs"] {
+  --brand-mark-size: 30px;
+  --brand-radius: 7px;
+  --brand-word-size: 19px;
+  gap: 8px;
+}
+
+.brand[data-size="md"] {
+  --brand-mark-size: 44px;
+  --brand-radius: 11px;
+  --brand-word-size: 26px;
+  gap: 11px;
+}
+
+.brand[data-size="lg"] {
+  --brand-mark-size: 56px;
+  --brand-radius: 14px;
+  --brand-word-size: 31px;
+  gap: 13px;
+}
+
+.mark {
+  position: relative;
+  display: block;
+  width: var(--brand-mark-size);
+  height: var(--brand-mark-size);
+  flex: 0 0 var(--brand-mark-size);
+  overflow: hidden;
+  border-radius: var(--brand-radius);
+  box-shadow: 0 6px 16px rgba(7, 27, 58, 0.17);
+}
+
+.image {
+  display: block;
+  object-fit: cover;
+}
+
+.wordmark {
+  overflow: hidden;
+  color: #071b3a;
+  font-family: var(--font-buildtrack-display), Arial, sans-serif;
+  font-size: var(--brand-word-size);
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

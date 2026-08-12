@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import Script from 'next/script';
+import { buildTrackBodyFont, buildTrackDisplayFont } from './fonts';
 
 export const metadata: Metadata = {
   title: { default: 'BuildTrack', template: '%s | BuildTrack' },
@@ -34,7 +35,11 @@ const languageBootstrap = `(() => {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${buildTrackBodyFont.variable} ${buildTrackDisplayFont.variable}`}
+      suppressHydrationWarning
+    >
       <head><Script id="buildtrack-language" strategy="beforeInteractive">{languageBootstrap}</Script></head>
       <body style={{ margin: 0, padding: 0 }}>{children}</body>
     </html>

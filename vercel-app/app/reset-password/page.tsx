@@ -1,382 +1,249 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { createClient } from '@supabase/supabase-js';
-import { normalizeLang, type SupportedLang } from '@/lib/i18n';
-
-const BRAND = '#003082';
-const ACCENT = '#FFCB00';
-
-const supabaseUrl =
-  process.env.NEXT_PUBLIC_SUPABASE_URL ??
-  'https://jzeojdpgglbxjdasjgta.supabase.co';
-const supabaseKey =
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp6ZW9qZHBnZ2xieGpkYXNqZ3RhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4Mjg1ODAsImV4cCI6MjA5MDQwNDU4MH0.ZcU5EAYQMEnQHVe0-6Wff_1sBanvjtdZZ0hJNJGLAz0';
+import { useEffect, useState, type FormEvent } from 'react';
+import type { Session } from '@supabase/supabase-js';
+import { BuildTrackBrand } from '../_components/BuildTrackBrand';
+import { WEB_LANGUAGES, normalizeLang, type SupportedLang } from '@/lib/i18n';
+import { supabaseBrowser } from '@/lib/supabase-browser';
+import { webAuthFeedbackCode } from '@/lib/web-auth-feedback';
+import styles from './reset-password.module.css';
 
 const COPY = {
   fr: {
-    invalidLink: 'Lien de réinitialisation invalide ou expiré. Veuillez faire une nouvelle demande.',
-    passwordShort: 'Le mot de passe doit contenir au moins 8 caractères.',
-    passwordMismatch: 'Les mots de passe ne correspondent pas.',
-    expiredSession: 'Lien expiré. Veuillez faire une nouvelle demande de réinitialisation.',
-    updateFailed: 'Impossible de mettre à jour le mot de passe.',
-    errorPrefix: 'Erreur',
-    checking: 'Vérification du lien...',
-    invalidTitle: 'Lien invalide',
-    home: "Retour à l'accueil",
-    title: 'Nouveau mot de passe',
-    intro: "Choisissez un mot de passe sécurisé d'au moins 8 caractères.",
-    newPassword: 'Nouveau mot de passe',
-    passwordPlaceholder: 'Min. 8 caractères',
-    confirmPassword: 'Confirmer le mot de passe',
-    confirmPlaceholder: 'Répétez le mot de passe',
-    mismatchHint: 'Les mots de passe ne correspondent pas',
-    submitting: 'Mise à jour...',
-    submit: 'Mettre à jour le mot de passe →',
-    successTitle: 'Mot de passe mis à jour !',
-    successText: 'Votre mot de passe a été modifié avec succès. Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.',
-    openAppHint: "Ouvrez l'application BuildTrack et connectez-vous avec votre nouveau mot de passe.",
-    openBuildTrack: 'Ouvrir BuildTrack →',
-    footer: 'BuildTrack — Gestion de chantier numérique',
+    language: 'Langue', back: 'Retour à la connexion', eyebrow: 'Accès sécurisé',
+    title: 'Créez votre nouveau mot de passe', intro: "Choisissez au moins 8 caractères. Évitez d'utiliser un mot de passe déjà employé ailleurs.",
+    newPassword: 'Nouveau mot de passe', confirmPassword: 'Confirmer le mot de passe', placeholder: '8 caractères minimum',
+    show: 'Afficher le mot de passe', hide: 'Masquer le mot de passe', mismatch: 'Les mots de passe ne correspondent pas.',
+    tooShort: 'Le mot de passe doit contenir au moins 8 caractères.', expired: 'Ce lien est invalide ou a expiré. Demandez un nouveau lien depuis la page de connexion.',
+    updateFailed: "Le mot de passe n'a pas pu être modifié. Demandez un nouveau lien ou réessayez.", network: 'Connexion au service impossible. Vérifiez votre réseau puis réessayez.',
+    checking: 'Vérification du lien sécurisé…', submit: 'Mettre à jour le mot de passe', submitting: 'Mise à jour…',
+    successEyebrow: 'Accès mis à jour', successTitle: 'Votre mot de passe est prêt', successText: 'Vous pouvez maintenant vous connecter à BuildTrack avec votre nouveau mot de passe.',
+    signIn: 'Se connecter à BuildTrack', invalidTitle: 'Lien non valide', requestAgain: 'Retourner à la connexion',
+    storyTitle: 'Votre chantier reste protégé.', storyText: "La réinitialisation met à jour votre accès sans modifier votre organisation, votre rôle ni vos données chantier.",
+    storyPointOne: 'Lien de récupération temporaire', storyPointTwo: 'Session fermée après la modification', storyPointThree: 'Accès contrôlé par votre organisation',
   },
   en: {
-    invalidLink: 'Invalid or expired reset link. Please request a new one.',
-    passwordShort: 'The password must contain at least 8 characters.',
-    passwordMismatch: 'Passwords do not match.',
-    expiredSession: 'The link has expired. Please request a new password reset.',
-    updateFailed: 'Unable to update the password.',
-    errorPrefix: 'Error',
-    checking: 'Checking the link...',
-    invalidTitle: 'Invalid link',
-    home: 'Back to home',
-    title: 'New password',
-    intro: 'Choose a secure password with at least 8 characters.',
-    newPassword: 'New password',
-    passwordPlaceholder: 'Min. 8 characters',
-    confirmPassword: 'Confirm password',
-    confirmPlaceholder: 'Repeat password',
-    mismatchHint: 'Passwords do not match',
-    submitting: 'Updating...',
-    submit: 'Update password →',
-    successTitle: 'Password updated!',
-    successText: 'Your password has been changed successfully. You can now sign in with your new password.',
-    openAppHint: 'Open the BuildTrack app and sign in with your new password.',
-    openBuildTrack: 'Open BuildTrack →',
-    footer: 'BuildTrack — Digital construction management',
+    language: 'Language', back: 'Back to sign in', eyebrow: 'Secure access',
+    title: 'Create your new password', intro: 'Choose at least 8 characters. Avoid using a password you already use elsewhere.',
+    newPassword: 'New password', confirmPassword: 'Confirm password', placeholder: 'At least 8 characters',
+    show: 'Show password', hide: 'Hide password', mismatch: 'Passwords do not match.',
+    tooShort: 'The password must contain at least 8 characters.', expired: 'This link is invalid or has expired. Request a new one from the sign-in page.',
+    updateFailed: 'The password could not be changed. Request a new link or try again.', network: 'Unable to reach the service. Check your connection and try again.',
+    checking: 'Checking the secure link…', submit: 'Update password', submitting: 'Updating…',
+    successEyebrow: 'Access updated', successTitle: 'Your password is ready', successText: 'You can now sign in to BuildTrack with your new password.',
+    signIn: 'Sign in to BuildTrack', invalidTitle: 'Invalid link', requestAgain: 'Return to sign in',
+    storyTitle: 'Your site stays protected.', storyText: 'Resetting your password updates your access without changing your organization, role or site data.',
+    storyPointOne: 'Temporary recovery link', storyPointTwo: 'Session closed after the change', storyPointThree: 'Access controlled by your organization',
   },
   es: {
-    invalidLink: 'Enlace de restablecimiento no válido o caducado. Solicita uno nuevo.',
-    passwordShort: 'La contraseña debe tener al menos 8 caracteres.',
-    passwordMismatch: 'Las contraseñas no coinciden.',
-    expiredSession: 'El enlace ha caducado. Solicita un nuevo restablecimiento.',
-    updateFailed: 'No se pudo actualizar la contraseña.',
-    errorPrefix: 'Error',
-    checking: 'Verificando el enlace...',
-    invalidTitle: 'Enlace no válido',
-    home: 'Volver al inicio',
-    title: 'Nueva contraseña',
-    intro: 'Elige una contraseña segura de al menos 8 caracteres.',
-    newPassword: 'Nueva contraseña',
-    passwordPlaceholder: 'Mín. 8 caracteres',
-    confirmPassword: 'Confirmar contraseña',
-    confirmPlaceholder: 'Repite la contraseña',
-    mismatchHint: 'Las contraseñas no coinciden',
-    submitting: 'Actualizando...',
-    submit: 'Actualizar contraseña →',
-    successTitle: '¡Contraseña actualizada!',
-    successText: 'Tu contraseña se ha modificado correctamente. Ya puedes iniciar sesión con tu nueva contraseña.',
-    openAppHint: 'Abre la aplicación BuildTrack e inicia sesión con tu nueva contraseña.',
-    openBuildTrack: 'Abrir BuildTrack →',
-    footer: 'BuildTrack — Gestión digital de obra',
+    language: 'Idioma', back: 'Volver al inicio de sesión', eyebrow: 'Acceso seguro',
+    title: 'Crea tu nueva contraseña', intro: 'Elige al menos 8 caracteres. Evita utilizar una contraseña que ya uses en otro servicio.',
+    newPassword: 'Nueva contraseña', confirmPassword: 'Confirmar contraseña', placeholder: '8 caracteres como mínimo',
+    show: 'Mostrar contraseña', hide: 'Ocultar contraseña', mismatch: 'Las contraseñas no coinciden.',
+    tooShort: 'La contraseña debe tener al menos 8 caracteres.', expired: 'Este enlace no es válido o ha caducado. Solicita uno nuevo desde la página de acceso.',
+    updateFailed: 'No se pudo cambiar la contraseña. Solicita un nuevo enlace o vuelve a intentarlo.', network: 'No se pudo conectar con el servicio. Comprueba la red y vuelve a intentarlo.',
+    checking: 'Verificando el enlace seguro…', submit: 'Actualizar contraseña', submitting: 'Actualizando…',
+    successEyebrow: 'Acceso actualizado', successTitle: 'Tu contraseña está lista', successText: 'Ya puedes iniciar sesión en BuildTrack con tu nueva contraseña.',
+    signIn: 'Iniciar sesión en BuildTrack', invalidTitle: 'Enlace no válido', requestAgain: 'Volver al inicio de sesión',
+    storyTitle: 'Tu obra sigue protegida.', storyText: 'El restablecimiento actualiza tu acceso sin modificar tu organización, tu rol ni los datos de obra.',
+    storyPointOne: 'Enlace de recuperación temporal', storyPointTwo: 'Sesión cerrada tras el cambio', storyPointThree: 'Acceso controlado por tu organización',
   },
 } as const;
 
+function Icon({ name }: { name: 'eye' | 'eyeOff' | 'lock' | 'check' | 'arrow' }) {
+  const content = {
+    eye: <><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></>,
+    eyeOff: <><path d="m3 3 18 18M10.6 6.2A10.7 10.7 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.1 2.8M6.3 6.3C3.8 8 2.5 12 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 3-.5" /></>,
+    lock: <><rect x="5" y="10" width="14" height="11" rx="2" /><path d="M8 10V7a4 4 0 0 1 8 0v3" /></>,
+    check: <path d="m5 12 4 4L19 6" />,
+    arrow: <path d="M5 12h14m-5-5 5 5-5 5" />,
+  }[name];
+  return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{content}</svg>;
+}
+
+function hasRecoveryMarker() {
+  const query = new URLSearchParams(window.location.search);
+  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+  return query.has('code') || query.has('token_hash') || hash.get('type') === 'recovery';
+}
+
 export default function ResetPasswordPage() {
-  const [lang, setLang] = useState<SupportedLang>('fr');
-  const copy = COPY[lang];
-  const [stage, setStage] = useState<'loading' | 'form' | 'success' | 'error'>('loading');
+  const [lang, setLang] = useState<SupportedLang>('en');
+  const [stage, setStage] = useState<'checking' | 'form' | 'success' | 'error'>('checking');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
-  const [accessToken, setAccessToken] = useState('');
-  const [refreshToken, setRefreshToken] = useState('');
+  const [message, setMessage] = useState('');
+  const copy = COPY[lang];
+
+  function selectLanguage(nextLanguage: SupportedLang) {
+    setLang(nextLanguage);
+    document.documentElement.lang = nextLanguage;
+    window.localStorage.setItem('buildtrack-web-language-preference-v1', nextLanguage);
+    window.localStorage.setItem('buildtrack-web-language', nextLanguage);
+  }
 
   useEffect(() => {
-    const nextLang = normalizeLang(new URLSearchParams(window.location.search).get('lang') ?? navigator.language);
-    setLang(nextLang);
-    const nextCopy = COPY[nextLang];
-    const hash = window.location.hash;
-    const params = new URLSearchParams(hash.replace('#', ''));
-    const token = params.get('access_token');
-    const refresh = params.get('refresh_token');
-    const type = params.get('type');
+    const nextLanguage = normalizeLang(new URLSearchParams(window.location.search).get('lang') ?? navigator.language);
+    selectLanguage(nextLanguage);
+    let alive = true;
+    let accepted = false;
 
-    if (token && type === 'recovery') {
-      setAccessToken(token);
-      setRefreshToken(refresh ?? '');
+    const acceptRecovery = (session: Session | null) => {
+      if (!alive || !session || accepted) return;
+      accepted = true;
       setStage('form');
-    } else {
+      setMessage('');
+    };
+
+    const { data: subscription } = supabaseBrowser.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') acceptRecovery(session);
+    });
+
+    void supabaseBrowser.auth.getSession().then(async ({ data }) => {
+      if (!alive || accepted) return;
+      if (data.session && hasRecoveryMarker()) {
+        acceptRecovery(data.session);
+        return;
+      }
+
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+      const accessToken = hash.get('access_token');
+      const refreshToken = hash.get('refresh_token');
+      if (accessToken && refreshToken && hash.get('type') === 'recovery') {
+        const { data: restored, error } = await supabaseBrowser.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        });
+        if (!error) acceptRecovery(restored.session);
+      }
+
+      if (!accepted && alive) {
+        setStage('error');
+        setMessage(COPY[nextLanguage].expired);
+      }
+    }).catch(() => {
+      if (!alive || accepted) return;
       setStage('error');
-      setErrorMsg(nextCopy.invalidLink);
-    }
+      setMessage(COPY[nextLanguage].network);
+    });
+
+    return () => {
+      alive = false;
+      subscription.subscription.unsubscribe();
+    };
   }, []);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setErrorMsg('');
-
+  async function submitPassword(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setMessage('');
     if (password.length < 8) {
-      setErrorMsg(copy.passwordShort);
+      setMessage(copy.tooShort);
       return;
     }
     if (password !== confirm) {
-      setErrorMsg(copy.passwordMismatch);
+      setMessage(copy.mismatch);
       return;
     }
 
     setSubmitting(true);
     try {
-      const supabase = createClient(supabaseUrl, supabaseKey);
-
-      const { error: sessionError } = await supabase.auth.setSession({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-      });
-
-      if (sessionError) {
-        setErrorMsg(copy.expiredSession);
-        setSubmitting(false);
-        return;
-      }
-
-      const { error } = await supabase.auth.updateUser({ password });
-
+      const { error } = await supabaseBrowser.auth.updateUser({ password });
       if (error) {
-        setErrorMsg(error.message ?? copy.updateFailed);
-        setSubmitting(false);
+        const code = webAuthFeedbackCode(error);
+        setMessage(code === 'network_unavailable' ? copy.network : copy.updateFailed);
         return;
       }
-
-      await supabase.auth.signOut();
+      setPassword('');
+      setConfirm('');
+      await supabaseBrowser.auth.signOut({ scope: 'local' });
       setStage('success');
-    } catch (err: any) {
-      setErrorMsg(`${copy.errorPrefix}: ${err?.message ?? JSON.stringify(err)}`);
+    } catch (error) {
+      setMessage(webAuthFeedbackCode(error) === 'network_unavailable' ? copy.network : copy.updateFailed);
+    } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <div style={s.page}>
-      <div style={s.card}>
-        <div style={s.header}>
-          <div style={s.logoBox}>B</div>
-          <div>
-            <div style={s.brandName}>Bouygues</div>
-            <div style={s.brandSub}>Construction</div>
-          </div>
-        </div>
-        <div style={s.divider} />
+    <main className={styles.page}>
+      <header className={styles.header}>
+        <a href="/" aria-label="BuildTrack"><BuildTrackBrand size="sm" /></a>
+        <label className={styles.language}>
+          <span className={styles.visuallyHidden}>{copy.language}</span>
+          <b aria-hidden="true">{lang.toUpperCase()}</b>
+          <select value={lang} onChange={event => selectLanguage(event.target.value as SupportedLang)} aria-label={copy.language}>
+            {WEB_LANGUAGES.map(option => <option key={option.code} value={option.code}>{option.nativeName}</option>)}
+          </select>
+        </label>
+      </header>
 
-        {stage === 'loading' && (
-          <p style={s.body}>{copy.checking}</p>
-        )}
+      <div className={styles.shell}>
+        <aside className={styles.story}>
+          <span className={styles.storyIcon}><Icon name="lock" /></span>
+          <h1>{copy.storyTitle}</h1>
+          <p>{copy.storyText}</p>
+          <ul>
+            {[copy.storyPointOne, copy.storyPointTwo, copy.storyPointThree].map(point => <li key={point}><Icon name="check" /> {point}</li>)}
+          </ul>
+        </aside>
 
-        {stage === 'error' && (
-          <>
-            <div style={s.iconWrap}>🔒</div>
-            <h1 style={s.title}>{copy.invalidTitle}</h1>
-            <p style={s.body}>{errorMsg}</p>
-            <a href="https://buildtrack-mobile.vercel.app" style={s.btn}>
-              {copy.home}
-            </a>
-          </>
-        )}
+        <section className={styles.panel} aria-live="polite">
+          <a className={styles.back} href={`/web?lang=${lang}`}>{copy.back}</a>
 
-        {stage === 'form' && (
-          <>
-            <div style={s.iconWrap}>🔑</div>
-            <h1 style={s.title}>{copy.title}</h1>
-            <p style={s.body}>{copy.intro}</p>
-
-            <form onSubmit={handleSubmit} style={s.form}>
-              <div style={s.field}>
-                <label style={s.label}>{copy.newPassword}</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  placeholder={copy.passwordPlaceholder}
-                  style={s.input}
-                  required
-                />
-              </div>
-              <div style={s.field}>
-                <label style={s.label}>{copy.confirmPassword}</label>
-                <input
-                  type="password"
-                  value={confirm}
-                  onChange={e => setConfirm(e.target.value)}
-                  placeholder={copy.confirmPlaceholder}
-                  style={{
-                    ...s.input,
-                    borderColor: confirm && confirm !== password ? '#DC2626' : '#DDE4EE',
-                  }}
-                  required
-                />
-                {confirm && confirm !== password && (
-                  <p style={s.hint}>{copy.mismatchHint}</p>
-                )}
-              </div>
-
-              {errorMsg ? (
-                <div style={s.errorBox}>
-                  <p style={s.errorText}>{errorMsg}</p>
-                </div>
-              ) : null}
-
-              <button type="submit" disabled={submitting} style={s.btn}>
-                {submitting ? copy.submitting : copy.submit}
-              </button>
-            </form>
-          </>
-        )}
-
-        {stage === 'success' && (
-          <>
-            <div style={s.iconWrap}>✅</div>
-            <h1 style={s.title}>{copy.successTitle}</h1>
-            <p style={s.body}>
-              {copy.successText}
-            </p>
-            <div style={s.infoBox}>
-              <p style={s.infoText}>
-                {copy.openAppHint}
-              </p>
+          {stage === 'checking' && (
+            <div className={styles.stateBlock} aria-busy="true">
+              <span className={styles.spinner} aria-hidden="true" />
+              <p>{copy.checking}</p>
             </div>
-            <a href="https://buildtrack-mobile.vercel.app" style={s.btn}>
-              {copy.openBuildTrack}
-            </a>
-          </>
-        )}
+          )}
 
-        <div style={s.footer}>
-          <p style={s.footerText}>{copy.footer}</p>
-        </div>
+          {stage === 'error' && (
+            <div className={styles.stateBlock}>
+              <span className={styles.panelIcon}><Icon name="lock" /></span>
+              <p className={styles.eyebrow}>{copy.eyebrow}</p>
+              <h2>{copy.invalidTitle}</h2>
+              <p className={styles.intro}>{message}</p>
+              <a className={styles.primary} href={`/web?lang=${lang}`}><span>{copy.requestAgain}</span><Icon name="arrow" /></a>
+            </div>
+          )}
+
+          {stage === 'form' && (
+            <>
+              <p className={styles.eyebrow}>{copy.eyebrow}</p>
+              <h2>{copy.title}</h2>
+              <p className={styles.intro}>{copy.intro}</p>
+              <form className={styles.form} onSubmit={submitPassword}>
+                <div className={styles.field}>
+                  <label htmlFor="new-password">{copy.newPassword}</label>
+                  <div className={styles.passwordField}>
+                    <input id="new-password" type={showPassword ? 'text' : 'password'} value={password} onChange={event => setPassword(event.target.value)} autoComplete="new-password" placeholder={copy.placeholder} minLength={8} aria-describedby={message ? 'reset-feedback' : undefined} required autoFocus />
+                    <button type="button" onClick={() => setShowPassword(value => !value)} aria-label={showPassword ? copy.hide : copy.show} aria-pressed={showPassword}><Icon name={showPassword ? 'eyeOff' : 'eye'} /></button>
+                  </div>
+                </div>
+                <div className={styles.field}>
+                  <label htmlFor="confirm-password">{copy.confirmPassword}</label>
+                  <input id="confirm-password" type={showPassword ? 'text' : 'password'} value={confirm} onChange={event => setConfirm(event.target.value)} autoComplete="new-password" placeholder={copy.placeholder} minLength={8} aria-invalid={Boolean(confirm && confirm !== password)} aria-describedby={message ? 'reset-feedback' : undefined} required />
+                  {confirm && confirm !== password && <span className={styles.hint}>{copy.mismatch}</span>}
+                </div>
+                {message && <p id="reset-feedback" className={styles.error} role="alert">{message}</p>}
+                <button className={styles.primary} type="submit" disabled={submitting}><span>{submitting ? copy.submitting : copy.submit}</span>{submitting ? <i className={styles.spinner} /> : <Icon name="arrow" />}</button>
+              </form>
+            </>
+          )}
+
+          {stage === 'success' && (
+            <div className={styles.stateBlock} role="status">
+              <span className={styles.panelIconSuccess}><Icon name="check" /></span>
+              <p className={styles.eyebrow}>{copy.successEyebrow}</p>
+              <h2>{copy.successTitle}</h2>
+              <p className={styles.intro}>{copy.successText}</p>
+              <a className={styles.primary} href={`/web?lang=${lang}`}><span>{copy.signIn}</span><Icon name="arrow" /></a>
+            </div>
+          )}
+        </section>
       </div>
-    </div>
+    </main>
   );
 }
-
-const s: Record<string, React.CSSProperties> = {
-  page: {
-    minHeight: '100vh',
-    background: '#F4F7FB',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: '20px',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif',
-  },
-  card: {
-    background: '#fff',
-    borderRadius: '20px',
-    padding: '36px 32px',
-    maxWidth: '420px',
-    width: '100%',
-    boxShadow: '0 4px 32px rgba(0,48,130,0.10)',
-    border: '1px solid #DDE4EE',
-    textAlign: 'center',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '14px',
-    justifyContent: 'center',
-  },
-  logoBox: {
-    width: '44px',
-    height: '44px',
-    background: ACCENT,
-    borderRadius: '10px',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: '22px',
-    fontWeight: '700',
-    color: BRAND,
-    flexShrink: 0,
-  },
-  brandName: { fontSize: '18px', fontWeight: '700', color: BRAND, textAlign: 'left' },
-  brandSub: { fontSize: '12px', color: '#8899BB', textAlign: 'left' },
-  divider: {
-    width: '40px',
-    height: '3px',
-    background: ACCENT,
-    borderRadius: '2px',
-    margin: '16px auto 28px',
-  },
-  iconWrap: { fontSize: '44px', display: 'block', marginBottom: '16px' },
-  title: { fontSize: '22px', fontWeight: '700', color: BRAND, margin: '0 0 12px' },
-  body: { fontSize: '14px', color: '#334155', lineHeight: '1.7', margin: '0 0 20px' },
-  form: { textAlign: 'left' },
-  field: { marginBottom: '16px' },
-  label: {
-    display: 'block',
-    fontSize: '11px',
-    fontWeight: '600',
-    color: '#64748B',
-    textTransform: 'uppercase' as const,
-    letterSpacing: '0.6px',
-    marginBottom: '8px',
-  },
-  input: {
-    width: '100%',
-    fontSize: '15px',
-    color: '#0F172A',
-    background: '#F4F7FB',
-    border: '1px solid #DDE4EE',
-    borderRadius: '12px',
-    padding: '13px 14px',
-    boxSizing: 'border-box' as const,
-    outline: 'none',
-    fontFamily: 'inherit',
-  },
-  hint: { fontSize: '11px', color: '#DC2626', margin: '4px 0 0' },
-  errorBox: {
-    background: '#FEF2F2',
-    border: '1px solid #FECACA',
-    borderRadius: '10px',
-    padding: '12px 16px',
-    marginBottom: '14px',
-    textAlign: 'left',
-  },
-  errorText: { fontSize: '13px', color: '#DC2626', margin: 0 },
-  infoBox: {
-    background: '#EEF3FA',
-    borderRadius: '10px',
-    padding: '14px 18px',
-    marginBottom: '20px',
-    borderLeft: `3px solid ${BRAND}`,
-  },
-  infoText: { fontSize: '13px', color: '#334155', margin: 0, textAlign: 'left' },
-  btn: {
-    display: 'block',
-    width: '100%',
-    background: ACCENT,
-    color: BRAND,
-    fontWeight: '700',
-    fontSize: '15px',
-    padding: '14px 28px',
-    borderRadius: '12px',
-    textDecoration: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    boxSizing: 'border-box' as const,
-    fontFamily: 'inherit',
-    textAlign: 'center',
-  },
-  footer: { marginTop: '28px', paddingTop: '20px', borderTop: '1px solid #EEF3FA' },
-  footerText: { fontSize: '11px', color: '#8899BB', margin: 0 },
-};

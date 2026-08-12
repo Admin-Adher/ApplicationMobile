@@ -13,49 +13,11 @@
   text-rendering: auto;
 }
 
-.loginPage,
 .appShell {
   min-height: 100vh;
   background: #f4f7fb;
   color: #0f172a;
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
-
-.loginPage {
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.loginPanel {
-  width: min(440px, 100%);
-  background: #fff;
-  border: 1px solid #dde4ee;
-  border-radius: 16px;
-  padding: 32px;
-  box-shadow: 0 16px 48px rgba(15, 23, 42, 0.08);
-}
-
-.brandMark,
-.brandMarkSmall {
-  display: inline-grid;
-  place-items: center;
-  background: #ffcb00;
-  color: #003082;
-  font-weight: 800;
-}
-
-.brandMark {
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  font-size: 28px;
-}
-
-.brandMarkSmall {
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
 }
 
 .eyebrow {
@@ -72,19 +34,6 @@
   color: #64748b;
 }
 
-.loginForm {
-  display: grid;
-  gap: 10px;
-  margin-top: 22px;
-}
-
-.loginForm label {
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.loginForm input,
 .toolbar input,
 .toolbar select,
 .topbarActions select,
@@ -111,7 +60,6 @@
   outline: none;
 }
 
-.loginForm input:focus,
 .toolbar input:focus,
 .toolbar select:focus,
 .topbarActions select:focus,
@@ -153,7 +101,6 @@
   text-decoration: none;
 }
 
-.loginForm button,
 .topbarActions button {
   position: relative;
   isolation: isolate;
@@ -200,7 +147,6 @@
   min-width: max-content;
 }
 
-.loginForm button::before,
 .topbarActions button::before {
   content: "";
   position: absolute;
@@ -213,7 +159,6 @@
   pointer-events: none;
 }
 
-.loginForm button::after,
 .topbarActions button::after {
   content: "";
   position: absolute;
@@ -232,7 +177,6 @@
   opacity: 0.62;
 }
 
-.loginForm button:hover:not(:disabled),
 .topbarActions button:hover:not(:disabled) {
   transform: translateY(-1px);
   filter: saturate(1.06) brightness(1.04);
@@ -243,12 +187,10 @@
     0 8px 18px rgba(15, 23, 42, 0.14);
 }
 
-.loginForm button:active:not(:disabled),
 .topbarActions button:active:not(:disabled) {
   transform: translateY(1px) scale(0.99);
 }
 
-.loginForm button:disabled,
 .topbarActions button:disabled,
 .actionBar button:disabled,
 .messageForm button:disabled {
@@ -436,19 +378,6 @@
   padding: 12px 14px;
 }
 
-.sessionExpiredBanner {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  border: 1px solid #fcd34d;
-  background: #fffbeb;
-  color: #92400e;
-  border-radius: 12px;
-  padding: 12px 14px;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
 /* Bannières flottantes : visibles au-dessus de toutes les modales (z-index max = 180). */
 .floatingAlert,
 .floatingNotice {
@@ -551,7 +480,7 @@
   gap: 2px;
 }
 
-.sidebarBrand span:last-child {
+.sidebarBrand div > span {
   color: #64748b;
   font-size: 12px;
 }
@@ -856,8 +785,7 @@
 
 .topbar h1,
 .sectionHeader h2,
-.panel h2,
-.loginPanel h1 {
+.panel h2 {
   margin: 0;
   color: #111827;
 }

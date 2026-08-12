@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import type { Session, User as SupabaseUser } from '@supabase/supabase-js';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 import {
   WEB_LANGUAGES,
   createWebT,
@@ -15,6 +15,9 @@ import {
 } from '@/lib/i18n';
 import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { BuildTrackBrand } from '../_components/BuildTrackBrand';
+import { BuildTrackAccess, BuildTrackAccessLoading } from './BuildTrackAccess';
+import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSession';
 import {
   isRegistryBackedRef,
   privateMediaAccess,
@@ -2582,8 +2585,15 @@ function TextPromptDialog({ request, onSubmit, onCancel }: {
 
 export default function BuildTrackWebPage() {
   const [authLoadGuard] = useState(createAuthScopedLoadGuard);
-  const [session, setSession] = useState<Session | null>(null);
-  const [authUser, setAuthUser] = useState<SupabaseUser | null>(null);
+  const authenticatedWorkspace = useAuthenticatedWorkspaceSession({
+    onAuthenticatedUserChange: authLoadGuard.setAuthenticatedUser,
+  });
+  const session = authenticatedWorkspace.state.status === 'authenticated'
+    ? authenticatedWorkspace.state.session
+    : null;
+  const authUser = authenticatedWorkspace.state.status === 'authenticated'
+    ? authenticatedWorkspace.state.user
+    : null;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
   const [, setPrivateMediaVersion] = useState(0);
@@ -2630,14 +2640,9 @@ export default function BuildTrackWebPage() {
     if (!hasStoredReportLanguage) setReportLanguageState(nextLanguage);
   }, [hasStoredReportLanguage]);
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sessionExpiredFlag, setSessionExpiredFlag] = useState(false);
-  const intendedSignOutRef = useRef(false);
-  const hadSessionRef = useRef(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [textPrompt, setTextPrompt] = useState<WebTextPromptRequest | null>(null);
@@ -2646,13 +2651,12 @@ export default function BuildTrackWebPage() {
     return window.localStorage.getItem('buildtrack-web-sidebar-collapsed') === '1';
   });
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [deviceLanguage, setDeviceLanguage] = useState<SupportedLang>(() => getBrowserLang());
-  const [webLanguagePreference, setWebLanguagePreferenceState] = useState<WebLanguagePreference>(() => readStoredWebLanguagePreference().preference);
-  const [webLang, setWebLangState] = useState<SupportedLang>(() => {
-    if (typeof window === 'undefined') return 'fr';
-    const { preference } = readStoredWebLanguagePreference();
-    return resolveWebLanguagePreference(preference, null, getBrowserLang());
-  });
+  // Keep the first server and client render deterministic. Browser and stored
+  // preferences are applied after hydration, then the authenticated profile
+  // may refine the choice once its workspace data has loaded.
+  const [deviceLanguage, setDeviceLanguage] = useState<SupportedLang>('en');
+  const [webLanguagePreference, setWebLanguagePreferenceState] = useState<WebLanguagePreference>('auto');
+  const [webLang, setWebLangState] = useState<SupportedLang>('en');
 
   const handleWebLanguagePreferenceChange = useCallback(async (nextPreference: WebLanguagePreference) => {
     const nextDeviceLanguage = getBrowserLang();
@@ -2685,9 +2689,23 @@ export default function BuildTrackWebPage() {
     await handleWebLanguagePreferenceChange(nextLang);
   }, [handleWebLanguagePreferenceChange]);
 
+  useEffect(() => {
+    const nextDeviceLanguage = getBrowserLang();
+    const storedPreference = readStoredWebLanguagePreference().preference;
+    const nextLanguage = resolveWebLanguagePreference(storedPreference, null, nextDeviceLanguage);
+    setDeviceLanguage(nextDeviceLanguage);
+    setWebLanguagePreferenceState(storedPreference);
+    setWebLangState(nextLanguage);
+    syncReportLanguageWithInterface(nextLanguage);
+  }, [syncReportLanguageWithInterface]);
+
   useEffect(() => subscribePrivateMedia(() => {
     setPrivateMediaVersion(version => version + 1);
   }), []);
+
+  useEffect(() => {
+    document.documentElement.lang = webLang;
+  }, [webLang]);
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -2736,43 +2754,24 @@ export default function BuildTrackWebPage() {
     window.localStorage.setItem('buildtrack-web-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
 
+  const workspaceUserIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
-    let alive = true;
-    let authEventObserved = false;
-    const applySession = (nextSession: Session | null, event?: string) => {
-      authLoadGuard.setAuthenticatedUser(nextSession?.user?.id ?? null);
-      if (nextSession) hadSessionRef.current = true;
-      if (event === 'SIGNED_OUT' && hadSessionRef.current && !intendedSignOutRef.current) {
-        setSessionExpiredFlag(true);
-      }
-      if (event) intendedSignOutRef.current = false;
-      setSession(nextSession);
-      setAuthUser(nextSession?.user ?? null);
-      if (!nextSession) {
-        setProfile(null);
-        setData(EMPTY_DATA);
-        setStorageUsage(null);
-        setError('');
-        setNotice('');
-        setPassword('');
-        setLoading(false);
-        setSyncing(false);
-        setSaving(false);
-      }
-    };
-    supabaseBrowser.auth.getSession().then(({ data: authData }) => {
-      if (!alive || authEventObserved) return;
-      applySession(authData.session ?? null);
-    });
-    const { data: sub } = supabaseBrowser.auth.onAuthStateChange((_event, nextSession) => {
-      authEventObserved = true;
-      applySession(nextSession, _event);
-    });
-    return () => {
-      alive = false;
-      sub.subscription.unsubscribe();
-    };
-  }, [authLoadGuard]);
+    const nextUserId = authUser?.id ?? null;
+    const previousUserId = workspaceUserIdRef.current;
+    if (previousUserId === nextUserId) return;
+    workspaceUserIdRef.current = nextUserId;
+
+    if (previousUserId !== undefined || !nextUserId) {
+      setProfile(null);
+      setData(EMPTY_DATA);
+      setStorageUsage(null);
+      setError('');
+      setNotice('');
+      setSyncing(false);
+      setSaving(false);
+    }
+    setLoading(Boolean(nextUserId));
+  }, [authUser?.id]);
 
   useEffect(() => {
     if (!session?.user) {
@@ -3126,22 +3125,8 @@ export default function BuildTrackWebPage() {
     }
   }
 
-  async function handleLogin(event: React.FormEvent) {
-    event.preventDefault();
-    setSaving(true);
-    setError('');
-    const { error: loginError } = await supabaseBrowser.auth.signInWithPassword({ email, password });
-    if (loginError) {
-      setError(loginError.message);
-    } else {
-      setSessionExpiredFlag(false);
-    }
-    setSaving(false);
-  }
-
   function handleSignOut() {
-    intendedSignOutRef.current = true;
-    void supabaseBrowser.auth.signOut();
+    void authenticatedWorkspace.signOut();
   }
 
   async function patchReserveWeb(reserve: any, patch: Record<string, any>) {
@@ -5400,32 +5385,24 @@ export default function BuildTrackWebPage() {
     return `Stockage Supabase ${storageUsage.status === 'critical' ? 'critique' : 'proche de la limite'} : ${used} Mo utilisés / seuil ${limit} Mo. Réduisez les fichiers ou augmentez le plan avant les prochains uploads.`;
   }, [storageUsage]);
 
-  if (!session || !authUser) {
+  if (authenticatedWorkspace.state.status === 'checking') {
     return (
       <WebI18nContext.Provider value={i18n}>
         <WebStaticI18nBridge />
-        <main className={styles.loginPage}>
-          <section className={styles.loginPanel}>
-            <div className={styles.brandMark}>B</div>
-            <p className={styles.eyebrow}>{t('login.eyebrow')}</p>
-            <h1>{t('login.title')}</h1>
-            <p className={styles.muted}>{t('login.subtitle')}</p>
-            {sessionExpiredFlag && (
-              <div className={styles.sessionExpiredBanner} role="alert">
-                <span aria-hidden="true">⚠</span>
-                {t('sessionExpired.loginMessage')}
-              </div>
-            )}
-            <form className={styles.loginForm} onSubmit={handleLogin}>
-              <label>{t('common.email')}</label>
-              <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" required />
-              <label>{t('common.password')}</label>
-              <input value={password} onChange={e => setPassword(e.target.value)} type="password" autoComplete="current-password" required />
-              {error ? <p className={styles.error} role="alert">{error}</p> : null}
-              <button disabled={saving}>{saving ? t('common.loggingIn') : t('common.login')}</button>
-            </form>
-          </section>
-        </main>
+        <BuildTrackAccessLoading language={webLang} />
+      </WebI18nContext.Provider>
+    );
+  }
+
+  if (authenticatedWorkspace.state.status === 'anonymous' || !session || !authUser) {
+    return (
+      <WebI18nContext.Provider value={i18n}>
+        <WebStaticI18nBridge />
+        <BuildTrackAccess
+          language={webLang}
+          onLanguageChange={handleWebLangChange}
+          sessionExpired={authenticatedWorkspace.state.status === 'anonymous' && authenticatedWorkspace.state.reason === 'expired'}
+        />
       </WebI18nContext.Provider>
     );
   }
@@ -5445,9 +5422,9 @@ export default function BuildTrackWebPage() {
       <aside className={`${styles.sidebar} ${sidebarCollapsed ? styles.sidebarCollapsed : ''} ${mobileNavOpen ? styles.sidebarMobileOpen : ''}`}>
         <div className={styles.sidebarBrandRow}>
           <div className={styles.sidebarBrand}>
-            <span className={styles.brandMarkSmall}>B</span>
+            <BuildTrackBrand variant="mark" size="sm" />
             <div>
-              <strong>BuildTrack</strong>
+              <strong aria-hidden="true">BuildTrack</strong>
               <span>Web</span>
             </div>
           </div>

@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/lib/sender';
 import { passwordResetEmail } from '@/lib/templates';
 import { checkRateLimit } from '@/lib/rateLimit';
+import { normalizeLang } from '@/lib/i18n';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? 'https://jzeojdpgglbxjdasjgta.supabase.co';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
@@ -32,11 +33,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { email } = await req.json();
+    const { email, language: requestedLanguage } = await req.json();
 
-    if (!email || !email.includes('@')) {
+    if (typeof email !== 'string' || email.length > 160 || !email.includes('@')) {
       return NextResponse.json({ error: 'Email invalide' }, { status: 400, headers: CORS_HEADERS });
     }
+
+    const normalizedEmail = email.toLowerCase().trim();
+    const fallbackLanguage = normalizeLang(typeof requestedLanguage === 'string' ? requestedLanguage : null);
 
     if (!SERVICE_ROLE_KEY) {
       return NextResponse.json(
@@ -52,16 +56,19 @@ export async function POST(req: NextRequest) {
     const { data: profileRows } = await supabaseAdmin
       .from('profiles')
       .select('name, preferred_language')
-      .eq('email', email.toLowerCase().trim())
+      .eq('email', normalizedEmail)
       .limit(1);
 
-    const name: string = profileRows?.[0]?.name ?? email.split('@')[0];
-    const language: string | null = profileRows?.[0]?.preferred_language ?? null;
+    const name: string = profileRows?.[0]?.name ?? normalizedEmail.split('@')[0];
+    const language = profileRows?.[0]?.preferred_language
+      ? normalizeLang(profileRows[0].preferred_language)
+      : fallbackLanguage;
+    const redirectTo = `${RESET_REDIRECT}?lang=${encodeURIComponent(language)}`;
 
     const { data: linkData, error: linkError } = await supabaseAdmin.auth.admin.generateLink({
       type: 'recovery',
-      email: email.toLowerCase().trim(),
-      options: { redirectTo: RESET_REDIRECT },
+      email: normalizedEmail,
+      options: { redirectTo },
     });
 
     if (linkError || !linkData?.properties?.action_link) {
@@ -74,7 +81,7 @@ export async function POST(req: NextRequest) {
     const template = passwordResetEmail({ name, resetUrl, language });
 
     const result = await sendEmail({
-      to: email.toLowerCase().trim(),
+      to: normalizedEmail,
       subject: template.subject,
       html: template.html,
     });

@@ -1,7 +1,7 @@
 'use client';
 
-import Image from 'next/image';
 import { FormEvent, useEffect, useState } from 'react';
+import { BuildTrackBrand } from './_components/BuildTrackBrand';
 import styles from './landing.module.css';
 import { LANDING_COPY, LANGUAGE_OPTIONS, type Language } from './landing-copy';
 
@@ -74,17 +74,6 @@ function Icon({ name, size = 22 }: { name: IconName; size?: number }) {
   );
 }
 
-function Brand({ compact = false }: { compact?: boolean }) {
-  return (
-    <span className={styles.brand} aria-label="BuildTrack">
-      <span className={styles.brandMark} aria-hidden="true">
-        <Image src="/icon.png" alt="" width={38} height={38} sizes="38px" />
-      </span>
-      {!compact && <span className={styles.brandWord}>BuildTrack</span>}
-    </span>
-  );
-}
-
 type RoleKey = 'direction' | 'conducteur' | 'magasinier' | 'entreprise';
 
 function LanguageSelector({ language, onChange, compact = false }: { language: Language; onChange: (language: Language) => void; compact?: boolean }) {
@@ -113,7 +102,7 @@ function ProductScene({ copy }: { copy: (typeof LANDING_COPY)[Language] }) {
         </div>
         <div className={styles.appFrame}>
           <aside className={styles.appSidebar}>
-            <Brand compact />
+            <BuildTrackBrand variant="mark" size="xs" />
             <div className={`${styles.sideIcon} ${styles.sideIconActive}`}><Icon name="chart" size={18} /></div>
             <div className={styles.sideIcon}><Icon name="plan" size={18} /></div>
             <div className={styles.sideIcon}><Icon name="check" size={18} /></div>
@@ -174,7 +163,7 @@ function ProductScene({ copy }: { copy: (typeof LANDING_COPY)[Language] }) {
 
       <div className={styles.phoneFrame}>
         <div className={styles.phoneSpeaker} />
-        <div className={styles.phoneHeader}><Brand compact /><span>{copy.mock.stockEntry}</span><Icon name="x" size={18} /></div>
+        <div className={styles.phoneHeader}><BuildTrackBrand variant="mark" size="xs" /><span>{copy.mock.stockEntry}</span><Icon name="x" size={18} /></div>
         <div className={styles.scannerView}>
           <div className={styles.scanCorners} />
           <div className={styles.scanBeam} />
@@ -290,7 +279,7 @@ export default function LandingPage({ initialLanguage }: { initialLanguage: Lang
 
       <header className={styles.siteHeader}>
         <nav className={styles.navShell} aria-label={copy.accessibility.navigation}>
-          <a href="#accueil" className={styles.logoLink} aria-label="BuildTrack"><Brand /></a>
+          <a href="#accueil" className={styles.logoLink} aria-label="BuildTrack"><BuildTrackBrand size="sm" /></a>
           <div className={styles.desktopNav}>
             <a href="#produit">{copy.nav.product}</a>
             <a href="#metiers">{copy.nav.roles}</a>
@@ -541,7 +530,7 @@ export default function LandingPage({ initialLanguage }: { initialLanguage: Lang
                 <a href="#demo">{copy.roles.demoLink} <Icon name="arrow" size={18} /></a>
               </div>
               <div className={styles.roleDashboard}>
-                <div className={styles.roleDashHeader}><Brand compact /><span>{role.accent}</span><div className={styles.roleAvatar}>{role.label.slice(0, 1)}</div></div>
+                <div className={styles.roleDashHeader}><BuildTrackBrand variant="mark" size="xs" /><span>{role.accent}</span><div className={styles.roleAvatar}>{role.label.slice(0, 1)}</div></div>
                 <div className={styles.roleStat}><small>{copy.roles.today}</small><strong>{role.stat}</strong><span>{role.statLabel}</span><i><b /></i></div>
                 <div className={styles.roleList}>
                   {role.items.map((item, index) => (
@@ -651,7 +640,7 @@ export default function LandingPage({ initialLanguage }: { initialLanguage: Lang
 
       <footer className={styles.footer}>
         <div className={styles.footerMain}>
-          <div><Brand /><p>{copy.footer.tagline}</p></div>
+          <div><BuildTrackBrand size="sm" /><p>{copy.footer.tagline}</p></div>
           <div><strong>{copy.footer.platform}</strong><a href="#produit">{copy.nav.product}</a><a href="#metiers">{copy.nav.roles}</a><a href="#fiabilite">{copy.nav.reliability}</a></div>
           <div><strong>{copy.footer.access}</strong><a href="/web">{copy.nav.login}</a><a href="#demo">{copy.nav.demo}</a><a href="mailto:buildtrack.admin@gmail.com">{copy.footer.write}</a></div>
         </div>

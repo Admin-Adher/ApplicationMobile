@@ -88,37 +88,6 @@
   transform: translateY(0);
 }
 
-.brand {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--ink);
-}
-
-.brandMark {
-  display: block;
-  width: 38px;
-  height: 38px;
-  flex: 0 0 38px;
-  border-radius: 10px;
-  box-shadow: 0 6px 16px rgba(7, 27, 58, 0.17);
-  overflow: hidden;
-}
-
-.brandMark img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.brandWord {
-  font-family: var(--font-buildtrack-display), sans-serif;
-  font-size: 23px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-}
-
 .siteHeader {
   position: fixed;
   z-index: 100;
@@ -525,15 +494,7 @@
   gap: 9px;
 }
 
-.appSidebar .brandMark {
-  width: 30px;
-  height: 30px;
-  flex-basis: 30px;
-  margin-bottom: 7px;
-  border-radius: 8px;
-}
-
-.appSidebar .brandMark img { width: 100%; height: 100%; }
+.appSidebar > :first-child { margin-bottom: 7px; }
 
 .sideIcon {
   display: grid;
@@ -778,15 +739,6 @@
   grid-template-columns: 30px 1fr 20px;
   gap: 7px;
 }
-
-.phoneHeader .brandMark {
-  width: 27px;
-  height: 27px;
-  flex-basis: 27px;
-  border-radius: 7px;
-}
-
-.phoneHeader .brandMark img { width: 100%; height: 100%; }
 
 .scannerView {
   position: relative;
@@ -1641,8 +1593,6 @@
 }
 
 .roleDashHeader { display: grid; height: 62px; align-items: center; border-bottom: 1px solid #dfe6ed; background: white; padding: 0 14px; grid-template-columns: 35px 1fr 32px; gap: 8px; color: var(--ink); font-size: 11px; font-weight: 800; }
-.roleDashHeader .brandMark { width: 30px; height: 30px; flex-basis: 30px; border-radius: 7px; }
-.roleDashHeader .brandMark img { width: 100%; height: 100%; }
 .roleStat { position: relative; display: flex; min-height: 154px; padding: 24px; flex-direction: column; }
 .roleStat small { color: var(--muted); font-size: 10px; }
 .roleStat strong { margin-top: 7px; color: var(--ink); font-family: var(--font-buildtrack-display), sans-serif; font-size: 48px; line-height: 1; }
@@ -2077,7 +2027,6 @@
 }
 
 @media (max-width: 430px) {
-  .brandWord { font-size: 21px; }
   .heroVisual { height: 380px; }
   .productScene { transform: scale(0.54); }
   .heroCopy h1 { font-size: 46px; }
