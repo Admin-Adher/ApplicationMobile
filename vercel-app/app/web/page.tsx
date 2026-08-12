@@ -40,7 +40,7 @@ import {
   uploadRegisteredWebFile,
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
-import InventoryWebView from './InventoryWebView';
+import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
 
@@ -5585,20 +5585,23 @@ export default function BuildTrackWebPage() {
           <>
             {activeTab === 'inventory' && (
               canViewInventory(profile) ? (
-                <InventoryWebView
-                  products={data.inventoryProducts}
-                  movements={data.inventoryMovements}
-                  projects={data.chantiers}
-                  companies={data.companies}
+                <InventoryWorkspace
+                  snapshot={{
+                    products: data.inventoryProducts,
+                    movements: data.inventoryMovements,
+                    projects: data.chantiers,
+                    companies: data.companies,
+                  }}
                   selectedProjectId={selectedProjectId}
-                  organizationId={profile?.organization_id}
-                  canRecord={canRecordInventory(profile)}
-                  canManage={canManageInventoryProducts(profile)}
-                  canAdjust={canAdjustInventory(profile)}
-                  canExport={canExportInventory(profile)}
-                  uiLanguage={webLang}
-                  exportLanguage={reportLanguage}
-                  onExportLanguageChange={setReportLanguage}
+                  capabilities={{
+                    canRecord: canRecordInventory(profile),
+                    canManage: canManageInventoryProducts(profile),
+                    canAdjust: canAdjustInventory(profile),
+                    canExport: canExportInventory(profile),
+                  }}
+                  language={webLang}
+                  reportLanguage={reportLanguage}
+                  onReportLanguageChange={setReportLanguage}
                   onReload={async () => {
                     if (session.user) await loadEverything(session.user, { background: true });
                   }}
