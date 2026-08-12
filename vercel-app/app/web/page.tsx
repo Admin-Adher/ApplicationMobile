@@ -41,6 +41,11 @@ import {
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
+import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
+import {
+  mergeMessageReadState,
+  type MessageSendInput,
+} from './messages-workspace/messages-model';
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
 
@@ -55,6 +60,7 @@ type Profile = {
   organization_id?: string | null;
   company_id?: string | null;
   preferred_language?: SupportedLang | null;
+  last_read_by_channel?: Record<string, string> | null;
   permissions_override?: PermissionsOverride | null;
   permissionsOverride?: PermissionsOverride | null;
 };
@@ -2489,14 +2495,6 @@ function createVisitDraft(projectId: string, conducteur: string, lang: Supported
   };
 }
 
-function channelLabel(channel: any, companies: any[]) {
-  if (channel?.type === 'company' && String(channel.id ?? '').startsWith('company-')) {
-    const company = companies.find(c => c.id === String(channel.id).replace('company-', ''));
-    return company?.name ?? channel.name;
-  }
-  return channel?.name ?? channel?.id ?? 'Canal';
-}
-
 const SUPABASE_PAGE_SIZE = 1000;
 
 async function fetchScopedTable<T = any>(
@@ -2796,6 +2794,8 @@ export default function BuildTrackWebPage() {
       setNotice('');
       setSyncing(false);
       setSaving(false);
+      setLastReadByChannel({});
+      setMessageDraft('');
     }
     setLoading(Boolean(nextUserId));
   }, [authUser?.id]);
@@ -2919,7 +2919,7 @@ export default function BuildTrackWebPage() {
     if (!userId || typeof window === 'undefined') return;
     try {
       const raw = window.localStorage.getItem(`buildtrack-web-last-read-v1-${userId}`);
-      if (raw) setLastReadByChannel(JSON.parse(raw));
+      if (raw) setLastReadByChannel(previous => mergeMessageReadState(previous, JSON.parse(raw)));
     } catch {}
   }, [session?.user?.id]);
   useEffect(() => {
@@ -2933,22 +2933,6 @@ export default function BuildTrackWebPage() {
 
   // Première session : tous les canaux partent « lus maintenant » pour ne pas
   // afficher des centaines de non-lus historiques au premier chargement.
-  useEffect(() => {
-    if (!data.channels.length) return;
-    setLastReadByChannel(prev => {
-      const nowIsoStamp = new Date().toISOString();
-      let changed = false;
-      const next = { ...prev };
-      for (const channel of data.channels) {
-        if (channel?.id && !next[channel.id]) {
-          next[channel.id] = nowIsoStamp;
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [data.channels]);
-
   // F5 / fermeture d'onglet pendant une saisie de modale : avertir avant de perdre le brouillon.
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -3014,6 +2998,10 @@ export default function BuildTrackWebPage() {
       }
       syncReportLanguageWithInterface(preferredLang);
       setProfile({ ...loadedProfile, preferred_language: profileLanguage });
+      setLastReadByChannel(previous => mergeMessageReadState(
+        loadedProfile.last_read_by_channel,
+        previous,
+      ));
 
       if (loadedProfile.role === 'magasinier') {
         const [chantiers, companies, organizations, notificationPreferences, inventoryProducts, inventoryMovements] = await Promise.all([
@@ -5201,36 +5189,47 @@ export default function BuildTrackWebPage() {
     }
   }
 
-  async function sendMessage(event: React.FormEvent) {
-    event.preventDefault();
-    if (!selectedChannelId || !messageDraft.trim() || !profile) return;
+  async function uploadMessagePhoto(file: File, channelId: string) {
+    return uploadRegisteredWebFile('photos', file, safeStorageName(`message_${channelId}_${crypto.randomUUID()}`));
+  }
+
+  async function sendMessage(input: MessageSendInput) {
+    if (!input.channelId || (!input.content.trim() && !input.attachmentRef) || !profile) return false;
     setSaving(true);
+    setError('');
     const payload = {
       id: crypto.randomUUID(),
-      channel_id: selectedChannelId,
-      sender: profile.name || profile.email,
-      content: messageDraft.trim(),
-      timestamp: new Date().toLocaleString('fr-FR'),
+      channel_id: input.channelId,
+      content: input.content.trim(),
+      timestamp: new Date().toISOString(),
       type: 'message',
       read: true,
-      read_by: [profile.name || profile.email],
+      read_by: [profile.name || profile.email].filter(Boolean),
       reactions: {},
       is_pinned: false,
       mentions: [],
-      organization_id: profile.organization_id ?? null,
+      attachment_uri: input.attachmentRef ?? null,
+      reply_to_id: input.replyTo?.id ?? null,
+      reply_to_content: input.replyTo?.content ?? null,
+      reply_to_sender: input.replyTo?.sender ?? null,
     };
     const { data: inserted, error: messageError } = await supabaseBrowser
       .from('messages')
       .insert(payload)
       .select()
       .single();
-    if (messageError) setError(messageError.message);
+    if (messageError) {
+      setError(messageError.message);
+      setSaving(false);
+      return false;
+    }
     else {
       setMessageDraft('');
       setData(prev => ({ ...prev, messages: [inserted, ...prev.messages] }));
       triggerWebPush({ type: 'message-created', messageId: String(inserted?.id ?? payload.id) });
     }
     setSaving(false);
+    return true;
   }
 
   const canViewReserveTrash = canEdit(profile);
@@ -5389,19 +5388,57 @@ export default function BuildTrackWebPage() {
         .sort((a, b) => new Date(a.created_at ?? 0).getTime() - new Date(b.created_at ?? 0).getTime())
     : [], [selectedChannel, data.messages]);
 
-  // Canal affiché et onglet visible → tout ce qui y est arrivé est lu.
+  // Canal affiché et onglet visible : le marqueur est partagé avec l'app mobile
+  // via le profil serveur, puis les lignes visibles sont marquées par le RPC borné.
   useEffect(() => {
-    if (activeTab !== 'messages' || !selectedChannel?.id) return;
-    const latest = selectedChannelMessages.length
-      ? selectedChannelMessages[selectedChannelMessages.length - 1]?.created_at
-      : null;
-    const stamp = typeof latest === 'string' && latest ? latest : new Date().toISOString();
-    setLastReadByChannel(prev => {
-      const current = prev[selectedChannel.id];
-      if (current && current >= stamp) return prev;
-      return { ...prev, [selectedChannel.id]: stamp };
-    });
-  }, [activeTab, selectedChannel?.id, selectedChannelMessages]);
+    const channelId = selectedChannel?.id;
+    const userId = session?.user?.id;
+    const latest = selectedChannelMessages.at(-1);
+    if (activeTab !== 'messages' || !channelId || !userId || !latest) return;
+    const latestDate = new Date(latest.created_at ?? latest.timestamp ?? 0);
+    if (Number.isNaN(latestDate.getTime())) return;
+    const stamp = latestDate.toISOString();
+    const current = lastReadByChannel[channelId];
+    if (current && Date.parse(current) >= latestDate.getTime()) return;
+
+    const next = mergeMessageReadState(lastReadByChannel, { [channelId]: stamp });
+    setLastReadByChannel(next);
+    setProfile(previous => previous ? { ...previous, last_read_by_channel: next } : previous);
+
+    const unreadIds = selectedChannelMessages
+      .filter(message => {
+        const own = message.sender_id
+          ? String(message.sender_id) === userId
+          : sameName(message.sender, profile?.name || authUser?.email || '');
+        const created = Date.parse(message.created_at ?? message.timestamp ?? '');
+        return !own && Number.isFinite(created) && (!current || created > Date.parse(current));
+      })
+      .map(message => String(message.id))
+      .filter(Boolean);
+
+    void (async () => {
+      const profileUpdate = await supabaseBrowser
+        .from('profiles')
+        .update({ last_read_by_channel: next })
+        .eq('id', userId);
+      if (profileUpdate.error) console.warn('[web] last_read_by_channel', profileUpdate.error.message);
+      for (let offset = 0; offset < unreadIds.length; offset += 100) {
+        const { error: readError } = await (supabaseBrowser as any).rpc('mark_messages_read_by', {
+          p_message_ids: unreadIds.slice(offset, offset + 100),
+          p_user_name: profile?.name || authUser?.email || '',
+        });
+        if (readError) console.warn('[web] mark_messages_read_by', readError.message);
+      }
+    })();
+  }, [
+    activeTab,
+    authUser?.email,
+    lastReadByChannel,
+    profile?.name,
+    selectedChannel?.id,
+    selectedChannelMessages,
+    session?.user?.id,
+  ]);
 
   // Compteur de messages non lus (tous canaux sauf celui affiché), pour le
   // badge de la sidebar et le titre de l'onglet navigateur.
@@ -5412,12 +5449,15 @@ export default function BuildTrackWebPage() {
     for (const message of data.messages) {
       if (!message?.channel_id || typeof message?.created_at !== 'string') continue;
       if (activeTab === 'messages' && selectedChannel?.id === message.channel_id) continue;
-      if (sameName(message.sender, myName)) continue;
+      const own = message.sender_id
+        ? String(message.sender_id) === session?.user?.id
+        : sameName(message.sender, myName);
+      if (own) continue;
       const lastRead = lastReadByChannel[message.channel_id];
-      if (lastRead && message.created_at > lastRead) count += 1;
+      if (!lastRead || message.created_at > lastRead) count += 1;
     }
     return count;
-  }, [data.messages, lastReadByChannel, activeTab, selectedChannel?.id, profile?.name, authUser?.email]);
+  }, [data.messages, lastReadByChannel, activeTab, selectedChannel?.id, profile?.name, authUser?.email, session?.user?.id]);
 
   // Titre de l'onglet : « (3) BuildTrack » quand des messages attendent — le
   // seul signal visible quand l'utilisateur est sur un autre onglet navigateur.
@@ -5848,18 +5888,25 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'messages' && (
-              <MessagesView
-                channels={data.channels}
-                companies={data.companies}
-                selectedChannel={selectedChannel}
-                setSelectedChannelId={setSelectedChannelId}
-                messages={selectedChannelMessages}
-                allMessages={data.messages}
+              <MessagesWorkspace
+                snapshot={{
+                  channels: data.channels,
+                  companies: data.companies,
+                  messages: data.messages,
+                }}
+                actor={{
+                  userId: session?.user?.id ?? '',
+                  displayName: profile?.name || authUser?.email || '',
+                }}
+                language={webLang}
+                selectedChannelId={selectedChannel?.id ?? null}
+                lastReadByChannel={lastReadByChannel}
                 draft={messageDraft}
-                setDraft={setMessageDraft}
+                onDraftChange={setMessageDraft}
+                onSelectChannel={setSelectedChannelId}
                 onSend={sendMessage}
+                onUploadPhoto={uploadMessagePhoto}
                 saving={saving}
-                currentUserName={profile?.name ?? authUser?.email}
               />
             )}
             {activeTab === 'terrain' && (
@@ -10370,215 +10417,6 @@ function ReportCard({ title, text, meta, disabled, loading, onClick }: any) {
       <small>{meta}</small>
       <button type="button" disabled={disabled} onClick={onClick}>{loading ? 'Génération...' : 'Télécharger PDF'}</button>
     </article>
-  );
-}
-
-function messageChannelTypeLabel(type: string | null | undefined, t: WebTranslator) {
-  const value = String(type ?? 'channel').toLowerCase();
-  if (value === 'dm') return t('messages.type.dm');
-  if (value === 'company') return t('messages.type.company');
-  if (value === 'building') return t('messages.type.building');
-  return t('messages.type.channel');
-}
-
-function messageChannelIcon(type?: string | null): IonIconName {
-  const value = String(type ?? 'channel').toLowerCase();
-  if (value === 'dm') return 'at-outline';
-  if (value === 'company') return 'business-outline';
-  if (value === 'building') return 'construct-outline';
-  return 'chatbubble-outline';
-}
-
-function messageDayKey(value?: string | null, locale = 'fr-FR') {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value);
-  return date.toLocaleDateString(locale, { day: '2-digit', month: 'long', year: 'numeric' });
-}
-
-function messageListTimestamp(value?: string | null, locale = 'fr-FR') {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const today = new Date();
-  const sameDay = date.toDateString() === today.toDateString();
-  const sameYear = date.getFullYear() === today.getFullYear();
-  if (sameDay) {
-    return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
-  }
-  return date.toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'short',
-    ...(sameYear ? {} : { year: '2-digit' }),
-  });
-}
-
-function MessagesView({ channels, companies, selectedChannel, setSelectedChannelId, messages, allMessages, draft, setDraft, onSend, saving, currentUserName }: any) {
-  const { t, locale } = useWebI18n();
-  const [channelSearch, setChannelSearch] = useState('');
-  const channelSummaries = useMemo(() => {
-    const query = channelSearch.trim().toLowerCase();
-    return channels
-      .map((channel: any, index: number) => {
-        const label = channelLabel(channel, companies);
-        const channelMessages = (allMessages ?? []).filter((message: any) => message.channel_id === channel.id);
-        const latest = channelMessages
-          .slice()
-          .sort((a: any, b: any) => new Date(b.created_at ?? 0).getTime() - new Date(a.created_at ?? 0).getTime())[0] ?? null;
-        const typeLabel = messageChannelTypeLabel(channel.type, t);
-        return {
-          channel,
-          index,
-          label,
-          typeLabel,
-          count: channelMessages.length,
-          latest,
-          latestPreview: latest?.content ? String(latest.content).replace(/\s+/g, ' ').trim() : '',
-        };
-      })
-      .filter((item: any) => {
-        if (!query) return true;
-        return `${item.label} ${item.typeLabel} ${item.latestPreview}`.toLowerCase().includes(query);
-      })
-      .sort((a: any, b: any) => {
-        const aTime = new Date(a.latest?.created_at ?? 0).getTime();
-        const bTime = new Date(b.latest?.created_at ?? 0).getTime();
-        if (aTime || bTime) return bTime - aTime;
-        return a.index - b.index;
-      });
-  }, [allMessages, channelSearch, channels, companies, t]);
-  const selectedLabel = selectedChannel ? channelLabel(selectedChannel, companies) : t('nav.messages');
-  const selectedTypeLabel = messageChannelTypeLabel(selectedChannel?.type, t);
-  const selectedSummary = selectedChannel
-    ? channelSummaries.find((item: any) => item.channel.id === selectedChannel.id)
-    : null;
-  const selectedMessageCount = selectedSummary?.count ?? messages.length;
-  let previousDay = '';
-
-  return (
-    <div className={styles.messagesWorkspace}>
-      <aside className={styles.messagesSidebar}>
-        <div className={styles.messagesSidebarHeader}>
-          <div>
-            <p className={styles.eyebrow}>{t('messages.workspace')}</p>
-            <h2>{t('messages.channels')}</h2>
-          </div>
-          <strong>{channels.length}</strong>
-        </div>
-        <label className={styles.messagesSearch}>
-          <IonIcon name="search-outline" />
-          <input
-            value={channelSearch}
-            onChange={event => setChannelSearch(event.target.value)}
-            placeholder={t('messages.searchPlaceholder')}
-          />
-        </label>
-        <div className={styles.messagesSidebarStats}>
-          <span><strong>{channels.length}</strong><small>{t('messages.channels')}</small></span>
-          <span><strong>{(allMessages ?? []).length}</strong><small>{t('nav.messages')}</small></span>
-        </div>
-        <div className={styles.messagesChannelList} role="listbox" aria-label={t('messages.channels')}>
-          {channelSummaries.map((item: any) => {
-            const active = selectedChannel?.id === item.channel.id;
-            return (
-              <button
-                key={item.channel.id}
-                type="button"
-                role="option"
-                aria-selected={active}
-                className={active ? styles.messagesChannelActive : styles.messagesChannel}
-                onClick={() => setSelectedChannelId(item.channel.id)}
-              >
-                <span className={styles.messagesChannelIcon}>
-                  <IonIcon name={messageChannelIcon(item.channel.type)} />
-                </span>
-                <span className={styles.messagesChannelBody}>
-                  <span>
-                    <strong>{item.label}</strong>
-                    {item.count ? <em>{item.count}</em> : null}
-                  </span>
-                  <small>{item.latestPreview || item.typeLabel}</small>
-                </span>
-                <time>{messageListTimestamp(item.latest?.created_at, locale)}</time>
-              </button>
-            );
-          })}
-          {!channelSummaries.length ? (
-            <p className={styles.messagesEmptyInline}>{channels.length ? t('messages.noChannelResult') : t('messages.noChannels')}</p>
-          ) : null}
-        </div>
-      </aside>
-
-      <section className={styles.messagesPanel}>
-        <header className={styles.messagesHeader}>
-          <div className={styles.messagesHeaderIdentity}>
-            <span><IonIcon name={messageChannelIcon(selectedChannel?.type)} /></span>
-            <div>
-              <p className={styles.eyebrow}>{selectedTypeLabel}</p>
-              <h2>{selectedLabel}</h2>
-            </div>
-          </div>
-          <div className={styles.messagesHeaderMeta}>
-            <span>{selectedMessageCount} {t('nav.messages').toLowerCase()}</span>
-            <span>{selectedChannel ? t('messages.activeChannel') : t('messages.noChannelSelected')}</span>
-          </div>
-        </header>
-
-        <div className={styles.messagesThread}>
-          {messages.map((message: any) => {
-            const sender = message.sender ?? t('messages.unknownSender');
-            const day = messageDayKey(message.created_at, locale);
-            const showDay = day && day !== previousDay;
-            previousDay = day || previousDay;
-            const own = currentUserName && String(sender).trim().toLowerCase() === String(currentUserName).trim().toLowerCase();
-            return (
-              <div key={message.id} className={styles.messagesMessageBlock}>
-                {showDay ? <div className={styles.messagesDateDivider}><span>{day}</span></div> : null}
-                <article className={`${styles.messagesMessage} ${own ? styles.messagesMessageOwn : ''}`}>
-                  <div className={styles.messagesAvatar}>{initials(sender)}</div>
-                  <div className={styles.messagesMessageContent}>
-                    <div className={styles.messagesMessageMeta}>
-                      <strong>{sender}</strong>
-                      <time>{prettyDate(message.created_at, true)}</time>
-                    </div>
-                    <p>{message.content}</p>
-                  </div>
-                </article>
-              </div>
-            );
-          })}
-          {!messages.length ? (
-            <div className={styles.messagesEmptyState}>
-              <span><IonIcon name="chatbubbles-outline" /></span>
-              <strong>{t('messages.emptyTitle')}</strong>
-              <p>{selectedChannel ? t('messages.emptyText') : t('messages.noChannelSelected')}</p>
-            </div>
-          ) : null}
-        </div>
-
-        <form className={styles.messagesComposer} onSubmit={onSend}>
-          <div className={styles.messagesComposerBox}>
-            <textarea
-              value={draft}
-              onChange={event => setDraft(event.target.value)}
-              placeholder={selectedChannel ? t('messages.composerPlaceholder', { channel: selectedLabel }) : t('messages.noChannelSelected')}
-              disabled={!selectedChannel}
-              rows={1}
-              onKeyDown={event => {
-                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && draft.trim() && !saving) {
-                  event.preventDefault();
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-            />
-            <button type="submit" disabled={saving || !draft.trim() || !selectedChannel}>
-              <IonIcon name={saving ? 'refresh' : 'send'} />
-              <span>{saving ? t('common.syncing') : t('messages.send')}</span>
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
   );
 }
 
