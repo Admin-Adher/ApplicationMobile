@@ -16,6 +16,7 @@ describe('BuildTrack authenticated web workspace', () => {
     expect(chrome).toContain('<BuildTrackBrand variant="wordmark"');
     expect(chrome).toContain('WorkspaceProjectPicker');
     expect(chrome).toContain('aria-current={item.active');
+    expect(chrome.match(/data-bt-i18n-skip="true"/g)).toHaveLength(2);
   });
 
   it('keeps the product chrome restrained, accessible and touch friendly', () => {

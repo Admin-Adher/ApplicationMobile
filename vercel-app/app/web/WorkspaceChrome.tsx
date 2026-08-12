@@ -272,7 +272,10 @@ export function WorkspaceChrome({
         />
       ) : null}
 
-      <aside className={`${styles.sidebar} ${collapsed ? styles.sidebarCollapsed : ''} ${mobileOpen ? styles.sidebarMobileOpen : ''}`}>
+      <aside
+        className={`${styles.sidebar} ${collapsed ? styles.sidebarCollapsed : ''} ${mobileOpen ? styles.sidebarMobileOpen : ''}`}
+        data-bt-i18n-skip="true"
+      >
         <div className={styles.brandRow}>
           <div className={styles.brandWordmark}>
             <BuildTrackBrand variant="wordmark" size="sm" />
@@ -344,7 +347,7 @@ export function WorkspaceChrome({
       </aside>
 
       <section className={`${styles.workspace} ${containedWorkspace ? styles.workspaceContained : ''} ${workspaceClassName}`}>
-        <header className={styles.topbar}>
+        <header className={styles.topbar} data-bt-i18n-skip="true">
           <div className={styles.headingRow}>
             <button
               type="button"
