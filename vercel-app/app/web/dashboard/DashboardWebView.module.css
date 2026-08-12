@@ -1,0 +1,1139 @@
+.root {
+  --dashboard-ink: #071b3a;
+  --dashboard-blue: #003082;
+  --dashboard-orange: #d66708;
+  --dashboard-danger: #c93b32;
+  --dashboard-success: #1b7f60;
+  --dashboard-muted: #5d7088;
+  --dashboard-border: #d9e2ec;
+  --dashboard-paper: #f7f9fc;
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+  color: var(--dashboard-ink);
+  font-family: var(--font-buildtrack-body), Manrope, Arial, sans-serif;
+}
+
+.heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  min-width: 0;
+  padding: 0.125rem 0.125rem 1.25rem;
+  border-bottom: 1px solid var(--dashboard-border);
+}
+
+.heading div {
+  min-width: 0;
+}
+
+.heading p,
+.heading h2 {
+  margin: 0;
+}
+
+.heading p {
+  margin-bottom: 0.35rem;
+  color: var(--dashboard-blue);
+  font-size: 0.75rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.heading h2 {
+  overflow-wrap: anywhere;
+  font-size: 2rem;
+  font-weight: 780;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.heading time {
+  flex: 0 0 auto;
+  color: var(--dashboard-muted);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+
+.metricRail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.metric {
+  --metric-color: var(--dashboard-blue);
+  display: grid;
+  grid-template-columns: 2.25rem minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  align-items: center;
+  gap: 0.15rem 0.75rem;
+  min-width: 0;
+  min-height: 7.5rem;
+  padding: 1.1rem 1.25rem;
+  border: 0;
+  border-left: 1px solid var(--dashboard-border);
+  background: #fff;
+  color: var(--dashboard-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 180ms ease;
+}
+
+.metric:first-child {
+  border-left: 0;
+}
+
+.metric[data-tone='orange'] { --metric-color: var(--dashboard-orange); }
+.metric[data-tone='danger'] { --metric-color: var(--dashboard-danger); }
+.metric[data-tone='green'] { --metric-color: var(--dashboard-success); }
+
+.metric:hover {
+  background: #f8fafc;
+}
+
+.metricIcon {
+  display: inline-flex;
+  grid-row: 1 / span 2;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 1px solid color-mix(in srgb, var(--metric-color) 28%, white);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--metric-color) 8%, white);
+  color: var(--metric-color);
+}
+
+.metricValue {
+  color: var(--metric-color);
+  font-size: 1.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.metric strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.875rem;
+  font-weight: 780;
+}
+
+.metric small {
+  grid-column: 1 / -1;
+  min-width: 0;
+  padding-top: 0.35rem;
+  color: var(--dashboard-muted);
+  font-size: 0.75rem;
+  font-weight: 560;
+  line-height: 1.35;
+}
+
+.panel {
+  min-width: 0;
+  padding: 1.5rem;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+  margin-bottom: 1.25rem;
+}
+
+.panelHeader > div {
+  min-width: 0;
+}
+
+.panelHeader h3,
+.panelHeader p {
+  margin: 0;
+}
+
+.panelHeader h3 {
+  font-size: 1.125rem;
+  font-weight: 780;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.panelHeader p {
+  max-width: 42rem;
+  margin-top: 0.3rem;
+  color: var(--dashboard-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.textAction {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 0;
+  border-radius: 0.45rem;
+  background: #eef4ff;
+  color: var(--dashboard-blue);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 760;
+  cursor: pointer;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.textAction:hover {
+  background: #dfeafe;
+  color: #001f5c;
+}
+
+.textAction svg {
+  width: 1rem;
+  height: 1rem;
+}
+
+.operationalGrid,
+.insightGrid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.08fr) minmax(22rem, 0.92fr);
+  gap: 1.25rem;
+  align-items: stretch;
+  min-width: 0;
+}
+
+.progressPanel,
+.priorityPanel {
+  min-height: 29rem;
+}
+
+.progressSummary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 1.5rem;
+  align-items: center;
+  padding: 1.1rem 0 1.35rem;
+  border-top: 1px solid #edf1f5;
+  border-bottom: 1px solid #edf1f5;
+}
+
+.progressValue {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 7.5rem;
+  height: 7.5rem;
+  text-align: center;
+}
+
+.progressValue > svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  transform: rotate(-90deg);
+}
+
+.progressRingBase,
+.progressRingValue {
+  fill: none;
+  stroke-width: 10;
+}
+
+.progressRingBase {
+  stroke: #eaf0f7;
+}
+
+.progressRingValue {
+  stroke: var(--dashboard-blue);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 220ms ease;
+}
+
+.progressValueText {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+}
+
+.progressValueText strong {
+  color: var(--dashboard-blue);
+  font-size: 2rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 820;
+  letter-spacing: -0.055em;
+  line-height: 1;
+}
+
+.progressValueText small {
+  margin-top: 0.25rem;
+  color: var(--dashboard-muted);
+  font-size: 0.7rem;
+  font-weight: 740;
+  text-transform: uppercase;
+}
+
+.progressBody {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.progressTrack,
+.statusRow > i,
+.portfolioList button > i,
+.buildingMeasure > i,
+.tableProgress {
+  display: block;
+  overflow: hidden;
+  background: #edf2f7;
+}
+
+.progressTrack {
+  height: 0.625rem;
+  border-radius: 0.25rem;
+}
+
+.progressTrack > i,
+.statusRow > i > em,
+.portfolioList button > i > em,
+.buildingMeasure > i > em,
+.tableProgress > i {
+  display: block;
+  height: 100%;
+  background: var(--dashboard-blue);
+  transition: width 220ms ease;
+}
+
+.progressFacts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.progressFacts div {
+  min-width: 0;
+}
+
+.progressFacts dt {
+  color: var(--dashboard-muted);
+  font-size: 0.6875rem;
+  font-weight: 680;
+  line-height: 1.35;
+}
+
+.progressFacts dd {
+  margin: 0.25rem 0 0;
+  color: var(--dashboard-ink);
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+}
+
+.progressFacts dd small {
+  color: var(--dashboard-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.statusList {
+  display: grid;
+  gap: 0.75rem;
+  padding-top: 1.25rem;
+}
+
+.statusRow {
+  --status-color: var(--dashboard-blue);
+  display: grid;
+  grid-template-columns: minmax(6.5rem, 0.7fr) minmax(5rem, 1fr) 2.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.statusRow[data-tone='danger'] { --status-color: var(--dashboard-danger); }
+.statusRow[data-tone='orange'] { --status-color: var(--dashboard-orange); }
+.statusRow[data-tone='green'] { --status-color: var(--dashboard-success); }
+.statusRow[data-tone='ink'] { --status-color: #596579; }
+
+.statusRow > span {
+  min-width: 0;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 690;
+}
+
+.statusRow > i {
+  height: 0.4rem;
+  border-radius: 0.2rem;
+}
+
+.statusRow > i > em {
+  background: var(--status-color);
+}
+
+.statusRow > strong {
+  color: var(--status-color);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.alertTotal,
+.countLabel {
+  flex: 0 0 auto;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 0.4rem;
+  background: var(--dashboard-paper);
+  color: var(--dashboard-muted);
+  font-size: 0.7rem;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.alertTotal {
+  border-color: #efcbc8;
+  background: #fff6f5;
+  color: var(--dashboard-danger);
+}
+
+.priorityList {
+  display: grid;
+  border-top: 1px solid #edf1f5;
+}
+
+.priorityRow {
+  display: grid;
+  grid-template-columns: 0.25rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+  min-height: 4.2rem;
+  padding: 0.7rem 0.25rem;
+  border: 0;
+  border-bottom: 1px solid #edf1f5;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 180ms ease;
+}
+
+.priorityRow:hover {
+  background: #fafbfd;
+}
+
+.priorityMarker {
+  align-self: stretch;
+  width: 0.2rem;
+  border-radius: 0.15rem;
+  background: var(--dashboard-orange);
+}
+
+.priorityMarker[data-kind='critical-reserve'] {
+  background: var(--dashboard-danger);
+}
+
+.priorityText {
+  display: grid;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.priorityKind {
+  color: var(--dashboard-orange);
+  font-size: 0.625rem;
+  font-weight: 820;
+  letter-spacing: 0.075em;
+  text-transform: uppercase;
+}
+
+.priorityKind[data-kind='critical-reserve'] {
+  color: var(--dashboard-danger);
+}
+
+.priorityText strong,
+.priorityText small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.priorityText strong {
+  color: var(--dashboard-ink);
+  font-size: 0.8125rem;
+  font-weight: 740;
+}
+
+.priorityText small {
+  color: var(--dashboard-muted);
+  font-size: 0.6875rem;
+}
+
+.priorityRow > svg {
+  width: 1rem;
+  color: #8190a3;
+}
+
+.successState {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  min-height: 12rem;
+  padding: 1.25rem;
+  border: 1px solid #cbe8dd;
+  border-radius: 0.6rem;
+  background: #f4fbf8;
+}
+
+.successState > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  background: #def3ea;
+  color: var(--dashboard-success);
+}
+
+.successState strong,
+.successState p {
+  margin: 0;
+}
+
+.successState strong {
+  font-size: 0.9rem;
+}
+
+.successState p {
+  margin-top: 0.25rem;
+  color: var(--dashboard-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.insightGrid {
+  grid-template-columns: minmax(0, 1.15fr) minmax(20rem, 0.85fr);
+}
+
+.chart {
+  min-width: 0;
+}
+
+.legend {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1.25rem;
+  margin-bottom: 0.25rem;
+  color: var(--dashboard-muted);
+  font-size: 0.7rem;
+  font-weight: 680;
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.legend i {
+  width: 1.4rem;
+  height: 0;
+  border-top: 0.16rem solid var(--dashboard-blue);
+}
+
+.legend i[data-series='closed'] {
+  border-top-style: dashed;
+  border-top-color: var(--dashboard-orange);
+}
+
+.chart svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chartGrid {
+  stroke: #e8edf3;
+  stroke-width: 1;
+}
+
+.chartAxis,
+.chartLabel {
+  fill: #728197;
+  font-family: var(--font-buildtrack-body), Manrope, Arial, sans-serif;
+  font-size: 0.65rem;
+  font-weight: 650;
+}
+
+.createdLine,
+.closedLine {
+  fill: none;
+  stroke-width: 3;
+  vector-effect: non-scaling-stroke;
+}
+
+.createdLine {
+  stroke: var(--dashboard-blue);
+}
+
+.closedLine {
+  stroke: var(--dashboard-orange);
+  stroke-dasharray: 7 5;
+}
+
+.createdPoint,
+.closedPoint {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+.createdPoint { fill: var(--dashboard-blue); }
+.closedPoint { fill: var(--dashboard-orange); }
+
+.buildingList {
+  display: grid;
+  border-top: 1px solid #edf1f5;
+}
+
+.buildingRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.55fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  min-height: 4rem;
+  padding: 0.65rem 0;
+  border: 0;
+  border-bottom: 1px solid #edf1f5;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 180ms ease;
+}
+
+.buildingRow:hover:not(:disabled) {
+  background: #fafbfd;
+}
+
+.buildingRow:disabled {
+  cursor: default;
+}
+
+.buildingText {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.buildingText strong,
+.buildingText small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.buildingText strong {
+  font-size: 0.8rem;
+  font-weight: 750;
+}
+
+.buildingText small {
+  color: var(--dashboard-muted);
+  font-size: 0.675rem;
+}
+
+.buildingMeasure {
+  display: grid;
+  grid-template-columns: 2rem minmax(3.5rem, 1fr);
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.buildingMeasure b {
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.buildingMeasure > i {
+  height: 0.35rem;
+  border-radius: 0.15rem;
+}
+
+.buildingMeasure > i > em {
+  background: var(--dashboard-orange);
+}
+
+.buildingRow > svg {
+  width: 1rem;
+  color: #8190a3;
+}
+
+.portfolioList {
+  display: grid;
+  border-top: 1px solid #edf1f5;
+}
+
+.portfolioList button {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.9fr) minmax(8rem, 1fr) 3.5rem auto;
+  align-items: center;
+  gap: 1rem;
+  min-width: 0;
+  min-height: 4rem;
+  padding: 0.65rem 0.25rem;
+  border: 0;
+  border-bottom: 1px solid #edf1f5;
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.portfolioList button > span {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.portfolioList button strong,
+.portfolioList button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.portfolioList button strong {
+  font-size: 0.82rem;
+}
+
+.portfolioList button small {
+  color: var(--dashboard-muted);
+  font-size: 0.7rem;
+}
+
+.portfolioList button > i {
+  height: 0.45rem;
+  border-radius: 0.2rem;
+}
+
+.portfolioList button > b {
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.portfolioList button > svg {
+  width: 1rem;
+  color: #8190a3;
+}
+
+.tableWrap {
+  min-width: 0;
+  overflow-x: auto;
+  border-top: 1px solid #edf1f5;
+}
+
+.companyTable {
+  width: 100%;
+  min-width: 40rem;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.companyTable th,
+.companyTable td {
+  height: 3.5rem;
+  padding: 0.65rem 0.75rem;
+  border-bottom: 1px solid #edf1f5;
+  text-align: left;
+}
+
+.companyTable thead th {
+  height: 2.5rem;
+  color: var(--dashboard-muted);
+  font-size: 0.66rem;
+  font-weight: 780;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
+}
+
+.companyTable tbody th {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 14rem;
+}
+
+.companyTable tbody th > i {
+  flex: 0 0 auto;
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+}
+
+.companyTable tbody th span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.companyTable tbody td {
+  font-variant-numeric: tabular-nums;
+  font-weight: 680;
+}
+
+.companyTable tbody td:nth-child(3) {
+  display: grid;
+  grid-template-columns: minmax(6rem, 1fr) 3rem;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.tableProgress {
+  height: 0.4rem;
+  border-radius: 0.2rem;
+}
+
+.companyTable td b {
+  text-align: right;
+}
+
+.companyTable td[data-alert='true'] {
+  color: var(--dashboard-danger);
+}
+
+.quickSection {
+  min-width: 0;
+  padding-top: 0.25rem;
+}
+
+.quickRail {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--dashboard-border);
+  border-radius: 0.75rem;
+  background: #fff;
+}
+
+.quickRail button {
+  display: grid;
+  grid-template-columns: 2rem minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 0.1rem 0.7rem;
+  min-width: 0;
+  min-height: 5.6rem;
+  padding: 1rem;
+  border: 0;
+  border-left: 1px solid var(--dashboard-border);
+  background: #fff;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 180ms ease;
+}
+
+.quickRail button:first-child {
+  border-left: 0;
+}
+
+.quickRail button:hover {
+  background: #f8fafc;
+}
+
+.quickRail button > span {
+  display: inline-flex;
+  grid-row: 1 / span 2;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.45rem;
+  background: #eef4ff;
+  color: var(--dashboard-blue);
+}
+
+.quickRail button > strong {
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.quickRail button > small {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--dashboard-muted);
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quickRail button > em {
+  display: inline-flex;
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-items: center;
+  gap: 0.2rem;
+  color: var(--dashboard-blue);
+  font-size: 0.68rem;
+  font-style: normal;
+  font-weight: 760;
+}
+
+.quickRail button > em svg {
+  width: 0.85rem;
+}
+
+.empty {
+  margin: 0;
+  padding: 1.5rem 0;
+  color: var(--dashboard-muted);
+  font-size: 0.8rem;
+}
+
+.srOnly {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+.srOnly table {
+  max-width: 1px;
+}
+
+.metric:focus-visible,
+.textAction:focus-visible,
+.priorityRow:focus-visible,
+.buildingRow:focus-visible,
+.portfolioList button:focus-visible,
+.quickRail button:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 3px solid #84adff;
+  outline-offset: -3px;
+}
+
+@media (max-width: 1180px) {
+  .metricRail,
+  .quickRail {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric:nth-child(3),
+  .quickRail button:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid var(--dashboard-border);
+  }
+
+  .metric:nth-child(4),
+  .quickRail button:nth-child(4) {
+    border-top: 1px solid var(--dashboard-border);
+  }
+
+  .operationalGrid,
+  .insightGrid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .progressPanel,
+  .priorityPanel {
+    min-height: 0;
+  }
+}
+
+@media (max-width: 760px) {
+  .root {
+    gap: 1rem;
+  }
+
+  .heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.4rem;
+    padding-bottom: 1rem;
+  }
+
+  .heading h2 {
+    font-size: 1.65rem;
+  }
+
+  .panel {
+    padding: 1.1rem;
+  }
+
+  .panelHeader {
+    margin-bottom: 1rem;
+  }
+
+  .progressSummary {
+    grid-template-columns: 1fr;
+  }
+
+  .progressValue {
+    width: 6.5rem;
+    height: 6.5rem;
+  }
+
+  .portfolioList button {
+    grid-template-columns: minmax(0, 1fr) 3rem auto;
+  }
+
+  .portfolioList button > i {
+    display: none;
+  }
+
+  .quickRail button > em {
+    font-size: 0;
+  }
+
+  .quickRail button > em svg {
+    width: 1rem;
+  }
+}
+
+@media (max-width: 520px) {
+  .metric {
+    grid-template-columns: 1.9rem minmax(0, 1fr);
+    min-height: 6.8rem;
+    padding: 0.85rem;
+  }
+
+  .metricIcon {
+    width: 1.9rem;
+    height: 1.9rem;
+  }
+
+  .metricIcon svg {
+    width: 1.05rem;
+    height: 1.05rem;
+  }
+
+  .metricValue {
+    font-size: 1.45rem;
+  }
+
+  .metric strong {
+    font-size: 0.78rem;
+  }
+
+  .metric small {
+    font-size: 0.66rem;
+  }
+
+  .panelHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .panelHeader h3 {
+    font-size: 1rem;
+  }
+
+  .panelHeader p {
+    font-size: 0.75rem;
+  }
+
+  .progressFacts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .progressFacts div:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .statusRow {
+    grid-template-columns: minmax(5.75rem, 0.8fr) minmax(3rem, 1fr) 2rem;
+    gap: 0.5rem;
+  }
+
+  .priorityText strong,
+  .priorityText small,
+  .buildingText strong,
+  .buildingText small {
+    white-space: normal;
+  }
+
+  .buildingRow {
+    grid-template-columns: minmax(0, 1fr) 3rem auto;
+  }
+
+  .buildingMeasure > i {
+    display: none;
+  }
+
+  .buildingMeasure {
+    grid-template-columns: 1fr;
+  }
+
+  .legend {
+    justify-content: flex-start;
+  }
+
+  .chartLabel {
+    font-size: 0.58rem;
+  }
+
+  .quickRail button {
+    grid-template-columns: 1.8rem minmax(0, 1fr) auto;
+    min-height: 5rem;
+    padding: 0.75rem;
+  }
+
+  .quickRail button > span {
+    width: 1.8rem;
+    height: 1.8rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .metric,
+  .textAction,
+  .priorityRow,
+  .buildingRow,
+  .quickRail button,
+  .progressTrack > i,
+  .statusRow > i > em,
+  .portfolioList button > i > em,
+  .buildingMeasure > i > em,
+  .tableProgress > i,
+  .progressRingValue {
+    transition: none;
+  }
+}

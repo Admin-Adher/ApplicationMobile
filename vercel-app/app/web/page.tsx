@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
@@ -18,6 +18,7 @@ import { supabaseBrowser } from '@/lib/supabase-browser';
 import { BuildTrackAccess, BuildTrackAccessLoading } from './BuildTrackAccess';
 import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSession';
 import { WorkspaceChrome } from './WorkspaceChrome';
+import { DashboardWebView, type DashboardIntent, type DashboardSource } from './dashboard/DashboardWebView';
 import {
   isRegistryBackedRef,
   privateMediaAccess,
@@ -5163,6 +5164,46 @@ export default function BuildTrackWebPage() {
     };
   }, [data, selectedProjectId, profile, canViewReserveTrash]);
 
+  const dashboardSource = useMemo<DashboardSource>(() => ({
+    projects: data.chantiers,
+    plans: projectScoped.plans,
+    companies: data.companies,
+    messageCount: data.messages.length,
+    current: {
+      reserves: projectScoped.reserves,
+      tasks: projectScoped.tasks,
+      incidents: projectScoped.incidents,
+      plansCount: projectScoped.plans.length,
+      visitsCount: projectScoped.visites.length,
+      documentsCount: projectScoped.documents.length,
+    },
+  }), [
+    data.chantiers,
+    data.companies,
+    data.messages.length,
+    projectScoped.documents.length,
+    projectScoped.incidents,
+    projectScoped.plans,
+    projectScoped.reserves,
+    projectScoped.tasks,
+    projectScoped.visites.length,
+  ]);
+
+  const handleDashboardIntent = useCallback((intent: DashboardIntent) => {
+    if (intent.type === 'navigate') {
+      setActiveTab(intent.target);
+      return;
+    }
+    if (intent.type === 'select-project') {
+      setSelectedProjectId(intent.projectId);
+      setBuildingFilter('all');
+      return;
+    }
+    if (intent.projectId) setSelectedProjectId(intent.projectId);
+    setBuildingFilter(intent.buildingName);
+    setActiveTab('reserves');
+  }, []);
+
   const activeProjectForReserveFilters = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
   const reserveFilterPlansById = useMemo(
     () => new Map<string, any>(projectScoped.plans.map((plan: any) => [String(plan.id), plan] as [string, any])),
@@ -5461,15 +5502,12 @@ export default function BuildTrackWebPage() {
               )
             )}
             {activeTab === 'dashboard' && (
-              <Dashboard
-                data={data}
-                scoped={projectScoped}
-                profile={profile}
-                authUser={authUser}
+              <DashboardWebView
+                source={dashboardSource}
                 selectedProjectId={selectedProjectId}
-                setTab={setActiveTab}
-                setSelectedProjectId={setSelectedProjectId}
-                setBuildingFilter={setBuildingFilter}
+                viewerName={profile?.name ?? authUser?.email ?? 'BuildTrack'}
+                language={webLang}
+                onIntent={handleDashboardIntent}
               />
             )}
             {activeTab === 'reserves' && (
@@ -5817,530 +5855,6 @@ export default function BuildTrackWebPage() {
         />
       )}
     </WebI18nContext.Provider>
-  );
-}
-
-function Dashboard({
-  data,
-  scoped,
-  profile,
-  authUser,
-  selectedProjectId,
-  setTab,
-  setSelectedProjectId,
-  setBuildingFilter,
-}: any) {
-  const { locale, t } = useWebI18n();
-  const activeReserves = useMemo<any[]>(() => scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve)), [scoped.reserves]);
-  const statusTallies = useMemo(() => {
-    const tally: Record<string, number> = { open: 0, in_progress: 0, waiting: 0, verification: 0, closed: 0 };
-    for (const reserve of activeReserves) {
-      const status = String(reserve.status ?? '');
-      if (status in tally) tally[status] += 1;
-    }
-    return tally;
-  }, [activeReserves]);
-  const openCount = statusTallies.open;
-  const inProgressCount = statusTallies.in_progress;
-  const waitingCount = statusTallies.waiting;
-  const verificationCount = statusTallies.verification;
-  const closedCount = statusTallies.closed;
-  const totalCount = activeReserves.length;
-  const progress = totalCount ? Math.round((closedCount / totalCount) * 100) : 0;
-  const remainingCount = Math.max(totalCount - closedCount, 0);
-  const progressFillWidth = progress > 0 ? Math.max(progress, 4) : 0;
-  const criticalReserves = useMemo<any[]>(() => activeReserves.filter((reserve: any) => reserve.priority === 'critical' && reserve.status !== 'closed'), [activeReserves]);
-  const overdueReserves = useMemo<any[]>(() => activeReserves.filter((reserve: any) => reserve.priority !== 'critical' && isReserveOverdue(reserve)), [activeReserves]);
-  const lateTasks = useMemo<any[]>(() => scoped.tasks.filter(isTaskLateWeb), [scoped.tasks]);
-  const openIncidents = useMemo<any[]>(() => scoped.incidents.filter(isIncidentOpenWeb), [scoped.incidents]);
-  const project = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
-  const firstName = String(profile?.name ?? authUser?.email ?? 'BuildTrack').split(' ')[0];
-  const today = new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long' });
-  const plansById = useMemo(() => new Map<string, any>(data.sitePlans.map((plan: any) => [String(plan.id), plan] as [string, any])), [data.sitePlans]);
-  const openBuildingInReserves = (building: any, chantierId?: string) => {
-    if (!building?.selectable) return;
-    if (chantierId) setSelectedProjectId(chantierId);
-    setBuildingFilter(building.name);
-    setTab('reserves');
-  };
-
-  const weekStats = useMemo(() => {
-    const now = new Date();
-    const weeks = new Map<string, { label: string; created: number; closed: number }>();
-    for (let i = 7; i >= 0; i -= 1) {
-      const date = new Date(now);
-      date.setDate(date.getDate() - (i * 7));
-      weeks.set(getWeekKey(date), { label: getWeekLabel(date), created: 0, closed: 0 });
-    }
-    for (const reserve of activeReserves) {
-      const created = getReserveCreatedDate(reserve);
-      const closed = getReserveClosedDate(reserve);
-      if (created) {
-        const bucket = weeks.get(getWeekKey(created));
-        if (bucket) bucket.created += 1;
-      }
-      if (closed) {
-        const bucket = weeks.get(getWeekKey(closed));
-        if (bucket) bucket.closed += 1;
-      }
-    }
-    return Array.from(weeks.values());
-  }, [activeReserves]);
-
-  const companyStats = useMemo<any[]>(() => data.companies
-    .map((company: any) => {
-      const companyReserves = activeReserves.filter((reserve: any) => reserveCompanies(reserve).some(name => sameName(name, company.name)));
-      const total = companyReserves.length;
-      const closed = companyReserves.filter((reserve: any) => reserve.status === 'closed').length;
-      const overdue = companyReserves.filter(isReserveOverdue).length;
-      return {
-        id: company.id,
-        name: company.name,
-        shortName: company.short_name ?? company.shortName ?? company.name,
-        color: company.color ?? '#003082',
-        total,
-        closed,
-        overdue,
-        rate: total ? Math.round((closed / total) * 100) : 0,
-        actualWorkers: Number(company.actual_workers ?? company.actualWorkers ?? 0),
-        plannedWorkers: Number(company.planned_workers ?? company.plannedWorkers ?? 0),
-      };
-    })
-    .filter((company: any) => company.total > 0 || company.actualWorkers > 0 || company.plannedWorkers > 0)
-    .sort((a: any, b: any) => b.rate - a.rate), [data.companies, activeReserves]);
-
-  const pinnedReserves = useMemo<any[]>(() => activeReserves.filter(hasReservePlanPin), [activeReserves]);
-  const companyPinPodium = useMemo<any[]>(() => data.companies
-    .map((company: any) => {
-      const companyReserves = activeReserves.filter((reserve: any) =>
-        reserveCompanies(reserve).some(name => sameName(name, company.name))
-      );
-      const pinned = companyReserves.filter(hasReservePlanPin).length;
-      return {
-        id: company.id,
-        name: company.name,
-        shortName: company.short_name ?? company.shortName ?? company.name,
-        color: company.color ?? '#003082',
-        total: companyReserves.length,
-        pinned,
-      };
-    })
-    .filter((company: any) => company.pinned > 0)
-    .sort((a: any, b: any) => b.pinned - a.pinned || String(a.name).localeCompare(String(b.name)))
-    .slice(0, 5), [data.companies, activeReserves]);
-
-  const totalActualWorkers = companyStats.reduce((sum: number, company: any) => sum + company.actualWorkers, 0);
-  const totalPlannedWorkers = companyStats.reduce((sum: number, company: any) => sum + company.plannedWorkers, 0);
-  const projectCards = selectedProjectId === 'all'
-    ? data.chantiers.map((chantier: any) => {
-      const reserves = data.reserves.filter((reserve: any) => getChantierId(reserve) === chantier.id && !isReserveArchived(reserve));
-      const closed = reserves.filter((reserve: any) => reserve.status === 'closed').length;
-      const buildings = buildReserveBuildingBreakdown(reserves, plansById, chantier);
-      return {
-        id: chantier.id,
-        name: chantier.name,
-        total: reserves.length,
-        progress: reserves.length ? Math.round((closed / reserves.length) * 100) : 0,
-        overdue: reserves.filter(isReserveOverdue).length,
-        buildings,
-      };
-    })
-    : [];
-  const buildingBreakdown = buildReserveBuildingBreakdown(activeReserves, plansById, project);
-
-  return (
-    <div className={styles.dashboardStack}>
-      <section className={styles.dashboardHero}>
-        <div className={styles.dashboardGreeting}>
-          <div>
-            <p className={styles.eyebrow}>{project?.name ?? t('common.allProjects')}</p>
-            <h2>{t('dashboard.welcome', { name: firstName })}</h2>
-            <span>{today}</span>
-          </div>
-        </div>
-      </section>
-
-      {projectCards.length > 1 && (
-        <section className={styles.panel}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <h2>Vue portefeuille</h2>
-              <p>Synthèse multi-chantiers comme le mode portefeuille mobile.</p>
-            </div>
-          </div>
-          <div className={styles.dashboardProjectGrid}>
-            {projectCards.map((chantier: any) => (
-              <article key={chantier.id} className={styles.dashboardProjectCard}>
-                <strong>{chantier.name}</strong>
-                <span>{chantier.total} réserves · {chantier.overdue} en retard</span>
-                <div className={styles.dashboardProgressTrack}>
-                  <i style={{ width: `${chantier.progress}%` }} />
-                </div>
-                <em>{chantier.progress}%</em>
-                {chantier.buildings.length ? (
-                  <div className={styles.dashboardProjectBuildings}>
-                    {chantier.buildings.slice(0, 4).map((building: any) => (
-                      <button
-                        key={building.key}
-                        type="button"
-                        disabled={!building.selectable}
-                        onClick={() => openBuildingInReserves(building, chantier.id)}
-                      >
-                        <span>{building.name}</span>
-                        <strong>{building.total}</strong>
-                      </button>
-                    ))}
-                    {chantier.buildings.length > 4 && (
-                      <small>+{chantier.buildings.length - 4} bâtiment{chantier.buildings.length - 4 > 1 ? 's' : ''}</small>
-                    )}
-                  </div>
-                ) : null}
-              </article>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <div className={styles.dashboardKpiGrid}>
-        <DashboardKpi title="Total réserves" value={totalCount} hint="Toutes les réserves non archivées" tone="blue" icon="albums-outline" onClick={() => setTab('reserves')} />
-        <DashboardKpi title="À traiter" value={openCount + inProgressCount} hint={`${openCount} ouvertes · ${inProgressCount} en cours`} tone="amber" icon="alert-circle-outline" onClick={() => setTab('reserves')} />
-        <DashboardKpi title="Critiques" value={criticalReserves.length} hint="Priorité critique non clôturée" tone="red" icon="warning" onClick={() => setTab('reserves')} />
-        <DashboardKpi title="Clôturées" value={closedCount} hint={`${progress}% d’avancement`} tone="green" icon="checkmark-circle-outline" onClick={() => setTab('reserves')} />
-      </div>
-
-      <div className={styles.dashboardWideGrid}>
-        <button type="button" className={`${styles.dashboardWideMetric} ${lateTasks.length ? styles.dashboardWideAmber : styles.dashboardWideGreen}`} onClick={() => setTab('planning')}>
-          <span><IonIcon name="time-outline" /></span>
-          <strong>{lateTasks.length}</strong>
-          <small>{lateTasks.length ? `${lateTasks.length} tâche${lateTasks.length > 1 ? 's' : ''} en retard` : 'Aucune tâche en retard'}</small>
-          <em>Planning</em>
-        </button>
-        <button type="button" className={`${styles.dashboardWideMetric} ${openIncidents.length ? styles.dashboardWideRed : styles.dashboardWideGreen}`} onClick={() => setTab('terrain')}>
-          <span><IonIcon name="shield-outline" /></span>
-          <strong>{openIncidents.length}</strong>
-          <small>{openIncidents.length ? `${openIncidents.length} incident${openIncidents.length > 1 ? 's' : ''} ouvert${openIncidents.length > 1 ? 's' : ''}` : 'Aucun incident ouvert'}</small>
-          <em>Terrain</em>
-        </button>
-      </div>
-
-      {totalCount > 0 && (
-        <section className={`${styles.panel} ${styles.dashboardProgressPanel}`}>
-          <div className={styles.dashboardProgressHeader}>
-            <div>
-              <h2>Avancement global</h2>
-              <p>{closedCount} levée{closedCount !== 1 ? 's' : ''} sur {totalCount} réserve{totalCount !== 1 ? 's' : ''}.</p>
-            </div>
-            <strong>{progress}%</strong>
-          </div>
-          <div
-            className={styles.dashboardProgressTrack}
-            role="progressbar"
-            aria-label="Avancement global des réserves"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress}
-          >
-            <i style={{ width: `${progressFillWidth}%` }} />
-          </div>
-          <div className={styles.dashboardProgressMeta}>
-            <span><b>{closedCount}</b> levée{closedCount !== 1 ? 's' : ''}</span>
-            <span><b>{remainingCount}</b> restante{remainingCount !== 1 ? 's' : ''}</span>
-          </div>
-        </section>
-      )}
-
-      {(criticalReserves.length > 0 || overdueReserves.length > 0 || lateTasks.length > 0) && (
-        <section className={styles.dashboardSectionBlock}>
-          <div className={styles.dashboardSectionHeader}>
-            <div>
-              <p className={styles.eyebrow}>Priorités d’action</p>
-              <h2>À traiter maintenant</h2>
-            </div>
-            <span>{criticalReserves.length + overdueReserves.length + lateTasks.length} alerte{criticalReserves.length + overdueReserves.length + lateTasks.length > 1 ? 's' : ''}</span>
-          </div>
-          <div className={styles.dashboardAlertGrid}>
-            {criticalReserves.length > 0 && (
-              <DashboardAlertList
-                title="Alertes critiques"
-                tone="red"
-                items={criticalReserves}
-                empty="Aucune réserve critique."
-                getTitle={(item: any) => item.title}
-                getMeta={(item: any) => [item.building, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
-                onOpen={() => setTab('reserves')}
-              />
-            )}
-            {overdueReserves.length > 0 && (
-              <DashboardAlertList
-                title="Réserves en retard"
-                tone="amber"
-                items={overdueReserves}
-                empty="Aucune réserve non critique en retard."
-                getTitle={(item: any) => item.title}
-                getMeta={(item: any) => [item.building, PRIORITY_LABELS[item.priority] ?? item.priority, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
-                onOpen={() => setTab('reserves')}
-              />
-            )}
-            {lateTasks.length > 0 && (
-              <DashboardAlertList
-                title="Tâches en retard"
-                tone="amber"
-                items={lateTasks}
-                empty="Aucune tâche en retard."
-                getTitle={(item: any) => item.title}
-                getMeta={(item: any) => [item.company, item.deadline ? `Échéance ${prettyDate(item.deadline)}` : null].filter(Boolean).join(' · ')}
-                onOpen={() => setTab('planning')}
-              />
-            )}
-          </div>
-        </section>
-      )}
-
-      {totalCount > 0 && (
-        <section className={styles.dashboardSectionBlock}>
-          <div className={styles.dashboardSectionHeader}>
-            <div>
-              <p className={styles.eyebrow}>Suivi chantier</p>
-              <h2>Réserves et localisation</h2>
-            </div>
-            <span>{pinnedReserves.length} réserve{pinnedReserves.length > 1 ? 's' : ''} épinglée{pinnedReserves.length > 1 ? 's' : ''}</span>
-          </div>
-          <div className={styles.dashboardReserveColumns}>
-            <div className={styles.dashboardReserveSummaryStack}>
-              <section className={styles.panel}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <h2>Répartition des réserves</h2>
-                    <p>Lecture par statut avant d’aller dans le détail.</p>
-                  </div>
-                </div>
-                <div className={styles.dashboardStatusList}>
-                  <DashboardStatusBar label={statusLabel('open')} count={openCount} total={totalCount} tone="red" />
-                  <DashboardStatusBar label={statusLabel('in_progress')} count={inProgressCount} total={totalCount} tone="blue" />
-                  <DashboardStatusBar label={statusLabel('waiting')} count={waitingCount} total={totalCount} tone="amber" />
-                  <DashboardStatusBar label={statusLabel('verification')} count={verificationCount} total={totalCount} tone="purple" />
-                  <DashboardStatusBar label={statusLabel('closed')} count={closedCount} total={totalCount} tone="green" />
-                </div>
-              </section>
-
-              <section className={styles.panel}>
-                <div className={styles.sectionHeader}>
-                  <div>
-                    <h2>Podium des épingles</h2>
-                    <p>Entreprises avec le plus de réserves localisées sur plan.</p>
-                  </div>
-                  <span className={styles.dashboardPinTotal}>{pinnedReserves.length} épinglées</span>
-                </div>
-                {companyPinPodium.length ? (
-                  <div className={styles.dashboardPinPodiumList}>
-                    {companyPinPodium.map((company: any, index: number) => (
-                      <div key={company.id ?? company.name} className={styles.dashboardPinPodiumRow}>
-                        <span className={styles.dashboardPinPodiumRank}>{index + 1}</span>
-                        <i className={styles.dashboardPinPodiumDot} style={{ background: company.color }} />
-                        <div>
-                          <strong>{company.shortName}</strong>
-                          <small>{company.pinned} / {company.total} réserves épinglées</small>
-                        </div>
-                        <em>{company.pinned}</em>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className={styles.empty}>Aucune réserve épinglée par entreprise.</p>
-                )}
-              </section>
-            </div>
-
-            <section className={`${styles.panel} ${styles.dashboardBuildingBreakdownPanel}`}>
-              <div className={styles.sectionHeader}>
-                <div>
-                  <h2>Répartition par bâtiment</h2>
-                  <p>Où se concentrent les réserves et les épingles du chantier.</p>
-                </div>
-                <span className={styles.dashboardPinTotal}>{buildingBreakdown.length} bâtiment{buildingBreakdown.length > 1 ? 's' : ''}</span>
-              </div>
-              {buildingBreakdown.length ? (
-                <div className={styles.dashboardBuildingBreakdownList}>
-                  {buildingBreakdown.slice(0, 10).map((building: any) => {
-                    const width = totalCount ? Math.max(5, Math.round((building.total / totalCount) * 100)) : 0;
-                    return (
-                      <button
-                        key={building.key}
-                        type="button"
-                        disabled={!building.selectable}
-                        className={styles.dashboardBuildingBreakdownRow}
-                        onClick={() => openBuildingInReserves(building)}
-                      >
-                        <span className={styles.dashboardBuildingBreakdownMain}>
-                          <strong>{building.name}</strong>
-                          <small>{building.pinned} épinglée{building.pinned > 1 ? 's' : ''} · {building.overdue} retard</small>
-                        </span>
-                        <span className={styles.dashboardBuildingBreakdownMeta}>
-                          <b>{building.total}</b>
-                          <i><em style={{ width: `${width}%` }} /></i>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className={styles.empty}>Aucun bâtiment à afficher.</p>
-              )}
-            </section>
-          </div>
-        </section>
-      )}
-
-      {totalCount > 0 && (
-        <section className={styles.dashboardSectionBlock}>
-          <div className={styles.dashboardSectionHeader}>
-            <div>
-              <p className={styles.eyebrow}>Pilotage entreprises</p>
-              <h2>Présence et performance</h2>
-            </div>
-          </div>
-          <div className={styles.dashboardTwoColumns}>
-            <section className={styles.panel}>
-              <div className={styles.sectionHeader}>
-                <div>
-                  <h2>Personnel aujourd’hui</h2>
-                  <p>{totalActualWorkers} présent{totalActualWorkers > 1 ? 's' : ''} / {totalPlannedWorkers} planifié{totalPlannedWorkers > 1 ? 's' : ''}</p>
-                </div>
-              </div>
-              <div className={styles.dashboardCompanyList}>
-                {companyStats.slice(0, 8).map((company: any) => {
-                  const percent = company.plannedWorkers ? Math.min(100, Math.round((company.actualWorkers / company.plannedWorkers) * 100)) : 0;
-                  return (
-                    <div key={company.id} className={styles.dashboardCompanyRow}>
-                      <span style={{ background: company.color }} />
-                      <strong>{company.shortName}</strong>
-                      <div><i style={{ width: `${percent}%`, background: company.color }} /></div>
-                      <em>{company.actualWorkers}/{company.plannedWorkers}</em>
-                    </div>
-                  );
-                })}
-                {!companyStats.length && <p className={styles.empty}>Aucune entreprise active aujourd’hui.</p>}
-              </div>
-            </section>
-
-            <section className={styles.panel}>
-              <div className={styles.sectionHeader}>
-                <div>
-                  <h2>Entreprises</h2>
-                  <p>Taux de clôture et retards par entreprise.</p>
-                </div>
-              </div>
-              <div className={styles.dashboardCompanyClosureList}>
-                {companyStats.filter((company: any) => company.total > 0).slice(0, 8).map((company: any) => (
-                  <div key={company.id} className={styles.dashboardCompanyClosureRow}>
-                    <span style={{ background: company.color }} />
-                    <strong>{company.name}</strong>
-                    <div><i style={{ width: `${company.rate}%`, background: company.rate >= 70 ? '#16a34a' : company.rate >= 40 ? '#003082' : '#f59e0b' }} /></div>
-                    <em>{company.rate}%</em>
-                    {company.overdue > 0 ? <small>{company.overdue} retard</small> : null}
-                  </div>
-                ))}
-                {!companyStats.some((company: any) => company.total > 0) && <p className={styles.empty}>Aucune donnée entreprise.</p>}
-              </div>
-            </section>
-          </div>
-        </section>
-      )}
-
-      {totalCount > 0 && (
-        <section className={styles.panel}>
-          <div className={styles.sectionHeader}>
-            <div>
-              <h2>Tendance chantier</h2>
-              <p>Réserves créées et clôturées sur les 8 dernières semaines.</p>
-            </div>
-          </div>
-          <DashboardWeekTrend weeks={weekStats} />
-        </section>
-      )}
-
-      <section className={styles.panel}>
-        <div className={styles.sectionHeader}>
-          <div>
-            <h2>Accès rapide</h2>
-            <p>Les mêmes entrées de pilotage que sur mobile, adaptées au cockpit web.</p>
-          </div>
-        </div>
-        <div className={styles.quickGrid}>
-          <Quick label="Plans" value={scoped.plans.length} onClick={() => setTab('plans')} />
-          <Quick label="Visites" value={scoped.visites.length} onClick={() => setTab('visites')} />
-          <Quick label="Messages récents" value={data.messages.length} onClick={() => setTab('messages')} />
-          <Quick label="Documents" value={scoped.documents.length} onClick={() => setTab('terrain')} />
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function DashboardKpi({ title, value, hint, tone, icon, onClick }: { title: string; value: number | string; hint: string; tone: string; icon: IonIconName; onClick: () => void }) {
-  return (
-    <button type="button" className={`${styles.dashboardKpi} ${styles[`dashboardTone_${tone}`] ?? ''}`} onClick={onClick}>
-      <span><IonIcon name={icon} /></span>
-      <strong>{value}</strong>
-      <em>{title}</em>
-      <small>{hint}</small>
-    </button>
-  );
-}
-
-function DashboardStatusBar({ label, count, total, tone }: { label: string; count: number; total: number; tone: string }) {
-  const width = total ? Math.round((count / total) * 100) : 0;
-  return (
-    <div className={`${styles.dashboardStatusRow} ${styles[`dashboardTone_${tone}`] ?? ''}`}>
-      <span />
-      <strong>{label}</strong>
-      <div><i style={{ width: `${width}%` }} /></div>
-      <em>{count}</em>
-    </div>
-  );
-}
-
-function DashboardWeekTrend({ weeks }: { weeks: Array<{ label: string; created: number; closed: number }> }) {
-  const max = Math.max(...weeks.map(week => Math.max(week.created, week.closed)), 1);
-  return (
-    <div className={styles.dashboardChart}>
-      <div className={styles.dashboardChartLegend}>
-        <span><i /> Créées</span>
-        <span><i /> Clôturées</span>
-      </div>
-      <div className={styles.dashboardBars}>
-        {weeks.map((week) => (
-          <div key={week.label} className={styles.dashboardBarGroup}>
-            <div>
-              <i style={{ height: `${Math.max(4, (week.created / max) * 100)}%` }} />
-              <b style={{ height: `${Math.max(4, (week.closed / max) * 100)}%` }} />
-            </div>
-            <span>{week.label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function DashboardAlertList({ title, tone, items, empty, getTitle, getMeta, onOpen }: any) {
-  return (
-    <section className={`${styles.dashboardAlertCard} ${styles[`dashboardAlert_${tone}`] ?? ''}`}>
-      <div className={styles.dashboardAlertHeader}>
-        <strong>{title}</strong>
-        <span>{items.length}</span>
-      </div>
-      {items.length ? items.slice(0, 5).map((item: any) => (
-        <button key={item.id} type="button" onClick={onOpen}>
-          <i />
-          <span>
-            <strong>{getTitle(item)}</strong>
-            <small>{getMeta(item)}</small>
-          </span>
-          <em>›</em>
-        </button>
-      )) : <p>{empty}</p>}
-    </section>
   );
 }
 

@@ -31,19 +31,29 @@ describe('BuildTrack authenticated web workspace', () => {
     expect(css).not.toMatch(/linear-gradient|radial-gradient|backdrop-filter/);
   });
 
-  it('removes duplicate Dashboard actions and the fake B logo', () => {
+  it('owns the Dashboard in a deep, localized and accessible feature module', () => {
     const page = read('vercel-app/app/web/page.tsx');
-    const dashboardStart = page.indexOf('function Dashboard({');
-    const dashboardEnd = page.indexOf('function DashboardKpi(', dashboardStart);
-    const dashboard = page.slice(dashboardStart, dashboardEnd);
+    const dashboard = read('vercel-app/app/web/dashboard/DashboardWebView.tsx');
+    const dashboardModel = read('vercel-app/app/web/dashboard/dashboard-model.ts');
+    const dashboardCss = read('vercel-app/app/web/dashboard/DashboardWebView.module.css');
 
-    expect(dashboardStart).toBeGreaterThan(-1);
-    expect(dashboardEnd).toBeGreaterThan(dashboardStart);
+    expect(page).toContain("import { DashboardWebView");
+    expect(page).toContain('<DashboardWebView');
+    expect(page).not.toContain('function Dashboard({');
     expect(dashboard).not.toContain('dashboardLogo');
     expect(dashboard).not.toContain('dashboardQuickActions');
     expect(dashboard).not.toContain('onCreateReserve');
     expect(dashboard).not.toContain('onCreateVisit');
-    expect(dashboard).toContain("t('dashboard.welcome'");
+    expect(dashboard).toContain('data-bt-i18n-skip="true"');
+    expect(dashboard).toContain('role="img"');
+    expect(dashboard).toContain('<div className={styles.srOnly}>');
+    expect(dashboard.match(/greeting: name =>/g)).toHaveLength(3);
+    expect(dashboardModel).toContain('buildDashboardModel');
+    expect(dashboardModel).toContain('selectedProjectId === \'all\'');
+    expect(dashboardCss).toContain('min-height: 2.75rem');
+    expect(dashboardCss).toContain('@media (max-width: 520px)');
+    expect(dashboardCss).toContain('@media (prefers-reduced-motion: reduce)');
+    expect(dashboardCss).not.toMatch(/linear-gradient|radial-gradient|backdrop-filter/);
   });
 
   it('localizes the personalized Dashboard greeting in all supported languages', () => {
