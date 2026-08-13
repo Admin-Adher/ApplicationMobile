@@ -41,13 +41,18 @@ import {
   warmPdfJsWhenIdle,
 } from './plan-reserve-workspace/pdfjs-client';
 import { useResponsiveWorkspaceNavigation } from './plan-reserve-workspace/useResponsiveWorkspace';
+import { usePrivateMediaAccess, useVisiblePrivateMedia } from './plan-reserve-workspace/usePrivateMedia';
+import {
+  clearPlanPreviewsForUser,
+  rasterizePlanPreview,
+  readPlanPreview,
+  writePlanPreview,
+  type PlanPreviewRecord,
+} from './plan-reserve-workspace/plan-preview-cache';
 import {
   isRegistryBackedRef,
-  privateMediaAccess,
-  privateMediaUrl,
   resolvePrivateMediaRefs,
   retryPrivateMedia,
-  subscribePrivateMedia,
   uploadRegisteredWebFile,
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
@@ -1516,18 +1521,18 @@ function parseBuildingFamily(name: string) {
   return { key: normalizeSearchText(label).replace(/\s+/g, ' '), label };
 }
 
-function storagePublicUrl(raw: any, bucket: 'photos' | 'documents') {
+function storageAssetRef(raw: any, bucket: 'photos' | 'documents') {
   if (typeof raw !== 'string') return '';
   const value = raw.trim();
   if (!value || /^file:\/\//i.test(value)) return '';
   if (/^(data:|blob:)/i.test(value)) return value;
-  if (/^(https?:|btmedia:)/i.test(value)) return privateMediaUrl(value);
+  if (/^(https?:|btmedia:)/i.test(value)) return value;
   const path = value
     .replace(/^\/+/, '')
     .replace(new RegExp(`^${bucket}/`, 'i'), '');
   if (!path) return '';
   const { data } = supabaseBrowser.storage.from(bucket).getPublicUrl(path);
-  return privateMediaUrl(data.publicUrl);
+  return data.publicUrl;
 }
 
 function assetUrl(item: any, bucket: 'photos' | 'documents' = 'photos') {
@@ -1551,12 +1556,13 @@ function assetUrl(item: any, bucket: 'photos' | 'documents' = 'photos') {
     item?.filePath ??
     item?.path ??
     '';
-  return storagePublicUrl(raw, bucket);
+  return storageAssetRef(raw, bucket);
 }
 
 function assetDedupeKey(url: string) {
   const value = String(url ?? '').trim();
   if (!value) return '';
+  if (/^btmedia:\/\//i.test(value)) return value.toLowerCase();
   try {
     const parsed = new URL(value);
     return `${parsed.origin}${parsed.pathname}`.toLowerCase();
@@ -1639,6 +1645,128 @@ function reservePhotoItems(reserve: any, photos: any[]) {
     }
   });
   return Array.from(byKey.values());
+}
+
+const EMPTY_MEDIA_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+
+function PrivateMediaImage({
+  source,
+  alt,
+  className,
+  immediate = false,
+}: {
+  source: unknown;
+  alt: string;
+  className?: string;
+  immediate?: boolean;
+}) {
+  const { access, observe, requestNow } = useVisiblePrivateMedia(source, { immediate });
+  return (
+    <img
+      ref={observe}
+      className={className}
+      src={access.url || EMPTY_MEDIA_IMAGE}
+      alt={alt}
+      loading={immediate ? 'eager' : 'lazy'}
+      decoding="async"
+      data-private-media-status={access.status}
+      aria-busy={access.status === 'resolving' || access.status === 'idle'}
+      onMouseEnter={requestNow}
+    />
+  );
+}
+
+function PrivatePhotoFrame({
+  photo,
+  className,
+  compact = false,
+  fit,
+  immediate = false,
+}: {
+  photo: any;
+  className?: string;
+  compact?: boolean;
+  fit?: 'cover' | 'contain';
+  immediate?: boolean;
+}) {
+  const { access, observe, requestNow } = useVisiblePrivateMedia(photo?.uri, { immediate });
+  return (
+    <span
+      ref={observe}
+      className={className ?? styles.photoAnnotationFrame}
+      data-private-media-status={access.status}
+      onMouseEnter={requestNow}
+    >
+      <img
+        src={access.url || EMPTY_MEDIA_IMAGE}
+        alt={photo?.comment ?? photo?.name ?? 'Photo réserve'}
+        loading={immediate ? 'eager' : 'lazy'}
+        decoding="async"
+        aria-busy={access.status === 'resolving' || access.status === 'idle'}
+      />
+      {access.url ? (
+        <PhotoAnnotationLayer
+          annotations={photoAnnotationsFrom(photo)}
+          compact={compact}
+          fit={fit}
+          imageSrc={access.url}
+        />
+      ) : null}
+    </span>
+  );
+}
+
+function PrivateMediaLink({
+  source,
+  className,
+  children,
+}: {
+  source: unknown;
+  className?: string;
+  children: ReactNode;
+}) {
+  const ref = String(source ?? '').trim();
+  const { access, observe, requestNow } = useVisiblePrivateMedia(source);
+  return (
+    <a
+      ref={observe}
+      className={className}
+      href={access.url || undefined}
+      target={access.url ? '_blank' : undefined}
+      rel={access.url ? 'noreferrer' : undefined}
+      aria-disabled={!access.url}
+      aria-busy={access.status === 'resolving' || access.status === 'idle'}
+      onMouseEnter={requestNow}
+      onFocus={requestNow}
+      onClick={event => {
+        if (access.url) return;
+        event.preventDefault();
+        requestNow();
+        const pendingWindow = typeof window !== 'undefined' ? window.open('about:blank', '_blank') : null;
+        if (pendingWindow) {
+          pendingWindow.opener = null;
+          try {
+            pendingWindow.document.title = 'BuildTrack';
+            pendingWindow.document.body.textContent = 'Ouverture sécurisée du document…';
+          } catch {
+            // The temporary document may already be isolated by the browser.
+          }
+        }
+        void resolvePrivateMediaRefs([ref], { priority: 'critical' }).then(urls => {
+          const url = urls.get(ref);
+          if (url && pendingWindow && !pendingWindow.closed) {
+            pendingWindow.location.replace(url);
+          } else if (!url && pendingWindow && !pendingWindow.closed) {
+            pendingWindow.close();
+          }
+        }).catch(() => {
+          if (pendingWindow && !pendingWindow.closed) pendingWindow.close();
+        });
+      }}
+    >
+      {children}
+    </a>
+  );
 }
 
 function localOnlyPhotoCount(reserve: any, photos: any[]) {
@@ -1864,6 +1992,18 @@ function getPdfReservePhotoUrls(reserve: any) {
   return getPdfReservePhotoItems(reserve).map((photo: any) => photo.uri);
 }
 
+async function resolvePdfPhotoItems(items: any[]) {
+  const refs = items.map(item => String(item?.uri ?? '').trim()).filter(Boolean);
+  const resolved = await resolvePrivateMediaRefs(refs, { priority: 'background' });
+  return items
+    .map(item => {
+      const ref = String(item?.uri ?? '').trim();
+      const uri = resolved.get(ref) || (!isRegistryBackedRef(ref) ? ref : '');
+      return uri ? { ...item, uri } : null;
+    })
+    .filter(Boolean);
+}
+
 const REPORT_MAX_TOTAL_REMOTE_PHOTOS = 150;
 // 3 photos/réserve : les photos sont désormais empilées dans la colonne
 // Observation des rapports (mise en page façon rapport de pendientes), comme
@@ -1941,20 +2081,20 @@ async function imageUrlToPdfDataUrl(uri: string) {
   return await pdfPhotoDataUrlCache.get(value)!;
 }
 
-function getPdfRemoteReservePhotoItems(reserve: any, maxPhotosPerReserve: number) {
+async function getPdfRemoteReservePhotoItems(reserve: any, maxPhotosPerReserve: number) {
   if (maxPhotosPerReserve <= 0) return [];
-  return getPdfReservePhotoItems(reserve)
+  const resolved = await resolvePdfPhotoItems(getPdfReservePhotoItems(reserve).slice(0, maxPhotosPerReserve));
+  return resolved
     .filter((photo: any) => isPdfReportRemoteAsset(photo.uri))
-    .slice(0, maxPhotosPerReserve)
     .map((photo: any) => ({
       ...photo,
       uri: photo.uri,
     }));
 }
 
-function withPdfRemoteReservePhotos(reserve: any, maxPhotosPerReserve: number) {
+async function withPdfRemoteReservePhotos(reserve: any, maxPhotosPerReserve: number) {
   if (!reserve) return reserve;
-  const photos = getPdfRemoteReservePhotoItems(reserve, maxPhotosPerReserve);
+  const photos = await getPdfRemoteReservePhotoItems(reserve, maxPhotosPerReserve);
 
   return {
     ...reserve,
@@ -1964,25 +2104,43 @@ function withPdfRemoteReservePhotos(reserve: any, maxPhotosPerReserve: number) {
   };
 }
 
-function withPdfRemoteReservePhotoList(reserves: any[], maxPhotosPerReserve: number, maxTotalPhotos = REPORT_MAX_TOTAL_REMOTE_PHOTOS) {
-  const result: any[] = [];
+async function withPdfRemoteReservePhotoList(reserves: any[], maxPhotosPerReserve: number, maxTotalPhotos = REPORT_MAX_TOTAL_REMOTE_PHOTOS) {
   let remaining = maxTotalPhotos;
-
-  for (const reserve of reserves) {
+  const selected: Array<{ reserve: any; photos: any[] }> = reserves.map(reserve => {
     const allowed = Math.max(0, Math.min(maxPhotosPerReserve, remaining));
-    const prepared = withPdfRemoteReservePhotos(reserve, allowed);
-    remaining -= Array.isArray(prepared?.photos) ? prepared.photos.length : 0;
-    result.push(prepared);
-  }
-
-  return result;
+    const photos = getPdfReservePhotoItems(reserve).slice(0, allowed);
+    remaining -= photos.length;
+    return { reserve, photos };
+  });
+  const allPhotos = selected.flatMap(item => item.photos);
+  const resolvedRefs = await resolvePrivateMediaRefs(
+    allPhotos.map(photo => String(photo?.uri ?? '')).filter(Boolean),
+    { priority: 'background' },
+  );
+  return selected.map(({ reserve, photos }) => {
+    const resolvedPhotos = photos
+      .map((photo: any) => {
+        const ref = String(photo?.uri ?? '').trim();
+        const uri = resolvedRefs.get(ref) || (!isRegistryBackedRef(ref) ? ref : '');
+        return uri && isPdfReportRemoteAsset(uri) ? { ...photo, uri } : null;
+      })
+      .filter(Boolean);
+    return {
+      ...reserve,
+      photos: resolvedPhotos,
+      photoUri: resolvedPhotos[0]?.uri ?? reserve.photoUri ?? reserve.photo_uri ?? null,
+      photo_uri: resolvedPhotos[0]?.uri ?? reserve.photo_uri ?? reserve.photoUri ?? null,
+    };
+  });
 }
 
 async function withPdfEmbeddedVisitMedia(visit: any) {
   if (!visit) return visit;
   const coverRaw = visit.cover_photo_uri ?? visit.coverPhotoUri;
   if (!coverRaw) return visit;
-  const coverUri = assetUrl({ uri: coverRaw }, 'photos') || String(coverRaw).trim();
+  const coverRef = assetUrl({ uri: coverRaw }, 'photos') || String(coverRaw).trim();
+  const resolved = await resolvePrivateMediaRefs([coverRef], { priority: 'background' });
+  const coverUri = resolved.get(coverRef) || (!isRegistryBackedRef(coverRef) ? coverRef : '');
   const embeddedCoverUri = coverUri ? await imageUrlToPdfDataUrl(coverUri) : null;
 
   return {
@@ -2012,6 +2170,25 @@ async function toPdfReserveItemsForPlanReport(reserves: any[]) {
     pinNumberMapsByPlan.set(planId, createPlanPinNumberMap(planReserves));
   }
 
+  const selectedPhotosByReserve = new Map<string, any[]>();
+  const allSelectedPhotos: any[] = [];
+  reserves.forEach((reserve, index) => {
+    const reserveKey = String(reserve?.id ?? `reserve-${index}`);
+    const selected = getPdfReservePhotoItems(reserve).slice(0, maxPhotosPerReserve);
+    selectedPhotosByReserve.set(reserveKey, selected);
+    allSelectedPhotos.push(...selected);
+  });
+  const resolvedUriByOriginalRef = new Map<string, string>();
+  const resolvedRefs = await resolvePrivateMediaRefs(
+    allSelectedPhotos.map(photo => String(photo?.uri ?? '')).filter(Boolean),
+    { priority: 'background' },
+  );
+  allSelectedPhotos.forEach(photo => {
+    const ref = String(photo?.uri ?? '').trim();
+    const uri = resolvedRefs.get(ref) || (!isRegistryBackedRef(ref) ? ref : '');
+    if (uri) resolvedUriByOriginalRef.set(ref, uri);
+  });
+
   return reserves.map((reserve, index) => {
     const planPinNumber = pinNumberMapsByPlan.get(getReservePlanId(reserve))?.get(String(reserve?.id ?? ''));
     const item = {
@@ -2024,7 +2201,12 @@ async function toPdfReserveItemsForPlanReport(reserves: any[]) {
 
     return {
       ...item,
-      photos: getPdfRemoteReservePhotoItems(reserve, maxPhotosPerReserve),
+      photos: (selectedPhotosByReserve.get(String(reserve?.id ?? `reserve-${index}`)) ?? [])
+        .map(photo => {
+          const uri = resolvedUriByOriginalRef.get(String(photo?.uri ?? '').trim());
+          return uri && isPdfReportRemoteAsset(uri) ? { ...photo, uri } : null;
+        })
+        .filter(Boolean),
     };
   });
 }
@@ -2050,6 +2232,7 @@ async function toPdfPlanItemsForReport(plans: any[], reserves: any[]) {
   const planItems = plans.map(plan => ({ plan, item: toPdfPlanItem(plan) }));
   const resolvedUris = await resolvePrivateMediaRefs(
     planItems.map(({ item }) => item.uri).filter(Boolean),
+    { priority: 'background' },
   );
   const items: any[] = [];
   for (const { plan, item } of planItems) {
@@ -2616,7 +2799,7 @@ export default function BuildTrackWebPage() {
     : null;
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
-  const [, setPrivateMediaVersion] = useState(0);
+  const previewCacheOwnerRef = useRef<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
@@ -2719,9 +2902,14 @@ export default function BuildTrackWebPage() {
     syncReportLanguageWithInterface(nextLanguage);
   }, [syncReportLanguageWithInterface]);
 
-  useEffect(() => subscribePrivateMedia(() => {
-    setPrivateMediaVersion(version => version + 1);
-  }), []);
+  useEffect(() => {
+    const nextOwner = authUser?.id ?? null;
+    const previousOwner = previewCacheOwnerRef.current;
+    if (previousOwner && nextOwner && previousOwner !== nextOwner) {
+      void clearPlanPreviewsForUser(previousOwner);
+    }
+    if (nextOwner) previewCacheOwnerRef.current = nextOwner;
+  }, [authUser?.id]);
 
   useEffect(() => {
     document.documentElement.lang = webLang;
@@ -3062,7 +3250,16 @@ export default function BuildTrackWebPage() {
         documents => setData(previous => ({ ...previous, documents })),
       );
       const reservesPromise = fetchScopedTable('reserves', loadedProfile, { order: 'created_at', onError });
-      const sitePlansPromise = fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError });
+      const sitePlansPromise = publishWhenCurrent(
+        fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError }),
+        loadLease,
+        sitePlans => {
+          setData(previous => ({ ...previous, sitePlans }));
+          setSelectedPlanId(previous => previous && sitePlans.some((plan: any) => plan.id === previous)
+            ? previous
+            : sitePlans[0]?.id ?? null);
+        },
+      );
       const companiesPromise = fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError });
       const organizationsPromise = fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError });
       const visitesPromise = fetchScopedTable('visites', loadedProfile, { order: 'created_at', onError });
@@ -3192,8 +3389,11 @@ export default function BuildTrackWebPage() {
     }
   }
 
-  function handleSignOut() {
-    void authenticatedWorkspace.signOut();
+  async function handleSignOut() {
+    const ownerId = authUser?.id ?? null;
+    previewCacheOwnerRef.current = null;
+    await authenticatedWorkspace.signOut();
+    if (ownerId) await clearPlanPreviewsForUser(ownerId);
   }
 
   async function patchReserveWeb(reserve: any, patch: Record<string, any>) {
@@ -5139,10 +5339,10 @@ export default function BuildTrackWebPage() {
       const reportReserves = type === 'plans'
         ? await toPdfReserveItemsForPlanReport(targetReserves)
         : type === 'global_reserves'
-          ? withPdfRemoteReservePhotoList(targetReserves, REPORT_MAX_PHOTOS_PER_RESERVE)
+          ? await withPdfRemoteReservePhotoList(targetReserves, REPORT_MAX_PHOTOS_PER_RESERVE)
           : targetReserves;
       const reportReserve = type === 'individual_reserve' && targetReserve
-        ? withPdfRemoteReservePhotos(targetReserve, INDIVIDUAL_RESERVE_MAX_PHOTOS)
+        ? await withPdfRemoteReservePhotos(targetReserve, INDIVIDUAL_RESERVE_MAX_PHOTOS)
         : targetReserve;
       const reportVisit = type === 'visit_report'
         ? await withPdfEmbeddedVisitMedia(options?.visit)
@@ -5427,7 +5627,12 @@ export default function BuildTrackWebPage() {
   const reserveSelectionPool = effectiveStatusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
   const selectedReserve = reserveSelectionPool.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
-  const selectedPlan = data.sitePlans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
+  const selectedPlan = projectScoped.plans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
+  useEffect(() => {
+    setSelectedPlanId(previous => previous && projectScoped.plans.some((plan: any) => plan.id === previous)
+      ? previous
+      : projectScoped.plans[0]?.id ?? null);
+  }, [projectScoped.plans]);
   // Le mode « placement de pastille » ne vit que dans l'onglet Plans : dès que
   // l'utilisateur en sort, on l'annule pour éviter un placement fantôme au retour.
   useEffect(() => {
@@ -5768,6 +5973,7 @@ export default function BuildTrackWebPage() {
             )}
             {activeTab === 'plans' && (
               <PlansView
+                authUserId={authUser?.id ?? ''}
                 plans={projectScoped.plans}
                 reserves={projectScoped.reserves}
                 companies={data.companies}
@@ -6218,6 +6424,10 @@ function ReservesView(props: {
   const selectedPhotos = reservePhotoItems(detailReserve, props.photos);
   const selectedLocalOnlyPhotos = localOnlyPhotoCount(detailReserve, props.photos);
   const lightboxPhoto = photoLightboxIndex !== null ? selectedPhotos[photoLightboxIndex] : null;
+  const lightboxPhotoMedia = usePrivateMediaAccess(lightboxPhoto?.uri, {
+    enabled: Boolean(lightboxPhoto),
+    priority: 'critical',
+  });
   const pdfCompanies = props.structuredFilters.companies;
   const pdfTargetReserves = useMemo(() => {
     if (pdfMode === 'selected') return selectedReserve ? [selectedReserve] : [];
@@ -6386,12 +6596,12 @@ function ReservesView(props: {
   }
 
   async function copyLightboxPhotoLink() {
-    if (!lightboxPhoto?.uri || typeof navigator === 'undefined' || !navigator.clipboard) {
+    if (!lightboxPhotoMedia.url || typeof navigator === 'undefined' || !navigator.clipboard) {
       showPhotoCopyFeedback('error');
       return;
     }
     try {
-      await navigator.clipboard.writeText(lightboxPhoto.uri);
+      await navigator.clipboard.writeText(lightboxPhotoMedia.url);
       showPhotoCopyFeedback('copied');
     } catch {
       showPhotoCopyFeedback('error');
@@ -7131,10 +7341,7 @@ function ReservesView(props: {
                       onClick={() => setPhotoLightboxIndex(index)}
                       aria-label={`Ouvrir la photo ${index + 1} sur ${selectedPhotos.length}`}
                     >
-                      <span className={styles.photoAnnotationFrame}>
-                        <img src={photo.uri} alt={photo.comment ?? photo.name ?? 'Photo réserve'} loading="lazy" decoding="async" />
-                        <PhotoAnnotationLayer annotations={photoAnnotationsFrom(photo)} compact fit="cover" imageSrc={photo.uri} />
-                      </span>
+                      <PrivatePhotoFrame photo={photo} compact fit="cover" />
                       <span className={styles.reservePhotoKindBadge}>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
                     </button>
                   ))}
@@ -7254,12 +7461,11 @@ function ReservesView(props: {
                   ‹
                 </button>
               )}
-              <span className={styles.reservePhotoLightboxImageFrame}>
-                <img src={lightboxPhoto.uri} alt={lightboxPhoto.comment ?? lightboxPhoto.name ?? 'Photo réserve'} />
-                {/* Le cadre de la lightbox moule l'image : les % s'appliquent à
-                    toute la boîte, en pleine épaisseur (pas de mode compact). */}
-                <PhotoAnnotationLayer annotations={photoAnnotationsFrom(lightboxPhoto)} />
-              </span>
+              <PrivatePhotoFrame
+                photo={lightboxPhoto}
+                className={styles.reservePhotoLightboxImageFrame}
+                immediate
+              />
               {selectedPhotos.length > 1 && (
                 <button type="button" className={styles.reservePhotoLightboxNext} onClick={() => moveLightboxPhoto(1)} aria-label="Photo suivante">
                   ›
@@ -7289,11 +7495,13 @@ function ReservesView(props: {
                         : ''
                   }
                   onClick={() => void copyLightboxPhotoLink()}
-                  disabled={!lightboxPhoto.uri}
+                  disabled={!lightboxPhotoMedia.url}
                 >
                   {photoCopyFeedback === 'copied' ? 'Lien copié' : photoCopyFeedback === 'error' ? 'Réessayer' : 'Copier le lien'}
                 </button>
-                <a href={lightboxPhoto.uri} target="_blank" rel="noreferrer">Ouvrir dans un onglet</a>
+                {lightboxPhotoMedia.url ? (
+                  <a href={lightboxPhotoMedia.url} target="_blank" rel="noreferrer">Ouvrir dans un onglet</a>
+                ) : null}
               </div>
             </footer>
           </section>
@@ -7429,6 +7637,11 @@ function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
 function WebPdfPlan({
   uri,
   name,
+  cachedPreview,
+  previewCacheKey,
+  mediaStatus,
+  onPreviewReady,
+  onRetryMedia,
   pins,
   focusedReserveId,
   canCreate,
@@ -7449,6 +7662,11 @@ function WebPdfPlan({
 }: {
   uri: string;
   name: string;
+  cachedPreview?: { url: string; width: number; height: number } | null;
+  previewCacheKey?: string;
+  mediaStatus?: 'empty' | 'idle' | 'resolving' | 'ready' | 'error';
+  onPreviewReady?: (preview: PlanPreviewRecord) => void;
+  onRetryMedia?: () => void;
   pins: PlanPin[];
   focusedReserveId?: string | null;
   canCreate?: boolean;
@@ -7472,6 +7690,8 @@ function WebPdfPlan({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderTaskRef = useRef<any>(null);
   const pdfPageRef = useRef<any>(null);
+  const capturedPreviewKeyRef = useRef('');
+  const capturingPreviewKeyRef = useRef('');
   const lastFocusZoomRef = useRef('');
   const drawingPointerRef = useRef<number | null>(null);
   const movePreviewTimerRef = useRef<number | null>(null);
@@ -7490,6 +7710,7 @@ function WebPdfPlan({
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
+  const [renderReady, setRenderReady] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
   const [pdfPageVersion, setPdfPageVersion] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -7501,6 +7722,14 @@ function WebPdfPlan({
   const [localAnnotations, setLocalAnnotations] = useState<WebPlanDrawing[]>(annotations ?? []);
   const [moveMode, setMoveMode] = useState(false);
   const [movePreview, setMovePreview] = useState<PinPlacementPreview | null>(null);
+
+  const fitCachedPreviewToViewport = useCallback((width: number, height: number) => {
+    if (!width || !height || pdfPageRef.current) return;
+    const viewportWidth = viewportRef.current?.clientWidth ?? Math.min(width, 900);
+    const availableWidth = Math.max(1, viewportWidth - 32);
+    const previewScale = Math.min(1, availableWidth / width);
+    setPageSize({ width: width * previewScale, height: height * previewScale });
+  }, []);
 
   const fitPdfToViewport = useCallback(() => {
     const page = pdfPageRef.current;
@@ -7518,12 +7747,21 @@ function WebPdfPlan({
     setScale(null);
     setPageSize({ width: 0, height: 0 });
     setError(false);
+    setRenderReady(false);
     setAnnotationMode(false);
     setLiveDrawing(null);
     setMoveMode(false);
     setMovePreview(null);
     lastFocusZoomRef.current = '';
   }, [uri]);
+
+  useEffect(() => {
+    if (!cachedPreview || pdfPageRef.current) return;
+    const frame = window.requestAnimationFrame(() => {
+      fitCachedPreviewToViewport(cachedPreview.width, cachedPreview.height);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [cachedPreview, fitCachedPreviewToViewport, uri]);
 
   useEffect(() => {
     setLocalAnnotations(annotations ?? []);
@@ -7579,6 +7817,11 @@ function WebPdfPlan({
     let pdfSession: ReturnType<typeof createDedicatedPdfLoadingTask> | null = null;
 
     async function loadPdfPage() {
+      if (!uri) {
+        setLoading(false);
+        setError(false);
+        return;
+      }
       setLoading(true);
       setError(false);
       pdfPageRef.current = null;
@@ -7627,6 +7870,7 @@ function WebPdfPlan({
     let cancelled = false;
 
     async function renderPdfPage() {
+      setRenderReady(false);
       setLoading(true);
       setError(false);
       try {
@@ -7662,7 +7906,25 @@ function WebPdfPlan({
         await renderTask.promise;
         if (!cancelled) {
           renderTaskRef.current = null;
+          setRenderReady(true);
           setLoading(false);
+          if (
+            previewCacheKey
+            && capturedPreviewKeyRef.current !== previewCacheKey
+            && capturingPreviewKeyRef.current !== previewCacheKey
+          ) {
+            capturingPreviewKeyRef.current = previewCacheKey;
+            void rasterizePlanPreview(canvas).then(preview => {
+              if (!cancelled && preview) {
+                capturedPreviewKeyRef.current = previewCacheKey;
+                onPreviewReady?.(preview);
+              }
+            }).catch(() => undefined).finally(() => {
+              if (capturingPreviewKeyRef.current === previewCacheKey) {
+                capturingPreviewKeyRef.current = '';
+              }
+            });
+          }
         }
       } catch (pdfError: any) {
         if (cancelled || pdfError?.name === 'RenderingCancelledException') return;
@@ -7681,7 +7943,7 @@ function WebPdfPlan({
       cancelled = true;
       renderTaskRef.current?.cancel?.();
     };
-  }, [pdfPageVersion, scale]);
+  }, [onPreviewReady, pdfPageVersion, previewCacheKey, scale]);
 
   function pagePointFromEvent(event: MouseEvent<HTMLDivElement> | PointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -7905,7 +8167,7 @@ function WebPdfPlan({
             Crayon
           </button>
         )}
-        <a href={uri} target="_blank" rel="noreferrer">{t('plans.openPdf')}</a>
+        {uri ? <a href={uri} target="_blank" rel="noreferrer">{t('plans.openPdf')}</a> : null}
       </div>
       {canAnnotate && annotationMode && (
         <div className={styles.webPdfAnnotateControls}>
@@ -7965,21 +8227,35 @@ function WebPdfPlan({
           style={pageSize.width && pageSize.height ? { width: pageSize.width, height: pageSize.height } : undefined}
           onClick={handlePageClick}
           aria-label={name}
+          data-plan-render-state={renderReady ? 'ready' : cachedPreview ? 'preview' : 'loading'}
         >
-          <canvas ref={canvasRef} className={styles.webPdfCanvas} />
-          {loading && (
+          {cachedPreview && !renderReady ? (
+            <img
+              className={styles.webPdfCachedPreview}
+              src={cachedPreview.url}
+              alt={`Aperçu hors ligne du plan ${name}`}
+              data-plan-preview-source="cache"
+            />
+          ) : null}
+          <canvas ref={canvasRef} className={styles.webPdfCanvas} data-visible={renderReady ? 'true' : 'false'} />
+          {(loading || (!uri && mediaStatus === 'resolving')) && !cachedPreview && (
             <div className={styles.webPdfLoading} role="status" aria-live="polite">
               <span className={styles.webPdfLoadingSpinner} aria-hidden="true" />
               <strong>{t('plans.loadingPdf')}</strong>
             </div>
           )}
-          {error && (
+          {cachedPreview && !renderReady && mediaStatus !== 'ready' ? (
+            <div className={styles.webPdfPreviewBadge} role="status">
+              {mediaStatus === 'error' ? 'Aperçu hors ligne' : 'Aperçu instantané · synchronisation du plan'}
+            </div>
+          ) : null}
+          {(error || (!uri && mediaStatus === 'error')) && !cachedPreview && (
             <div className={styles.webPdfError} role="alert" aria-live="assertive">
               <div className={styles.webPdfErrorContent}>
                 <span className={styles.webPdfErrorIcon} aria-hidden="true">!</span>
                 <strong>{t('plans.pdfUnavailable')}</strong>
                 <span>{t('plans.pdfUnavailableBody')}</span>
-                <button type="button" onClick={retryPdfLoad}>{t('plans.retry')}</button>
+                <button type="button" onClick={onRetryMedia ?? retryPdfLoad}>{t('plans.retry')}</button>
               </div>
             </div>
           )}
@@ -8037,6 +8313,7 @@ function WebPdfPlan({
 }
 
 function PlansView({
+  authUserId,
   plans,
   reserves,
   companies,
@@ -8104,6 +8381,15 @@ function PlansView({
   const [planActionMessage, setPlanActionMessage] = useState('');
   const [planActionsOpen, setPlanActionsOpen] = useState(false);
   const [pinCreateMode, setPinCreateMode] = useState(false);
+  const [cachedPlanPreview, setCachedPlanPreview] = useState<{
+    ownerId: string;
+    key: string;
+    url: string;
+    width: number;
+    height: number;
+  } | null>(null);
+  const activePreviewOwnerRef = useRef(authUserId);
+  activePreviewOwnerRef.current = authUserId;
   const pinPlacementTimerRef = useRef<number | null>(null);
   const planCanCreate = Boolean(canCreatePlan ?? editable);
   const planCanDelete = Boolean(canDeletePlan);
@@ -8123,8 +8409,40 @@ function PlansView({
   const selectedPlanMediaSource = planWorkspace.shouldLoadDetailMedia
     ? String(selectedPlan?.uri ?? selectedPlan?.url ?? '').trim()
     : '';
-  const selectedPlanMedia = privateMediaAccess(selectedPlanMediaSource);
+  const selectedPlanMedia = usePrivateMediaAccess(selectedPlanMediaSource, { priority: 'critical' });
   const selectedPlanResolvedUri = selectedPlanMedia.url;
+  const selectedPlanPreviewKey = selectedPlan
+    ? [selectedPlan.id, selectedPlan.revision_code ?? selectedPlan.revisionCode ?? '', selectedPlanMediaSource].join(':')
+    : '';
+  const activeCachedPlanPreview = cachedPlanPreview && cachedPlanPreview.ownerId === authUserId
+    && cachedPlanPreview.key === selectedPlanPreviewKey
+    ? cachedPlanPreview
+    : null;
+
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl = '';
+    setCachedPlanPreview(null);
+    if (!authUserId || !selectedPlanPreviewKey || selectedPlan?.file_type !== 'pdf') return;
+    void readPlanPreview({ userId: authUserId, planKey: selectedPlanPreviewKey }).then(preview => {
+      if (cancelled || !preview) return;
+      objectUrl = URL.createObjectURL(preview.blob);
+      setCachedPlanPreview({ ownerId: authUserId, key: selectedPlanPreviewKey, url: objectUrl, width: preview.width, height: preview.height });
+    });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [authUserId, selectedPlan?.file_type, selectedPlanPreviewKey]);
+
+  const cacheSelectedPlanPreview = useCallback((preview: PlanPreviewRecord) => {
+    if (!authUserId || activePreviewOwnerRef.current !== authUserId || !selectedPlanPreviewKey) return;
+    void writePlanPreview({
+      userId: authUserId,
+      planKey: selectedPlanPreviewKey,
+      ...preview,
+    });
+  }, [authUserId, selectedPlanPreviewKey]);
 
   function makePlanDraft(mode: 'create' | 'edit' | 'revision', plan?: any) {
     const baseProjectId = plan?.chantier_id ?? plan?.chantierId ?? (selectedProjectId !== 'all' ? selectedProjectId : selectedProject?.id ?? projects[0]?.id ?? '');
@@ -8882,27 +9200,15 @@ function PlansView({
               data-reserves-open={planReservePanelOpen}
             >
               <div className={styles.planCanvas} data-prw-plan-canvas>
-                {selectedPlanMediaSource && selectedPlanMedia.status === 'resolving' ? (
-                  <div className={styles.planMediaState} role="status" aria-live="polite">
-                    <span className={styles.webPdfLoadingSpinner} aria-hidden="true" />
-                    <strong>{t('plans.resolvingMedia')}</strong>
-                    <span>{t('plans.resolvingMediaBody')}</span>
-                  </div>
-                ) : selectedPlanMediaSource && selectedPlanMedia.status === 'error' ? (
-                  <div className={styles.planMediaState} role="alert" aria-live="assertive">
-                    <span className={styles.webPdfErrorIcon} aria-hidden="true">!</span>
-                    <strong>{t('plans.pdfUnavailable')}</strong>
-                    <span>{t('plans.pdfUnavailableBody')}</span>
-                    <button type="button" onClick={() => retryPrivateMedia(selectedPlanMediaSource)}>
-                      {t('plans.retry')}
-                    </button>
-                  </div>
-                ) : selectedPlanResolvedUri && selectedPlan.file_type === 'image' ? (
-                  <img src={selectedPlanResolvedUri} alt={selectedPlan.name} />
-                ) : selectedPlanResolvedUri && selectedPlan.file_type === 'pdf' ? (
+                {selectedPlan.file_type === 'pdf' && (selectedPlanResolvedUri || activeCachedPlanPreview) ? (
                   <WebPdfPlan
                     uri={selectedPlanResolvedUri}
                     name={selectedPlan.name}
+                    cachedPreview={activeCachedPlanPreview}
+                    previewCacheKey={selectedPlanPreviewKey}
+                    mediaStatus={selectedPlanMedia.status}
+                    onPreviewReady={cacheSelectedPlanPreview}
+                    onRetryMedia={() => retryPrivateMedia(selectedPlanMediaSource, { priority: 'critical' })}
                     pins={planPins}
                     focusedReserveId={focusedPlanReserveId}
                     canCreate={planCanCreate}
@@ -8928,6 +9234,23 @@ function PlansView({
                     onPinOpen={openReserveFromPin}
                     onClearFocus={() => setFocusedPlanReserveId(null)}
                   />
+                ) : selectedPlanMediaSource && selectedPlanMedia.status === 'resolving' ? (
+                  <div className={styles.planMediaState} role="status" aria-live="polite">
+                    <span className={styles.webPdfLoadingSpinner} aria-hidden="true" />
+                    <strong>{t('plans.resolvingMedia')}</strong>
+                    <span>{t('plans.resolvingMediaBody')}</span>
+                  </div>
+                ) : selectedPlanMediaSource && selectedPlanMedia.status === 'error' ? (
+                  <div className={styles.planMediaState} role="alert" aria-live="assertive">
+                    <span className={styles.webPdfErrorIcon} aria-hidden="true">!</span>
+                    <strong>{t('plans.pdfUnavailable')}</strong>
+                    <span>{t('plans.pdfUnavailableBody')}</span>
+                    <button type="button" onClick={() => retryPrivateMedia(selectedPlanMediaSource, { priority: 'critical' })}>
+                      {t('plans.retry')}
+                    </button>
+                  </div>
+                ) : selectedPlanResolvedUri && selectedPlan.file_type === 'image' ? (
+                  <img src={selectedPlanResolvedUri} alt={selectedPlan.name} />
                 ) : (
                   <div className={styles.planPlaceholder}>{t('plans.previewUnavailable')}</div>
                 )}
@@ -9940,7 +10263,11 @@ function VisitesView({
             </div>
 
             {selectedVisit.cover_photo_uri || selectedVisit.coverPhotoUri ? (
-              <img className={styles.visitCoverHero} src={assetUrl({ uri: selectedVisit.cover_photo_uri ?? selectedVisit.coverPhotoUri }, 'photos')} alt="Photo de couverture de la visite" loading="lazy" decoding="async" />
+              <PrivateMediaImage
+                className={styles.visitCoverHero}
+                source={assetUrl({ uri: selectedVisit.cover_photo_uri ?? selectedVisit.coverPhotoUri }, 'photos')}
+                alt="Photo de couverture de la visite"
+              />
             ) : null}
 
             <div className={styles.visitInfoGrid}>
@@ -10457,13 +10784,13 @@ function MediaView({ photos, documents, isSubcontractor }: { photos: any[]; docu
         <h2>Photos</h2>
         <div className={styles.mediaGrid}>
           {filteredPhotos.map((photo: any) => {
-            const url = assetUrl(photo, 'photos');
+            const ref = assetUrl(photo, 'photos');
             return (
-              <a key={photo.id ?? url} className={styles.mediaCard} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
-                {url ? <img src={url} alt={photo.comment ?? photo.title ?? 'Photo chantier'} loading="lazy" decoding="async" /> : <span>Photo</span>}
+              <PrivateMediaLink key={photo.id ?? ref} className={styles.mediaCard} source={ref}>
+                {ref ? <PrivateMediaImage source={ref} alt={photo.comment ?? photo.title ?? 'Photo chantier'} /> : <span>Photo</span>}
                 <strong>{photo.comment ?? photo.title ?? photo.name ?? 'Photo chantier'}</strong>
                 <small>{photo.location ?? photo.building ?? 'Sans localisation'} · {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
-              </a>
+              </PrivateMediaLink>
             );
           })}
           {!filteredPhotos.length && <p className={styles.empty}>Aucune photo trouvée.</p>}
@@ -10474,15 +10801,15 @@ function MediaView({ photos, documents, isSubcontractor }: { photos: any[]; docu
           <h2>Documents</h2>
           <div className={styles.documentList}>
             {filteredDocuments.map((document: any) => {
-              const url = assetUrl(document, 'documents');
+              const ref = assetUrl(document, 'documents');
               return (
-                <a key={document.id ?? url} className={styles.documentRow} href={url || undefined} target={url ? '_blank' : undefined} aria-disabled={!url}>
+                <PrivateMediaLink key={document.id ?? ref} className={styles.documentRow} source={ref}>
                   <span>{String(document.file_type ?? document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
                   <div>
                     <strong>{document.title ?? document.name ?? document.file_name ?? 'Document'}</strong>
                     <small>{document.category ?? 'GED'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
                   </div>
-                </a>
+                </PrivateMediaLink>
               );
             })}
             {!filteredDocuments.length && <p className={styles.empty}>Aucun document trouvé.</p>}
@@ -11719,7 +12046,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, canCre
                   <small>{document.category ?? 'Documents'} · {document.size ?? '—'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
                 </div>
                 <div className={styles.inlineActions}>
-                  {url ? <a className={styles.linkButton} href={url} target="_blank">Ouvrir</a> : null}
+                  {url ? <PrivateMediaLink className={styles.linkButton} source={url}>Ouvrir</PrivateMediaLink> : null}
                   {canDelete ? <button type="button" onClick={() => onDelete(document)}>Supprimer</button> : null}
                 </div>
               </article>
@@ -11910,7 +12237,7 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
                 {doc.notes ? <p>{doc.notes}</p> : null}
               </div>
               <div className={styles.inlineActions}>
-                {assetUrl(doc, 'documents') ? <a className={styles.linkButton} href={assetUrl(doc, 'documents')} target="_blank">Ouvrir</a> : null}
+                {assetUrl(doc, 'documents') ? <PrivateMediaLink className={styles.linkButton} source={assetUrl(doc, 'documents')}>Ouvrir</PrivateMediaLink> : null}
                 {canEdit ? <button type="button" onClick={() => openDoc(doc)}>Modifier</button> : null}
                 {canDelete ? <button type="button" onClick={() => onDelete(doc)}>Supprimer</button> : null}
               </div>
@@ -13143,6 +13470,8 @@ function PhotoAnnotatorModal({
   const currentStrokeRef = useRef<WebPhotoAnnotation | null>(null);
   const stageRef = useRef<HTMLButtonElement | null>(null);
   const [imageNaturalSize, setImageNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const photoMedia = usePrivateMediaAccess(photo.uri, { priority: 'critical' });
+  const photoSrc = photoMedia.url || EMPTY_MEDIA_IMAGE;
 
   // Rectangle réellement occupé par l'image (object-fit: contain) dans le
   // stage, en pixels viewport : les bandes de letterbox n'en font pas partie.
@@ -13347,9 +13676,10 @@ function PhotoAnnotatorModal({
           onPointerLeave={finishStroke}
         >
           <img
-            src={photo.uri}
+            src={photoSrc}
             alt={photo.name ?? 'Photo réserve'}
             draggable={false}
+            aria-busy={photoMedia.status === 'resolving' || photoMedia.status === 'idle'}
             onLoad={event => {
               const image = event.currentTarget;
               if (image.naturalWidth > 0 && image.naturalHeight > 0) {
@@ -13357,7 +13687,9 @@ function PhotoAnnotatorModal({
               }
             }}
           />
-          <PhotoAnnotationLayer annotations={[...annotations, ...(currentStroke ? [currentStroke] : [])]} fit="contain" imageSrc={photo.uri} />
+          {photoMedia.url ? (
+            <PhotoAnnotationLayer annotations={[...annotations, ...(currentStroke ? [currentStroke] : [])]} fit="contain" imageSrc={photoMedia.url} />
+          ) : null}
         </button>
         <div className={styles.photoAnnotatorFooter}>
           <button type="button" onClick={() => setAnnotations(prev => prev.slice(0, -1))} disabled={!annotations.length}>
@@ -13706,10 +14038,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
                         className={styles.reservePhotoPreviewButton}
                         onClick={() => setAnnotatingPhoto(photo)}
                       >
-                        <span className={styles.photoAnnotationFrame}>
-                          <img src={photo.uri} alt={photo.name ?? 'Photo réserve'} loading="lazy" decoding="async" />
-                          <PhotoAnnotationLayer annotations={photo.annotations} compact fit="cover" imageSrc={photo.uri} />
-                        </span>
+                        <PrivatePhotoFrame photo={photo} compact fit="cover" />
                       </button>
                       <div className={styles.reservePhotoActions}>
                         <button type="button" onClick={() => setAnnotatingPhoto(photo)}>Annoter</button>
@@ -14272,7 +14601,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
                   </div>
                   {draft.coverPhoto ? (
                     <div className={styles.visitCoverPreview}>
-                      <img src={draft.coverPhoto.uri} alt="Photo de couverture" />
+                      <PrivateMediaImage source={draft.coverPhoto.uri} alt="Photo de couverture" immediate />
                       <button type="button" onClick={() => setDraft(prev => ({ ...prev, coverPhoto: null }))}>Retirer</button>
                     </div>
                   ) : null}

@@ -76,13 +76,54 @@ describe('BuildTrack web plan and reserve workspaces', () => {
 
   it('keeps every private plan preview on the fail-closed media path', () => {
     const page = read('vercel-app/app/web/page.tsx');
+    const mediaHook = read('vercel-app/app/web/plan-reserve-workspace/usePrivateMedia.ts');
 
     expect(page).toContain('const selectedPlanMediaSource = planWorkspace.shouldLoadDetailMedia');
-    expect(page).toContain('const selectedPlanMedia = privateMediaAccess(selectedPlanMediaSource)');
+    expect(page).toContain("usePrivateMediaAccess(selectedPlanMediaSource, { priority: 'critical' })");
     expect(page).toContain('const selectedPlanResolvedUri = selectedPlanMedia.url');
     expect(page).toContain('uri={selectedPlanResolvedUri}');
+    expect(mediaHook).toContain("requestPrivateMedia(ref, { priority })");
     expect(page).not.toContain('uri={selectedPlan.uri}');
     expect(page).not.toContain('href={selectedPlan.uri}');
+    expect(page).toContain("const sitePlansPromise = publishWhenCurrent(");
+    expect(page).toContain('const selectedPlan = projectScoped.plans.find');
+  });
+
+  it('keeps reserve normalization network-free and resolves photos only near the viewport', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const mediaHook = read('vercel-app/app/web/plan-reserve-workspace/usePrivateMedia.ts');
+    const reservePhotoItems = page.slice(
+      page.indexOf('function reservePhotoItems'),
+      page.indexOf('function localOnlyPhotoCount'),
+    );
+    const assetNormalizers = page.slice(
+      page.indexOf('function storageAssetRef'),
+      page.indexOf('function createPhotoAnnotationId'),
+    );
+
+    expect(page).toContain('function storageAssetRef');
+    expect(assetNormalizers).not.toMatch(/privateMedia(?:Access|Url)|requestPrivateMedia|fetch\(/);
+    expect(reservePhotoItems).toContain("assetUrl(photo, 'photos')");
+    expect(reservePhotoItems).not.toMatch(/privateMedia(?:Access|Url)|requestPrivateMedia|fetch\(/);
+    expect(page).toContain('<PrivatePhotoFrame photo={photo} compact fit="cover" />');
+    expect(mediaHook).toContain('new IntersectionObserver');
+    expect(mediaHook).toContain("rootMargin = '280px'");
+    expect(page).toContain("priority: 'critical',");
+    expect(page).toContain('navigator.clipboard.writeText(lightboxPhotoMedia.url)');
+  });
+
+  it('shows an account-scoped cached first page before signed media is ready', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const cache = read('vercel-app/app/web/plan-reserve-workspace/plan-preview-cache.ts');
+
+    expect(page).toContain('readPlanPreview({ userId: authUserId, planKey: selectedPlanPreviewKey })');
+    expect(page).toContain("cachedPlanPreview.ownerId === authUserId");
+    expect(page).toContain('selectedPlan.file_type === \'pdf\' && (selectedPlanResolvedUri || activeCachedPlanPreview)');
+    expect(page).toContain('data-plan-preview-source="cache"');
+    expect(page).toContain('rasterizePlanPreview(canvas)');
+    expect(cache).toContain("const PLAN_PREVIEW_CACHE = 'buildtrack-private-plan-previews-v1'");
+    expect(cache).toContain("sha256(`preview\\0${userId}\\0${planKey}`)");
+    expect(cache).not.toContain('signedUrl');
   });
 
   it('bundles a dedicated PDF worker locally instead of sharing or requiring a CDN worker', () => {
@@ -98,7 +139,7 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(pdfClient).toContain('createDedicatedPdfLoadingTask');
     expect(pdfClient).toContain('connection?.saveData');
     expect(page).toContain('}, [retryVersion, uri]);');
-    expect(page).toContain('}, [pdfPageVersion, scale]);');
+    expect(page).toContain('}, [onPreviewReady, pdfPageVersion, previewCacheKey, scale]);');
     expect(page).not.toContain('cdn.jsdelivr.net/npm/pdfjs-dist');
   });
 });

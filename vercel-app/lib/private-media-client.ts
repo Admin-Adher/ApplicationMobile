@@ -1,14 +1,20 @@
 'use client';
 
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { supabaseBrowser } from './supabase-browser';
 
 type CachedMediaUrl = { url: string; expiresAt: number };
 
 export type PrivateMediaAccess = {
   managed: boolean;
-  status: 'empty' | 'resolving' | 'ready' | 'error';
+  status: 'empty' | 'idle' | 'resolving' | 'ready' | 'error';
   url: string;
   reason?: 'session_required' | 'unavailable' | 'temporary_failure';
+};
+
+export type PrivateMediaPriority = 'critical' | 'background';
+
+type PrivateMediaRequestOptions = {
+  priority?: PrivateMediaPriority;
 };
 
 type ResolveFailure = {
@@ -18,11 +24,14 @@ type ResolveFailure = {
 const resolvedUrls = new Map<string, CachedMediaUrl>();
 const retryAfter = new Map<string, number>();
 const failures = new Map<string, ResolveFailure>();
-const queuedRefs = new Set<string>();
+const criticalQueuedRefs = new Set<string>();
+const backgroundQueuedRefs = new Set<string>();
 const resolvingRefs = new Set<string>();
 const listeners = new Set<() => void>();
-let resolveScheduled = false;
-let flushPromise: Promise<void> | null = null;
+let criticalResolveScheduled = false;
+let backgroundResolveScheduled = false;
+let criticalFlushPromise: Promise<void> | null = null;
+let backgroundFlushPromise: Promise<void> | null = null;
 
 const PRIVATE_MEDIA_HEADERS = {
   'X-BuildTrack-Client': 'web',
@@ -52,78 +61,100 @@ function markFailure(
   });
 }
 
-async function runResolveQueue() {
-  while (queuedRefs.size > 0) {
-    const refs = Array.from(queuedRefs).slice(0, 100);
+async function resolveBatch(refs: string[]) {
+  try {
+    const { data } = await supabaseBrowser.auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) {
+      markFailure(refs, 'session_required', 5_000);
+      return;
+    }
+
+    const response = await fetch('/api/storage/resolve', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...PRIVATE_MEDIA_HEADERS,
+      },
+      body: JSON.stringify({ refs }),
+    });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+    const payload = await response.json().catch(() => ({}));
+    const returned = new Set<string>();
+    for (const asset of Array.isArray(payload?.assets) ? payload.assets : []) {
+      const ref = String(asset?.ref ?? '').trim();
+      const url = String(asset?.url ?? '').trim();
+      if (!ref || !url) continue;
+      returned.add(ref);
+      resolvedUrls.set(ref, {
+        url,
+        expiresAt: Number(asset?.expiresAt ?? Date.now() + 60_000),
+      });
+      retryAfter.delete(ref);
+      failures.delete(ref);
+    }
+
+    markFailure(refs.filter(ref => !returned.has(ref)), 'unavailable', 5_000);
+  } catch (error) {
+    console.warn('[private-media] signed media resolution temporarily unavailable', error);
+    markFailure(refs, 'temporary_failure', 5_000);
+  } finally {
+    refs.forEach(ref => resolvingRefs.delete(ref));
+    emitResolved();
+  }
+}
+
+async function runResolveLane(priority: PrivateMediaPriority) {
+  const queue = priority === 'critical' ? criticalQueuedRefs : backgroundQueuedRefs;
+  const batchSize = priority === 'critical' ? 10 : 100;
+  while (queue.size > 0) {
+    const refs = Array.from(queue).slice(0, batchSize);
     refs.forEach(ref => {
-      queuedRefs.delete(ref);
+      queue.delete(ref);
       resolvingRefs.add(ref);
     });
-
-    try {
-      const { data } = await supabaseBrowser.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) {
-        markFailure(refs, 'session_required', 5_000);
-        continue;
-      }
-
-      const response = await fetch('/api/storage/resolve', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-          ...PRIVATE_MEDIA_HEADERS,
-        },
-        body: JSON.stringify({ refs }),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const payload = await response.json().catch(() => ({}));
-      const returned = new Set<string>();
-      for (const asset of Array.isArray(payload?.assets) ? payload.assets : []) {
-        const ref = String(asset?.ref ?? '').trim();
-        const url = String(asset?.url ?? '').trim();
-        if (!ref || !url) continue;
-        returned.add(ref);
-        resolvedUrls.set(ref, {
-          url,
-          expiresAt: Number(asset?.expiresAt ?? Date.now() + 60_000),
-        });
-        retryAfter.delete(ref);
-        failures.delete(ref);
-      }
-
-      markFailure(refs.filter(ref => !returned.has(ref)), 'unavailable', 5_000);
-    } catch (error) {
-      console.warn('[private-media] signed media resolution temporarily unavailable', error);
-      markFailure(refs, 'temporary_failure', 5_000);
-    } finally {
-      refs.forEach(ref => resolvingRefs.delete(ref));
-      emitResolved();
-    }
+    await resolveBatch(refs);
   }
 }
 
-async function flushResolveQueue() {
-  if (!flushPromise) {
-    flushPromise = runResolveQueue().finally(() => {
-      flushPromise = null;
+async function flushResolveLane(priority: PrivateMediaPriority) {
+  const queue = priority === 'critical' ? criticalQueuedRefs : backgroundQueuedRefs;
+  let lanePromise = priority === 'critical' ? criticalFlushPromise : backgroundFlushPromise;
+  if (!lanePromise) {
+    lanePromise = runResolveLane(priority).finally(() => {
+      if (priority === 'critical') criticalFlushPromise = null;
+      else backgroundFlushPromise = null;
     });
+    if (priority === 'critical') criticalFlushPromise = lanePromise;
+    else backgroundFlushPromise = lanePromise;
   }
-  await flushPromise;
-  if (queuedRefs.size > 0) await flushResolveQueue();
+  await lanePromise;
+  if (queue.size > 0) await flushResolveLane(priority);
 }
 
-function queueResolve(ref: string) {
-  if (queuedRefs.has(ref) || resolvingRefs.has(ref) || (retryAfter.get(ref) ?? 0) > Date.now()) return;
+function queueResolve(ref: string, priority: PrivateMediaPriority = 'background') {
+  if (resolvingRefs.has(ref) || (retryAfter.get(ref) ?? 0) > Date.now()) return;
   failures.delete(ref);
-  queuedRefs.add(ref);
-  if (resolveScheduled) return;
-  resolveScheduled = true;
+  if (priority === 'critical') {
+    backgroundQueuedRefs.delete(ref);
+    criticalQueuedRefs.add(ref);
+    if (criticalResolveScheduled) return;
+    criticalResolveScheduled = true;
+    queueMicrotask(() => {
+      criticalResolveScheduled = false;
+      void flushResolveLane('critical');
+    });
+    return;
+  }
+  if (criticalQueuedRefs.has(ref) || backgroundQueuedRefs.has(ref)) return;
+  backgroundQueuedRefs.add(ref);
+  if (backgroundResolveScheduled) return;
+  backgroundResolveScheduled = true;
   queueMicrotask(() => {
-    resolveScheduled = false;
-    void flushResolveQueue();
+    backgroundResolveScheduled = false;
+    void flushResolveLane('background');
   });
 }
 
@@ -132,7 +163,7 @@ export function subscribePrivateMedia(listener: () => void) {
   return () => { listeners.delete(listener); };
 }
 
-export function privateMediaAccess(raw: unknown): PrivateMediaAccess {
+export function peekPrivateMediaAccess(raw: unknown): PrivateMediaAccess {
   const ref = String(raw ?? '').trim();
   if (!ref) return { managed: false, status: 'empty', url: '' };
   if (!isRegistryBackedRef(ref)) return { managed: false, status: 'ready', url: ref };
@@ -149,32 +180,76 @@ export function privateMediaAccess(raw: unknown): PrivateMediaAccess {
     return { managed: true, status: 'error', url: '', reason: failure.reason };
   }
 
-  queueResolve(ref);
-  return { managed: true, status: 'resolving', url: '' };
+  if (criticalQueuedRefs.has(ref) || backgroundQueuedRefs.has(ref) || resolvingRefs.has(ref)) {
+    return { managed: true, status: 'resolving', url: '' };
+  }
+  return { managed: true, status: 'idle', url: '' };
+}
+
+export function requestPrivateMedia(raw: unknown, options: PrivateMediaRequestOptions = {}) {
+  const ref = String(raw ?? '').trim();
+  const snapshot = peekPrivateMediaAccess(ref);
+  if (snapshot.managed && options.priority === 'critical' && backgroundQueuedRefs.has(ref)) {
+    queueResolve(ref, 'critical');
+    return { ...snapshot, status: 'resolving' as const };
+  }
+  if (snapshot.managed && snapshot.status === 'idle') {
+    queueResolve(ref, options.priority);
+    return { ...snapshot, status: 'resolving' as const };
+  }
+  return snapshot;
+}
+
+export function privateMediaAccess(raw: unknown, options: PrivateMediaRequestOptions = {}): PrivateMediaAccess {
+  return requestPrivateMedia(raw, options);
 }
 
 export function privateMediaUrl(raw: unknown) {
   return privateMediaAccess(raw).url;
 }
 
-export function retryPrivateMedia(raw: unknown) {
+export function retryPrivateMedia(raw: unknown, options: PrivateMediaRequestOptions = {}) {
   const ref = String(raw ?? '').trim();
   if (!ref || !isRegistryBackedRef(ref)) return;
   resolvedUrls.delete(ref);
   failures.delete(ref);
   retryAfter.delete(ref);
-  queueResolve(ref);
+  queueResolve(ref, options.priority);
   emitResolved();
 }
 
-export async function resolvePrivateMediaRefs(refs: string[]) {
-  refs.filter(isRegistryBackedRef).forEach(ref => {
+function waitForPrivateMediaTerminal(ref: string) {
+  const terminal = () => {
+    const status = peekPrivateMediaAccess(ref).status;
+    return status === 'ready' || status === 'error' || status === 'empty';
+  };
+  if (terminal()) return Promise.resolve();
+  return new Promise<void>(resolve => {
+    let unsubscribe: () => void = () => undefined;
+    const settle = () => {
+      if (!terminal()) return;
+      unsubscribe();
+      resolve();
+    };
+    unsubscribe = subscribePrivateMedia(settle);
+    settle();
+  });
+}
+
+export async function resolvePrivateMediaRefs(
+  refs: string[],
+  options: PrivateMediaRequestOptions = { priority: 'critical' },
+) {
+  const priority = options.priority ?? 'critical';
+  const managedRefs = Array.from(new Set(refs.filter(isRegistryBackedRef)));
+  managedRefs.forEach(ref => {
+    if (peekPrivateMediaAccess(ref).status === 'ready') return;
     retryAfter.delete(ref);
     failures.delete(ref);
-    queueResolve(ref);
+    queueResolve(ref, priority);
   });
-  await flushResolveQueue();
-  return new Map(refs.map(ref => [ref, privateMediaUrl(ref)]));
+  await Promise.all(managedRefs.map(waitForPrivateMediaTerminal));
+  return new Map(refs.map(ref => [ref, peekPrivateMediaAccess(ref).url]));
 }
 
 export async function uploadRegisteredWebFile(

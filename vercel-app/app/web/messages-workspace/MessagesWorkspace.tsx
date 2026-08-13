@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
 import type { SupportedLang } from '@/lib/i18n';
-import { privateMediaAccess, retryPrivateMedia } from '@/lib/private-media-client';
+import { retryPrivateMedia } from '@/lib/private-media-client';
+import { usePrivateMediaAccess } from '../plan-reserve-workspace/usePrivateMedia';
 import { MessageIcon, type MessageIconName } from './MessageIcon';
 import {
   buildMessagesProjection,
@@ -81,7 +82,7 @@ function isOwnMessage(message: MessageRecord, actor: MessagesWorkspaceProps['act
 }
 
 function MessageAttachment({ message, copy }: { message: MessageRecord; copy: ReturnType<typeof messagesCopy> }) {
-  const access = privateMediaAccess(message.attachment_uri);
+  const access = usePrivateMediaAccess(message.attachment_uri, { priority: 'background' });
   if (!message.attachment_uri) return null;
   if (access.status === 'ready' && access.url) {
     return (
@@ -97,7 +98,7 @@ function MessageAttachment({ message, copy }: { message: MessageRecord; copy: Re
     <div className={styles.attachmentError} role="status">
       <MessageIcon name="warning" size={18} />
       <span>{copy.attachmentUnavailable}</span>
-      <button type="button" onClick={() => retryPrivateMedia(message.attachment_uri)}>{copy.retry}</button>
+      <button type="button" onClick={() => retryPrivateMedia(message.attachment_uri, { priority: 'background' })}>{copy.retry}</button>
     </div>
   );
 }

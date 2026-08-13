@@ -56,7 +56,7 @@ describe('BuildTrack web messages workspace', () => {
     expect(workspace).toContain("data-compact-view={compactView}");
     expect(workspace).toContain("setCompactView('thread')");
     expect(workspace).toContain("setCompactView('list')");
-    expect(workspace).toContain('privateMediaAccess(message.attachment_uri)');
+    expect(workspace).toContain("usePrivateMediaAccess(message.attachment_uri, { priority: 'background' })");
     expect(workspace).toContain('message.reply_to_id');
     expect(workspace).toContain('message.linked_item_title');
     expect(workspace).toContain('messageReactions(message)');

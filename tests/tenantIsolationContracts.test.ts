@@ -193,7 +193,7 @@ describe('private media architecture contract', () => {
 
     expect(nextMediaClient).toContain("return { managed: true, status: 'resolving', url: '' }");
     expect(nextMediaClient).toContain("return { managed: true, status: 'error', url: '', reason: failure.reason }");
-    expect(nextWeb).toContain('const selectedplanmedia = privatemediaaccess(selectedplanmediasource)');
+    expect(nextWeb).toContain("const selectedplanmedia = useprivatemediaaccess(selectedplanmediasource, { priority: 'critical' })");
     expect(nextWeb).toContain('uri={selectedplanresolveduri}');
     expect(nextWeb).not.toContain('href={selectedplan.uri}');
     expect(expoViewer).toContain("resolvemediaref(planuri, { cachedisk: false })");
