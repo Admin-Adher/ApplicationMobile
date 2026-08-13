@@ -32,6 +32,12 @@ import {
   filterPlanLibraryGroups,
 } from './plan-reserve-workspace/workspace-model';
 import {
+  orderCompactBuildingGroups,
+  takeCompactBuildingBatch,
+  toggleCompactBuildingKey,
+  WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE,
+} from './plan-reserve-workspace/building-navigator';
+import {
   calculatePdfFitScale,
   resolvePlanCanvasTapIntent,
 } from './plan-reserve-workspace/plan-interaction';
@@ -8360,6 +8366,8 @@ function PlansView({
   const [buildingFamilyMenuOpen, setBuildingFamilyMenuOpen] = useState(false);
   const [buildingFamilyMenuQuery, setBuildingFamilyMenuQuery] = useState('');
   const [expandedBuildingKeys, setExpandedBuildingKeys] = useState<Set<string>>(() => new Set());
+  const [compactExpandedBuildingKey, setCompactExpandedBuildingKey] = useState<string | null>(null);
+  const [mobileBuildingLimit, setMobileBuildingLimit] = useState(WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE);
   const [recentBuildingKeys, setRecentBuildingKeys] = useState<string[]>(() => readStoredStringList(WEB_RECENT_BUILDINGS_KEY));
   const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
   const [planReservePanelOpen, setPlanReservePanelOpen] = useState(false);
@@ -8401,6 +8409,16 @@ function PlansView({
     if (!isCompactPlanView || mobilePlanOpen || plans.length === 0) return;
     return warmPdfJsWhenIdle();
   }, [isCompactPlanView, mobilePlanOpen, plans.length]);
+
+  useEffect(() => {
+    setMobileBuildingLimit(WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE);
+    setCompactExpandedBuildingKey(null);
+    setSelectedBuildingKey('all');
+    setBuildingQuery('');
+    setActiveFamilyKey('all');
+    setBuildingFamilyMenuOpen(false);
+    setBuildingFamilyMenuQuery('');
+  }, [selectedProjectId]);
 
   const projectForDraft = projects.find((project: any) => project.id === (planDraft.chantier_id || selectedProjectId)) ?? selectedProject ?? projects[0] ?? null;
   const draftBuildings = projectBuildings(projectForDraft);
@@ -8621,9 +8639,14 @@ function PlansView({
     return hiddenBuildingFamilyOptions.filter(option => normalizeSearchText(option.label).includes(query));
   }, [buildingFamilyMenuQuery, hiddenBuildingFamilyOptions]);
   useEffect(() => {
-    if (!buildingFamilies.useGrouping && activeFamilyKey !== 'all') setActiveFamilyKey('all');
-    if (buildingFamilies.useGrouping && activeFamilyKey !== 'all' && !buildingFamilies.families.some(family => family.key === activeFamilyKey)) {
+    const activeFamilyUnavailable = activeFamilyKey !== 'all' && (
+      !buildingFamilies.useGrouping
+      || !buildingFamilies.families.some(family => family.key === activeFamilyKey)
+    );
+    if (activeFamilyUnavailable) {
       setActiveFamilyKey('all');
+      setMobileBuildingLimit(WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE);
+      setCompactExpandedBuildingKey(null);
     }
   }, [activeFamilyKey, buildingFamilies]);
   useEffect(() => {
@@ -8632,21 +8655,67 @@ function PlansView({
       setBuildingFamilyMenuQuery('');
     }
   }, [buildingFamilies.useGrouping, buildingQuery]);
+  const handleBuildingQueryChange = (value: string) => {
+    setBuildingQuery(value);
+    setMobileBuildingLimit(WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE);
+    setCompactExpandedBuildingKey(null);
+  };
   const handleSelectBuildingFamily = (key: string) => {
     setActiveFamilyKey(key);
     setBuildingFamilyMenuOpen(false);
     setBuildingFamilyMenuQuery('');
+    setMobileBuildingLimit(WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE);
+    setCompactExpandedBuildingKey(null);
   };
   const filteredBuildingGroups = useMemo(
     () => filterPlanLibraryGroups(planLibrary, buildingQuery, activeFamilyKey),
     [activeFamilyKey, buildingQuery, planLibrary],
   );
   const totalReserveCount = planLibrary.reserveCount;
+  const hasBuildingSearch = Boolean(buildingQuery.trim());
   const recentBuildingGroups = recentBuildingKeys
     .map(key => buildingGroups.find(group => group.key === key))
     .filter(Boolean)
     .slice(0, 3) as typeof buildingGroups;
   const hasBuildingFamilyFilter = buildingFamilies.useGrouping && activeFamilyKey !== 'all';
+  const showCompactRecentRail = isCompactPlanView && !hasBuildingSearch && !hasBuildingFamilyFilter;
+  const compactSelectedBuildingKey = compactExpandedBuildingKey
+    ? (selectedPlanBuildingKey === 'all' ? null : selectedPlanBuildingKey)
+    : selectedBuildingKey !== 'all'
+      ? selectedBuildingKey
+      : (selectedPlanBuildingKey === 'all' ? null : selectedPlanBuildingKey);
+  const compactBuildingOrder = useMemo(() => orderCompactBuildingGroups(
+    filteredBuildingGroups,
+    {
+      selectedKey: compactSelectedBuildingKey,
+      expandedKey: compactExpandedBuildingKey,
+      recentKeys: recentBuildingKeys.slice(0, 3),
+      showRecentRail: showCompactRecentRail,
+    },
+  ), [
+    compactExpandedBuildingKey,
+    compactSelectedBuildingKey,
+    filteredBuildingGroups,
+    recentBuildingKeys,
+    showCompactRecentRail,
+  ]);
+  const compactBuildingBatch = takeCompactBuildingBatch(
+    compactBuildingOrder.mainGroups,
+    compactBuildingOrder.recentGroups.length,
+    mobileBuildingLimit,
+  );
+  const visibleBuildingGroups = isCompactPlanView
+    ? compactBuildingBatch.visibleMainGroups
+    : filteredBuildingGroups;
+  const visibleBuildingCount = isCompactPlanView
+    ? compactBuildingBatch.visibleCount
+    : filteredBuildingGroups.length;
+  const hiddenBuildingGroupCount = isCompactPlanView
+    ? compactBuildingBatch.hiddenCount
+    : 0;
+  const displayedRecentBuildingGroups = isCompactPlanView
+    ? compactBuildingOrder.recentGroups
+    : recentBuildingGroups;
   useEffect(() => {
     setSelectedPlanReserveId(null);
     setPlanReservePanelOpen(false);
@@ -8678,15 +8747,22 @@ function PlansView({
     if (isCompactPlanView) planWorkspace.openDetail();
   };
   const handleSelectBuildingGroup = (group: { key: string; plans: any[]; displayPlans?: any[] }) => {
-    setSelectedBuildingKey(group.key);
+    if (isCompactPlanView) {
+      const nextExpandedKey = toggleCompactBuildingKey(compactExpandedBuildingKey, group.key);
+      setCompactExpandedBuildingKey(nextExpandedKey);
+      setSelectedBuildingKey(nextExpandedKey ?? 'all');
+      return;
+    }
+
     rememberBuildingGroup(group.key);
+    setSelectedBuildingKey(group.key);
     setExpandedBuildingKeys(prev => {
       const next = new Set(prev);
       next.add(group.key);
       return next;
     });
     const sourcePlans = group.displayPlans?.length ? group.displayPlans : group.plans;
-    if (!isCompactPlanView && !sourcePlans.some(plan => plan.id === selectedPlan?.id) && sourcePlans[0]) {
+    if (!sourcePlans.some(plan => plan.id === selectedPlan?.id) && sourcePlans[0]) {
       openPlanFromNavigator(String(sourcePlans[0].id));
     }
   };
@@ -8903,13 +8979,14 @@ function PlansView({
           </div>
           <small>{t('plans.groupedHint')}</small>
         </div>
-        <WorkspaceSearch
-          value={buildingQuery}
-          onChange={setBuildingQuery}
-          placeholder={t('plans.searchPlaceholder')}
-          clearLabel={t('common.clearSearch')}
-        />
-        {buildingFamilies.useGrouping && !buildingQuery && (
+        <div className={styles.buildingRailStickyWeb} data-prw-plan-nav-sticky>
+          <WorkspaceSearch
+            value={buildingQuery}
+            onChange={handleBuildingQueryChange}
+            placeholder={t('plans.searchPlaceholder')}
+            clearLabel={t('common.clearSearch')}
+          />
+        {buildingFamilies.useGrouping && !hasBuildingSearch && (
           <div className={styles.buildingFamilyToolbarWeb} data-prw-family-toolbar>
             <div className={styles.buildingFamilyRowWeb} data-prw-family-row>
               {primaryBuildingFamilyOptions.map(option => (
@@ -8981,22 +9058,35 @@ function PlansView({
             </div>
           </div>
         )}
+        </div>
         <button
           type="button"
           className={`${styles.buildingAllRowWeb} ${selectedBuildingKey === 'all' ? styles.buildingGroupActiveWeb : ''}`}
           data-prw-all-buildings
           data-selected={selectedBuildingKey === 'all'}
-          onClick={() => setSelectedBuildingKey('all')}
+          onClick={() => {
+            setSelectedBuildingKey('all');
+            setCompactExpandedBuildingKey(null);
+          }}
         >
           <span><WorkspaceIcon name="building" size={19} /></span>
-          <strong>Tous les bâtiments</strong>
-          <small>{plans.length} {t('common.plans').toLowerCase()} · {totalReserveCount} {t('common.reserves').toLowerCase()}</small>
+          <strong>{t('plans.allBuildings')}</strong>
+          <small>{t('plans.plansCount', { count: plans.length })} · {t('plans.reservesCount', { count: totalReserveCount })}</small>
         </button>
+        <p className={styles.buildingResultCountWeb} role="status" aria-live="polite" data-prw-building-result-count>
+          {isCompactPlanView && visibleBuildingCount < filteredBuildingGroups.length ? (
+            t('plans.shownOfBuildings', { visible: visibleBuildingCount, total: filteredBuildingGroups.length })
+          ) : (
+            filteredBuildingGroups.length === 1
+              ? t('plans.oneBuilding')
+              : t('plans.buildingCount', { count: filteredBuildingGroups.length })
+          )}
+        </p>
         <div className={`${styles.list} ${styles.plansList}`} data-prw-plan-list>
-          {!buildingQuery && recentBuildingGroups.length > 0 && !hasBuildingFamilyFilter ? (
-            <div className={styles.buildingRecentBlockWeb}>
-              <div className={styles.buildingMiniSectionTitleWeb}>Récents</div>
-              {recentBuildingGroups.map(group => (
+          {!hasBuildingSearch && displayedRecentBuildingGroups.length > 0 && !hasBuildingFamilyFilter ? (
+            <div className={styles.buildingRecentBlockWeb} data-prw-recent-building-rail role="group" aria-label={t('plans.recentBuildings')}>
+              <div className={styles.buildingMiniSectionTitleWeb}>{t('plans.recent')}</div>
+              {displayedRecentBuildingGroups.map(group => (
                 <button
                   key={`recent-${group.key}`}
                   type="button"
@@ -9009,9 +9099,12 @@ function PlansView({
               ))}
             </div>
           ) : null}
-          {filteredBuildingGroups.map((group: any) => {
+          {visibleBuildingGroups.map((group: any) => {
             const isSelectedGroup = selectedBuildingKey === group.key || (selectedBuildingKey === 'all' && selectedPlanBuildingKey === group.key);
-            const isExpanded = Boolean(buildingQuery) || isSelectedGroup || expandedBuildingKeys.has(group.key);
+            const isExpanded = isCompactPlanView
+              ? compactExpandedBuildingKey === group.key
+              : hasBuildingSearch || isSelectedGroup || expandedBuildingKeys.has(group.key);
+            const plansRegionId = `building-plans-${encodeURIComponent(group.key)}`;
             return (
               <article
                 key={group.key}
@@ -9019,7 +9112,15 @@ function PlansView({
                 data-prw-building-group
                 data-selected={isSelectedGroup}
               >
-                <button type="button" className={styles.buildingGroupButtonWeb} data-prw-building-button onClick={() => handleSelectBuildingGroup(group)}>
+                <button
+                  type="button"
+                  className={styles.buildingGroupButtonWeb}
+                  data-prw-building-button
+                  id={`${plansRegionId}-trigger`}
+                  aria-expanded={isExpanded}
+                  aria-controls={plansRegionId}
+                  onClick={() => handleSelectBuildingGroup(group)}
+                >
                   <span className={styles.buildingGroupIconWeb}><WorkspaceIcon name={group.key === '__none__' ? 'plan' : 'building'} size={19} /></span>
                   <div>
                     <strong>{group.name}</strong>
@@ -9029,9 +9130,16 @@ function PlansView({
                     </small>
                   </div>
                   <em>{group.reserveCount}</em>
+                  <span className={styles.buildingGroupChevronWeb}><WorkspaceIcon name="chevron" size={18} /></span>
                 </button>
                 {isExpanded && (
-                  <div className={styles.buildingPlanListWeb} data-prw-building-plans>
+                  <div
+                    id={plansRegionId}
+                    className={styles.buildingPlanListWeb}
+                    data-prw-building-plans
+                    role="region"
+                    aria-labelledby={`${plansRegionId}-trigger`}
+                  >
                     {group.displayPlans.map((plan: any) => {
                       const planReserveCount = reserveCountByPlanId.get(plan.id) ?? 0;
                       return (
@@ -9061,6 +9169,19 @@ function PlansView({
               </article>
             );
           })}
+          {isCompactPlanView && hiddenBuildingGroupCount > 0 && (
+            <button
+              type="button"
+              className={styles.buildingLoadMoreWeb}
+              data-prw-building-load-more
+              onClick={() => setMobileBuildingLimit(limit => limit + WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE)}
+            >
+              <strong>{hiddenBuildingGroupCount === 1
+                ? t('plans.showOneMoreBuilding')
+                : t('plans.showMoreBuildings', { count: Math.min(WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE, hiddenBuildingGroupCount) })}</strong>
+              <span>{visibleBuildingCount} / {filteredBuildingGroups.length}</span>
+            </button>
+          )}
           {filteredBuildingGroups.length === 0 && (
             <p className={styles.empty}>Aucun bâtiment ou plan ne correspond à cette recherche.</p>
           )}

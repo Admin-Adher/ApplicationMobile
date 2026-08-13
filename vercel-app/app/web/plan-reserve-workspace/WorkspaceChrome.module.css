@@ -257,6 +257,10 @@
   .backButton {
     display: inline-flex;
   }
+
+  .search input {
+    font-size: 1rem;
+  }
 }
 
 @media (max-width: 700px) {

@@ -2265,6 +2265,10 @@
   overflow: visible;
 }
 
+.buildingRailStickyWeb {
+  display: contents;
+}
+
 .buildingFamilyMoreWeb {
   position: relative;
   flex: 0 0 auto;
@@ -2471,6 +2475,23 @@
   white-space: nowrap;
 }
 
+.buildingResultCountWeb {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 4px;
+  min-height: 20px;
+  margin: -2px 2px 0;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.buildingResultCountWeb strong {
+  color: #003082;
+  font-size: 13px;
+}
+
 .buildingAllRowWeb {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -2530,7 +2551,24 @@
 }
 
 .buildingGroupButtonWeb {
+  grid-template-columns: auto minmax(0, 1fr) auto 20px;
   min-height: 62px;
+}
+
+.buildingGroupChevronWeb {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  color: #64748b;
+  pointer-events: none;
+  transform: rotate(90deg);
+  transition: color 180ms ease, transform 180ms ease;
+}
+
+.buildingGroupButtonWeb[aria-expanded='true'] .buildingGroupChevronWeb {
+  color: #003082;
+  transform: rotate(-90deg);
 }
 
 .buildingGroupButtonWeb strong,
@@ -2587,7 +2625,9 @@
 .buildingAllRowWeb:focus-visible,
 .buildingGroupButtonWeb:focus-visible,
 .buildingPlanRowWeb:focus-visible,
-.buildingFamilyRowWeb button:focus-visible {
+.buildingFamilyRowWeb button:focus-visible,
+.buildingRecentButtonWeb:focus-visible,
+.buildingLoadMoreWeb:focus-visible {
   box-shadow: 0 0 0 3px rgba(0, 48, 130, 0.12);
 }
 
@@ -3980,7 +4020,8 @@
   touch-action: manipulation;
 }
 
-.reserveLoadMore {
+.reserveLoadMore,
+.buildingLoadMoreWeb {
   display: grid;
   width: 100%;
   min-height: 52px;
@@ -3996,11 +4037,13 @@
   touch-action: manipulation;
 }
 
-.reserveLoadMore strong {
+.reserveLoadMore strong,
+.buildingLoadMoreWeb strong {
   font-size: 13px;
 }
 
-.reserveLoadMore span {
+.reserveLoadMore span,
+.buildingLoadMoreWeb span {
   color: #64748b;
   font-size: 12px;
 }
@@ -10553,5 +10596,148 @@
     min-height: 36px;
     padding: 8px 10px;
     font-size: 12px;
+  }
+}
+
+@media (max-width: 1180px) {
+  .workspacePlans[data-operational-mobile='true'] {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .workspacePlans[data-operational-mobile='true'] :is(.plansLayout, .plansListPanel, .plansList) {
+    height: auto;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .workspacePlans .buildingRailStickyWeb {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: grid;
+    align-self: stretch;
+    gap: 8px;
+    margin-inline: -2px;
+    padding: 8px 2px 10px;
+    border-bottom: 1px solid #e7edf3;
+    background: #fff;
+  }
+
+  .plansListPanel .buildingFamilyRowWeb {
+    gap: 8px;
+  }
+
+  .plansListPanel .buildingFamilyRowWeb button,
+  .plansListPanel .buildingFamilyPopoverHeaderWeb button,
+  .plansListPanel .buildingFamilyPopoverListWeb button,
+  .plansListPanel .buildingRecentButtonWeb {
+    min-width: 44px;
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+
+  .plansListPanel .buildingFamilyPopoverSearchWeb {
+    min-height: 44px;
+  }
+
+  .plansListPanel .buildingFamilyPopoverSearchWeb input {
+    font-size: 16px;
+  }
+
+  .plansListPanel .buildingRecentBlockWeb {
+    display: flex;
+    max-width: 100%;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    padding: 6px 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .plansListPanel .buildingRecentBlockWeb::-webkit-scrollbar {
+    display: none;
+  }
+
+  .plansListPanel .buildingMiniSectionTitleWeb {
+    flex: 0 0 auto;
+    font-size: 10px;
+    white-space: nowrap;
+  }
+
+  .plansListPanel .buildingRecentButtonWeb {
+    flex: 0 0 auto;
+    max-width: min(220px, 72vw);
+    scroll-snap-align: start;
+  }
+
+  .plansListPanel .buildingRecentButtonWeb span {
+    max-width: 170px;
+  }
+
+  .plansListPanel .buildingGroupButtonWeb {
+    grid-template-columns: auto minmax(0, 1fr) auto 20px;
+    touch-action: manipulation;
+  }
+
+  .plansListPanel .buildingGroupWeb {
+    scroll-margin-top: 138px;
+  }
+}
+
+@media (max-width: 640px) {
+  .plansListPanel .buildingFamilyRowWeb {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .plansListPanel .buildingFamilyRowWeb > button,
+  .plansListPanel .buildingFamilyMoreWeb,
+  .plansListPanel .buildingFamilyMoreWeb > button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .plansListPanel .buildingFamilyMoreWeb {
+    position: static;
+    display: block;
+  }
+
+  .plansListPanel .buildingFamilyPopoverWeb {
+    left: 0;
+    right: 0;
+    width: auto;
+    max-width: none;
+  }
+
+  .workspacePlans[data-operational-mobile='true'] {
+    scroll-padding-top: 220px;
+  }
+
+  .plansListPanel .buildingGroupWeb {
+    scroll-margin-top: 220px;
+  }
+
+  .plansListPanel .buildingRecentButtonWeb {
+    max-width: min(220px, 74vw);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .buildingGroupChevronWeb {
+    transition: none;
   }
 }

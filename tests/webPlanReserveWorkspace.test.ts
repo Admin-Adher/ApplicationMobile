@@ -58,6 +58,29 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.plansListPanel \.plansList \{[\s\S]*?overflow: visible;/);
   });
 
+  it('batches the mobile building library with an accessible single accordion', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const css = read('vercel-app/app/web/web.module.css');
+    const workspaceChromeCss = read('vercel-app/app/web/plan-reserve-workspace/WorkspaceChrome.module.css');
+    const navigator = read('vercel-app/app/web/plan-reserve-workspace/building-navigator.ts');
+
+    expect(navigator).toContain('WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE = 12');
+    expect(page).toContain('visibleBuildingGroups.map');
+    expect(page).toContain('data-prw-building-load-more');
+    expect(page).toContain('toggleCompactBuildingKey(compactExpandedBuildingKey, group.key)');
+    expect(page).toContain('aria-expanded={isExpanded}');
+    expect(page).toContain('aria-controls={plansRegionId}');
+    expect(page).toContain(': hasBuildingSearch || isSelectedGroup || expandedBuildingKeys.has(group.key)');
+    expect(page).toMatch(/setSelectedBuildingKey\('all'\);\s*setBuildingQuery\(''\);\s*setActiveFamilyKey\('all'\);[\s\S]*?\}, \[selectedProjectId\]\);/);
+    expect(css).toContain(".workspacePlans[data-operational-mobile='true']");
+    expect(css).toMatch(/\.plansListPanel \.buildingFamilyRowWeb button,[\s\S]*?min-height: 44px;/);
+    expect(css).toMatch(/\.plansListPanel \.buildingRecentBlockWeb \{[\s\S]*?overflow-x: auto;/);
+    expect(css).toMatch(/@media \(max-width: 640px\)[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    expect(css).toMatch(/\.plansListPanel \.buildingFamilyMoreWeb \{[\s\S]*?position: static;/);
+    expect(css).toMatch(/\.plansListPanel \.buildingFamilyPopoverWeb \{[\s\S]*?right: 0;[\s\S]*?width: auto;/);
+    expect(workspaceChromeCss).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.search input \{[\s\S]*?font-size: 1rem;/);
+  });
+
   it('wraps real-world identifiers and reserve titles without shrinking the plan to zero', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const css = read('vercel-app/app/web/plan-reserve-workspace/PlanReserveWorkspace.module.css');
