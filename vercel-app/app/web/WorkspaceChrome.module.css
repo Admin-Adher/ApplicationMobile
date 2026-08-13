@@ -732,6 +732,10 @@
     gap: 14px;
   }
 
+  .workspace[data-operational-mobile='true'] .actions {
+    display: none;
+  }
+
   .topbar {
     flex-direction: column;
     align-items: stretch;
@@ -767,6 +771,15 @@
   .actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .workspace[data-operational-mobile='true'] .topbar {
+    gap: 8px;
+  }
+
+  .workspace[data-operational-mobile='true'] {
+    gap: 10px;
+    padding: 12px;
   }
 
   .actions > :only-child {

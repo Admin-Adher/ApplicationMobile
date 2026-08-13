@@ -688,18 +688,21 @@
 
   .planRoot [data-prw-plan-workarea] {
     height: auto;
-    min-height: 30rem;
+    min-height: 0;
     grid-template-columns: minmax(0, 1fr);
     overflow: visible;
   }
 
   .planRoot [data-prw-plan-workarea] > [data-prw-plan-canvas] {
-    min-height: 30rem;
+    min-height: 0;
   }
 
-  .planRoot [data-prw-plan-reserves],
+  .planRoot [data-prw-plan-reserves] {
+    min-height: 0;
+  }
+
   .planRoot [data-prw-plan-reserve-rail] {
-    min-height: 20rem;
+    min-height: 3.75rem;
   }
 }
 

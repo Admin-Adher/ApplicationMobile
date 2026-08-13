@@ -60,15 +60,20 @@ export function WorkspacePageHeader({
   description,
   metrics,
   actions,
+  compactDetail = false,
 }: {
   eyebrow: string;
   title: string;
   description: string;
   metrics: WorkspaceMetric[];
   actions?: ReactNode;
+  compactDetail?: boolean;
 }) {
   return (
-    <header className={styles.header}>
+    <header
+      className={styles.header}
+      data-compact-detail={compactDetail}
+    >
       <div className={styles.heading}>
         <p>{eyebrow}</p>
         <h2>{title}</h2>

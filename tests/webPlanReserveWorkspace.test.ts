@@ -24,13 +24,38 @@ describe('BuildTrack web plan and reserve workspaces', () => {
 
   it('switches between library and document on compact screens', () => {
     const page = read('vercel-app/app/web/page.tsx');
+    const responsiveWorkspace = read('vercel-app/app/web/plan-reserve-workspace/useResponsiveWorkspace.ts');
 
-    expect(page).toContain("useMediaQuery('(max-width: 1180px)')");
-    expect(page).toContain('const [mobilePlanOpen, setMobilePlanOpen] = useState(false)');
-    expect(page).toContain('{(!isCompactPlanView || !mobilePlanOpen) && (');
-    expect(page).toContain('{(!isCompactPlanView || mobilePlanOpen) && (');
-    expect(page).toContain('<WorkspaceBackButton label={workspaceCopy.back}');
+    expect(page).toContain('useResponsiveWorkspaceNavigation({');
+    expect(page).toContain('{planWorkspace.showList && (');
+    expect(page).toContain('{planWorkspace.showDetail && (');
+    expect(page).toContain('label={workspaceCopy.back}');
     expect(page).toContain('openPlanFromNavigator(String(plan.id))');
+    expect(responsiveWorkspace).toContain("const getServerSnapshot = useCallback(() => serverFallback");
+    expect(responsiveWorkspace).toContain('shouldLoadDetailMedia: showDetail && hasDetail');
+  });
+
+  it('keeps mobile plan interaction explicit and touch accessible', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const css = read('vercel-app/app/web/web.module.css');
+
+    expect(page).toContain('createModeActive={pinCreateMode}');
+    expect(page).toContain('openPinOnSingleTap={isCompactPlanView}');
+    expect(page).toContain("if (pinCreateMode) assignOrCreatePinAt(px, py)");
+    expect(page).toContain("aria-pressed={pinCreateMode}");
+    expect(css).toMatch(/\.pin \{[\s\S]*?width: 44px;[\s\S]*?height: 44px;/);
+    expect(css).toContain('.pin::before');
+  });
+
+  it('uses one vertical scroll owner and batches long reserve lists across compact layouts', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const css = read('vercel-app/app/web/web.module.css');
+
+    expect(page).toContain('WEB_RESERVE_MOBILE_BATCH_SIZE = 40');
+    expect(page).toContain('visibleReserveRows.map');
+    expect(page).toContain('className={styles.reserveLoadMore}');
+    expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.reservesListPanel \.reserveList \{[\s\S]*?overflow: visible;/);
+    expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.plansListPanel \.plansList \{[\s\S]*?overflow: visible;/);
   });
 
   it('wraps real-world identifiers and reserve titles without shrinking the plan to zero', () => {
@@ -52,10 +77,22 @@ describe('BuildTrack web plan and reserve workspaces', () => {
   it('keeps every private plan preview on the fail-closed media path', () => {
     const page = read('vercel-app/app/web/page.tsx');
 
+    expect(page).toContain('const selectedPlanMediaSource = planWorkspace.shouldLoadDetailMedia');
     expect(page).toContain('const selectedPlanMedia = privateMediaAccess(selectedPlanMediaSource)');
     expect(page).toContain('const selectedPlanResolvedUri = selectedPlanMedia.url');
     expect(page).toContain('uri={selectedPlanResolvedUri}');
     expect(page).not.toContain('uri={selectedPlan.uri}');
     expect(page).not.toContain('href={selectedPlan.uri}');
+  });
+
+  it('bundles the PDF worker locally instead of requiring a CDN on first plan open', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const pdfClient = read('vercel-app/app/web/plan-reserve-workspace/pdfjs-client.ts');
+
+    expect(page.match(/loadPdfJs\(\)/g)).toHaveLength(2);
+    expect(page).toContain('warmPdfJsWhenIdle()');
+    expect(pdfClient).toContain("import('pdfjs-dist/webpack.mjs')");
+    expect(pdfClient).toContain('connection?.saveData');
+    expect(page).not.toContain('cdn.jsdelivr.net/npm/pdfjs-dist');
   });
 });

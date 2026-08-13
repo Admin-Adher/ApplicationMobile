@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import {
@@ -31,6 +31,12 @@ import {
   buildReserveWorkspaceSummary,
   filterPlanLibraryGroups,
 } from './plan-reserve-workspace/workspace-model';
+import {
+  calculatePdfFitScale,
+  resolvePlanCanvasTapIntent,
+} from './plan-reserve-workspace/plan-interaction';
+import { loadPdfJs, warmPdfJsWhenIdle } from './plan-reserve-workspace/pdfjs-client';
+import { useResponsiveWorkspaceNavigation } from './plan-reserve-workspace/useResponsiveWorkspace';
 import {
   isRegistryBackedRef,
   privateMediaAccess,
@@ -317,11 +323,11 @@ const EMPTY_DATA: WebState = {
   inventoryMovements: [],
 };
 
-const PDFJS_VERSION = '6.2.108';
 const WEB_LANGUAGE_PREFERENCE_KEY = 'buildtrack-web-language-preference-v1';
 const WEB_LANGUAGE_LEGACY_KEY = 'buildtrack-web-language';
 const WEB_EXPORT_LANGUAGE_KEY = 'buildtrack-export-language-v1';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
+const WEB_RESERVE_MOBILE_BATCH_SIZE = 40;
 const PHOTO_ANNOTATION_COLORS = ['#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#FFFFFF', '#111827'];
 const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
 
@@ -1095,21 +1101,6 @@ function makeTypedSignatureDataUrl(signataire: string, signedAt: string) {
   const date = xmlEscape(signedAt);
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="150" viewBox="0 0 420 150"><rect width="420" height="150" fill="white"/><path d="M34 96 C92 48, 120 130, 176 82 S274 62, 328 86 S378 98, 394 68" fill="none" stroke="#1A2742" stroke-width="5" stroke-linecap="round"/><text x="34" y="128" font-family="Arial, sans-serif" font-size="18" fill="#1A2742">${name}</text><text x="300" y="128" font-family="Arial, sans-serif" font-size="13" fill="#64748B">${date}</text></svg>`;
   return signatureImageSrc(svg);
-}
-
-function useMediaQuery(query: string) {
-  const [matches, setMatches] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const mediaQuery = window.matchMedia(query);
-    const update = () => setMatches(mediaQuery.matches);
-    update();
-    mediaQuery.addEventListener('change', update);
-    return () => mediaQuery.removeEventListener('change', update);
-  }, [query]);
-
-  return matches;
 }
 
 // Traite une liste par lots parallèles : évite le N+1 séquentiel sans saturer le réseau.
@@ -2097,8 +2088,7 @@ function dataUrlToPdfBytes(dataUrl: string) {
 async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
   if (typeof document === 'undefined' || !pdfUri) return null;
   try {
-    const pdfjs: any = await import('pdfjs-dist');
-    pdfjs.GlobalWorkerOptions.workerSrc ||= `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+    const pdfjs: any = await loadPdfJs();
     const source = pdfUri.startsWith('data:')
       ? { data: dataUrlToPdfBytes(pdfUri) }
       : { url: pdfUri, withCredentials: false };
@@ -5649,6 +5639,7 @@ export default function BuildTrackWebPage() {
           },
         ]}
         containedWorkspace={activeTab === 'plans' || activeTab === 'reserves' || activeTab === 'visites' || activeTab === 'chantiers'}
+        operationalMobile={activeTab === 'plans' || activeTab === 'reserves'}
         workspaceClassName={`${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''} ${activeTab === 'chantiers' ? styles.workspaceChantiers : ''}`}
         onProjectSelect={setSelectedProjectId}
         onCollapsedChange={setSidebarCollapsed}
@@ -6146,8 +6137,6 @@ function ReservesView(props: {
   const { allReserves, reserves, selectedReserve } = props;
   const { lang, t } = useWebI18n();
   const workspaceCopy = PLAN_RESERVE_WORKSPACE_COPY[lang].reserves;
-  const isCompactReserveView = useMediaQuery('(max-width: 1180px)');
-  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [commentText, setCommentText] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
@@ -6166,6 +6155,7 @@ function ReservesView(props: {
   const [liftRequestComment, setLiftRequestComment] = useState('');
   const [liftRequestFile, setLiftRequestFile] = useState<File | null>(null);
   const [liftRequestBusy, setLiftRequestBusy] = useState(false);
+  const [mobileReserveLimit, setMobileReserveLimit] = useState(WEB_RESERVE_MOBILE_BATCH_SIZE);
   const isTrashView = props.statusFilter === 'deleted';
   const activeReserves = allReserves.filter(reserve => (
     !isReserveArchived(reserve)
@@ -6175,9 +6165,23 @@ function ReservesView(props: {
   const explicitlySelectedReserve = props.selectedReserveId
     ? allReserves.find(reserve => reserve.id === props.selectedReserveId) ?? null
     : null;
-  const mobileDetailReserve = mobileDetailOpen ? explicitlySelectedReserve : null;
+  const reserveWorkspace = useResponsiveWorkspaceNavigation({
+    hasDetail: Boolean(explicitlySelectedReserve),
+    initialDetailOpen: Boolean(props.selectedReserveId),
+  });
+  const {
+    isCompact: isCompactReserveView,
+    detailOpen: reserveDetailOpen,
+    openDetail: openReserveDetail,
+    closeDetail: closeReserveDetail,
+  } = reserveWorkspace;
+  const mobileDetailReserve = reserveDetailOpen ? explicitlySelectedReserve : null;
   const showMobileReserveDetail = isCompactReserveView && !!mobileDetailReserve;
   const detailReserve = showMobileReserveDetail ? mobileDetailReserve : selectedReserve;
+  const visibleReserveRows = isCompactReserveView
+    ? reserves.slice(0, mobileReserveLimit)
+    : reserves;
+  const hiddenReserveRowCount = Math.max(0, reserves.length - visibleReserveRows.length);
   const selectedAssistantReserves = selectedReserve ? [selectedReserve] : [];
   const assistantTargets =
     assistantScope === 'project'
@@ -6203,6 +6207,10 @@ function ReservesView(props: {
     props.companyFilter !== 'all' ||
     props.buildingFilter !== 'all' ||
     props.pinFilter !== 'all';
+
+  useEffect(() => {
+    setMobileReserveLimit(WEB_RESERVE_MOBILE_BATCH_SIZE);
+  }, [props.buildingFilter, props.companyFilter, props.pinFilter, props.priorityFilter, props.search, props.statusFilter]);
   const selectedPhotos = reservePhotoItems(detailReserve, props.photos);
   const selectedLocalOnlyPhotos = localOnlyPhotoCount(detailReserve, props.photos);
   const lightboxPhoto = photoLightboxIndex !== null ? selectedPhotos[photoLightboxIndex] : null;
@@ -6306,14 +6314,10 @@ function ReservesView(props: {
   }, [props.defaultReportLanguage]);
 
   useEffect(() => {
-    if (!isCompactReserveView) setMobileDetailOpen(false);
-  }, [isCompactReserveView]);
-
-  useEffect(() => {
-    if (mobileDetailOpen && (!explicitlySelectedReserve || !reserves.some(reserve => reserve.id === explicitlySelectedReserve.id))) {
-      setMobileDetailOpen(false);
+    if (reserveDetailOpen && (!explicitlySelectedReserve || !reserves.some(reserve => reserve.id === explicitlySelectedReserve.id))) {
+      closeReserveDetail();
     }
-  }, [explicitlySelectedReserve, mobileDetailOpen, reserves]);
+  }, [closeReserveDetail, explicitlySelectedReserve, reserveDetailOpen, reserves]);
 
   useEffect(() => {
     setPhotoLightboxIndex(null);
@@ -6356,7 +6360,7 @@ function ReservesView(props: {
   function openReserveFromList(reserve: any) {
     props.setSelectedReserveId(reserve.id);
     if (isCompactReserveView) {
-      setMobileDetailOpen(true);
+      openReserveDetail();
       setCommentText('');
     }
   }
@@ -6481,6 +6485,7 @@ function ReservesView(props: {
             )}
           </>
         )}
+        compactDetail={showMobileReserveDetail}
       />
       {!showMobileReserveDetail && (
       <section className={`${styles.panel} ${styles.reservesListPanel}`} data-prw-panel data-prw-reserve-list>
@@ -6578,7 +6583,7 @@ function ReservesView(props: {
           <span>{isTrashView ? 'éléments récupérables' : `${activeReserves.length} active${activeReserves.length > 1 ? 's' : ''}`}</span>
         </div>
         <div className={styles.reserveList} data-prw-reserve-rows>
-          {reserves.map(reserve => (
+          {visibleReserveRows.map(reserve => (
             <button
               key={reserve.id}
               className={`${styles.reserveRow} ${selectedReserve?.id === reserve.id ? styles.reserveRowActive : ''}`}
@@ -6600,6 +6605,16 @@ function ReservesView(props: {
               </em>
             </button>
           ))}
+          {hiddenReserveRowCount > 0 && (
+            <button
+              type="button"
+              className={styles.reserveLoadMore}
+              onClick={() => setMobileReserveLimit(limit => limit + WEB_RESERVE_MOBILE_BATCH_SIZE)}
+            >
+              <strong>Afficher {Math.min(WEB_RESERVE_MOBILE_BATCH_SIZE, hiddenReserveRowCount)} réserves de plus</strong>
+              <span>{visibleReserveRows.length} sur {reserves.length}</span>
+            </button>
+          )}
           {!reserves.length && (
             <p className={styles.empty}>
               {isTrashView ? 'Corbeille vide.' : 'Aucune réserve avec ces filtres.'}
@@ -6976,7 +6991,7 @@ function ReservesView(props: {
           <WorkspaceBackButton
             label={workspaceCopy.back}
             onClick={() => {
-              setMobileDetailOpen(false);
+              closeReserveDetail();
               setCommentText('');
             }}
           />
@@ -7418,12 +7433,14 @@ function WebPdfPlan({
   annotations,
   placementPreview,
   placementActive,
+  createModeActive,
+  openPinOnSingleTap,
   onPlacePin,
   onCreateReserveAtPin,
   onPinMove,
   onAnnotationsChange,
   onPinClick,
-  onPinDoubleClick,
+  onPinOpen,
   onClearFocus,
 }: {
   uri: string;
@@ -7436,12 +7453,14 @@ function WebPdfPlan({
   annotations?: WebPlanDrawing[];
   placementPreview?: PinPlacementPreview | null;
   placementActive?: boolean;
+  createModeActive?: boolean;
+  openPinOnSingleTap?: boolean;
   onPlacePin?: (x: number, y: number) => void;
   onCreateReserveAtPin?: (x: number, y: number) => void;
   onPinMove?: (reserveId: string, x: number, y: number) => PinMoveResult;
   onAnnotationsChange?: (annotations: WebPlanDrawing[]) => void;
   onPinClick: (reserveId: string) => void;
-  onPinDoubleClick: (reserveId: string) => void;
+  onPinOpen: (reserveId: string) => void;
   onClearFocus?: () => void;
 }) {
   const { t } = useWebI18n();
@@ -7545,16 +7564,18 @@ function WebPdfPlan({
       setLoading(true);
       setError(false);
       try {
-        const pdfjs: any = await import('pdfjs-dist');
-        pdfjs.GlobalWorkerOptions.workerSrc ||= `https://cdn.jsdelivr.net/npm/pdfjs-dist@${PDFJS_VERSION}/build/pdf.worker.min.mjs`;
+        const pdfjs: any = await loadPdfJs();
         loadingTask = pdfjs.getDocument({ url: uri });
         const pdf = await loadingTask.promise;
         const page = await pdf.getPage(1);
         const baseViewport = page.getViewport({ scale: 1 });
         if (scale == null) {
-          const availableWidth = Math.max((viewportRef.current?.clientWidth ?? 900) - 32, 320);
-          const fitScale = Math.min(1.2, Math.max(0.22, (availableWidth / baseViewport.width) * 1.18));
-          setScale(Number(fitScale.toFixed(2)));
+          const viewportWidth = viewportRef.current?.clientWidth ?? 900;
+          const horizontalPadding = viewportRef.current
+            ? parseFloat(window.getComputedStyle(viewportRef.current).paddingLeft || '0')
+              + parseFloat(window.getComputedStyle(viewportRef.current).paddingRight || '0')
+            : 0;
+          setScale(calculatePdfFitScale(viewportWidth - horizontalPadding, baseViewport.width));
           return;
         }
 
@@ -7685,13 +7706,19 @@ function WebPdfPlan({
     }
     if (annotationMode) return;
     const { x, y } = pagePointFromEvent(event);
-    // Mode « placement » d'une réserve existante sans épingle : le clic pose la
-    // pastille (le parent gère l'aperçu puis l'enregistrement).
-    if (placementActive) {
+    const tapIntent = resolvePlanCanvasTapIntent({
+      placementActive: Boolean(placementActive),
+      moveMode,
+      canMovePins: Boolean(canMovePins),
+      focusedReserveId,
+      canCreate: Boolean(canCreate),
+      createModeActive: Boolean(createModeActive),
+    });
+    if (tapIntent === 'place-existing-pin') {
       onPlacePin?.(x, y);
       return;
     }
-    if (moveMode && canMovePins && focusedReserveId) {
+    if (tapIntent === 'move-focused-pin' && focusedReserveId) {
       setMoveMode(false);
       const moveResult = await Promise.resolve(onPinMove?.(focusedReserveId, x, y));
       if (moveResult === false) return;
@@ -7707,13 +7734,12 @@ function WebPdfPlan({
       movePreviewTimerRef.current = window.setTimeout(() => setMovePreview(null), 850);
       return;
     }
-    if (focusedReserveId) {
+    if (tapIntent === 'clear-focus') {
       setMoveMode(false);
       onClearFocus?.();
       return;
     }
-    if (!canCreate) return;
-    onCreateReserveAtPin?.(x, y);
+    if (tapIntent === 'create-reserve') onCreateReserveAtPin?.(x, y);
   }
 
   function handleDrawPointerDown(event: PointerEvent<SVGSVGElement>) {
@@ -7920,19 +7946,20 @@ function WebPdfPlan({
             <button
               key={pin.reserve.id}
               className={`${styles.pin} ${focusedReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
-              style={{ left: `${pin.x}%`, top: `${pin.y}%`, background: pin.color }}
-              title={`${pin.reserve.title} · double-clic pour ouvrir la réserve`}
-              aria-label={`Mettre en avant l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
+              style={{ left: `${pin.x}%`, top: `${pin.y}%`, '--plan-pin-color': pin.color } as CSSProperties}
+              title={openPinOnSingleTap ? `${pin.reserve.title} · ouvrir la réserve` : `${pin.reserve.title} · double-clic pour ouvrir la réserve`}
+              aria-label={openPinOnSingleTap ? `Ouvrir la réserve de l'épingle ${pin.number}.` : `Sélectionner l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
               onClick={event => {
                 event.stopPropagation();
                 onPinClick(pin.reserve.id);
+                if (openPinOnSingleTap) onPinOpen(pin.reserve.id);
               }}
               onDoubleClick={event => {
                 event.stopPropagation();
-                onPinDoubleClick(pin.reserve.id);
+                if (!openPinOnSingleTap) onPinOpen(pin.reserve.id);
               }}
             >
-              {pin.number}
+              <span>{pin.number}</span>
             </button>
           ))}
         </div>
@@ -7982,8 +8009,12 @@ function PlansView({
 }: any) {
   const { lang, locale, t } = useWebI18n();
   const workspaceCopy = PLAN_RESERVE_WORKSPACE_COPY[lang].plans;
-  const isCompactPlanView = useMediaQuery('(max-width: 1180px)');
-  const [mobilePlanOpen, setMobilePlanOpen] = useState(false);
+  const planWorkspace = useResponsiveWorkspaceNavigation({
+    hasDetail: Boolean(selectedPlan),
+    forceDetailOpen: Boolean(placementReserve && selectedPlan),
+  });
+  const isCompactPlanView = planWorkspace.isCompact;
+  const mobilePlanOpen = planWorkspace.detailOpen;
   const [buildingQuery, setBuildingQuery] = useState('');
   const [selectedBuildingKey, setSelectedBuildingKey] = useState('all');
   const [activeFamilyKey, setActiveFamilyKey] = useState('all');
@@ -8010,17 +8041,26 @@ function PlansView({
   const [migrateRevisionReserves, setMigrateRevisionReserves] = useState(true);
   const [planActionMessage, setPlanActionMessage] = useState('');
   const [planActionsOpen, setPlanActionsOpen] = useState(false);
+  const [pinCreateMode, setPinCreateMode] = useState(false);
   const pinPlacementTimerRef = useRef<number | null>(null);
   const planCanCreate = Boolean(canCreatePlan ?? editable);
   const planCanDelete = Boolean(canDeletePlan);
   const planCanMovePins = Boolean(canMovePlanPins ?? editable);
   const planCanExport = Boolean(canExportReports);
   const hasPlanActions = planCanCreate || planCanDelete;
+
+  useEffect(() => {
+    if (!isCompactPlanView || mobilePlanOpen || plans.length === 0) return;
+    return warmPdfJsWhenIdle();
+  }, [isCompactPlanView, mobilePlanOpen, plans.length]);
+
   const projectForDraft = projects.find((project: any) => project.id === (planDraft.chantier_id || selectedProjectId)) ?? selectedProject ?? projects[0] ?? null;
   const draftBuildings = projectBuildings(projectForDraft);
   const draftBuilding = draftBuildings.find((building: any) => building.id === planDraft.building_id) ?? null;
   const draftLevels = Array.isArray(draftBuilding?.levels) ? draftBuilding.levels : [];
-  const selectedPlanMediaSource = String(selectedPlan?.uri ?? selectedPlan?.url ?? '').trim();
+  const selectedPlanMediaSource = planWorkspace.shouldLoadDetailMedia
+    ? String(selectedPlan?.uri ?? selectedPlan?.url ?? '').trim()
+    : '';
   const selectedPlanMedia = privateMediaAccess(selectedPlanMediaSource);
   const selectedPlanResolvedUri = selectedPlanMedia.url;
 
@@ -8233,16 +8273,8 @@ function PlansView({
     setFocusedPlanReserveId(null);
     setPinPlacementPreview(null);
     setPlanActionsOpen(false);
+    setPinCreateMode(false);
   }, [selectedPlan?.id]);
-  useEffect(() => {
-    if (!isCompactPlanView) setMobilePlanOpen(false);
-  }, [isCompactPlanView]);
-  useEffect(() => {
-    if (mobilePlanOpen && !selectedPlan) setMobilePlanOpen(false);
-  }, [mobilePlanOpen, selectedPlan]);
-  useEffect(() => {
-    if (isCompactPlanView && placementReserve && selectedPlan) setMobilePlanOpen(true);
-  }, [isCompactPlanView, placementReserve, selectedPlan]);
   useEffect(() => {
     if (!focusedPlanReserveId) return;
     const timer = window.setTimeout(() => setFocusedPlanReserveId(null), 7000);
@@ -8263,7 +8295,7 @@ function PlansView({
   };
   const openPlanFromNavigator = (planId: string) => {
     setSelectedPlanId(planId);
-    if (isCompactPlanView) setMobilePlanOpen(true);
+    if (isCompactPlanView) planWorkspace.openDetail();
   };
   const handleSelectBuildingGroup = (group: { key: string; plans: any[]; displayPlans?: any[] }) => {
     setSelectedBuildingKey(group.key);
@@ -8274,7 +8306,7 @@ function PlansView({
       return next;
     });
     const sourcePlans = group.displayPlans?.length ? group.displayPlans : group.plans;
-    if (!sourcePlans.some(plan => plan.id === selectedPlan?.id) && sourcePlans[0]) {
+    if (!isCompactPlanView && !sourcePlans.some(plan => plan.id === selectedPlan?.id) && sourcePlans[0]) {
       openPlanFromNavigator(String(sourcePlans[0].id));
     }
   };
@@ -8284,6 +8316,7 @@ function PlansView({
   };
   const assignOrCreatePinAt = (x: number, y: number) => {
     if (!selectedPlan) return;
+    setPinCreateMode(false);
     const nextX = Number(clampPercent(x).toFixed(2));
     const nextY = Number(clampPercent(y).toFixed(2));
     const preview: PinPlacementPreview = {
@@ -8479,8 +8512,9 @@ function PlansView({
             <span>{workspaceCopy.newPlan}</span>
           </button>
         ) : null}
+        compactDetail={isCompactPlanView && mobilePlanOpen}
       />
-      {(!isCompactPlanView || !mobilePlanOpen) && (
+      {planWorkspace.showList && (
       <section className={`${styles.panel} ${styles.plansListPanel}`} data-prw-panel data-prw-plan-nav>
         <div className={styles.buildingRailHeaderWeb} data-prw-plan-nav-header>
           <div>
@@ -8654,10 +8688,16 @@ function PlansView({
         </div>
       </section>
       )}
-      {(!isCompactPlanView || mobilePlanOpen) && (
+      {planWorkspace.showDetail && (
       <section className={`${styles.panel} ${styles.plansPreviewPanel}`} data-prw-panel data-prw-plan-preview>
         {isCompactPlanView ? (
-          <WorkspaceBackButton label={workspaceCopy.back} onClick={() => setMobilePlanOpen(false)} />
+          <WorkspaceBackButton
+            label={workspaceCopy.back}
+            onClick={() => {
+              setPinCreateMode(false);
+              planWorkspace.closeDetail();
+            }}
+          />
         ) : null}
         {selectedPlan ? (
           <>
@@ -8743,15 +8783,23 @@ function PlansView({
               <div className={styles.pinToolbar} data-prw-pin-guidance>
                 <div className={styles.pinToolbarIntro}>
                   <strong>Créer une réserve épinglée</strong>
-                  <span>Cliquez directement sur le PDF pour créer une nouvelle réserve à l’endroit exact.</span>
+                  <span>Activez le placement, puis touchez l’endroit exact sur le plan.</span>
                 </div>
-                <div className={styles.pinToolbarAction}>
+                <button
+                  type="button"
+                  className={`${styles.pinToolbarAction} ${pinCreateMode ? styles.pinToolbarActionActive : ''}`}
+                  aria-pressed={pinCreateMode}
+                  onClick={() => {
+                    setPinCreateMode(active => !active);
+                    setFocusedPlanReserveId(null);
+                  }}
+                >
                   <span><WorkspaceIcon name="pin" size={21} /></span>
                   <div>
-                    <strong>Création par clic</strong>
-                    <small>L’épingle est mémorisée puis le formulaire de réserve s’ouvre.</small>
+                    <strong>{pinCreateMode ? 'Touchez le plan' : 'Placer une réserve'}</strong>
+                    <small>{pinCreateMode ? 'Le prochain toucher ouvre le formulaire.' : 'Aucun toucher ne crée de réserve tant que ce mode est inactif.'}</small>
                   </div>
-                </div>
+                </button>
               </div>
             )}
             {placementActive && (
@@ -8801,6 +8849,8 @@ function PlansView({
                     annotations={Array.isArray(selectedPlan.annotations) ? selectedPlan.annotations : []}
                     placementPreview={activePlacementPreview}
                     placementActive={placementActive}
+                    createModeActive={pinCreateMode}
+                    openPinOnSingleTap={isCompactPlanView}
                     onPlacePin={placeExistingPinAt}
                     onCreateReserveAtPin={assignOrCreatePinAt}
                     onPinMove={(reserveId, x, y) => {
@@ -8813,17 +8863,17 @@ function PlansView({
                       setSelectedPlanReserveId(reserveId);
                       setFocusedPlanReserveId(reserveId);
                     }}
-                    onPinDoubleClick={openReserveFromPin}
+                    onPinOpen={openReserveFromPin}
                     onClearFocus={() => setFocusedPlanReserveId(null)}
                   />
                 ) : (
                   <div className={styles.planPlaceholder}>{t('plans.previewUnavailable')}</div>
                 )}
-                {selectedPlan.file_type !== 'pdf' && (planCanCreate || placementActive) && (
+                {selectedPlan.file_type !== 'pdf' && (pinCreateMode || placementActive) && (
                   <button
                     type="button"
                     className={`${styles.pinClickLayer} ${styles.pinCreateLayer}`}
-                    aria-label={placementActive ? 'Cliquer pour placer la pastille de la réserve' : 'Cliquer pour créer une réserve à cet endroit'}
+                    aria-label={placementActive ? 'Toucher pour placer la pastille de la réserve' : 'Toucher pour créer une réserve à cet endroit'}
                     onClick={event => {
                       const rect = event.currentTarget.getBoundingClientRect();
                       const px = ((event.clientX - rect.left) / rect.width) * 100;
@@ -8833,7 +8883,7 @@ function PlansView({
                         setFocusedPlanReserveId(null);
                         return;
                       }
-                      assignOrCreatePinAt(px, py);
+                      if (pinCreateMode) assignOrCreatePinAt(px, py);
                     }}
                   />
                 )}
@@ -8841,20 +8891,21 @@ function PlansView({
                     <button
                       key={pin.reserve.id}
                       className={`${styles.pin} ${focusedPlanReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
-                      style={{ left: `${pin.x}%`, top: `${pin.y}%`, background: pin.color }}
-                      title={`${pin.reserve.title} · double-clic pour ouvrir la réserve`}
-                      aria-label={`Mettre en avant l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
+                      style={{ left: `${pin.x}%`, top: `${pin.y}%`, '--plan-pin-color': pin.color } as CSSProperties}
+                      title={isCompactPlanView ? `${pin.reserve.title} · ouvrir la réserve` : `${pin.reserve.title} · double-clic pour ouvrir la réserve`}
+                      aria-label={isCompactPlanView ? `Ouvrir la réserve de l'épingle ${pin.number}.` : `Sélectionner l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
                       onClick={event => {
                         event.stopPropagation();
                         setSelectedPlanReserveId(pin.reserve.id);
                         setFocusedPlanReserveId(pin.reserve.id);
+                        if (isCompactPlanView) openReserveFromPin(pin.reserve.id);
                       }}
                       onDoubleClick={event => {
                         event.stopPropagation();
-                        openReserveFromPin(pin.reserve.id);
+                        if (!isCompactPlanView) openReserveFromPin(pin.reserve.id);
                       }}
                     >
-                      {pin.number}
+                      <span>{pin.number}</span>
                     </button>
                   ))}
                 {selectedPlan.file_type !== 'pdf' && activePlacementPreview && (

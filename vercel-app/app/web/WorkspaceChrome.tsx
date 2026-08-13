@@ -64,6 +64,7 @@ type WorkspaceChromeProps = {
   actions: WorkspaceChromeAction[];
   workspaceClassName?: string;
   containedWorkspace?: boolean;
+  operationalMobile?: boolean;
   children: ReactNode;
   onProjectSelect: (projectId: string) => void;
   onCollapsedChange: (collapsed: boolean) => void;
@@ -239,6 +240,7 @@ export function WorkspaceChrome({
   actions,
   workspaceClassName = '',
   containedWorkspace = false,
+  operationalMobile = false,
   children,
   onProjectSelect,
   onCollapsedChange,
@@ -346,7 +348,10 @@ export function WorkspaceChrome({
         </div>
       </aside>
 
-      <section className={`${styles.workspace} ${containedWorkspace ? styles.workspaceContained : ''} ${workspaceClassName}`}>
+      <section
+        className={`${styles.workspace} ${containedWorkspace ? styles.workspaceContained : ''} ${workspaceClassName}`}
+        data-operational-mobile={operationalMobile}
+      >
         <header className={styles.topbar} data-bt-i18n-skip="true">
           <div className={styles.headingRow}>
             <button
