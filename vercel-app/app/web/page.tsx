@@ -35,7 +35,11 @@ import {
   calculatePdfFitScale,
   resolvePlanCanvasTapIntent,
 } from './plan-reserve-workspace/plan-interaction';
-import { loadPdfJs, warmPdfJsWhenIdle } from './plan-reserve-workspace/pdfjs-client';
+import {
+  createDedicatedPdfLoadingTask,
+  loadPdfJs,
+  warmPdfJsWhenIdle,
+} from './plan-reserve-workspace/pdfjs-client';
 import { useResponsiveWorkspaceNavigation } from './plan-reserve-workspace/useResponsiveWorkspace';
 import {
   isRegistryBackedRef,
@@ -2092,9 +2096,9 @@ async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
     const source = pdfUri.startsWith('data:')
       ? { data: dataUrlToPdfBytes(pdfUri) }
       : { url: pdfUri, withCredentials: false };
-    const loadingTask = pdfjs.getDocument(source);
-    const pdf = await loadingTask.promise;
+    const pdfSession = createDedicatedPdfLoadingTask(pdfjs, source);
     try {
+      const pdf = await pdfSession.loadingTask.promise;
       const page = await pdf.getPage(1);
       const baseViewport = page.getViewport({ scale: 1 });
       const scale = renderWidth / baseViewport.width;
@@ -2107,7 +2111,7 @@ async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
       await page.render({ canvasContext: context, viewport }).promise;
       return canvas.toDataURL('image/jpeg', 0.88);
     } finally {
-      pdf.destroy?.();
+      await pdfSession.destroy();
     }
   } catch {
     return null;
@@ -7467,6 +7471,7 @@ function WebPdfPlan({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const renderTaskRef = useRef<any>(null);
+  const pdfPageRef = useRef<any>(null);
   const lastFocusZoomRef = useRef('');
   const drawingPointerRef = useRef<number | null>(null);
   const movePreviewTimerRef = useRef<number | null>(null);
@@ -7486,6 +7491,7 @@ function WebPdfPlan({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
+  const [pdfPageVersion, setPdfPageVersion] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
@@ -7495,6 +7501,18 @@ function WebPdfPlan({
   const [localAnnotations, setLocalAnnotations] = useState<WebPlanDrawing[]>(annotations ?? []);
   const [moveMode, setMoveMode] = useState(false);
   const [movePreview, setMovePreview] = useState<PinPlacementPreview | null>(null);
+
+  const fitPdfToViewport = useCallback(() => {
+    const page = pdfPageRef.current;
+    if (!page) return;
+    const baseViewport = page.getViewport({ scale: 1 });
+    const viewportWidth = viewportRef.current?.clientWidth ?? 900;
+    const horizontalPadding = viewportRef.current
+      ? parseFloat(window.getComputedStyle(viewportRef.current).paddingLeft || '0')
+        + parseFloat(window.getComputedStyle(viewportRef.current).paddingRight || '0')
+      : 0;
+    setScale(calculatePdfFitScale(viewportWidth - horizontalPadding, baseViewport.width));
+  }, []);
 
   useEffect(() => {
     setScale(null);
@@ -7558,31 +7576,70 @@ function WebPdfPlan({
 
   useEffect(() => {
     let cancelled = false;
-    let loadingTask: any = null;
+    let pdfSession: ReturnType<typeof createDedicatedPdfLoadingTask> | null = null;
+
+    async function loadPdfPage() {
+      setLoading(true);
+      setError(false);
+      pdfPageRef.current = null;
+      try {
+        const pdfjs: any = await loadPdfJs();
+        if (cancelled) return;
+        pdfSession = createDedicatedPdfLoadingTask(pdfjs, { url: uri });
+        const pdf = await pdfSession.loadingTask.promise;
+        const page = await pdf.getPage(1);
+        if (cancelled) return;
+        pdfPageRef.current = page;
+        setPdfPageVersion(version => version + 1);
+      } catch (pdfError: any) {
+        if (cancelled) return;
+        console.warn('[web-pdf] plan loading failed', {
+          name: pdfError?.name,
+          message: pdfError?.message,
+        });
+        setError(true);
+        setLoading(false);
+      }
+    }
+
+    void loadPdfPage();
+
+    return () => {
+      cancelled = true;
+      pdfPageRef.current = null;
+      renderTaskRef.current?.cancel?.();
+      const destroyResult = pdfSession?.destroy();
+      if (destroyResult && typeof destroyResult.catch === 'function') {
+        void destroyResult.catch(() => undefined);
+      }
+    };
+  }, [retryVersion, uri]);
+
+  useEffect(() => {
+    if (!pdfPageRef.current) return;
+    const frame = window.requestAnimationFrame(fitPdfToViewport);
+    return () => window.cancelAnimationFrame(frame);
+  }, [fitPdfToViewport, isFullscreen, pdfPageVersion]);
+
+  useEffect(() => {
+    const page = pdfPageRef.current;
+    if (!page || scale == null || !canvasRef.current) return;
+    let cancelled = false;
 
     async function renderPdfPage() {
       setLoading(true);
       setError(false);
       try {
-        const pdfjs: any = await loadPdfJs();
-        loadingTask = pdfjs.getDocument({ url: uri });
-        const pdf = await loadingTask.promise;
-        const page = await pdf.getPage(1);
-        const baseViewport = page.getViewport({ scale: 1 });
-        if (scale == null) {
-          const viewportWidth = viewportRef.current?.clientWidth ?? 900;
-          const horizontalPadding = viewportRef.current
-            ? parseFloat(window.getComputedStyle(viewportRef.current).paddingLeft || '0')
-              + parseFloat(window.getComputedStyle(viewportRef.current).paddingRight || '0')
-            : 0;
-          setScale(calculatePdfFitScale(viewportWidth - horizontalPadding, baseViewport.width));
-          return;
+        const previousRenderTask = renderTaskRef.current;
+        if (previousRenderTask) {
+          previousRenderTask.cancel?.();
+          await previousRenderTask.promise?.catch?.(() => undefined);
+          if (cancelled) return;
         }
 
         const viewport = page.getViewport({ scale });
-        if (cancelled || !canvasRef.current) return;
-
         const canvas = canvasRef.current;
+        if (!canvas) return;
         const context = canvas.getContext('2d');
         if (!context) throw new Error('Canvas PDF indisponible');
 
@@ -7593,7 +7650,6 @@ function WebPdfPlan({
         canvas.style.height = `${viewport.height}px`;
         setPageSize({ width: viewport.width, height: viewport.height });
 
-        renderTaskRef.current?.cancel?.();
         const renderContext: any = {
           canvasContext: context,
           viewport,
@@ -7604,22 +7660,28 @@ function WebPdfPlan({
         const renderTask = page.render(renderContext);
         renderTaskRef.current = renderTask;
         await renderTask.promise;
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          renderTaskRef.current = null;
+          setLoading(false);
+        }
       } catch (pdfError: any) {
         if (cancelled || pdfError?.name === 'RenderingCancelledException') return;
+        console.warn('[web-pdf] plan rendering failed', {
+          name: pdfError?.name,
+          message: pdfError?.message,
+        });
         setError(true);
         setLoading(false);
       }
     }
 
-    renderPdfPage();
+    void renderPdfPage();
 
     return () => {
       cancelled = true;
       renderTaskRef.current?.cancel?.();
-      loadingTask?.destroy?.();
     };
-  }, [retryVersion, scale, uri]);
+  }, [pdfPageVersion, scale]);
 
   function pagePointFromEvent(event: MouseEvent<HTMLDivElement> | PointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -7815,8 +7877,8 @@ function WebPdfPlan({
             onClick={() => setScale(value => Math.min(3, Number(((value ?? 1) + 0.1).toFixed(2))))}
           >+</button>
         </div>
-        <button type="button" disabled={!zoomReady} onClick={() => setScale(null)}>{t('plans.fit')}</button>
-        <button type="button" onClick={() => { setIsFullscreen(value => !value); setScale(null); }}>
+        <button type="button" disabled={!zoomReady} onClick={fitPdfToViewport}>{t('plans.fit')}</button>
+        <button type="button" onClick={() => setIsFullscreen(value => !value)}>
           {isFullscreen ? t('plans.reduce') : t('plans.bigPlan')}
         </button>
         {canMovePins && focusedPin && (

@@ -85,14 +85,20 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(page).not.toContain('href={selectedPlan.uri}');
   });
 
-  it('bundles the PDF worker locally instead of requiring a CDN on first plan open', () => {
+  it('bundles a dedicated PDF worker locally instead of sharing or requiring a CDN worker', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const pdfClient = read('vercel-app/app/web/plan-reserve-workspace/pdfjs-client.ts');
 
     expect(page.match(/loadPdfJs\(\)/g)).toHaveLength(2);
     expect(page).toContain('warmPdfJsWhenIdle()');
-    expect(pdfClient).toContain("import('pdfjs-dist/webpack.mjs')");
+    expect(pdfClient).toContain("import('pdfjs-dist')");
+    expect(pdfClient).not.toContain("import('pdfjs-dist/webpack.mjs')");
+    expect(pdfClient).toContain("'pdfjs-dist/build/pdf.worker.min.mjs'");
+    expect(pdfClient).toContain('GlobalWorkerOptions.workerPort = null');
+    expect(pdfClient).toContain('createDedicatedPdfLoadingTask');
     expect(pdfClient).toContain('connection?.saveData');
+    expect(page).toContain('}, [retryVersion, uri]);');
+    expect(page).toContain('}, [pdfPageVersion, scale]);');
     expect(page).not.toContain('cdn.jsdelivr.net/npm/pdfjs-dist');
   });
 });

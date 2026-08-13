@@ -2,12 +2,51 @@
 
 let pdfJsModulePromise: Promise<any> | null = null;
 
+const LOCAL_PDF_WORKER_SRC = new URL(
+  'pdfjs-dist/build/pdf.worker.min.mjs',
+  import.meta.url,
+).toString();
+
+export function configurePdfJsWorker(pdfjs: any, workerSrc = LOCAL_PDF_WORKER_SRC) {
+  // `pdfjs-dist/webpack.mjs` installs one shared Worker port. Destroying one
+  // loading task then destroys that shared worker for every following plan.
+  // A worker URL lets PDF.js create and own one worker per loading task.
+  pdfjs.GlobalWorkerOptions.workerPort = null;
+  pdfjs.GlobalWorkerOptions.workerSrc = workerSrc;
+  return pdfjs;
+}
+
+export function createDedicatedPdfLoadingTask(pdfjs: any, source: Record<string, unknown>) {
+  const worker = new pdfjs.PDFWorker();
+  const loadingTask = pdfjs.getDocument({ ...source, worker });
+  let destroyPromise: Promise<void> | null = null;
+
+  return {
+    loadingTask,
+    worker,
+    destroy() {
+      if (!destroyPromise) {
+        destroyPromise = (async () => {
+          try {
+            await loadingTask.destroy?.();
+          } finally {
+            worker.destroy?.();
+          }
+        })();
+      }
+      return destroyPromise;
+    },
+  };
+}
+
 export function loadPdfJs() {
   if (!pdfJsModulePromise) {
-    pdfJsModulePromise = import('pdfjs-dist/webpack.mjs').catch(error => {
-      pdfJsModulePromise = null;
-      throw error;
-    });
+    pdfJsModulePromise = import('pdfjs-dist')
+      .then(pdfjs => configurePdfJsWorker(pdfjs))
+      .catch(error => {
+        pdfJsModulePromise = null;
+        throw error;
+      });
   }
   return pdfJsModulePromise;
 }
