@@ -1503,8 +1503,6 @@ export default function PlansScreen() {
     const isRemote = (uri: string) => uri.startsWith('http://') || uri.startsWith('https://');
     if (!isRemote(currentPlan.uri)) return;
 
-    ensurePlanCached(currentPlan.uri).catch(() => {});
-
     const currentIndex = filteredPlans.findIndex(plan => plan.id === currentPlan.id);
     const adjacentPlans = [filteredPlans[currentIndex - 1], filteredPlans[currentIndex + 1]];
     adjacentPlans.forEach(plan => {

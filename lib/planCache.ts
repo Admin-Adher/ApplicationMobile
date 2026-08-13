@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { currentMediaCacheUserId, resolveMediaRef } from './media';
+import { resolvePlanDisplaySource } from './planDisplay';
 import { supabase } from './supabase';
 
 const LEGACY_CACHE_DIR = `${FileSystem.documentDirectory ?? ''}plans_cache/`;
@@ -9,6 +10,7 @@ const MAX_CACHE_SIZE = 500 * 1024 * 1024;
 const PLAN_DOWNLOAD_TIMEOUT_MS = 20_000;
 const inFlightDownloads = new Map<string, Promise<{ localUri: string; fromCache: boolean }>>();
 let legacyCleanup: Promise<void> | null = null;
+let cacheGeneration = 0;
 
 type ManifestEntry = {
   url: string;
@@ -129,64 +131,61 @@ async function evictIfNeeded(scope: string, manifest: Manifest): Promise<Manifes
   return manifest;
 }
 
-/** Returns a cached plan only inside the currently authenticated user's scope. */
-export async function getCachedPlanUri(remoteUrl: string): Promise<string | null> {
-  if (Platform.OS === 'web' || !FileSystem.documentDirectory || !remoteUrl) return null;
-  try {
-    const scope = await currentUserScope();
-    if (!scope) return null;
-    const key = hashUrl(remoteUrl);
-    const manifest = await loadManifest(scope);
-    const entry = manifest.entries[key];
-    if (!entry) return null;
-    const path = `${cacheDir(scope)}${entry.filename}`;
-    const info = await FileSystem.getInfoAsync(path);
-    if (!info.exists) {
-      delete manifest.entries[key];
-      await saveManifest(scope, manifest);
-      return null;
-    }
-    entry.lastAccess = Date.now();
+async function getCachedPlanUriForScope(scope: string, remoteUrl: string): Promise<string | null> {
+  const key = hashUrl(remoteUrl);
+  const manifest = await loadManifest(scope);
+  const entry = manifest.entries[key];
+  if (!entry) return null;
+  const path = `${cacheDir(scope)}${entry.filename}`;
+  const info = await FileSystem.getInfoAsync(path);
+  if (!info.exists) {
+    delete manifest.entries[key];
     await saveManifest(scope, manifest);
-    return path;
-  } catch (error) {
-    console.warn('[planCache] getCachedPlanUri failed:', error);
     return null;
   }
+  entry.lastAccess = Date.now();
+  // LRU bookkeeping must not delay an otherwise instant cache hit.
+  void saveManifest(scope, manifest);
+  return path;
 }
 
-/** Downloads a plan into the authenticated user's private offline cache. */
-export async function ensurePlanCached(
+async function ensurePlanCachedForScope(
+  scope: string,
   remoteUrl: string,
+  preResolvedUrl?: string,
 ): Promise<{ localUri: string; fromCache: boolean }> {
-  if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
-    throw new Error('plan cache is mobile-only');
-  }
-  if (!remoteUrl) throw new Error('empty url');
-
-  const scope = await currentUserScope();
-  if (!scope) throw new Error('authenticated session required for plan cache');
-  const cached = await getCachedPlanUri(remoteUrl);
-  if (cached) return { localUri: cached, fromCache: true };
-
   const key = hashUrl(remoteUrl);
   const inFlightKey = `${scope}:${key}`;
   const existing = inFlightDownloads.get(inFlightKey);
   if (existing) return existing;
+  const generation = cacheGeneration;
 
   const download = (async () => {
+    const cached = await getCachedPlanUriForScope(scope, remoteUrl).catch(() => null);
+    if (cached) return { localUri: cached, fromCache: true };
+
     await ensureCacheDir(scope);
-    const resolvedUrl = await resolveMediaRef(remoteUrl, { cacheDisk: false });
+    const resolvedUrl = preResolvedUrl ?? await resolveMediaRef(remoteUrl, { cacheDisk: false });
     if (!resolvedUrl) throw new Error('plan access denied or unavailable');
     const filename = `${key}.${extensionOf(resolvedUrl)}`;
     const destination = `${cacheDir(scope)}${filename}`;
-    const result = await withTimeout(
-      FileSystem.downloadAsync(resolvedUrl, destination),
-      'plan download',
-    );
+    let result: FileSystem.FileSystemDownloadResult;
+    try {
+      result = await withTimeout(
+        FileSystem.downloadAsync(resolvedUrl, destination),
+        'plan download',
+      );
+    } catch (error) {
+      await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+      throw error;
+    }
     if (result.status && result.status >= 400) {
       await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
       throw new Error(`HTTP ${result.status}`);
+    }
+    if (generation !== cacheGeneration) {
+      await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+      throw new Error('plan cache was cleared during download');
     }
 
     const info = await FileSystem.getInfoAsync(result.uri);
@@ -207,22 +206,67 @@ export async function ensurePlanCached(
   try {
     return await download;
   } finally {
-    inFlightDownloads.delete(inFlightKey);
+    if (inFlightDownloads.get(inFlightKey) === download) {
+      inFlightDownloads.delete(inFlightKey);
+    }
   }
 }
 
-export async function getPlanUriCacheFirst(
+/** Returns a cached plan only inside the currently authenticated user's scope. */
+export async function getCachedPlanUri(remoteUrl: string): Promise<string | null> {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory || !remoteUrl) return null;
+  try {
+    const scope = await currentUserScope();
+    return scope ? await getCachedPlanUriForScope(scope, remoteUrl) : null;
+  } catch (error) {
+    console.warn('[planCache] getCachedPlanUri failed:', error);
+    return null;
+  }
+}
+
+/** Downloads a plan into the authenticated user's private offline cache. */
+export async function ensurePlanCached(
   remoteUrl: string,
 ): Promise<{ localUri: string; fromCache: boolean }> {
-  const cached = await getCachedPlanUri(remoteUrl);
-  if (cached) return { localUri: cached, fromCache: true };
-  return ensurePlanCached(remoteUrl);
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
+    throw new Error('plan cache is mobile-only');
+  }
+  if (!remoteUrl) throw new Error('empty url');
+
+  const scope = await currentUserScope();
+  if (!scope) throw new Error('authenticated session required for plan cache');
+  return ensurePlanCachedForScope(scope, remoteUrl);
+}
+
+/**
+ * Returns a local plan immediately when available; otherwise returns the
+ * authorized short-lived URL and warms the offline cache without awaiting it.
+ */
+export async function getPlanUriForDisplay(
+  remoteUrl: string,
+): Promise<{ uri: string; fromCache: boolean }> {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
+    throw new Error('plan display resolver is mobile-only');
+  }
+  if (!remoteUrl) throw new Error('empty url');
+
+  const scope = await currentUserScope();
+  if (!scope) throw new Error('authenticated session required for plan access');
+  return resolvePlanDisplaySource(remoteUrl, {
+    getCachedUri: () => getCachedPlanUriForScope(scope, remoteUrl).catch(() => null),
+    resolveRemoteUri: () => resolveMediaRef(remoteUrl, { cacheDisk: false }),
+    warmCache: (_uri, resolvedUri) => {
+      void ensurePlanCachedForScope(scope, remoteUrl, resolvedUri).catch(() => {});
+    },
+  });
 }
 
 /** Clears every account-scoped cache plus the unsafe legacy unscoped cache. */
 export async function clearPlanCache(): Promise<number> {
   if (Platform.OS === 'web' || !FileSystem.documentDirectory) return 0;
   try {
+    cacheGeneration += 1;
+    inFlightDownloads.clear();
     let total = 0;
     const scope = await currentUserScope();
     if (scope) {
@@ -231,7 +275,6 @@ export async function clearPlanCache(): Promise<number> {
     }
     await FileSystem.deleteAsync(CACHE_ROOT, { idempotent: true }).catch(() => {});
     await FileSystem.deleteAsync(LEGACY_CACHE_DIR, { idempotent: true }).catch(() => {});
-    inFlightDownloads.clear();
     legacyCleanup = Promise.resolve();
     return total;
   } catch (error) {

@@ -1,52 +1,62 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useCallback, useEffect, useRef } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { toDocument } from '@/lib/mappers';
 import { Document } from '@/constants/types';
-import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import { reconcileUserScopedCache } from '@/lib/queryCacheHydration';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 
 const DOCUMENTS_CACHE_KEY = 'buildtrack_documents_cache_v1';
 
 export function useDocuments() {
-  const { user } = useAuth();
+  const { user, isSessionValidationPending } = useAuth();
   const userId = user?.id;
   const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
+  const documentsQueryKey = useMemo(() => queryKeys.documents(userId), [userId]);
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
-  const startupReady = useStartupDelay(!!user);
 
   useEffect(() => {
     if (!userId) return;
+    let cancelled = false;
+
+    if (user?.role === 'magasinier' || user?.role === 'sous_traitant') {
+      queryClient.setQueryData<Document[]>(documentsQueryKey, []);
+      // Do not erase a valid offline cache solely because a stale cached role
+      // is still being checked. Once the authoritative role is known, remove
+      // the cache for roles that cannot access this module.
+      if (!isSessionValidationPending) void writeCache(DOCUMENTS_CACHE_KEY, [], userId);
+      return;
+    }
+
+    // The cache is already scoped by user id, so it can paint the document
+    // list immediately while the authoritative role is checked in parallel.
+    // The network request below remains disabled until validation completes.
     readCache<Document>(DOCUMENTS_CACHE_KEY, userId).then(manualCached => {
-      if (!manualCached?.length) return;
-      const rqCurrent = queryClient.getQueryData<Document[]>(queryKeys.documents());
-      if (!rqCurrent?.length) return;
-      const manualIds = new Set(manualCached.map(d => d.id));
-      if (rqCurrent.some(d => !manualIds.has(d.id))) {
-        queryClient.setQueryData<Document[]>(queryKeys.documents(), rqCurrent.filter(d => manualIds.has(d.id)));
-      }
+      if (cancelled) return;
+      const rqCurrent = queryClient.getQueryData<Document[]>(documentsQueryKey);
+      const reconciled = reconcileUserScopedCache(manualCached, rqCurrent);
+      if (reconciled !== undefined) queryClient.setQueryData<Document[]>(documentsQueryKey, reconciled);
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userId]);
+    return () => { cancelled = true; };
+  }, [documentsQueryKey, isSessionValidationPending, queryClient, user?.role, userId]);
 
   const query = useQuery({
-    queryKey: queryKeys.documents(),
+    queryKey: documentsQueryKey,
     queryFn: async (): Promise<Document[]> => {
       if (user?.role === 'sous_traitant') {
         await writeCache(DOCUMENTS_CACHE_KEY, [], userId);
         return [];
       }
       let cached = await readCache<Document>(DOCUMENTS_CACHE_KEY, userId);
-      const rqCached = queryClient.getQueryData<Document[]>(queryKeys.documents());
+      const rqCached = queryClient.getQueryData<Document[]>(documentsQueryKey);
       if (!cached && rqCached?.length) cached = rqCached;
       if (!isSupabaseConfigured) return cached ?? [];
       if (!(await isSupabaseSessionValid())) return cached ?? [];
@@ -68,7 +78,10 @@ export function useDocuments() {
         return cached ?? [];
       }
     },
-    enabled: !!user && user.role !== 'magasinier' && startupReady,
+    enabled: !!user
+      && user.role !== 'magasinier'
+      && user.role !== 'sous_traitant'
+      && !isSessionValidationPending,
   });
 
   const persist = useCallback((documents: Document[]) => {
@@ -76,13 +89,13 @@ export function useDocuments() {
   }, [userId]);
 
   const addDocument = useCallback(async (d: Document) => {
-    if (user?.role === 'sous_traitant') return;
+    if (user?.role === 'magasinier' || user?.role === 'sous_traitant') return;
     const orgId = user?.organizationId ?? null;
-    queryClient.setQueryData<Document[]>(queryKeys.documents(), old => {
+    queryClient.setQueryData<Document[]>(documentsQueryKey, old => {
       if ((old ?? []).some(x => x.id === d.id)) return old ?? [];
       return [d, ...(old ?? [])];
     });
-    persist(queryClient.getQueryData<Document[]>(queryKeys.documents()) ?? []);
+    persist(queryClient.getQueryData<Document[]>(documentsQueryKey) ?? []);
     const payload = {
       id: d.id, name: d.name, type: d.type, category: d.category,
       uploaded_at: d.uploadedAt, size: d.size, version: d.version, uri: d.uri ?? null,
@@ -105,11 +118,12 @@ export function useDocuments() {
         enqueueOperation({ table: 'documents', op: 'insert', data: payload });
       }
     }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+  }, [documentsQueryKey, queryClient, user, isOnlineRef, enqueueOperation, persist]);
 
   const deleteDocument = useCallback(async (id: string) => {
-    const prev = queryClient.getQueryData<Document[]>(queryKeys.documents()) ?? [];
-    queryClient.setQueryData<Document[]>(queryKeys.documents(), prev.filter(d => d.id !== id));
+    if (user?.role === 'magasinier' || user?.role === 'sous_traitant') return;
+    const prev = queryClient.getQueryData<Document[]>(documentsQueryKey) ?? [];
+    queryClient.setQueryData<Document[]>(documentsQueryKey, prev.filter(d => d.id !== id));
     persist(prev.filter(d => d.id !== id));
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'documents', op: 'delete', filter: { column: 'id', value: id } });
@@ -122,13 +136,13 @@ export function useDocuments() {
         enqueueOperation({ table: 'documents', op: 'delete', filter: { column: 'id', value: id } });
       }
     }
-  }, [queryClient, isOnlineRef, enqueueOperation, persist]);
+  }, [documentsQueryKey, queryClient, user?.role, isOnlineRef, enqueueOperation, persist]);
 
   return {
     documents: query.data ?? [],
     isLoadingDocuments: query.isLoading,
     addDocument,
     deleteDocument,
-    invalidateDocuments: () => queryClient.invalidateQueries({ queryKey: queryKeys.documents() }),
+    invalidateDocuments: () => queryClient.invalidateQueries({ queryKey: documentsQueryKey }),
   };
 }

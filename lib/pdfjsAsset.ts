@@ -11,6 +11,7 @@ export type BundledPdfJsSources = {
 };
 
 let bundledPdfJsSourcesPromise: Promise<BundledPdfJsSources> | null = null;
+let loadedBundledPdfJsSources: BundledPdfJsSources | null = null;
 const BUNDLED_PDFJS_TIMEOUT_MS = 8_000;
 
 function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
@@ -47,14 +48,22 @@ async function readBundledAsset(assetModule: number, label: string): Promise<str
 
 export async function loadBundledPdfJsSources(): Promise<BundledPdfJsSources> {
   if (Platform.OS === 'web') return { moduleSource: null, workerSource: null };
+  if (loadedBundledPdfJsSources) return loadedBundledPdfJsSources;
   if (bundledPdfJsSourcesPromise) return bundledPdfJsSourcesPromise;
 
   bundledPdfJsSourcesPromise = Promise.all([
     readBundledAsset(PDFJS_MODULE_ASSET, 'PDF.js'),
     readBundledAsset(PDFJS_WORKER_ASSET, 'PDF.js worker'),
-  ]).then(([moduleSource, workerSource]) => ({ moduleSource, workerSource }));
+  ]).then(([moduleSource, workerSource]) => {
+    loadedBundledPdfJsSources = { moduleSource, workerSource };
+    return loadedBundledPdfJsSources;
+  });
 
   return bundledPdfJsSourcesPromise;
+}
+
+export function getLoadedBundledPdfJsSources(): BundledPdfJsSources | null {
+  return loadedBundledPdfJsSources;
 }
 
 export async function loadBundledPdfJsSource(): Promise<string | null> {

@@ -14,6 +14,7 @@ import {
   type WebTranslator,
 } from '@/lib/i18n';
 import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
+import { publishWhenCurrent } from '@/lib/progressive-workspace-load';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { BuildTrackAccess, BuildTrackAccessLoading } from './BuildTrackAccess';
 import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSession';
@@ -3002,8 +3003,13 @@ export default function BuildTrackWebPage() {
         loadedProfile.last_read_by_channel,
         previous,
       ));
+      // The authoritative role is now known. Reveal the workspace immediately
+      // and keep the wider data refresh visible as a non-blocking sync.
+      setLoading(false);
+      setSyncing(true);
 
       if (loadedProfile.role === 'magasinier') {
+        setActiveTab('inventory');
         const [chantiers, companies, organizations, notificationPreferences, inventoryProducts, inventoryMovements] = await Promise.all([
           fetchScopedTable('chantiers', loadedProfile, { order: 'created_at', onError }),
           fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError }),
@@ -3023,7 +3029,6 @@ export default function BuildTrackWebPage() {
           inventoryProducts,
           inventoryMovements,
         });
-        setActiveTab('inventory');
         setSelectedProjectId(prev => prev !== 'all' && chantiers.some((chantier: any) => chantier.id === prev) ? prev : chantiers[0]?.id ?? 'all');
         if (failedTables.length) {
           setError(loadT('sync.partialInventoryLoad', { tables: failedTableList(loadT, failedTables) }));
@@ -3031,12 +3036,64 @@ export default function BuildTrackWebPage() {
         return;
       }
 
-      const { data: storageGuardrail, error: storageGuardrailError } = await (supabaseBrowser as any).rpc('get_storage_usage_guardrail', {
+      // Storage usage is informational and must never hold the workspace open.
+      void Promise.resolve((supabaseBrowser as any).rpc('get_storage_usage_guardrail', {
         p_warning_mb: 850,
         p_critical_mb: 950,
+      })).then(({ data: storageGuardrail, error: storageGuardrailError }) => {
+        if (!loadLease.isCurrent()) return;
+        setStorageUsage(storageGuardrailError ? null : (storageGuardrail as StorageUsageGuardrail));
+      }).catch(() => {
+        if (loadLease.isCurrent()) setStorageUsage(null);
       });
-      if (!loadLease.isCurrent()) return;
-      setStorageUsage(storageGuardrailError ? null : (storageGuardrail as StorageUsageGuardrail));
+
+      // Start every independent request in the same wave. Documents and the
+      // project list publish progressively instead of waiting for slow media or
+      // secondary modules to finish.
+      const chantiersPromise = publishWhenCurrent(
+        fetchScopedTable('chantiers', loadedProfile, { order: 'created_at', onError }),
+        loadLease,
+        chantiers => {
+          setData(previous => ({ ...previous, chantiers }));
+          setSelectedProjectId(previous => previous !== 'all' && chantiers.some((chantier: any) => chantier.id === previous)
+            ? previous
+            : chantiers[0]?.id ?? 'all');
+        },
+      );
+      const documentsPromise = publishWhenCurrent(
+        loadedProfile.role === 'sous_traitant'
+          ? Promise.resolve<any[]>([])
+          : fetchScopedTable('documents', loadedProfile, { order: 'uploaded_at', onError }),
+        loadLease,
+        documents => setData(previous => ({ ...previous, documents })),
+      );
+      const reservesPromise = fetchScopedTable('reserves', loadedProfile, { order: 'created_at', onError });
+      const sitePlansPromise = fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError });
+      const companiesPromise = fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError });
+      const organizationsPromise = fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError });
+      const visitesPromise = fetchScopedTable('visites', loadedProfile, { order: 'created_at', onError });
+      const messagesPromise = fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800, onError });
+      const channelsPromise = fetchScopedTable('channels', loadedProfile, { order: 'created_at', onError });
+      const profilesPromise = fetchOrgUsers(onError);
+      const lotsPromise = fetchScopedTable('lots', loadedProfile, { order: 'name', ascending: true, onError });
+      const tasksPromise = fetchScopedTable('tasks', loadedProfile, { order: 'created_at', onError });
+      const incidentsPromise = fetchScopedTable('incidents', loadedProfile, { order: 'created_at', onError });
+      const photosPromise = fetchScopedTable('photos', loadedProfile, { order: 'taken_at', scoped: false, onError });
+      const oprsPromise = fetchScopedTable('oprs', loadedProfile, { order: 'created_at', onError });
+      const timeEntriesPromise = fetchScopedTable('time_entries', loadedProfile, { order: 'created_at', onError });
+      const regulatoryDocsPromise = loadedProfile.role === 'sous_traitant'
+        ? Promise.resolve<any[]>([])
+        : fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at', onError });
+      const notificationPreferencesPromise = fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError });
+      const journalEntriesPromise = fetchScopedTable('journal_entries', loadedProfile, { order: 'entry_date', onError });
+      const checklistsPromise = fetchScopedTable('checklists', loadedProfile, { order: 'created_at', onError });
+      const inventoryProductsPromise = canViewInventory(loadedProfile)
+        ? fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError })
+        : Promise.resolve<any[]>([]);
+      const inventoryMovementsPromise = canViewInventory(loadedProfile)
+        ? fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError })
+        : Promise.resolve<any[]>([]);
+
       const [
         chantiers,
         reserves,
@@ -3056,32 +3113,33 @@ export default function BuildTrackWebPage() {
         timeEntries,
         regulatoryDocs,
         notificationPreferences,
+        journalEntries,
+        checklists,
+        inventoryProducts,
+        inventoryMovements,
       ] = await Promise.all([
-        fetchScopedTable('chantiers', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('reserves', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError }),
-        fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError }),
-        fetchScopedTable('visites', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800, onError }),
-        fetchScopedTable('channels', loadedProfile, { order: 'created_at', onError }),
-        fetchOrgUsers(onError),
-        fetchScopedTable('lots', loadedProfile, { order: 'name', ascending: true, onError }),
-        fetchScopedTable('tasks', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('incidents', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('documents', loadedProfile, { order: 'uploaded_at', onError }),
-        fetchScopedTable('photos', loadedProfile, { order: 'taken_at', scoped: false, onError }),
-        fetchScopedTable('oprs', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('time_entries', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at', onError }),
-        fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError }),
-      ]);
-      if (!loadLease.isCurrent()) return;
-      const [journalEntries, checklists, inventoryProducts, inventoryMovements] = await Promise.all([
-        fetchScopedTable('journal_entries', loadedProfile, { order: 'entry_date', onError }),
-        fetchScopedTable('checklists', loadedProfile, { order: 'created_at', onError }),
-        canViewInventory(loadedProfile) ? fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError }) : Promise.resolve([]),
-        canViewInventory(loadedProfile) ? fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError }) : Promise.resolve([]),
+        chantiersPromise,
+        reservesPromise,
+        sitePlansPromise,
+        companiesPromise,
+        organizationsPromise,
+        visitesPromise,
+        messagesPromise,
+        channelsPromise,
+        profilesPromise,
+        lotsPromise,
+        tasksPromise,
+        incidentsPromise,
+        documentsPromise,
+        photosPromise,
+        oprsPromise,
+        timeEntriesPromise,
+        regulatoryDocsPromise,
+        notificationPreferencesPromise,
+        journalEntriesPromise,
+        checklistsPromise,
+        inventoryProductsPromise,
+        inventoryMovementsPromise,
       ]);
       if (!loadLease.isCurrent()) return;
 

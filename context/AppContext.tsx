@@ -35,6 +35,8 @@ import { notifyReserveStatusChanged } from '@/lib/email/notifyReserveCreated';
 import { triggerReserveStatusPush } from '@/lib/push/client';
 import { isSameUserName } from '@/lib/mappers';
 import { deletedReservesForUser, visibleReservesForUser } from '@/lib/reserveVisibility';
+import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
+import { isManagedMediaRef, resolveMediaRefs } from '@/lib/media';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -267,6 +269,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       serverRefreshInProgress ||
       refreshedServerKeyRef.current !== serverFreshnessKey
   ));
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !authH.user?.id || authH.isSessionValidationPending) return;
+    const task = InteractionManager.runAfterInteractions(() => {
+      void loadBundledPdfJsSources().catch(() => {});
+    });
+    return () => task.cancel();
+  }, [authH.user?.id, authH.isSessionValidationPending]);
+
+  useEffect(() => {
+    if (
+      Platform.OS === 'web'
+      || !isOnline
+      || !authH.user?.id
+      || authH.isSessionValidationPending
+      || !activeChantierId
+    ) return;
+
+    const refs = chantiersH.sitePlans
+      .filter(plan => plan.chantierId === activeChantierId && isManagedMediaRef(plan.uri))
+      .map(plan => plan.uri as string)
+      .slice(0, 6);
+    if (refs.length === 0) return;
+
+    // Prime only short-lived, user-scoped URLs. The files themselves remain a
+    // background/offline-cache concern and never block application startup.
+    const task = InteractionManager.runAfterInteractions(() => {
+      void resolveMediaRefs(refs, { cacheDisk: false }).catch(() => {});
+    });
+    return () => task.cancel();
+  }, [activeChantierId, authH.isSessionValidationPending, authH.user?.id, chantiersH.sitePlans, isOnline]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;

@@ -128,11 +128,13 @@ async function resolveBatch(refs: string[], session: MediaSession): Promise<Map<
   return resolved;
 }
 
-export async function resolveMediaRefs(refs: string[], options?: { cacheDisk?: boolean }): Promise<Record<string, string>> {
+async function resolveMediaRefsWithSession(
+  refs: string[],
+  session: MediaSession | null,
+  options?: { cacheDisk?: boolean },
+): Promise<Record<string, string>> {
   const output: Record<string, string> = {};
   const missing: string[] = [];
-  const managed = refs.filter(isManagedMediaRef);
-  const session = managed.length > 0 ? await mediaSession() : null;
   for (const ref of refs) {
     if (!isManagedMediaRef(ref)) {
       output[ref] = ref;
@@ -164,6 +166,12 @@ export async function resolveMediaRefs(refs: string[], options?: { cacheDisk?: b
   return output;
 }
 
+export async function resolveMediaRefs(refs: string[], options?: { cacheDisk?: boolean }): Promise<Record<string, string>> {
+  const hasManagedRef = refs.some(isManagedMediaRef);
+  const session = hasManagedRef ? await mediaSession() : null;
+  return resolveMediaRefsWithSession(refs, session, options);
+}
+
 export async function resolveMediaRef(ref: string, options?: { cacheDisk?: boolean }): Promise<string | null> {
   if (!isManagedMediaRef(ref)) return ref;
   const session = await mediaSession();
@@ -171,7 +179,9 @@ export async function resolveMediaRef(ref: string, options?: { cacheDisk?: boole
   const key = scopedKey(session.userId, ref);
   const existing = pending.get(key);
   if (existing) return existing;
-  const work = resolveMediaRefs([ref], options).then(result => result[ref] ?? null).finally(() => pending.delete(key));
+  const work = resolveMediaRefsWithSession([ref], session, options)
+    .then(result => result[ref] ?? null)
+    .finally(() => pending.delete(key));
   pending.set(key, work);
   return work;
 }

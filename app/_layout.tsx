@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, Animated, InteractionManager } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, LogBox, Animated } from 'react-native';
 import LoadingScreen from '@/components/LoadingScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useRouter, useSegments } from 'expo-router';
@@ -104,7 +104,6 @@ const eb = StyleSheet.create({
 
 const LAST_TAB_KEY = 'buildtrack_last_tab';
 const APP_LOADING_OVERLAY_MAX_MS = 2500;
-const APP_STARTUP_SETTLE_MIN_MS = 2200;
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading: authLoading, user } = useAuth();
@@ -113,8 +112,6 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const hasRestoredTab = useRef(false);
   const [appOverlayTimedOut, setAppOverlayTimedOut] = useState(false);
-  const [startupSettled, setStartupSettled] = useState(Platform.OS === 'web');
-  const startupSettledUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!appLoading) {
@@ -127,40 +124,9 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   const shouldBlockForAppData = isAuthenticated && appLoading && !appOverlayTimedOut;
   const routeBlocking = authLoading || shouldBlockForAppData;
-
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      setStartupSettled(true);
-      return;
-    }
-    if (!isAuthenticated || authLoading) {
-      startupSettledUserRef.current = null;
-      setStartupSettled(false);
-      return;
-    }
-
-    const startupKey = user?.id ?? 'authenticated';
-    if (startupSettledUserRef.current === startupKey) return;
-    startupSettledUserRef.current = startupKey;
-    setStartupSettled(false);
-
-    let cancelled = false;
-    let interactionTask: ReturnType<typeof InteractionManager.runAfterInteractions> | null = null;
-    const timer = setTimeout(() => {
-      interactionTask = InteractionManager.runAfterInteractions(() => {
-        if (!cancelled) setStartupSettled(true);
-      });
-    }, APP_STARTUP_SETTLE_MIN_MS);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      interactionTask?.cancel?.();
-    };
-  }, [isAuthenticated, authLoading, user?.id]);
-
-  const shouldSettleStartup = Platform.OS !== 'web' && isAuthenticated && !startupSettled;
-  const isLoading = routeBlocking || shouldSettleStartup;
+  // Auth and startup data own the overlay lifetime. A cosmetic minimum made
+  // every warm start slower even when the user-scoped cache was already ready.
+  const isLoading = routeBlocking;
 
   // ── Overlay fade logic ───────────────────────────────────────────────────
   const [overlayMounted, setOverlayMounted] = useState(true);

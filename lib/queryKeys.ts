@@ -8,7 +8,9 @@ export const queryKeys = {
   visites: (chantierId?: string | null) => ['visites', chantierId ?? 'all'] as const,
   lots: (chantierId?: string | null) => ['lots', chantierId ?? 'all'] as const,
   oprs: (chantierId?: string | null) => ['oprs', chantierId ?? 'all'] as const,
-  documents: () => ['documents'] as const,
+  // Passing a user id isolates in-memory document metadata across account
+  // switches. Calling without one intentionally returns the invalidation prefix.
+  documents: (userId?: string | null) => userId ? ['documents', userId] as const : ['documents'] as const,
   photos: () => ['photos'] as const,
   inventoryProducts: (chantierId?: string | null) => ['inventory', 'products', chantierId ?? 'none'] as const,
   inventoryMovements: (chantierId?: string | null) => ['inventory', 'movements', chantierId ?? 'none'] as const,
