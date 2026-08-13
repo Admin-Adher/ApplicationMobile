@@ -50,6 +50,19 @@ describe('BuildTrack web inventory workspace', () => {
     expect(workspace).toContain('stream?.getTracks().forEach(track => track.stop())');
   });
 
+  it('guides destination selection from the project hierarchy and persists stable identifiers', () => {
+    const workspace = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.tsx');
+    const destinationModel = read('lib/inventoryDestinationModel.ts');
+
+    expect(workspace).toContain('createInventoryDestinationCatalog(operationProject?.buildings)');
+    expect(workspace).toContain('disabled={!form.destination.buildingId}');
+    expect(workspace).toContain("type: 'select-building'");
+    expect(workspace).toContain("type: 'select-zone'");
+    expect(workspace).toContain('...movementDestination');
+    expect(destinationModel).toContain('building_id: destination.buildingId?.trim() || null');
+    expect(destinationModel).toContain('zone_id: destination.zoneId?.trim() || null');
+  });
+
   it('uses responsive cards, restrained BuildTrack styling and accessible controls', () => {
     const workspace = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.tsx');
     const css = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.module.css');

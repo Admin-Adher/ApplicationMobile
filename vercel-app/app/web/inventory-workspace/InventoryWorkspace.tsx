@@ -11,6 +11,15 @@ import {
   webBarcodeCameraErrorMessage,
   type WebBarcodeScannerControls,
 } from '../../../../lib/webBarcodeScanner';
+import {
+  EMPTY_INVENTORY_DESTINATION,
+  createInventoryDestinationCatalog,
+  inventoryDestinationZones,
+  toInventoryMovementDestination,
+  transitionInventoryDestination,
+  type InventoryDestination,
+  type InventoryDestinationIntent,
+} from '../../../../lib/inventoryDestinationModel';
 import { InventoryIcon } from './InventoryIcon';
 import {
   lookupInventoryBarcode,
@@ -46,8 +55,7 @@ type FormState = {
   supplier: string;
   location: string;
   minStock: string;
-  buildingName: string;
-  zoneName: string;
+  destination: InventoryDestination;
   companyId: string;
   personName: string;
   comment: string;
@@ -74,8 +82,7 @@ const EMPTY_FORM: FormState = {
   supplier: '',
   location: '',
   minStock: '0',
-  buildingName: '',
-  zoneName: '',
+  destination: EMPTY_INVENTORY_DESTINATION,
   companyId: '',
   personName: '',
   comment: '',
@@ -90,6 +97,9 @@ const EMPTY_PRODUCT_EDIT: ProductEditState = {
   location: '',
   minStock: '0',
 };
+
+const MANUAL_BUILDING_VALUE = '__manual-building__';
+const MANUAL_ZONE_VALUE = '__manual-zone__';
 
 function safeFilename(value: string) {
   return value
@@ -224,6 +234,25 @@ export default function InventoryWorkspace({
     () => snapshot.companies.filter(company => !company.chantier_id || String(company.chantier_id) === String(operationProjectId)),
     [snapshot.companies, operationProjectId],
   );
+  const operationProject = snapshot.projects.find(project => String(project.id) === String(operationProjectId));
+  const destinationCatalog = useMemo(
+    () => createInventoryDestinationCatalog(operationProject?.buildings),
+    [operationProject?.buildings],
+  );
+  const destinationZones = useMemo(
+    () => inventoryDestinationZones(destinationCatalog, form.destination.buildingId),
+    [destinationCatalog, form.destination.buildingId],
+  );
+  const destinationZoneGroups = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; zones: typeof destinationZones }>();
+    for (const zone of destinationZones) {
+      const key = zone.levelId || zone.levelName || '__zones__';
+      const current = groups.get(key) ?? { key, label: zone.levelName || copy.zone, zones: [] };
+      current.zones.push(zone);
+      groups.set(key, current);
+    }
+    return Array.from(groups.values());
+  }, [copy.zone, destinationZones]);
   const selectedProduct = operationProducts.find(product => product.id === selectedProductId) ?? null;
   const selectedCompany = snapshot.companies.find(company => String(company.id) === form.companyId);
   const selectedScopeProject = snapshot.projects.find(project => String(project.id) === String(projection.activeProjectId));
@@ -339,6 +368,13 @@ export default function InventoryWorkspace({
 
   function patchForm(patch: Partial<FormState>) {
     setForm(current => ({ ...current, ...patch }));
+  }
+
+  function updateDestination(intent: InventoryDestinationIntent) {
+    setForm(current => ({
+      ...current,
+      destination: transitionInventoryDestination(destinationCatalog, current.destination, intent),
+    }));
   }
 
   function clearFeedback() {
@@ -505,7 +541,7 @@ export default function InventoryWorkspace({
     if (!reference) return setError(copy.referenceRequired);
     if (!Number.isFinite(quantity) || quantity <= 0) return setError(copy.quantityInvalid);
     if (mode === 'out' && !existing) return setError(copy.unknownExit);
-    if (mode === 'out' && !form.buildingName.trim()) return setError(copy.destinationRequired);
+    if (mode === 'out' && !form.destination.buildingName.trim()) return setError(copy.destinationRequired);
     if (!existing && !form.designation.trim()) return setError(copy.designationRequired);
     if (mode === 'out' && existing && quantity > numberValue(existing.current_stock) && !(capabilities.canAdjust && form.allowNegative)) {
       return setError(copy.insufficientStock(numberValue(existing.current_stock)));
@@ -519,6 +555,7 @@ export default function InventoryWorkspace({
       const now = new Date().toISOString();
       const photoUrl = photo ? await uploadInventoryPhoto(photo, operationProjectId, productId) : existing?.photo_url ?? null;
       const designation = (existing?.designation ?? form.designation).trim() || reference;
+      const movementDestination = toInventoryMovementDestination(form.destination);
       const outcome = await recordInventoryMovement({
         operationId,
         movement: {
@@ -531,8 +568,7 @@ export default function InventoryWorkspace({
           barcode: form.barcode.trim() || existing?.barcode || null,
           supplier: form.supplier.trim() || existing?.supplier || null,
           location: form.location.trim() || existing?.location || null,
-          building_name: form.buildingName.trim() || null,
-          zone_name: form.zoneName.trim() || null,
+          ...movementDestination,
           company_id: form.companyId || null,
           company_name: selectedCompany?.name ?? null,
           person_name: form.personName.trim() || null,
@@ -898,8 +934,88 @@ export default function InventoryWorkspace({
                   <div className={styles.field}><label htmlFor="inventory-minimum">{copy.minimum}</label><input id="inventory-minimum" value={form.minStock} onChange={event => patchForm({ minStock: event.target.value })} type="number" min="0" step="any" /></div>
                   <div className={styles.field}><label htmlFor="inventory-photo">{copy.productPhoto}</label><input id="inventory-photo" className={styles.fileInput} type="file" accept="image/*" capture="environment" onChange={event => setPhoto(event.target.files?.[0] ?? null)} /></div>
                 </> : <>
-                  <div className={styles.field}><label htmlFor="inventory-building">{copy.building} *</label><input id="inventory-building" value={form.buildingName} onChange={event => patchForm({ buildingName: event.target.value })} placeholder="Service Building" required /></div>
-                  <div className={styles.field}><label htmlFor="inventory-zone">{copy.zone}</label><input id="inventory-zone" value={form.zoneName} onChange={event => patchForm({ zoneName: event.target.value })} /></div>
+                  <div className={styles.field}>
+                    <label htmlFor={destinationCatalog.hasHierarchy ? 'inventory-building' : 'inventory-building-manual'}>{copy.building} *</label>
+                    {destinationCatalog.hasHierarchy ? (
+                      <>
+                        <select
+                          id="inventory-building"
+                          value={form.destination.buildingMode === 'manual' ? MANUAL_BUILDING_VALUE : form.destination.buildingId ?? ''}
+                          onChange={event => {
+                            if (event.target.value === MANUAL_BUILDING_VALUE) updateDestination({ type: 'edit-building', buildingName: '' });
+                            else updateDestination({ type: 'select-building', buildingId: event.target.value });
+                          }}
+                          required
+                        >
+                          <option value="">{copy.chooseBuilding}</option>
+                          {destinationCatalog.buildings.map(building => <option key={building.id} value={building.id}>{building.name}</option>)}
+                          <option value={MANUAL_BUILDING_VALUE}>{copy.otherDestination}</option>
+                        </select>
+                        {form.destination.buildingMode === 'manual' ? (
+                          <input
+                            id="inventory-building-manual"
+                            aria-label={copy.manualBuilding}
+                            value={form.destination.buildingName}
+                            onChange={event => updateDestination({ type: 'edit-building', buildingName: event.target.value })}
+                            placeholder={copy.manualBuilding}
+                            required
+                          />
+                        ) : null}
+                      </>
+                    ) : (
+                      <>
+                        <input
+                          id="inventory-building-manual"
+                          value={form.destination.buildingName}
+                          onChange={event => updateDestination({ type: 'edit-building', buildingName: event.target.value })}
+                          placeholder={copy.manualBuilding}
+                          aria-describedby="inventory-destination-hint"
+                          required
+                        />
+                        <span id="inventory-destination-hint" className={styles.fieldHint}>{copy.noConfiguredHierarchy}</span>
+                      </>
+                    )}
+                  </div>
+                  <div className={styles.field}>
+                    <label htmlFor={destinationCatalog.hasHierarchy && form.destination.buildingMode === 'catalog' ? 'inventory-zone' : 'inventory-zone-manual'}>{copy.zone}</label>
+                    {destinationCatalog.hasHierarchy && form.destination.buildingMode === 'catalog' ? (
+                      <>
+                        <select
+                          id="inventory-zone"
+                          value={form.destination.zoneMode === 'manual' ? MANUAL_ZONE_VALUE : form.destination.zoneId ?? ''}
+                          onChange={event => {
+                            if (event.target.value === MANUAL_ZONE_VALUE) updateDestination({ type: 'edit-zone', zoneName: '' });
+                            else updateDestination({ type: 'select-zone', zoneId: event.target.value });
+                          }}
+                          disabled={!form.destination.buildingId}
+                        >
+                          <option value="">{form.destination.buildingId ? copy.chooseZone : copy.chooseBuildingFirst}</option>
+                          {destinationZoneGroups.map(group => (
+                            <optgroup key={group.key} label={group.label}>
+                              {group.zones.map(zone => <option key={zone.id} value={zone.id}>{zone.name}</option>)}
+                            </optgroup>
+                          ))}
+                          {form.destination.buildingId ? <option value={MANUAL_ZONE_VALUE}>{copy.otherDestination}</option> : null}
+                        </select>
+                        {form.destination.zoneMode === 'manual' ? (
+                          <input
+                            id="inventory-zone-manual"
+                            aria-label={copy.manualZone}
+                            value={form.destination.zoneName}
+                            onChange={event => updateDestination({ type: 'edit-zone', zoneName: event.target.value })}
+                            placeholder={copy.manualZone}
+                          />
+                        ) : null}
+                      </>
+                    ) : (
+                      <input
+                        id="inventory-zone-manual"
+                        value={form.destination.zoneName}
+                        onChange={event => updateDestination({ type: 'edit-zone', zoneName: event.target.value })}
+                        placeholder={copy.manualZone}
+                      />
+                    )}
+                  </div>
                   <div className={styles.field}>
                     <label htmlFor="inventory-company">{copy.company}</label>
                     <select id="inventory-company" value={form.companyId} onChange={event => patchForm({ companyId: event.target.value })}>

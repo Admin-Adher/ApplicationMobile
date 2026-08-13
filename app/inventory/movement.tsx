@@ -23,11 +23,14 @@ import {
   type InventoryBarcodeMatch,
 } from '@/lib/inventoryBarcodeLookup';
 import { canonicalizeGtin, normalizeBarcodeLookupCode } from '@/lib/inventoryBarcodeCore';
+import {
+  EMPTY_INVENTORY_DESTINATION,
+  createInventoryDestinationCatalog,
+  inventoryDestinationZones,
+  toInventoryMovementDestination,
+  transitionInventoryDestination,
+} from '@/lib/inventoryDestinationModel';
 
-const DEFAULT_BUILDINGS = [
-  'Service Building', 'Guestblock', 'One Bedroom', 'Residence', 'Arrival',
-  'Events', 'SPA', 'Villas', 'Utility Compound',
-];
 const DEFAULT_COMPANIES = ['INICA', 'Grupo Eléctrico', 'Symantel', 'Acabados'];
 
 type BarcodeLookupState =
@@ -45,7 +48,14 @@ function Field({ label, optional, children }: { label: string; optional?: string
 
 function Chip({ selected, label, onPress }: { selected: boolean; label: string; onPress: () => void }) {
   return (
-    <TouchableOpacity style={[styles.chip, selected && styles.chipSelected]} onPress={onPress} activeOpacity={0.72}>
+    <TouchableOpacity
+      style={[styles.chip, selected && styles.chipSelected]}
+      onPress={onPress}
+      activeOpacity={0.72}
+      accessibilityRole="button"
+      accessibilityState={{ selected }}
+      accessibilityLabel={label}
+    >
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>{label}</Text>
     </TouchableOpacity>
   );
@@ -83,10 +93,7 @@ export default function InventoryMovementScreen() {
   const [supplier, setSupplier] = useState('');
   const [location, setLocation] = useState('');
   const [minStock, setMinStock] = useState('0');
-  const [buildingId, setBuildingId] = useState<string | undefined>();
-  const [buildingName, setBuildingName] = useState('');
-  const [zoneId, setZoneId] = useState<string | undefined>();
-  const [zoneName, setZoneName] = useState('');
+  const [destination, setDestination] = useState({ ...EMPTY_INVENTORY_DESTINATION });
   const [companyId, setCompanyId] = useState<string | undefined>();
   const [companyName, setCompanyName] = useState('');
   const [personName, setPersonName] = useState('');
@@ -178,20 +185,16 @@ export default function InventoryMovementScreen() {
     ).slice(0, 4);
   }, [inventory.products, reference, selectedProduct]);
 
-  const buildings = useMemo(() => {
-    const projectBuildings = activeChantier?.buildings ?? [];
-    const known = new Set(projectBuildings.map(building => building.name.toLowerCase()));
-    return [
-      ...projectBuildings.map(building => ({ id: building.id, name: building.name, source: building })),
-      ...DEFAULT_BUILDINGS.filter(name => !known.has(name.toLowerCase())).map(name => ({ id: `preset-${name}`, name, source: undefined })),
-    ];
-  }, [activeChantier?.buildings]);
-
-  const zones = useMemo(() => {
-    const building = activeChantier?.buildings?.find(item => item.id === buildingId);
-    if (!building) return [];
-    return building.levels.flatMap(level => level.zones.map(zone => ({ id: zone.id, name: zone.name, level: level.name })));
-  }, [activeChantier?.buildings, buildingId]);
+  const destinationCatalog = useMemo(
+    () => createInventoryDestinationCatalog(activeChantier?.buildings),
+    [activeChantier?.buildings],
+  );
+  const buildings = destinationCatalog.buildings;
+  const { buildingId, buildingName, zoneId, zoneName } = destination;
+  const zones = useMemo(
+    () => inventoryDestinationZones(destinationCatalog, buildingId),
+    [buildingId, destinationCatalog],
+  );
 
   const companyOptions = useMemo(() => {
     const known = new Set(companies.map(company => company.name.toLowerCase()));
@@ -284,6 +287,7 @@ export default function InventoryMovementScreen() {
     }
     setSubmitting(true);
     try {
+      const movementDestination = toInventoryMovementDestination(destination);
       const result = await inventory.recordMovement({
         chantierId: activeChantier.id,
         movementType: mode,
@@ -296,10 +300,10 @@ export default function InventoryMovementScreen() {
         minStock: Number(minStock.replace(',', '.')) || 0,
         location: location.trim() || undefined,
         supplier: supplier.trim() || undefined,
-        buildingId,
-        buildingName: buildingName.trim() || undefined,
-        zoneId,
-        zoneName: zoneName.trim() || undefined,
+        buildingId: movementDestination.building_id ?? undefined,
+        buildingName: movementDestination.building_name ?? undefined,
+        zoneId: movementDestination.zone_id ?? undefined,
+        zoneName: movementDestination.zone_name ?? undefined,
         companyId,
         companyName: companyName.trim() || undefined,
         personName: personName.trim() || undefined,
@@ -462,11 +466,52 @@ export default function InventoryMovementScreen() {
           <Text style={styles.sectionTitle}>{mode === 'in' ? copy.supplier : copy.destination}</Text>
           {mode === 'in' && <Field label={copy.supplier} optional={copy.optional}><TextInput style={styles.input} value={supplier} onChangeText={handleSupplierChange} placeholder={copy.supplier} placeholderTextColor={C.textMuted} /></Field>}
           <Field label={mode === 'in' ? copy.location : copy.destination} optional={mode === 'in' ? copy.optional : undefined}>
-            <TextInput style={styles.input} value={mode === 'in' ? location : buildingName} onChangeText={mode === 'in' ? setLocation : value => { setBuildingName(value); setBuildingId(undefined); }} placeholder={mode === 'in' ? copy.location : copy.destination} placeholderTextColor={C.textMuted} />
+            <TextInput
+              style={styles.input}
+              value={mode === 'in' ? location : buildingName}
+              onChangeText={mode === 'in'
+                ? setLocation
+                : value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))}
+              placeholder={mode === 'in' ? copy.location : copy.destination}
+              placeholderTextColor={C.textMuted}
+            />
           </Field>
-          {mode === 'in' && <Field label={copy.destination} optional={copy.optional}><TextInput style={styles.input} value={buildingName} onChangeText={value => { setBuildingName(value); setBuildingId(undefined); }} placeholder={copy.destination} placeholderTextColor={C.textMuted} /></Field>}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>{buildings.map(building => <Chip key={building.id} label={building.name} selected={buildingName === building.name} onPress={() => { setBuildingId(building.source?.id); setBuildingName(building.name); setZoneId(undefined); setZoneName(''); }} />)}</ScrollView>
-          {zones.length > 0 && <><Field label={copy.zone} optional={copy.optional}><View /></Field><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>{zones.map(zone => <Chip key={zone.id} label={`${zone.level} · ${zone.name}`} selected={zoneId === zone.id} onPress={() => { setZoneId(zone.id); setZoneName(zone.name); }} />)}</ScrollView></>}
+          {mode === 'in' && <Field label={copy.destination} optional={copy.optional}><TextInput style={styles.input} value={buildingName} onChangeText={value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))} placeholder={copy.destination} placeholderTextColor={C.textMuted} /></Field>}
+          {buildings.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {buildings.map(building => (
+                <Chip
+                  key={building.id}
+                  label={building.name}
+                  selected={buildingId === building.id}
+                  onPress={() => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'select-building', buildingId: building.id }))}
+                />
+              ))}
+            </ScrollView>
+          )}
+          <Field label={copy.zone} optional={copy.optional}>
+            <TextInput
+              style={[styles.input, !buildingName.trim() && styles.inputDisabled]}
+              value={zoneName}
+              onChangeText={value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-zone', zoneName: value }))}
+              placeholder={copy.zone}
+              placeholderTextColor={C.textMuted}
+              editable={Boolean(buildingName.trim())}
+              accessibilityState={{ disabled: !buildingName.trim() }}
+            />
+          </Field>
+          {zones.length > 0 && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
+              {zones.map(zone => (
+                <Chip
+                  key={zone.id}
+                  label={zone.label}
+                  selected={zoneId === zone.id}
+                  onPress={() => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'select-zone', zoneId: zone.id }))}
+                />
+              ))}
+            </ScrollView>
+          )}
           {mode === 'out' && <>
             <Field label={copy.company} optional={copy.optional}><TextInput style={styles.input} value={companyName} onChangeText={value => { setCompanyName(value); setCompanyId(undefined); }} placeholder={copy.company} placeholderTextColor={C.textMuted} /></Field>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>{companyOptions.map(company => <Chip key={company.id} label={company.name} selected={companyName === company.name} onPress={() => { setCompanyId(company.id.startsWith('preset-') ? undefined : company.id); setCompanyName(company.name); }} />)}</ScrollView>
@@ -507,7 +552,8 @@ const styles = StyleSheet.create({
   photoButton: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 8 }, photoPreview: { width: 48, height: 48, borderRadius: 9 }, photoPlaceholder: { width: 48, height: 48, borderRadius: 9, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' }, photoButtonText: { flex: 1, color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 12 },
   quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 7 }, stockSummary: { flex: 1, minWidth: 65, backgroundColor: C.surface2, borderRadius: 12, padding: 9, alignItems: 'center' }, stockSummaryDanger: { backgroundColor: C.openBg }, stockSummaryLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 8, textTransform: 'uppercase', textAlign: 'center' }, stockSummaryValue: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 20, marginTop: 2 }, quantityInput: { width: 76, height: 56, borderRadius: 13, borderWidth: 2, borderColor: C.primary, backgroundColor: '#fff', color: C.text, fontFamily: 'Inter_700Bold', fontSize: 22, textAlign: 'center' }, inputDanger: { borderColor: C.open, color: C.open },
   warningBox: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', borderRadius: 12, backgroundColor: C.openBg, padding: 11 }, warningTitle: { color: C.open, fontFamily: 'Inter_700Bold', fontSize: 12 }, warningText: { color: C.open, fontFamily: 'Inter_400Regular', fontSize: 10, marginTop: 2 }, checkRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 3 }, checkText: { flex: 1, color: C.open, fontFamily: 'Inter_500Medium', fontSize: 12 },
-  chips: { gap: 7, paddingRight: 8 }, chip: { paddingHorizontal: 11, paddingVertical: 8, borderRadius: 18, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface }, chipSelected: { borderColor: C.primary, backgroundColor: C.primaryBg }, chipText: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 11 }, chipTextSelected: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  chips: { gap: 7, paddingRight: 8 }, chip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface }, chipSelected: { borderColor: C.primary, backgroundColor: C.primaryBg }, chipText: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 11 }, chipTextSelected: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
   textArea: { minHeight: 84, paddingTop: 12 },
+  inputDisabled: { opacity: 0.5, backgroundColor: C.surface2 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 14, paddingTop: 10, backgroundColor: 'rgba(244,247,251,0.96)', borderTopWidth: 1, borderTopColor: C.border }, submitButton: { minHeight: 54, borderRadius: 15, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' }, submitText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14, letterSpacing: 0.3 }, disabled: { opacity: 0.6 },
 });
