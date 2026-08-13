@@ -63,6 +63,24 @@ describe('BuildTrack web inventory workspace', () => {
     expect(destinationModel).toContain('zone_id: destination.zoneId?.trim() || null');
   });
 
+  it('captures the same building and zone data for receipts and dispatches', () => {
+    const workspace = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.tsx');
+    const entryFields = workspace.indexOf("{mode === 'in' ? <>", workspace.indexOf('className={styles.formGrid}'));
+    const sharedDestination = workspace.indexOf('id="inventory-destination-flow-hint"');
+    const dispatchFields = workspace.indexOf("{mode === 'out' ? <>", sharedDestination);
+
+    expect(entryFields).toBeGreaterThan(-1);
+    expect(sharedDestination).toBeGreaterThan(entryFields);
+    expect(dispatchFields).toBeGreaterThan(sharedDestination);
+    expect(workspace).toContain("{mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint}");
+    expect(workspace).toContain("inventoryDestinationPolicy(mode === 'out' ? 'out' : 'in')");
+    expect(workspace).toContain('required={destinationPolicy.buildingRequired}');
+    expect(workspace).toContain('disabled={!form.destination.buildingName.trim()}');
+    expect(workspace).toContain("movement_type: mode");
+    expect(workspace).toContain('...movementDestination');
+    expect(workspace).toContain('movementDestinationLabel(movement)');
+  });
+
   it('uses responsive cards, restrained BuildTrack styling and accessible controls', () => {
     const workspace = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.tsx');
     const css = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.module.css');

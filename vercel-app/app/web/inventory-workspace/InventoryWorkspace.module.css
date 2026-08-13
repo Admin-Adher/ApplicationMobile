@@ -467,6 +467,17 @@
   font-size: 0.6875rem;
   line-height: 1.45;
 }
+.destinationHint {
+  min-width: 0;
+  margin: 0;
+  padding: 0.65rem 0.75rem;
+  border-inline-start: 3px solid #9eb6cf;
+  background: #f5f8fb;
+  color: #526981;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
 .field .readOnlyField { border-color: #d7e0e9; background: #f4f7fa; color: var(--inventory-blue); font-weight: 800; }
 .field .fileInput { padding: 0.48rem; }
 .field .fileInput::file-selector-button {

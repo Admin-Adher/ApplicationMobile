@@ -26,6 +26,7 @@ import { canonicalizeGtin, normalizeBarcodeLookupCode } from '@/lib/inventoryBar
 import {
   EMPTY_INVENTORY_DESTINATION,
   createInventoryDestinationCatalog,
+  inventoryDestinationPolicy,
   inventoryDestinationZones,
   toInventoryMovementDestination,
   transitionInventoryDestination,
@@ -76,6 +77,7 @@ export default function InventoryMovementScreen() {
     ocrDesignation?: string;
   }>();
   const mode = params.mode === 'out' ? 'out' : 'in';
+  const destinationPolicy = inventoryDestinationPolicy(mode);
   const { activeChantier, companies } = useApp();
   const { permissions } = useAuth();
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
@@ -274,7 +276,7 @@ export default function InventoryMovementScreen() {
     if (mode === 'out' && !selectedProduct) return copy.productNotInStock;
     if (!selectedProduct && mode === 'in' && !designation.trim()) return copy.designationRequired;
     if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) return copy.quantityRequired;
-    if (mode === 'out' && !buildingName.trim()) return copy.destinationRequired;
+    if (destinationPolicy.buildingRequired && !buildingName.trim()) return copy.destinationRequired;
     if (insufficient && !(allowNegative && permissions.canAdjustInventory)) return copy.negativeWarning;
     return null;
   }
@@ -463,20 +465,21 @@ export default function InventoryMovementScreen() {
         </View>
 
         <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>{mode === 'in' ? copy.supplier : copy.destination}</Text>
+          <Text style={styles.sectionTitle}>{mode === 'in' ? copy.receiptLogistics : copy.dispatchLogistics}</Text>
+          <Text style={styles.sectionHint}>{mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint}</Text>
           {mode === 'in' && <Field label={copy.supplier} optional={copy.optional}><TextInput style={styles.input} value={supplier} onChangeText={handleSupplierChange} placeholder={copy.supplier} placeholderTextColor={C.textMuted} /></Field>}
-          <Field label={mode === 'in' ? copy.location : copy.destination} optional={mode === 'in' ? copy.optional : undefined}>
+          <Field label={mode === 'in' ? copy.location : copy.exitBuilding} optional={mode === 'in' ? copy.optional : undefined}>
             <TextInput
               style={styles.input}
               value={mode === 'in' ? location : buildingName}
               onChangeText={mode === 'in'
                 ? setLocation
                 : value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))}
-              placeholder={mode === 'in' ? copy.location : copy.destination}
+              placeholder={mode === 'in' ? copy.location : copy.exitBuilding}
               placeholderTextColor={C.textMuted}
             />
           </Field>
-          {mode === 'in' && <Field label={copy.destination} optional={copy.optional}><TextInput style={styles.input} value={buildingName} onChangeText={value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))} placeholder={copy.destination} placeholderTextColor={C.textMuted} /></Field>}
+          {mode === 'in' && <Field label={copy.entryBuilding} optional={destinationPolicy.buildingRequired ? undefined : copy.optional}><TextInput style={styles.input} value={buildingName} onChangeText={value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))} placeholder={copy.entryBuilding} placeholderTextColor={C.textMuted} /></Field>}
           {buildings.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
               {buildings.map(building => (
@@ -537,6 +540,7 @@ const styles = StyleSheet.create({
   scanAgain: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10 }, scanAgainText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 10 },
   sectionCard: { backgroundColor: C.surface, borderRadius: 17, borderWidth: 1, borderColor: C.border, padding: 15, gap: 12 },
   sectionTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 16 },
+  sectionHint: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 12, lineHeight: 18 },
   field: { gap: 6 }, fieldLabelRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }, fieldLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase' }, optional: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 10 },
   input: { minHeight: 47, backgroundColor: C.inputBg, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14 },
   designationInput: { minHeight: 72, paddingTop: 11, paddingBottom: 11 },

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EMPTY_INVENTORY_DESTINATION,
   createInventoryDestinationCatalog,
+  inventoryDestinationPolicy,
   inventoryDestinationZones,
   toInventoryMovementDestination,
   transitionInventoryDestination,
@@ -21,6 +22,10 @@ const hierarchy = [{
 }];
 
 describe('inventory destination model', () => {
+  it('shares one receipt and dispatch requirement policy across adapters', () => {
+    expect(inventoryDestinationPolicy('in')).toEqual({ buildingRequired: false, zoneRequired: false });
+    expect(inventoryDestinationPolicy('out')).toEqual({ buildingRequired: true, zoneRequired: false });
+  });
   it('normalizes array and JSON hierarchies while rejecting malformed values', () => {
     expect(createInventoryDestinationCatalog(hierarchy).buildings).toHaveLength(2);
     expect(createInventoryDestinationCatalog(JSON.stringify(hierarchy)).buildings).toHaveLength(2);

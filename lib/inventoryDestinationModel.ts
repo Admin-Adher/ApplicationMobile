@@ -35,12 +35,23 @@ export type InventoryDestinationIntent =
   | { type: 'select-zone'; zoneId: string }
   | { type: 'edit-zone'; zoneName: string };
 
+export type InventoryMovementDirection = 'in' | 'out';
+
+const INVENTORY_DESTINATION_POLICIES = {
+  in: { buildingRequired: false, zoneRequired: false },
+  out: { buildingRequired: true, zoneRequired: false },
+} as const;
+
 export const EMPTY_INVENTORY_DESTINATION: InventoryDestination = {
   buildingName: '',
   zoneName: '',
   buildingMode: 'catalog',
   zoneMode: 'catalog',
 };
+
+export function inventoryDestinationPolicy(direction: InventoryMovementDirection) {
+  return INVENTORY_DESTINATION_POLICIES[direction];
+}
 
 function nonEmptyString(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
