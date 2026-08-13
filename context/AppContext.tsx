@@ -35,8 +35,8 @@ import { notifyReserveStatusChanged } from '@/lib/email/notifyReserveCreated';
 import { triggerReserveStatusPush } from '@/lib/push/client';
 import { isSameUserName } from '@/lib/mappers';
 import { deletedReservesForUser, visibleReservesForUser } from '@/lib/reserveVisibility';
-import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 import { isManagedMediaRef, resolveMediaRefs } from '@/lib/media';
+import { syncPlansForOffline } from '@/lib/planCache';
 
 export { STANDARD_LOTS } from '@/hooks/queries/useLots';
 export const STATIC_CHANNELS: Channel[] = [];
@@ -271,14 +271,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ));
 
   useEffect(() => {
-    if (Platform.OS === 'web' || !authH.user?.id || authH.isSessionValidationPending) return;
-    const task = InteractionManager.runAfterInteractions(() => {
-      void loadBundledPdfJsSources().catch(() => {});
-    });
-    return () => task.cancel();
-  }, [authH.user?.id, authH.isSessionValidationPending]);
-
-  useEffect(() => {
     if (
       Platform.OS === 'web'
       || !isOnline
@@ -288,17 +280,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ) return;
 
     const refs = chantiersH.sitePlans
-      .filter(plan => plan.chantierId === activeChantierId && isManagedMediaRef(plan.uri))
-      .map(plan => plan.uri as string)
-      .slice(0, 6);
+      .filter(plan => (
+        plan.chantierId === activeChantierId
+        && plan.fileType !== 'dxf'
+        && !plan.deletedAt
+        && !plan.fileDeletedAt
+        && (isManagedMediaRef(plan.uri) || /^https?:\/\//i.test(plan.uri ?? ''))
+      ))
+      .map(plan => plan.uri as string);
     if (refs.length === 0) return;
 
-    // Prime only short-lived, user-scoped URLs. The files themselves remain a
-    // background/offline-cache concern and never block application startup.
+    // Prime the first signed URLs immediately, then make every active chantier
+    // plan durable after current interactions and a short grace period. The
+    // grace lets an explicitly opened plan render before background bandwidth
+    // is consumed; neither task blocks startup.
+    void resolveMediaRefs(refs.slice(0, 6), { cacheDisk: false }).catch(() => {});
+    let syncTimer: ReturnType<typeof setTimeout> | null = null;
     const task = InteractionManager.runAfterInteractions(() => {
-      void resolveMediaRefs(refs, { cacheDisk: false }).catch(() => {});
+      syncTimer = setTimeout(() => {
+        void syncPlansForOffline(refs, { concurrency: 1 }).catch(error => {
+          console.warn('[AppContext] offline plan sync failed:', (error as Error)?.message ?? error);
+        });
+      }, 15_000);
     });
-    return () => task.cancel();
+    return () => {
+      task.cancel();
+      if (syncTimer) clearTimeout(syncTimer);
+    };
   }, [activeChantierId, authH.isSessionValidationPending, authH.user?.id, chantiersH.sitePlans, isOnline]);
 
   useEffect(() => {

@@ -26,7 +26,7 @@ import StatusBadge from '@/components/StatusBadge';
 import { STATUS_CONFIG } from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
-import { resolveMediaRef } from '@/lib/media';
+import { isManagedMediaRef, resolveMediaRef } from '@/lib/media';
 import { genId, formatDateFR } from '@/lib/utils';
 import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
 import { generateAndSendPdfReport } from '@/lib/email/client';
@@ -42,7 +42,6 @@ import BuildingPickerSheet, { type BuildingItem } from '@/components/BuildingPic
 import LevelPickerSheet, { type LevelItem } from '@/components/LevelPickerSheet';
 import { ensurePlanCached } from '@/lib/planCache';
 import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
-import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 import {
   buildReservePhotoStackHtml,
   countLocalOnlyReservePhotos,
@@ -1493,23 +1492,39 @@ export default function PlansScreen() {
   const currentPlan = currentPlanId ? chantierPlanById.get(currentPlanId) ?? null : null;
 
   useEffect(() => {
-    if (Platform.OS === 'web') return;
-    if (!chantierPlans.some(plan => !!plan.uri && isPlanPdf(plan))) return;
-    loadBundledPdfJsSources().catch(() => {});
-  }, [chantierPlans]);
-
-  useEffect(() => {
     if (Platform.OS === 'web' || !currentPlan?.uri || !isPlanPdf(currentPlan)) return;
-    const isRemote = (uri: string) => uri.startsWith('http://') || uri.startsWith('https://');
-    if (!isRemote(currentPlan.uri)) return;
+    const isResolvable = (uri: string) => isManagedMediaRef(uri) || /^https?:\/\//i.test(uri);
+    if (!isResolvable(currentPlan.uri)) return;
+    const activePlan = currentPlan;
+    const activePlanUri = currentPlan.uri;
 
-    const currentIndex = filteredPlans.findIndex(plan => plan.id === currentPlan.id);
+    const currentIndex = filteredPlans.findIndex(plan => plan.id === activePlan.id);
     const adjacentPlans = [filteredPlans[currentIndex - 1], filteredPlans[currentIndex + 1]];
-    adjacentPlans.forEach(plan => {
-      if (plan?.uri && isPlanPdf(plan) && isRemote(plan.uri)) {
-        ensurePlanCached(plan.uri).catch(() => {});
+    let cancelled = false;
+
+    async function waitForActivePlanReady(): Promise<void> {
+      const deadline = Date.now() + 15_000;
+      while (!cancelled && readyPlanIdRef.current !== activePlan.id && Date.now() < deadline) {
+        await new Promise<void>(resolve => setTimeout(resolve, 100));
       }
-    });
+    }
+
+    // Let the viewer win the network while it renders the active plan. Only
+    // after planReady (or a bounded fallback) do durable downloads start, one
+    // at a time: active plan first, then its neighbours.
+    void (async () => {
+      await waitForActivePlanReady();
+      if (cancelled) return;
+      await ensurePlanCached(activePlanUri).catch(() => {});
+      for (const plan of adjacentPlans) {
+        if (cancelled) return;
+        if (plan?.uri && isPlanPdf(plan) && isResolvable(plan.uri)) {
+          await ensurePlanCached(plan.uri).catch(() => {});
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
   }, [currentPlan?.id, currentPlan?.uri, currentPlan?.fileType, filteredPlans]);
 
   const isSousTraitant = user?.role === 'sous_traitant';

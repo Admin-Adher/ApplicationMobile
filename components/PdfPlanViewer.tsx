@@ -11,7 +11,7 @@ import { genId } from '@/lib/utils';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as pdfjsLib from '@/lib/pdfjs';
 import { ensurePlanCached, getCachedPlanUri, getPlanUriForDisplay } from '@/lib/planCache';
-import { planWebViewBaseUrl } from '@/lib/planDisplay';
+import { isResolvablePlanUri, planWebViewBaseUrl } from '@/lib/planDisplay';
 import { getLoadedBundledPdfJsSources, loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 import { getReservePinColor } from '@/lib/planPinColor';
 import { isManagedMediaRef, resolveMediaRef } from '@/lib/media';
@@ -1162,7 +1162,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
   const forcedInlineLocalUri = inlineFallback?.key === fallbackKey ? inlineFallback.localUri : null;
 
   const isLocalUri = planUri.startsWith('file://') || planUri.startsWith('content://');
-  const isRemoteUri = planUri.startsWith('http://') || planUri.startsWith('https://');
+  const isRemoteUri = isResolvablePlanUri(planUri) || isManagedMediaRef(planUri);
   const rememberedResolvedUri = (isLocalUri || isRemoteUri) ? getRememberedResolvedPlanUri(planUri) : null;
   const initialPdfJsSources = isImagePlan ? null : getLoadedBundledPdfJsSources();
   const [resolvedUri, setResolvedUri] = useState<string>(
@@ -1623,7 +1623,15 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
     [resolvedUri, canAnnotate, canCreate, canMovePins, pinSize, isImagePlan, pdfJsSource, pdfJsWorkerSource, mobileCopy],
   );
   const webViewBaseUrl = planWebViewBaseUrl(resolvedUri);
-  const webViewSource = useMemo(() => ({ html, baseUrl: webViewBaseUrl }), [html, webViewBaseUrl]);
+  const webViewSource = useMemo(
+    () => ({
+      html: (!isImagePlan && pdfJsLoading)
+        ? '<!doctype html><html><body style="margin:0;background:#0F1117"></body></html>'
+        : (html || '<!doctype html><html><body style="margin:0;background:#0F1117"></body></html>'),
+      baseUrl: webViewBaseUrl,
+    }),
+    [html, isImagePlan, pdfJsLoading, webViewBaseUrl],
+  );
   const viewerLoading = uriLoading || (!isImagePlan && pdfJsLoading);
 
   function changePage(n: number) {
@@ -1649,10 +1657,9 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
           <Text style={{ color: C.textMuted, fontSize: 12 }}>{t('pdfPlanViewer.preparingPlan')}</Text>
         </View>
       )}
-      {!viewerLoading && resolvedUri ? (
       <WebView
         ref={webViewRef}
-        key={resolvedUri}
+        key={planId}
         // baseUrl gives the WebView a real origin so cross-origin requests
         // (PDF.js worker, CDN script) work even when source is HTML string.
         source={webViewSource}
@@ -1672,7 +1679,6 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
         allowUniversalAccessFromFileURLs
         androidLayerType="hardware"
       />
-      ) : null}
       {offlineUnavailable && !viewerLoading ? (
         <View style={{ position: 'absolute' as any, top: 0, left: 0, right: 0, bottom: 0, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10 }}>
           <Ionicons name="cloud-offline-outline" size={42} color={C.textMuted} />
@@ -1825,7 +1831,7 @@ const MobileViewer = forwardRef<PdfPlanViewerHandle, PdfPlanViewerProps>(functio
 
 const mob = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#0F1117', position: 'relative' as any },
-  previewWrap: { flex: 1, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', gap: 10, overflow: 'hidden' as any },
+  previewWrap: { ...StyleSheet.absoluteFillObject, zIndex: 2, backgroundColor: '#0F1117', alignItems: 'center', justifyContent: 'center', gap: 10, overflow: 'hidden' as any },
   previewImage: { ...StyleSheet.absoluteFillObject, width: '100%', height: '100%', opacity: 0.92 },
   previewShade: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(15,17,23,0.28)' },
   webview: { flex: 1 },

@@ -55,8 +55,15 @@ export async function loadBundledPdfJsSources(): Promise<BundledPdfJsSources> {
     readBundledAsset(PDFJS_MODULE_ASSET, 'PDF.js'),
     readBundledAsset(PDFJS_WORKER_ASSET, 'PDF.js worker'),
   ]).then(([moduleSource, workerSource]) => {
-    loadedBundledPdfJsSources = { moduleSource, workerSource };
-    return loadedBundledPdfJsSources;
+    const sources = { moduleSource, workerSource };
+    // A partial/failed cold read must remain retryable. Caching null sources
+    // forever would silently force the network CDN fallback while offline.
+    if (moduleSource && workerSource) loadedBundledPdfJsSources = sources;
+    else bundledPdfJsSourcesPromise = null;
+    return sources;
+  }).catch(error => {
+    bundledPdfJsSourcesPromise = null;
+    throw error;
   });
 
   return bundledPdfJsSourcesPromise;

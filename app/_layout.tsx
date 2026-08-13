@@ -38,6 +38,7 @@ import ConflictModal from '@/components/ConflictModal';
 import ChantierSwitcherSheet from '@/components/ChantierSwitcherSheet';
 import SessionExpiredModal from '@/components/SessionExpiredModal';
 import MandatoryUpdateGate from '@/components/MandatoryUpdateGate';
+import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
 
 function reloadApp() {
   if (Platform.OS === 'web' && typeof window !== 'undefined') window.location.reload();
@@ -265,6 +266,14 @@ export default function RootLayout() {
   const [timedOut, setTimedOut] = useState(Platform.OS === 'web');
 
   const fontsReady = fontsLoaded || !!fontError || timedOut;
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') {
+      // Static viewer runtime: start during the splash/font window. It neither
+      // needs a user nor a role, and must not sit behind session validation.
+      void loadBundledPdfJsSources().catch(() => {});
+    }
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'web') {

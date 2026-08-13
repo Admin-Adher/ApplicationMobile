@@ -168,12 +168,34 @@ async function resolveMediaRefsWithSession(
 
 export async function resolveMediaRefs(refs: string[], options?: { cacheDisk?: boolean }): Promise<Record<string, string>> {
   const hasManagedRef = refs.some(isManagedMediaRef);
-  const session = hasManagedRef ? await mediaSession() : null;
-  return resolveMediaRefsWithSession(refs, session, options);
+  if (!hasManagedRef) return resolveMediaRefsWithSession(refs, null, options);
+
+  // A private file or still-valid signed URL already scoped to the restored
+  // user is safe to return without refreshing the network session. This is the
+  // critical offline path; only unresolved refs proceed to remote auth.
+  const local = offlineMediaUserId
+    ? await resolveMediaRefsWithSession(refs, { userId: offlineMediaUserId, token: null }, options)
+    : {};
+  const unresolved = refs.filter(ref => isManagedMediaRef(ref) && !local[ref]);
+  if (unresolved.length === 0) return local;
+
+  const session = await mediaSession();
+  const remote = await resolveMediaRefsWithSession(unresolved, session, options);
+  return { ...local, ...remote };
 }
 
 export async function resolveMediaRef(ref: string, options?: { cacheDisk?: boolean }): Promise<string | null> {
   if (!isManagedMediaRef(ref)) return ref;
+
+  if (offlineMediaUserId) {
+    const local = await resolveMediaRefsWithSession(
+      [ref],
+      { userId: offlineMediaUserId, token: null },
+      options,
+    );
+    if (local[ref]) return local[ref];
+  }
+
   const session = await mediaSession();
   if (!session) return null;
   const key = scopedKey(session.userId, ref);

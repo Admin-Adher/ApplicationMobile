@@ -1,7 +1,7 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { currentMediaCacheUserId, resolveMediaRef } from './media';
-import { resolvePlanDisplaySource } from './planDisplay';
+import { currentMediaCacheUserId, isManagedMediaRef, resolveMediaRef, resolveMediaRefs } from './media';
+import { resolvePlanCacheScope, resolvePlanDisplaySource } from './planDisplay';
 import { supabase } from './supabase';
 
 const LEGACY_CACHE_DIR = `${FileSystem.documentDirectory ?? ''}plans_cache/`;
@@ -9,6 +9,7 @@ const CACHE_ROOT = `${FileSystem.documentDirectory ?? ''}plans_cache_v2/`;
 const MAX_CACHE_SIZE = 500 * 1024 * 1024;
 const PLAN_DOWNLOAD_TIMEOUT_MS = 20_000;
 const inFlightDownloads = new Map<string, Promise<{ localUri: string; fromCache: boolean }>>();
+const manifestMutationQueues = new Map<string, Promise<void>>();
 let legacyCleanup: Promise<void> | null = null;
 let cacheGeneration = 0;
 
@@ -25,9 +26,10 @@ type Manifest = {
 };
 
 async function currentUserScope(): Promise<string | null> {
-  const { data } = await supabase.auth.getSession();
-  const userId = data.session?.user?.id ?? currentMediaCacheUserId();
-  return userId && /^[0-9a-f-]{36}$/i.test(userId) ? userId : null;
+  return resolvePlanCacheScope(currentMediaCacheUserId(), async () => {
+    const { data } = await supabase.auth.getSession();
+    return data.session?.user?.id ?? null;
+  });
 }
 
 function cacheDir(scope: string): string {
@@ -113,6 +115,28 @@ async function saveManifest(scope: string, manifest: Manifest): Promise<void> {
     await FileSystem.writeAsStringAsync(manifestPath(scope), JSON.stringify(manifest));
   } catch (error) {
     console.warn('[planCache] saveManifest failed:', error);
+    throw error;
+  }
+}
+
+/** Serializes every read-modify-write cycle for one account's manifest. */
+async function mutateManifest(
+  scope: string,
+  mutate: (manifest: Manifest) => Promise<Manifest | void> | Manifest | void,
+): Promise<void> {
+  const previous = manifestMutationQueues.get(scope) ?? Promise.resolve();
+  const next = previous
+    .catch(() => {})
+    .then(async () => {
+      let manifest = await loadManifest(scope);
+      manifest = (await mutate(manifest)) ?? manifest;
+      await saveManifest(scope, manifest);
+    });
+  manifestMutationQueues.set(scope, next);
+  try {
+    await next;
+  } finally {
+    if (manifestMutationQueues.get(scope) === next) manifestMutationQueues.delete(scope);
   }
 }
 
@@ -139,13 +163,16 @@ async function getCachedPlanUriForScope(scope: string, remoteUrl: string): Promi
   const path = `${cacheDir(scope)}${entry.filename}`;
   const info = await FileSystem.getInfoAsync(path);
   if (!info.exists) {
-    delete manifest.entries[key];
-    await saveManifest(scope, manifest);
+    await mutateManifest(scope, latest => {
+      delete latest.entries[key];
+    });
     return null;
   }
-  entry.lastAccess = Date.now();
+  const lastAccess = Date.now();
   // LRU bookkeeping must not delay an otherwise instant cache hit.
-  void saveManifest(scope, manifest);
+  void mutateManifest(scope, latest => {
+    if (latest.entries[key]) latest.entries[key].lastAccess = lastAccess;
+  }).catch(() => {});
   return path;
 }
 
@@ -171,10 +198,18 @@ async function ensurePlanCachedForScope(
     const destination = `${cacheDir(scope)}${filename}`;
     let result: FileSystem.FileSystemDownloadResult;
     try {
-      result = await withTimeout(
-        FileSystem.downloadAsync(resolvedUrl, destination),
-        'plan download',
-      );
+      if (resolvedUrl.startsWith('file://')) {
+        await withTimeout(
+          FileSystem.copyAsync({ from: resolvedUrl, to: destination }),
+          'plan cache copy',
+        );
+        result = { uri: destination, status: 200, headers: {}, mimeType: null };
+      } else {
+        result = await withTimeout(
+          FileSystem.downloadAsync(resolvedUrl, destination),
+          'plan download',
+        );
+      }
     } catch (error) {
       await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
       throw error;
@@ -190,15 +225,19 @@ async function ensurePlanCachedForScope(
 
     const info = await FileSystem.getInfoAsync(result.uri);
     const size = info.exists && 'size' in info ? Number(info.size) : 0;
-    let manifest = await loadManifest(scope);
-    manifest.entries[key] = {
-      url: remoteUrl,
-      size,
-      lastAccess: Date.now(),
-      filename,
-    };
-    manifest = await evictIfNeeded(scope, manifest);
-    await saveManifest(scope, manifest);
+    await mutateManifest(scope, async manifest => {
+      if (generation !== cacheGeneration) {
+        await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => {});
+        throw new Error('plan cache was cleared before manifest commit');
+      }
+      manifest.entries[key] = {
+        url: remoteUrl,
+        size,
+        lastAccess: Date.now(),
+        filename,
+      };
+      return evictIfNeeded(scope, manifest);
+    });
     return { localUri: result.uri, fromCache: false };
   })();
 
@@ -238,9 +277,60 @@ export async function ensurePlanCached(
   return ensurePlanCachedForScope(scope, remoteUrl);
 }
 
+export type OfflinePlanSyncResult = {
+  total: number;
+  available: number;
+  failed: number;
+};
+
+/**
+ * Makes a chantier's plan files durable with bounded network pressure. Managed
+ * refs are authorized in one batch, then downloaded by at most `concurrency`
+ * workers. The caller controls priority by ordering the input list.
+ */
+export async function syncPlansForOffline(
+  remoteUrls: string[],
+  options?: { concurrency?: number },
+): Promise<OfflinePlanSyncResult> {
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) {
+    return { total: 0, available: 0, failed: 0 };
+  }
+  const scope = await currentUserScope();
+  if (!scope) throw new Error('authenticated session required for plan cache');
+  const accountScope = scope;
+
+  const urls = Array.from(new Set(remoteUrls.filter(Boolean)));
+  if (urls.length === 0) return { total: 0, available: 0, failed: 0 };
+
+  const managedUrls = urls.filter(isManagedMediaRef);
+  const preResolvedUrls = managedUrls.length > 0
+    ? await resolveMediaRefs(managedUrls, { cacheDisk: false }).catch(() => ({} as Record<string, string>))
+    : {};
+  let cursor = 0;
+  let available = 0;
+  let failed = 0;
+  const workerCount = Math.min(Math.max(1, options?.concurrency ?? 2), urls.length);
+
+  async function worker(): Promise<void> {
+    while (cursor < urls.length) {
+      const remoteUrl = urls[cursor++];
+      try {
+        await ensurePlanCachedForScope(accountScope, remoteUrl, preResolvedUrls[remoteUrl]);
+        available += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return { total: urls.length, available, failed };
+}
+
 /**
  * Returns a local plan immediately when available; otherwise returns the
- * authorized short-lived URL and warms the offline cache without awaiting it.
+ * authorized short-lived URL. Durable downloads are owned by the prioritized
+ * screen/project sync queues, avoiding a second competing fetch in this path.
  */
 export async function getPlanUriForDisplay(
   remoteUrl: string,
@@ -255,9 +345,6 @@ export async function getPlanUriForDisplay(
   return resolvePlanDisplaySource(remoteUrl, {
     getCachedUri: () => getCachedPlanUriForScope(scope, remoteUrl).catch(() => null),
     resolveRemoteUri: () => resolveMediaRef(remoteUrl, { cacheDisk: false }),
-    warmCache: (_uri, resolvedUri) => {
-      void ensurePlanCachedForScope(scope, remoteUrl, resolvedUri).catch(() => {});
-    },
   });
 }
 
@@ -267,6 +354,8 @@ export async function clearPlanCache(): Promise<number> {
   try {
     cacheGeneration += 1;
     inFlightDownloads.clear();
+    await Promise.allSettled(Array.from(manifestMutationQueues.values()));
+    manifestMutationQueues.clear();
     let total = 0;
     const scope = await currentUserScope();
     if (scope) {

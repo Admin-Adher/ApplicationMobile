@@ -21,6 +21,7 @@ import i18n from '@/lib/i18n';
 import { ROLE_PERMISSIONS, resolvePermissions } from '@/lib/permissions';
 import { clearMediaDiskCache, setMediaCacheUserId } from '@/lib/media';
 import { clearPlanCache } from '@/lib/planCache';
+import { transitionPrivateCacheOwner } from '@/lib/planDisplay';
 
 export { ROLE_PERMISSIONS, resolvePermissions } from '@/lib/permissions';
 
@@ -335,7 +336,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
-  const privateCacheOwnerRef = useRef<string | null | undefined>(undefined);
+  // Remember the last real owner across the transient `user = null` bootstrap
+  // state. A cold restore of the same account must not look like an account
+  // switch and erase files that were intentionally kept for offline work.
+  const privateCacheOwnerRef = useRef<string | null>(null);
 
   // Keep the React Query persister namespaced by the active user so that the
   // hydrated cache can never bleed across accounts (User A logs out, User B
@@ -348,10 +352,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // every private file when the device changes account or signs out.
   useEffect(() => {
     const nextOwner = user?.id ?? null;
-    const previousOwner = privateCacheOwnerRef.current;
-    privateCacheOwnerRef.current = nextOwner;
     setMediaCacheUserId(nextOwner);
-    if (previousOwner === undefined || previousOwner === nextOwner) return;
+
+    // Explicit logout already clears both stores in logout(). Keeping the last
+    // non-null owner here also protects a transient session loss: A -> null -> A
+    // preserves offline plans, while A -> null -> B still purges A's files.
+    const transition = transitionPrivateCacheOwner(privateCacheOwnerRef.current, nextOwner);
+    privateCacheOwnerRef.current = transition.rememberedOwnerId;
+    if (!transition.shouldClear) return;
     void Promise.allSettled([clearMediaDiskCache(), clearPlanCache()]);
   }, [user?.id]);
 
