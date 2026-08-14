@@ -14,8 +14,11 @@ import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useNetwork } from '@/context/NetworkContext';
 import { useInventory, normalizeInventoryReference } from '@/hooks/queries/useInventory';
+import { shouldBlockInventoryMovementForInsufficientStock } from '@/lib/inventoryMovementOutcome';
 import { persistLocalPhoto } from '@/lib/storage';
+import { isSupabaseConfigured } from '@/lib/supabase';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
 import {
   inventoryBarcodeWebSearchUrl,
@@ -80,6 +83,7 @@ export default function InventoryMovementScreen() {
   const destinationPolicy = inventoryDestinationPolicy(mode);
   const { activeChantier, companies } = useApp();
   const { permissions } = useAuth();
+  const { isOnline } = useNetwork();
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const initialApplied = useRef(false);
   const normalizedInitialCode = normalizeBarcodeLookupCode(params.code ?? '');
@@ -212,6 +216,17 @@ export default function InventoryMovementScreen() {
     ? mode === 'in' ? stockBefore + numericQuantity : stockBefore - numericQuantity
     : stockBefore;
   const insufficient = mode === 'out' && numericQuantity > 0 && projectedStock < 0;
+  const negativeAllowed = allowNegative && permissions.canAdjustInventory;
+  const insufficientBlocksSubmit = mode === 'out' && shouldBlockInventoryMovementForInsufficientStock({
+    stockAfter: projectedStock,
+    negativeAllowed,
+    isOnline,
+    isServerConfigured: isSupabaseConfigured,
+  });
+  const serverWillVerifyStock = insufficient
+    && !negativeAllowed
+    && isOnline
+    && isSupabaseConfigured;
 
   function selectProduct(product: typeof inventory.products[number]) {
     setBarcodeLookup({ status: 'idle' });
@@ -277,7 +292,7 @@ export default function InventoryMovementScreen() {
     if (!selectedProduct && mode === 'in' && !designation.trim()) return copy.designationRequired;
     if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) return copy.quantityRequired;
     if (destinationPolicy.buildingRequired && !buildingName.trim()) return copy.destinationRequired;
-    if (insufficient && !(allowNegative && permissions.canAdjustInventory)) return copy.negativeWarning;
+    if (insufficientBlocksSubmit) return copy.negativeWarning;
     return null;
   }
 
@@ -453,7 +468,7 @@ export default function InventoryMovementScreen() {
           {insufficient && (
             <View style={styles.warningBox}>
               <Ionicons name="warning" size={20} color={C.open} />
-              <View style={{ flex: 1 }}><Text style={styles.warningTitle}>{copy.insufficient}</Text><Text style={styles.warningText}>{copy.negativeWarning}</Text></View>
+              <View style={{ flex: 1 }}><Text style={styles.warningTitle}>{copy.insufficient}</Text><Text style={styles.warningText}>{serverWillVerifyStock ? copy.serverStockCheck : copy.negativeWarning}</Text></View>
             </View>
           )}
           {insufficient && permissions.canAdjustInventory && (

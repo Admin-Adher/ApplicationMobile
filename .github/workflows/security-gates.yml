@@ -90,6 +90,9 @@ jobs:
       - name: Bootstrap disposable Supabase catalogue
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/bootstrap_tenant_isolation.sql
 
+      - name: Apply production inventory module migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260809140643_add_inventory_module.sql
+
       - name: Apply production authority migration
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260810192253_organization_membership_authority.sql
 
@@ -120,5 +123,11 @@ jobs:
       - name: Reconcile the empty legacy DM alias
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260812171000_reconcile_empty_legacy_dm_alias.sql
 
+      - name: Harden inventory operation idempotency
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260814102326_harden_inventory_operation_idempotency.sql
+
       - name: Execute user A x object B matrix
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/tenant_isolation_matrix.sql
+
+      - name: Execute inventory idempotency matrix
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/inventory_operation_idempotency.sql

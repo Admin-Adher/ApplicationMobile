@@ -31,7 +31,7 @@ export default function Header({
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const topPad = insets.top;
-  const { isOnline, queueCount, stuckCount } = useNetwork();
+  const { isOnline, queueCount, stuckCount, attentionCount } = useNetwork();
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const pulseLoop = useRef<Animated.CompositeAnimation | null>(null);
@@ -65,14 +65,15 @@ export default function Header({
     else router.push('/search' as any);
   }
 
-  const dotInteractive = stuckCount > 0 || (!isOnline && queueCount > 0);
+  const hasAttention = attentionCount > 0;
+  const dotInteractive = hasAttention || (!isOnline && queueCount > 0);
   const dotColor = !isOnline
     ? '#EF4444'
-    : stuckCount > 0
+    : hasAttention
     ? '#F59E0B'
     : '#22C55E';
-  const dotExpanded = (!isOnline && queueCount > 0) || stuckCount > 0;
-  const dotCount = !isOnline ? queueCount : stuckCount;
+  const dotExpanded = (!isOnline && queueCount > 0) || hasAttention;
+  const dotCount = hasAttention ? attentionCount : queueCount;
   const showDotCount = dotExpanded && dotCount > 0;
 
   const dotContent = (
@@ -107,8 +108,8 @@ export default function Header({
                 hitSlop={10}
                 accessibilityRole="button"
                 accessibilityLabel={
-                  stuckCount > 0
-                    ? t('accessibility.stuckQueue', { count: stuckCount })
+                  hasAttention
+                    ? t('accessibility.attentionQueue', { count: attentionCount })
                     : t('accessibility.offlineQueue', { count: queueCount })
                 }
               >
@@ -156,8 +157,11 @@ const styles = StyleSheet.create({
     minHeight: 40,
   },
   backBtn: {
-    marginRight: 8,
-    padding: 2,
+    width: 48,
+    height: 48,
+    marginRight: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   titleWrap: {
     flex: 1,

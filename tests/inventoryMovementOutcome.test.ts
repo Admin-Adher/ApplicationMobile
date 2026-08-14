@@ -1,0 +1,302 @@
+import { describe, expect, it } from 'vitest';
+import type { InventoryMovement, InventoryProduct } from '../constants/types';
+import {
+  inventoryOutcomeContextFromQueuedOperation,
+  isTerminalInventoryMovementOutcome,
+  normalizeInventoryMovementOutcome,
+  reconcileInventoryMovementCache,
+  reconcileTerminalInventoryMovementCache,
+  shouldBlockInventoryMovementForInsufficientStock,
+} from '../lib/inventoryMovementOutcome';
+
+const product = (overrides: Partial<InventoryProduct> = {}): InventoryProduct => ({
+  id: 'product-local',
+  organizationId: 'org-1',
+  chantierId: 'chantier-1',
+  reference: 'CEM-001',
+  designation: 'Ciment',
+  currentStock: 10,
+  totalEntries: 10,
+  totalExits: 0,
+  minStock: 2,
+  createdAt: '2026-08-14T08:00:00.000Z',
+  updatedAt: '2026-08-14T08:00:00.000Z',
+  version: 1,
+  ...overrides,
+});
+
+const movement = (overrides: Partial<InventoryMovement> = {}): InventoryMovement => ({
+  id: 'movement-local',
+  operationId: 'operation-1',
+  organizationId: 'org-1',
+  chantierId: 'chantier-1',
+  productId: 'product-local',
+  movementType: 'out',
+  quantity: 3,
+  stockBefore: 10,
+  stockAfter: 7,
+  reference: 'CEM-001',
+  designation: 'Ciment',
+  userName: 'Alex',
+  createdAt: '2026-08-14T09:00:00.000Z',
+  ...overrides,
+});
+
+describe('inventory movement outcomes', () => {
+  it('normalizes the same authoritative row for direct and replay paths', () => {
+    const serverRow = [{
+      status: 'insufficient_stock',
+      message: 'Stock disponible insuffisant.',
+      product_id: 'product-server',
+      movement_id: null,
+      stock_before: '2.5',
+      stock_after: '-0.5',
+    }];
+    const replayContext = inventoryOutcomeContextFromQueuedOperation({
+      id: 'queue-1',
+      queuedAt: '2026-08-14T09:00:00.000Z',
+      rpc: {
+        fn: 'record_inventory_movement',
+        args: {
+          p_operation_id: 'operation-1',
+          p_movement: {
+            id: 'movement-local',
+            chantier_id: 'chantier-1',
+            product_id: 'product-local',
+            movement_type: 'out',
+            quantity: 3,
+            created_at: '2026-08-14T09:00:00.000Z',
+          },
+          p_product: { id: 'product-local', reference: 'CEM-001', designation: 'Ciment' },
+        },
+      },
+    });
+    const directContext = {
+      operationId: 'operation-1',
+      productId: 'product-local',
+      movementId: 'movement-local',
+      direction: 'out' as const,
+      productName: 'Ciment',
+      productReference: 'CEM-001',
+      quantity: 3,
+      chantierId: 'chantier-1',
+      occurredAt: '2026-08-14T09:00:00.000Z',
+    };
+
+    expect(normalizeInventoryMovementOutcome(serverRow, replayContext)).toEqual(
+      normalizeInventoryMovementOutcome(serverRow, directContext),
+    );
+    expect(normalizeInventoryMovementOutcome(serverRow, directContext)).toMatchObject({
+      domain: 'inventory',
+      status: 'insufficient_stock',
+      productId: 'product-server',
+      movementId: 'movement-local',
+      stockBefore: 2.5,
+      stockAfter: -0.5,
+      serverStock: 2.5,
+      direction: 'out',
+      productName: 'Ciment',
+      productReference: 'CEM-001',
+      quantity: 3,
+    });
+  });
+
+  it('applies authoritative success identifiers and stock to the optimistic cache', () => {
+    const currentProduct = product({ currentStock: 7, pendingSync: true });
+    const currentMovement = movement({ pendingSync: true });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'ok',
+      product_id: 'product-server',
+      movement_id: 'movement-server',
+      stock_before: 9,
+      stock_after: 6,
+    }, { productId: currentProduct.id, movementId: currentMovement.id });
+
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: [currentProduct],
+      currentMovements: [currentMovement],
+      previousProducts: [product()],
+      previousMovements: [],
+      optimisticProductId: currentProduct.id,
+      optimisticMovementId: currentMovement.id,
+      outcome,
+    });
+
+    expect(reconciled.product).toMatchObject({ id: 'product-server', currentStock: 6, pendingSync: false });
+    expect(reconciled.movement).toMatchObject({
+      id: 'movement-server',
+      productId: 'product-server',
+      stockBefore: 9,
+      stockAfter: 6,
+      pendingSync: false,
+    });
+  });
+
+  it('restores pre-mutation history and authoritative stock_before on refusal', () => {
+    const previousProduct = product({ currentStock: 4, pendingSync: true });
+    const previousMovement = movement({ id: 'movement-existing', quantity: 1 });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'insufficient_stock',
+      product_id: previousProduct.id,
+      stock_before: 2,
+      stock_after: -1,
+    }, { movementId: 'movement-local' });
+
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: [product({ currentStock: 1, pendingSync: true })],
+      currentMovements: [movement({ pendingSync: true }), previousMovement],
+      previousProducts: [previousProduct],
+      previousMovements: [previousMovement],
+      optimisticProductId: previousProduct.id,
+      optimisticMovementId: 'movement-local',
+      outcome,
+    });
+
+    expect(isTerminalInventoryMovementOutcome(outcome)).toBe(true);
+    expect(reconciled.products).toEqual([expect.objectContaining({ currentStock: 2, pendingSync: true })]);
+    expect(reconciled.movements).toEqual([previousMovement]);
+  });
+
+  it('rolls back a replay refusal before refetch and remains idempotent', () => {
+    const optimisticProduct = product({
+      currentStock: 7,
+      totalEntries: 10,
+      totalExits: 3,
+      pendingSync: true,
+    });
+    const optimisticMovement = movement({
+      operationId: 'operation-replayed',
+      quantity: 3,
+      stockBefore: 10,
+      stockAfter: 7,
+      pendingSync: true,
+    });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'insufficient_stock',
+      product_id: optimisticProduct.id,
+      movement_id: null,
+      stock_before: 8,
+      stock_after: 5,
+    }, {
+      operationId: optimisticMovement.operationId,
+    });
+
+    const firstPass = reconcileTerminalInventoryMovementCache({
+      currentProducts: [optimisticProduct],
+      currentMovements: [optimisticMovement],
+      outcome,
+    });
+    expect(firstPass.changed).toBe(true);
+    expect(firstPass.products).toEqual([expect.objectContaining({
+      currentStock: 10,
+      totalEntries: 10,
+      totalExits: 0,
+    })]);
+    expect(firstPass.movements).toEqual([]);
+
+    const secondPass = reconcileTerminalInventoryMovementCache({
+      currentProducts: firstPass.products,
+      currentMovements: firstPass.movements,
+      outcome,
+    });
+    expect(secondPass.changed).toBe(false);
+    expect(secondPass.products).toEqual(firstPass.products);
+    expect(secondPass.movements).toEqual(firstPass.movements);
+  });
+
+  it('treats duplicate operation mismatches as terminal structured outcomes', () => {
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'duplicate_operation_mismatch',
+      message: 'Operation identifier already used with another payload.',
+      product_id: 'older-server-product',
+      movement_id: 'older-server-movement',
+      stock_before: 99,
+      stock_after: 98,
+    }, {
+      operationId: 'operation-1',
+      productId: 'product-local',
+      movementId: 'movement-local',
+    });
+
+    expect(outcome).toMatchObject({
+      domain: 'inventory',
+      status: 'duplicate_operation_mismatch',
+      operationId: 'operation-1',
+      productId: 'product-local',
+      movementId: 'movement-local',
+    });
+    expect(outcome.stockBefore).toBeUndefined();
+    expect(outcome.stockAfter).toBeUndefined();
+    expect(outcome.serverStock).toBeUndefined();
+    expect(isTerminalInventoryMovementOutcome(outcome)).toBe(true);
+  });
+
+  it('reverses only the rejected delta when later optimistic movements exist', () => {
+    const rejected = movement({
+      id: 'movement-rejected',
+      operationId: 'operation-rejected',
+      movementType: 'out',
+      quantity: 3,
+      stockBefore: 10,
+      stockAfter: 7,
+      pendingSync: true,
+    });
+    const laterPending = movement({
+      id: 'movement-later',
+      operationId: 'operation-later',
+      movementType: 'out',
+      quantity: 2,
+      stockBefore: 7,
+      stockAfter: 5,
+      pendingSync: true,
+    });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'insufficient_stock',
+      stock_before: 8,
+      stock_after: 5,
+    }, {
+      operationId: rejected.operationId,
+      productId: rejected.productId,
+      movementId: rejected.id,
+    });
+
+    const reconciled = reconcileTerminalInventoryMovementCache({
+      currentProducts: [product({ currentStock: 5, totalExits: 5 })],
+      currentMovements: [laterPending, rejected],
+      outcome,
+    });
+
+    expect(reconciled.products).toEqual([expect.objectContaining({
+      currentStock: 8,
+      totalExits: 2,
+    })]);
+    expect(reconciled.movements).toEqual([laterPending]);
+  });
+
+  it('lets the server decide against stale stock while online', () => {
+    expect(shouldBlockInventoryMovementForInsufficientStock({
+      stockAfter: -2,
+      negativeAllowed: false,
+      isOnline: true,
+      isServerConfigured: true,
+    })).toBe(false);
+    expect(shouldBlockInventoryMovementForInsufficientStock({
+      stockAfter: -2,
+      negativeAllowed: false,
+      isOnline: false,
+      isServerConfigured: true,
+    })).toBe(true);
+    expect(shouldBlockInventoryMovementForInsufficientStock({
+      stockAfter: -2,
+      negativeAllowed: false,
+      isOnline: true,
+      isServerConfigured: false,
+    })).toBe(true);
+    expect(shouldBlockInventoryMovementForInsufficientStock({
+      stockAfter: -2,
+      negativeAllowed: true,
+      isOnline: false,
+      isServerConfigured: true,
+    })).toBe(false);
+  });
+});

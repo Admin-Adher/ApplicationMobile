@@ -44,8 +44,10 @@ describe('site plan write policy', () => {
 
   it('persists the complete snapshot after both online and replayed guarded replacements', () => {
     const repositoryRoot = resolve(import.meta.dirname, '..');
-    const hook = readFileSync(resolve(repositoryRoot, 'hooks/queries/useChantiers.ts'), 'utf8');
-    const network = readFileSync(resolve(repositoryRoot, 'context/NetworkContext.tsx'), 'utf8');
+    const hook = readFileSync(resolve(repositoryRoot, 'hooks/queries/useChantiers.ts'), 'utf8')
+      .replace(/\r\n/g, '\n');
+    const network = readFileSync(resolve(repositoryRoot, 'context/NetworkContext.tsx'), 'utf8')
+      .replace(/\r\n/g, '\n');
 
     expect(hook).toContain(".rpc('replace_site_plan_file_safely'");
     expect(hook).toContain('.update(latest.retryPayload)');

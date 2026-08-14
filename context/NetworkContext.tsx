@@ -8,14 +8,20 @@ import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_U
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestRpc, supabaseRestSelect } from '@/lib/supabaseRest';
 import { isSessionExpired } from '@/lib/sessionExpiry';
-import { forceRefreshSession, getSessionFromStorage, writeCache } from '@/lib/offlineCache';
+import {
+  commitCachePairWithJournalStrict,
+  forceRefreshSession,
+  getSessionFromStorage,
+  readCacheStrict,
+  writeCache,
+} from '@/lib/offlineCache';
 import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
 import { triggerMessagePush, triggerReserveCreatedPush } from '@/lib/push/client';
-import type { Comment, Reserve } from '@/constants/types';
+import type { Comment, InventoryMovement, InventoryProduct, Reserve } from '@/constants/types';
 import {
   applyReservePatchOperation,
   buildRequestHash,
@@ -30,11 +36,21 @@ import {
   hasReplayableQueuedOperations,
   inventoryOutcomeTranslationKey,
   isReplayableQueuedOperation,
+  type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
 import {
   coalesceQueuedOperations,
   migrateAndCoalesceSitePlanSnapshots,
 } from '@/lib/offlineQueueCoalescing';
+import {
+  inventoryMovementsCacheKey,
+  inventoryOutcomeContextFromQueuedOperation,
+  inventoryProductsCacheKey,
+  isTerminalInventoryMovementOutcome,
+  normalizeInventoryMovementOutcome,
+  reconcileTerminalInventoryMovementCache,
+  type InventoryMovementOutcome,
+} from '@/lib/inventoryMovementOutcome';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
@@ -204,6 +220,90 @@ export interface QueuedOperation {
   /** Terminal failures stay visible but are not replayed automatically. */
   terminal?: boolean;
   terminalStatus?: string;
+  /** Structured server result persisted for domain-aware acknowledgement UX. */
+  terminalOutcome?: SyncQueueTerminalOutcome;
+}
+
+/**
+ * Roll back a terminal inventory movement in both React Query and the durable
+ * offline snapshots. This runs inside the queue engine, so acknowledgement in
+ * Settings cannot discard the only reconciliation evidence before an inventory
+ * screen happens to mount.
+ */
+async function reconcileTerminalInventoryOperationCache(
+  operation: QueuedOperation,
+  outcome: SyncQueueTerminalOutcome,
+  userId: string | undefined,
+): Promise<boolean> {
+  if (operation.rpc?.fn !== 'record_inventory_movement' || outcome.domain !== 'inventory') return false;
+  if (!userId) throw new Error('Authenticated user required for inventory cache reconciliation.');
+
+  const context = inventoryOutcomeContextFromQueuedOperation(operation);
+  const chantierId = outcome.chantierId ?? context.chantierId;
+  if (!chantierId) throw new Error('Chantier required for inventory cache reconciliation.');
+
+  const productsStorageKey = inventoryProductsCacheKey(chantierId);
+  const movementsStorageKey = inventoryMovementsCacheKey(chantierId);
+  const reconciliationJournalKey = [
+    'buildtrack_inventory_terminal_reconciliation_v1',
+    chantierId,
+    outcome.operationId ?? operation.id,
+  ].join('_');
+  const productsQueryKey = queryKeys.inventoryProducts(chantierId);
+  const movementsQueryKey = queryKeys.inventoryMovements(chantierId);
+  const typedOutcome = outcome as InventoryMovementOutcome;
+
+  const [storedProducts, storedMovements] = await Promise.all([
+    readCacheStrict<InventoryProduct>(productsStorageKey, userId),
+    readCacheStrict<InventoryMovement>(movementsStorageKey, userId),
+  ]);
+  const persisted = reconcileTerminalInventoryMovementCache({
+    currentProducts: storedProducts ?? [],
+    currentMovements: storedMovements ?? [],
+    outcome: typedOutcome,
+  });
+
+  const queryProducts = queryClient.getQueryData<InventoryProduct[]>(productsQueryKey);
+  const queryMovements = queryClient.getQueryData<InventoryMovement[]>(movementsQueryKey);
+  const queried = reconcileTerminalInventoryMovementCache({
+    currentProducts: queryProducts ?? storedProducts ?? [],
+    currentMovements: queryMovements ?? storedMovements ?? [],
+    outcome: typedOutcome,
+  });
+
+  if (queried.changed || persisted.changed) {
+    const hasQuerySnapshot = queryProducts !== undefined || queryMovements !== undefined;
+    if (queried.changed || !hasQuerySnapshot) {
+      const visible = queried.changed ? queried : persisted;
+      queryClient.setQueryData(productsQueryKey, visible.products);
+      queryClient.setQueryData(movementsQueryKey, visible.movements);
+    }
+  }
+
+  const hasCompleteQuerySnapshot = queryProducts !== undefined && queryMovements !== undefined;
+  const durable = hasCompleteQuerySnapshot && !queried.changed
+    ? queried
+    : persisted.changed
+      ? persisted
+      : queried;
+  const committed = await commitCachePairWithJournalStrict({
+    journalKey: reconciliationJournalKey,
+    firstKey: productsStorageKey,
+    firstData: durable.products,
+    secondKey: movementsStorageKey,
+    secondData: durable.movements,
+    userId,
+  });
+
+  // A resumed journal is the authoritative target for the interrupted commit.
+  // Replace the potentially half-hydrated visible pair with that same atomic
+  // target; the normal post-sync refetch then brings in any newer server data.
+  if (committed.resumed) {
+    queryClient.setQueryData(productsQueryKey, committed.firstData);
+    queryClient.setQueryData(movementsQueryKey, committed.secondData);
+  }
+
+  return queried.changed || persisted.changed || committed.resumed;
 }
 
 export type SyncStatus = 'idle' | 'syncing' | 'conflict' | 'done' | 'error';
@@ -215,6 +315,8 @@ interface NetworkContextValue {
   queueCount: number;
   /** Number of deterministic server rejections kept only for user acknowledgement. */
   rejectedCount: number;
+  /** Rejected plus non-terminal stuck operations, without double-counting. */
+  attentionCount: number;
   /**
    * Number of queued operations that have failed ≥ 3 times and are considered
    * "stuck" — they need manual attention (retry or clear) in Settings.
@@ -256,6 +358,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   queue: [],
   queueCount: 0,
   rejectedCount: 0,
+  attentionCount: 0,
   stuckCount: 0,
   queueLoaded: true,
   syncStatus: 'idle',
@@ -1160,7 +1263,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Helper: re-queue an op while attaching the latest error message and
     // bumping its attempt counter so the user can see in the UI why it stays
     // stuck after each retry.
-    const fail = (op: QueuedOperation, err: any, options?: { terminalStatus?: string }) => {
+    const fail = (
+      op: QueuedOperation,
+      err: any,
+      options?: { terminalStatus?: string; terminalOutcome?: SyncQueueTerminalOutcome },
+    ) => {
       let msg: string;
       if (!err) msg = i18n.t('networkQueue.unknownError');
       else if (typeof err === 'string') msg = err;
@@ -1177,8 +1284,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         ...op,
         lastError: msg,
         attemptCount: (op.attemptCount ?? 0) + 1,
-        terminal: Boolean(options?.terminalStatus) || op.terminal,
-        terminalStatus: options?.terminalStatus ?? op.terminalStatus,
+        terminal: Boolean(options?.terminalStatus || options?.terminalOutcome) || op.terminal,
+        terminalStatus: options?.terminalOutcome?.status ?? options?.terminalStatus ?? op.terminalStatus,
+        terminalOutcome: options?.terminalOutcome ?? op.terminalOutcome,
       });
 
       if (!circuitOpened && isAuthenticationSyncFailure(err)) {
@@ -1314,7 +1422,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           } else if (op.rpc.fn === 'record_inventory_movement') {
             const rawProduct = (args.p_product ?? op.data) as Record<string, any> | undefined;
             if (!args.p_operation_id || !args.p_movement || !rawProduct?.id) {
-              fail(op, 'Mouvement de stock invalide : opération, mouvement ou produit manquant.', { terminalStatus: 'invalid_payload' });
+              const terminalOutcome = normalizeInventoryMovementOutcome(
+                { status: 'invalid_payload', message: 'Mouvement de stock invalide : opération, mouvement ou produit manquant.' },
+                inventoryOutcomeContextFromQueuedOperation(op),
+              );
+              await reconcileTerminalInventoryOperationCache(op, terminalOutcome, userId).catch(error => {
+                console.warn('[inventory] terminal cache reconciliation failed:', (error as any)?.message ?? error);
+              });
+              fail(op, terminalOutcome.message, { terminalOutcome });
               continue;
             }
             const prep = await withTimeoutMs(
@@ -1332,7 +1447,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           } else if (op.rpc.fn === 'update_inventory_product') {
             const rawPatch = (args.p_patch ?? op.data) as Record<string, any> | undefined;
             if (!args.p_product_id || !rawPatch) {
-              fail(op, 'Modification produit invalide : produit ou données manquantes.', { terminalStatus: 'invalid_payload' });
+              const terminalOutcome = normalizeInventoryMovementOutcome(
+                { status: 'invalid_payload', message: 'Modification produit invalide : produit ou données manquantes.' },
+                inventoryOutcomeContextFromQueuedOperation(op),
+              );
+              fail(op, terminalOutcome.message, { terminalOutcome });
               continue;
             }
             const prep = await withTimeoutMs(
@@ -1454,17 +1573,27 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             triggerReserveCreatedPush(reserveId);
           }
           else if (op.rpc.fn === 'record_inventory_movement' || op.rpc.fn === 'update_inventory_product') {
-            const outcome = Array.isArray(rpcData) ? rpcData[0] : rpcData;
-            if (!outcome || outcome.status !== 'ok') {
-              const terminalStatus = outcome?.status ?? 'server_rejected';
-              const fallbackMessage = outcome?.message ?? outcome?.status ?? 'Opération de stock refusée.';
-              const translationKey = inventoryOutcomeTranslationKey(terminalStatus);
+            const terminalOutcome = normalizeInventoryMovementOutcome(
+              rpcData,
+              inventoryOutcomeContextFromQueuedOperation(retryRpcOp),
+            );
+            if (isTerminalInventoryMovementOutcome(terminalOutcome)) {
+              const fallbackMessage = terminalOutcome.message ?? terminalOutcome.status ?? 'Opération de stock refusée.';
+              const translationKey = inventoryOutcomeTranslationKey({
+                ...retryRpcOp,
+                terminal: true,
+                terminalStatus: terminalOutcome.status,
+                terminalOutcome,
+              });
+              await reconcileTerminalInventoryOperationCache(retryRpcOp, terminalOutcome, userId).catch(error => {
+                console.warn('[inventory] terminal cache reconciliation failed:', (error as any)?.message ?? error);
+              });
               fail(
                 retryRpcOp,
                 translationKey
                   ? i18n.t(translationKey as any, { defaultValue: fallbackMessage })
                   : fallbackMessage,
-                { terminalStatus },
+                { terminalOutcome },
               );
             } else {
               const chantierId = args.p_movement?.chantier_id;
@@ -2183,6 +2312,29 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const rejected = queueRef.current.filter(operation => operation.terminal);
     if (rejected.length === 0) return;
 
+    // Final safeguard for outcomes created by an older app session: reconcile
+    // the durable inventory cache before removing the acknowledgement record.
+    for (const operation of rejected) {
+      if (operation.rpc?.fn !== 'record_inventory_movement') continue;
+      const terminalOutcome = operation.terminalOutcome?.domain === 'inventory'
+        ? operation.terminalOutcome
+        : normalizeInventoryMovementOutcome(
+            {
+              status: operation.terminalStatus ?? 'server_rejected',
+              message: operation.lastError,
+            },
+            inventoryOutcomeContextFromQueuedOperation(operation),
+          );
+      try {
+        await reconcileTerminalInventoryOperationCache(operation, terminalOutcome, userId);
+      } catch (error) {
+        console.warn('[inventory] acknowledgement cache reconciliation failed:', (error as any)?.message ?? error);
+        // Keep the terminal outcome visible. Removing it here would discard the
+        // only automatic repair evidence while the durable cache is still stale.
+        throw error;
+      }
+    }
+
     await backupQueue(rejected, 'dismiss-rejected');
     const next = queueRef.current.filter(operation => !operation.terminal);
     queueRef.current = next;
@@ -2191,7 +2343,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     setSyncStatus('idle');
     void refetchActiveQueries('rejected-operations-dismissed');
     if (hasReplayableQueuedOperations(next)) scheduleSync();
-  }, [backupQueue, saveQueue, scheduleSync]);
+  }, [backupQueue, saveQueue, scheduleSync, userId]);
 
   const registerReloadHandler = useCallback((fn: () => void) => {
     reloadHandlerRef.current = fn;
@@ -2217,6 +2369,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       queue,
       queueCount: queueCounts.pending,
       rejectedCount: queueCounts.rejected,
+      attentionCount: queueCounts.attention,
       stuckCount: queueCounts.stuck,
       queueLoaded,
       syncStatus,

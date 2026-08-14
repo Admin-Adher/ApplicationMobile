@@ -276,8 +276,7 @@ function namespacedKey(key: string, userId?: string): string {
 
 export async function readCache<T>(key: string, userId?: string): Promise<T[] | null> {
   try {
-    const raw = await AsyncStorage.getItem(namespacedKey(key, userId));
-    return raw ? JSON.parse(raw) : null;
+    return await readCacheStrict<T>(key, userId);
   } catch {
     return null;
   }
@@ -285,10 +284,99 @@ export async function readCache<T>(key: string, userId?: string): Promise<T[] | 
 
 export async function writeCache<T>(key: string, data: T[], userId?: string): Promise<void> {
   try {
-    await AsyncStorage.setItem(namespacedKey(key, userId), JSON.stringify(data));
+    await writeCacheStrict(key, data, userId);
   } catch {
     // Storage full or unavailable — silently ignore
   }
+}
+
+/**
+ * Cache variants for correctness-critical writes. Unlike the offline-first
+ * helpers above, these deliberately propagate parse and storage errors so a
+ * caller cannot acknowledge an operation before its durable snapshot is safe.
+ */
+export async function readCacheStrict<T>(key: string, userId?: string): Promise<T[] | null> {
+  const raw = await AsyncStorage.getItem(namespacedKey(key, userId));
+  return raw ? JSON.parse(raw) : null;
+}
+
+export async function writeCacheStrict<T>(
+  key: string,
+  data: T[],
+  userId?: string,
+): Promise<void> {
+  await AsyncStorage.setItem(namespacedKey(key, userId), JSON.stringify(data));
+}
+
+export async function removeCacheStrict(key: string, userId?: string): Promise<void> {
+  await AsyncStorage.removeItem(namespacedKey(key, userId));
+}
+
+interface CachePairJournal<TFirst, TSecond> {
+  version: 1;
+  firstKey: string;
+  secondKey: string;
+  firstData: TFirst[];
+  secondData: TSecond[];
+}
+
+/**
+ * Durably commits two cache snapshots through a write-ahead journal.
+ *
+ * AsyncStorage cannot atomically update two independent keys. The journal is
+ * therefore persisted first and retained until both writes succeed. A retry
+ * always replays the original targets from that journal, even when only one of
+ * the cache writes completed, so a relative reconciliation cannot run twice.
+ */
+export async function commitCachePairWithJournalStrict<TFirst, TSecond>(input: {
+  journalKey: string;
+  firstKey: string;
+  firstData: TFirst[];
+  secondKey: string;
+  secondData: TSecond[];
+  userId?: string;
+}): Promise<{ firstData: TFirst[]; secondData: TSecond[]; resumed: boolean }> {
+  const existingEntries = await readCacheStrict<CachePairJournal<TFirst, TSecond>>(
+    input.journalKey,
+    input.userId,
+  );
+  const existing = existingEntries?.[0];
+  if (
+    existing
+    && (
+      existing.version !== 1
+      || existing.firstKey !== input.firstKey
+      || existing.secondKey !== input.secondKey
+      || !Array.isArray(existing.firstData)
+      || !Array.isArray(existing.secondData)
+    )
+  ) {
+    throw new Error('Invalid cache reconciliation journal.');
+  }
+
+  const journal: CachePairJournal<TFirst, TSecond> = existing ?? {
+    version: 1,
+    firstKey: input.firstKey,
+    secondKey: input.secondKey,
+    firstData: input.firstData,
+    secondData: input.secondData,
+  };
+
+  if (!existing) {
+    await writeCacheStrict(input.journalKey, [journal], input.userId);
+  }
+
+  // Keep these sequential. The journal makes either partial-write boundary
+  // recoverable and is only removed after both snapshots are durable.
+  await writeCacheStrict(journal.firstKey, journal.firstData, input.userId);
+  await writeCacheStrict(journal.secondKey, journal.secondData, input.userId);
+  await removeCacheStrict(input.journalKey, input.userId);
+
+  return {
+    firstData: journal.firstData,
+    secondData: journal.secondData,
+    resumed: Boolean(existing),
+  };
 }
 
 /**

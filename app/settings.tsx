@@ -24,7 +24,12 @@ import { useNetwork } from '@/context/NetworkContext';
 import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
 import { usePushNotifications } from '@/context/PushNotificationsContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { inventoryOutcomeTranslationKey } from '@/lib/syncQueuePolicy';
+import {
+  getSyncQueueOperationDomain,
+  inventoryOutcomeTranslationKey,
+  type SyncQueueTerminalOutcome,
+} from '@/lib/syncQueuePolicy';
+import type { QueuedOperation } from '@/context/NetworkContext';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
   const groups: Record<string, AttendanceRecord[]> = {};
@@ -73,11 +78,66 @@ const STATUS_COLORS = {
 const DIAGNOSTIC_SDK_TIMEOUT_MS = 8000;
 const DIAGNOSTIC_REST_FAST_TIMEOUT_MS = 5000;
 
+type InventoryQueueSummary = {
+  direction: 'in' | 'out' | 'update';
+  productName?: string;
+  productReference?: string;
+  quantity?: number;
+  unit?: string;
+  chantierId?: string;
+  chantierName?: string;
+  occurredAt: string;
+  serverStock?: number;
+};
+
+function firstText(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value.trim();
+  }
+  return undefined;
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const numeric = typeof value === 'number' ? value : Number(value);
+    if (Number.isFinite(numeric)) return numeric;
+  }
+  return undefined;
+}
+
+function inventoryQueueSummary(operation: QueuedOperation): InventoryQueueSummary | null {
+  const outcome: Partial<SyncQueueTerminalOutcome> = operation.terminalOutcome ?? {};
+  const args = operation.rpc?.args ?? {};
+  const movement = (args.p_movement ?? {}) as Record<string, any>;
+  const product = (args.p_product ?? operation.data ?? {}) as Record<string, any>;
+  if (getSyncQueueOperationDomain(operation) !== 'inventory') return null;
+
+  const rawDirection = firstText(outcome.direction, movement.movement_type);
+  const direction: InventoryQueueSummary['direction'] = rawDirection === 'out'
+    ? 'out'
+    : rawDirection === 'in'
+      ? 'in'
+      : 'update';
+
+  return {
+    direction,
+    productName: firstText(outcome.productName, product.designation, product.name),
+    productReference: firstText(outcome.productReference, movement.reference, product.reference),
+    quantity: firstNumber(outcome.quantity, movement.quantity),
+    unit: firstText(outcome.unit, product.unit),
+    chantierId: firstText(outcome.chantierId, movement.chantier_id),
+    chantierName: firstText(outcome.chantierName),
+    occurredAt: firstText(outcome.occurredAt, movement.created_at, operation.queuedAt) ?? operation.queuedAt,
+    serverStock: firstNumber(outcome.serverStock, outcome.stockAfter),
+  };
+}
+
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const { projectName, projectDescription, setProjectName, setProjectDescription, attendanceHistory, saveAttendanceSnapshot, clearAttendanceHistory, defaultArrivalTime, setDefaultArrivalTime, standardDayHours, setStandardDayHours } = useSettings();
-  const { companies } = useApp();
+  const { companies, chantiers } = useApp();
   const { user, logout, permissions, reconnectExpiredSession } = useAuth();
   const { organization, plan, subscription, seatUsed, seatMax } = useSubscription();
   const {
@@ -93,6 +153,9 @@ export default function SettingsScreen() {
     retrySync,
   } = useNetwork();
   const totalQueueCount = queue.length;
+  const rejectedOperations = queue.filter(operation => operation.terminal);
+  const rejectedInventoryCount = rejectedOperations.filter(operation => inventoryQueueSummary(operation) !== null).length;
+  const rejectedNonInventoryCount = rejectedCount - rejectedInventoryCount;
   // Stuck operations whose error points to an expired/invalid session: writes
   // went out with the read-only anon key and RLS rejected them. The cure is a
   // fresh login, not a retry — so we surface a "reconnect" affordance.
@@ -107,9 +170,10 @@ export default function SettingsScreen() {
       || e.includes('row-level security')
       || e.includes('401');
   });
-  const queueErrorText = (terminalStatus?: string, fallback?: string) => {
-    const key = inventoryOutcomeTranslationKey(terminalStatus);
-    return key ? t(key as any, { defaultValue: fallback ?? '' }) : fallback;
+  const queueErrorText = (operation: QueuedOperation) => {
+    const fallback = operation.terminalOutcome?.message ?? operation.lastError ?? '';
+    const key = inventoryOutcomeTranslationKey(operation);
+    return key ? t(key as any, { defaultValue: fallback }) : fallback;
   };
   const { preferences: notifPrefs, updatePreferences, isLoading: notifLoading, lastError: notifError } = useNotificationPreferences();
   const { expoPushToken, permissionStatus, lastError: pushError, retryRegistration: retryPushRegistration } = usePushNotifications();
@@ -160,6 +224,8 @@ export default function SettingsScreen() {
   } | null;
   const [diag, setDiag] = useState<DiagState>(null);
   const [diagOpen, setDiagOpen] = useState(false);
+  const [diagTechnicalOpen, setDiagTechnicalOpen] = useState(false);
+  const [expandedOperationIds, setExpandedOperationIds] = useState<Set<string>>(() => new Set());
 
   useEffect(() => {
     if (totalQueueCount > 0 && !diagOpen) {
@@ -340,6 +406,15 @@ export default function SettingsScreen() {
     }
   }
 
+  function toggleOperationDetails(operationId: string) {
+    setExpandedOperationIds(previous => {
+      const next = new Set(previous);
+      if (next.has(operationId)) next.delete(operationId);
+      else next.add(operationId);
+      return next;
+    });
+  }
+
   const diagIssues: { level: 'error' | 'warn'; msg: string }[] = [];
   if (diag && !diag.loading && !diag.error) {
     const allowedRoles = ['admin', 'conducteur', 'chef_equipe', 'magasinier', 'super_admin'];
@@ -359,19 +434,8 @@ export default function SettingsScreen() {
       diagIssues.push({ level: 'error', msg: t('settings.diagnostic.sessionExpired') });
     }
   }
-  if (queueCount > 0) {
-    diagIssues.push({
-      level: 'warn',
-      msg: t(isOnline ? 'settings.syncQueue.pending' : 'settings.syncQueue.pendingOffline', { count: queueCount }),
-    });
-  }
-  if (rejectedCount > 0) {
-    diagIssues.push({
-      level: 'warn',
-      msg: t('settings.syncQueue.rejected', { count: rejectedCount }),
-    });
-  }
-  const diagOk = diag && !diag.loading && !diag.error && diagIssues.length === 0;
+  const diagnosticProblemCount = diagIssues.length + (totalQueueCount > 0 ? 1 : 0);
+  const diagOk = diag && !diag.loading && !diag.error && diagnosticProblemCount === 0;
   type NotificationBooleanKey = NonNullable<{
     [K in keyof NotificationPreferences]: NotificationPreferences[K] extends boolean ? K : never
   }[keyof NotificationPreferences]>;
@@ -536,11 +600,14 @@ export default function SettingsScreen() {
       [
         { text: t('common.cancel'), style: 'cancel' },
         {
-          text: t('settings.syncQueue.dismissRejectedAction'),
-          style: 'destructive',
+          text: t('settings.syncQueue.dismissRejectedAction', { count: rejectedCount }),
           onPress: async () => {
-            await dismissRejectedOperations();
-            showAlert(t('settings.syncQueue.dismissedTitle'), t('settings.syncQueue.dismissedText'));
+            try {
+              await dismissRejectedOperations();
+              showAlert(t('settings.syncQueue.dismissedTitle'), t('settings.syncQueue.dismissedText'));
+            } catch {
+              showAlert(t('settings.syncQueue.dismissFailedTitle'), t('settings.syncQueue.dismissFailedText'));
+            }
           },
         },
       ],
@@ -675,7 +742,16 @@ export default function SettingsScreen() {
       />
 
       <PageContainer maxWidth={820}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabScroll} contentContainerStyle={styles.tabRow}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator
+        persistentScrollbar
+        style={styles.tabScroll}
+        contentContainerStyle={styles.tabRow}
+        accessibilityRole="tablist"
+        accessibilityLabel={t('settings.tabsLabel')}
+        accessibilityHint={t('settings.tabsScrollHint')}
+      >
         {[
           { key: 'compte',       icon: 'person-circle-outline', label: t('settings.account'),          nav: false },
           { key: 'notifications', icon: 'notifications-outline', label: t('settings.notifications'),   nav: false },
@@ -690,8 +766,11 @@ export default function SettingsScreen() {
             key={tab.key}
             style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]}
             onPress={() => tab.nav ? router.push('/subscription') : setActiveTab(tab.key as any)}
+            accessibilityRole="tab"
+            accessibilityLabel={tab.label}
+            accessibilityState={{ selected: activeTab === tab.key }}
           >
-            <Ionicons name={tab.icon as any} size={14} color={activeTab === tab.key ? C.primary : C.textMuted} />
+            <Ionicons name={tab.icon as any} size={16} color={activeTab === tab.key ? C.primary : C.textSub} />
             <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
           </TouchableOpacity>
         ))}
@@ -933,12 +1012,19 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity style={styles.navRow} onPress={toggleDiag}>
-              <View style={[styles.navIcon, { backgroundColor: diag?.loading ? C.primaryBg : diagOk ? '#ECFDF5' : (diag && (diag.error || diagIssues.length > 0) ? '#FEF2F2' : '#F3F4F6') }]}>
+            <TouchableOpacity
+              style={styles.navRow}
+              onPress={toggleDiag}
+              accessibilityRole="button"
+              accessibilityLabel={t('settings.diagnostic.title')}
+              accessibilityHint={t(diagOpen ? 'settings.diagnostic.collapseHint' : 'settings.diagnostic.expandHint')}
+              accessibilityState={{ expanded: diagOpen }}
+            >
+              <View style={[styles.navIcon, { backgroundColor: diag?.loading ? C.primaryBg : diagOk ? '#ECFDF5' : (diag && (diag.error || diagnosticProblemCount > 0) ? '#FFFBEB' : '#F3F4F6') }]}>
                 <Ionicons
-                  name={diag?.loading ? 'sync' : diagOk ? 'checkmark-circle' : (diag && (diag.error || diagIssues.length > 0) ? 'warning' : 'pulse-outline')}
+                  name={diag?.loading ? 'sync' : diagOk ? 'checkmark-circle' : (diag && (diag.error || diagnosticProblemCount > 0) ? 'warning' : 'pulse-outline')}
                   size={18}
-                  color={diag?.loading ? C.primary : diagOk ? '#10B981' : (diag && (diag.error || diagIssues.length > 0) ? '#EF4444' : C.textMuted)}
+                  color={diag?.loading ? C.primary : diagOk ? '#10B981' : (diag && (diag.error || diagnosticProblemCount > 0) ? '#B45309' : C.textSub)}
                 />
               </View>
               <View style={{ flex: 1 }}>
@@ -947,7 +1033,7 @@ export default function SettingsScreen() {
                   {diag?.loading ? t('settings.diagnostic.checking')
                     : diagOk ? t('settings.diagnostic.allSynced')
                     : diag?.error ? diag.error
-                    : diag && diagIssues.length > 0 ? t('settings.diagnostic.problemCount', { count: diagIssues.length })
+                    : diag && diagnosticProblemCount > 0 ? t('settings.diagnostic.problemCount', { count: diagnosticProblemCount })
                     : t('settings.diagnostic.checkConsistency')}
                 </Text>
               </View>
@@ -957,54 +1043,18 @@ export default function SettingsScreen() {
             {diagOpen && (
               <View style={[styles.card, { marginTop: 8 }]}>
                 {diag?.loading && (
-                  <Text style={styles.emptyText}>{t('settings.diagnostic.checking')}</Text>
+                  <Text style={styles.emptyText} accessibilityLiveRegion="polite">{t('settings.diagnostic.checking')}</Text>
                 )}
                 {diag && !diag.loading && (
                   <>
-                    <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>{t('settings.diagnostic.userId')}</Text>
-                      <Text style={styles.diagValue} numberOfLines={1}>{user?.id ?? '—'}</Text>
-                    </View>
-                    <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>{t('settings.diagnostic.localRole')}</Text>
-                      <Text style={styles.diagValue}>{user?.role ?? '—'}</Text>
-                    </View>
-                    <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>{t('settings.diagnostic.serverRole')}</Text>
-                      <Text style={styles.diagValue}>{diag.serverRole ?? '—'}</Text>
-                    </View>
-                    <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>{t('settings.diagnostic.localOrg')}</Text>
-                      <Text style={styles.diagValue} numberOfLines={1}>{user?.organizationId ?? '—'}</Text>
-                    </View>
-                    <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>{t('settings.diagnostic.serverOrg')}</Text>
-                      <Text style={styles.diagValue} numberOfLines={1}>{diag.serverOrgId ?? '—'}</Text>
-                    </View>
-                    <View style={styles.diagRow}>
-                      <Text style={styles.diagLabel}>{t('settings.diagnostic.session')}</Text>
-                      <Text style={[
-                        styles.diagValue,
-                        diag.sessionTimedOut ? { color: '#F59E0B' } : undefined,
-                      ]}>
-                        {diag.sessionUserId
-                          ? (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 > Date.now()
-                              ? t('settings.diagnostic.sessionActive', { cache: diag.sessionTimedOut ? t('settings.diagnostic.cachePrefix') : '', time: new Date(diag.sessionExpiresAt * 1000).toLocaleTimeString(appLocale, { hour: '2-digit', minute: '2-digit' }), date: new Date(diag.sessionExpiresAt * 1000).toLocaleDateString(appLocale) })
-                              : t('settings.diagnostic.sessionExpiredCached', { cache: diag.sessionTimedOut ? t('settings.diagnostic.cachePrefix') : '' }))
-                          : diag.sessionTimedOut
-                          ? t('settings.diagnostic.authSlowNoCache')
-                          : t('settings.diagnostic.none')}
-                      </Text>
-                    </View>
-
                     {diag.error && (
-                      <View style={styles.diagAlertError}>
+                      <View style={styles.diagAlertError} accessibilityRole="alert" accessibilityLiveRegion="polite">
                         <Ionicons name="close-circle" size={16} color="#EF4444" />
                         <Text style={styles.diagAlertTextError}>{diag.error}</Text>
                       </View>
                     )}
                     {diagIssues.map((issue, i) => (
-                      <View key={i} style={issue.level === 'error' ? styles.diagAlertError : styles.diagAlertWarn}>
+                      <View key={i} style={issue.level === 'error' ? styles.diagAlertError : styles.diagAlertWarn} accessibilityRole="alert" accessibilityLiveRegion="polite">
                         <Ionicons name={issue.level === 'error' ? 'close-circle' : 'alert-circle'} size={16} color={issue.level === 'error' ? '#EF4444' : '#F59E0B'} />
                         <Text style={issue.level === 'error' ? styles.diagAlertTextError : styles.diagAlertTextWarn}>{issue.msg}</Text>
                       </View>
@@ -1016,13 +1066,64 @@ export default function SettingsScreen() {
                       </View>
                     )}
 
+                    <TouchableOpacity
+                      style={styles.technicalToggle}
+                      onPress={() => setDiagTechnicalOpen(open => !open)}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('settings.diagnostic.technicalDetails')}
+                      accessibilityState={{ expanded: diagTechnicalOpen }}
+                    >
+                      <Ionicons name="code-slash-outline" size={16} color={C.textSub} />
+                      <Text style={styles.technicalToggleText}>
+                        {t(diagTechnicalOpen ? 'settings.diagnostic.hideTechnicalDetails' : 'settings.diagnostic.technicalDetails')}
+                      </Text>
+                      <Ionicons name={diagTechnicalOpen ? 'chevron-up' : 'chevron-down'} size={16} color={C.textSub} />
+                    </TouchableOpacity>
+
+                    {diagTechnicalOpen && (
+                      <View style={styles.technicalPanel}>
+                        <View style={styles.diagRow}>
+                          <Text style={styles.diagLabel}>{t('settings.diagnostic.userId')}</Text>
+                          <Text style={styles.diagValue} selectable numberOfLines={1}>{user?.id ?? '—'}</Text>
+                        </View>
+                        <View style={styles.diagRow}>
+                          <Text style={styles.diagLabel}>{t('settings.diagnostic.localRole')}</Text>
+                          <Text style={styles.diagValue}>{user?.role ?? '—'}</Text>
+                        </View>
+                        <View style={styles.diagRow}>
+                          <Text style={styles.diagLabel}>{t('settings.diagnostic.serverRole')}</Text>
+                          <Text style={styles.diagValue}>{diag.serverRole ?? '—'}</Text>
+                        </View>
+                        <View style={styles.diagRow}>
+                          <Text style={styles.diagLabel}>{t('settings.diagnostic.localOrg')}</Text>
+                          <Text style={styles.diagValue} selectable numberOfLines={1}>{user?.organizationId ?? '—'}</Text>
+                        </View>
+                        <View style={styles.diagRow}>
+                          <Text style={styles.diagLabel}>{t('settings.diagnostic.serverOrg')}</Text>
+                          <Text style={styles.diagValue} selectable numberOfLines={1}>{diag.serverOrgId ?? '—'}</Text>
+                        </View>
+                        <View style={styles.diagRow}>
+                          <Text style={styles.diagLabel}>{t('settings.diagnostic.session')}</Text>
+                          <Text style={[styles.diagValue, diag.sessionTimedOut ? { color: '#B45309' } : undefined]}>
+                            {diag.sessionUserId
+                              ? (diag.sessionExpiresAt && diag.sessionExpiresAt * 1000 > Date.now()
+                                  ? t('settings.diagnostic.sessionActive', { cache: diag.sessionTimedOut ? t('settings.diagnostic.cachePrefix') : '', time: new Date(diag.sessionExpiresAt * 1000).toLocaleTimeString(appLocale, { hour: '2-digit', minute: '2-digit' }), date: new Date(diag.sessionExpiresAt * 1000).toLocaleDateString(appLocale) })
+                                  : t('settings.diagnostic.sessionExpiredCached', { cache: diag.sessionTimedOut ? t('settings.diagnostic.cachePrefix') : '' }))
+                              : diag.sessionTimedOut
+                              ? t('settings.diagnostic.authSlowNoCache')
+                              : t('settings.diagnostic.none')}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
                     {totalQueueCount > 0 && (
-                      <View style={styles.queueBlock}>
+                      <View style={styles.queueBlock} accessibilityRole="alert" accessibilityLiveRegion="polite">
                         <View style={styles.queueHeaderRow}>
                           <Ionicons
                             name={syncStatus === 'syncing' ? 'sync' : (isOnline ? 'cloud-upload-outline' : 'cloud-offline-outline')}
                             size={14}
-                            color="#F59E0B"
+                            color="#B45309"
                           />
                           <Text style={styles.queueHeaderTxt}>
                             {queueCount > 0 && rejectedCount > 0
@@ -1034,40 +1135,107 @@ export default function SettingsScreen() {
                         </View>
                         <Text style={styles.queueHint}>
                           {queueCount === 0
-                            ? t('settings.syncQueue.rejectedHint')
+                            ? t(rejectedInventoryCount > 0 && rejectedNonInventoryCount === 0
+                              ? 'settings.syncQueue.inventoryRejectedHint'
+                              : 'settings.syncQueue.rejectedHint')
                             : isOnline
                             ? t('settings.syncQueue.onlineHint')
                             : t('settings.syncQueue.offlineHint')}
                         </Text>
                         {queueHasAuthError && (
-                          <View style={styles.queueAuthBanner}>
+                          <View style={styles.queueAuthBanner} accessibilityRole="alert" accessibilityLiveRegion="polite">
                             <Ionicons name="lock-closed-outline" size={14} color="#B45309" />
                             <Text style={styles.queueAuthBannerTxt}>
                               {t('settings.syncQueue.authErrorHint')}
                             </Text>
                           </View>
                         )}
-                        {queue.slice(0, 5).map((op) => (
-                          <View key={op.id} style={styles.queueItem}>
-                            <View style={[styles.queueItemDot, op.lastError && styles.queueItemDotErr]} />
-                            <View style={{ flex: 1 }}>
-                              <Text style={styles.queueItemTitle} numberOfLines={1}>
-                                {op.op.toUpperCase()} · {op.table}
-                                {op.filter ? ` · ${String(op.filter.value).slice(0, 8)}…` : ''}
-                              </Text>
-                              <Text style={styles.queueItemMeta} numberOfLines={1}>
-                                {new Date(op.queuedAt).toLocaleString(appLocale)}
-                                {op.attemptCount ? ` · ${t('settings.syncQueue.failures', { count: op.attemptCount })}` : ''}
-                                {op.terminal ? ` · ${t('settings.syncQueue.rejectedStatus')}` : ''}
-                              </Text>
-                              {op.lastError && (
-                                <Text style={styles.queueItemError} numberOfLines={3}>
-                                  {queueErrorText(op.terminalStatus, op.lastError)}
+                        {queue.slice(0, 5).map((op) => {
+                          const inventorySummary = inventoryQueueSummary(op);
+                          const detailsOpen = expandedOperationIds.has(op.id);
+                          const userMessage = queueErrorText(op)
+                            || (op.terminal ? t('settings.syncQueue.genericRejectedMessage') : '');
+                          const movementTitle = inventorySummary
+                            ? t(`settings.syncQueue.inventoryMovement.${inventorySummary.direction}` as any)
+                            : t(op.terminal
+                              ? 'settings.syncQueue.genericRejectedTitle'
+                              : 'settings.syncQueue.genericPendingTitle');
+                          const productTitle = inventorySummary
+                            ? inventorySummary.productName
+                              ?? inventorySummary.productReference
+                              ?? t('settings.syncQueue.inventoryProductFallback')
+                            : undefined;
+                          const chantierName = inventorySummary?.chantierName
+                            ?? chantiers.find(chantier => chantier.id === inventorySummary?.chantierId)?.name;
+                          const businessMeta = inventorySummary
+                            ? [
+                                inventorySummary.productReference && inventorySummary.productReference !== productTitle
+                                  ? t('settings.syncQueue.inventoryReference', { reference: inventorySummary.productReference })
+                                  : null,
+                                inventorySummary.quantity !== undefined
+                                  ? t('settings.syncQueue.inventoryQuantity', {
+                                      quantity: inventorySummary.quantity.toLocaleString(appLocale),
+                                      unit: inventorySummary.unit ? ` ${inventorySummary.unit}` : '',
+                                    })
+                                  : null,
+                                chantierName
+                                  ? t('settings.syncQueue.inventorySite', { site: chantierName })
+                                  : null,
+                              ].filter(Boolean).join(' · ')
+                            : '';
+
+                          return (
+                            <View key={op.id} style={styles.queueItem}>
+                              <View style={[styles.queueItemDot, op.lastError && styles.queueItemDotErr]} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={styles.queueItemTitle}>{movementTitle}</Text>
+                                {productTitle && <Text style={styles.queueItemProduct}>{productTitle}</Text>}
+                                {!!businessMeta && <Text style={styles.queueItemMeta}>{businessMeta}</Text>}
+                                <Text style={styles.queueItemMeta}>
+                                  {new Date(inventorySummary?.occurredAt ?? op.queuedAt).toLocaleString(appLocale)}
+                                  {op.terminal ? ` · ${t('settings.syncQueue.rejectedStatus')}` : ''}
                                 </Text>
-                              )}
+                                {!!userMessage && <Text style={styles.queueItemError}>{userMessage}</Text>}
+                                {inventorySummary?.serverStock !== undefined && (
+                                  <Text style={styles.queueServerStock}>
+                                    {t('settings.syncQueue.inventoryServerStock', {
+                                      stock: inventorySummary.serverStock.toLocaleString(appLocale),
+                                      unit: inventorySummary.unit ? ` ${inventorySummary.unit}` : '',
+                                    })}
+                                  </Text>
+                                )}
+                                <TouchableOpacity
+                                  style={styles.operationTechnicalToggle}
+                                  onPress={() => toggleOperationDetails(op.id)}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={t('settings.syncQueue.technicalDetails')}
+                                  accessibilityState={{ expanded: detailsOpen }}
+                                >
+                                  <Text style={styles.operationTechnicalToggleText}>
+                                    {t(detailsOpen
+                                      ? 'settings.syncQueue.hideTechnicalDetails'
+                                      : 'settings.syncQueue.technicalDetails')}
+                                  </Text>
+                                  <Ionicons name={detailsOpen ? 'chevron-up' : 'chevron-down'} size={14} color={C.textSub} />
+                                </TouchableOpacity>
+                                {detailsOpen && (
+                                  <View style={styles.operationTechnicalPanel}>
+                                    <Text style={styles.operationTechnicalText} selectable>
+                                      {op.op.toUpperCase()} · {op.rpc?.fn ?? op.table}
+                                    </Text>
+                                    <Text style={styles.operationTechnicalText} selectable>
+                                      {t('settings.syncQueue.technicalStatus')}: {op.terminalStatus ?? syncStatus}
+                                      {op.attemptCount ? ` · ${t('settings.syncQueue.failures', { count: op.attemptCount })}` : ''}
+                                    </Text>
+                                    <Text style={styles.operationTechnicalText} selectable>
+                                      {t('settings.syncQueue.technicalId')}: {op.id}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
                             </View>
-                          </View>
-                        ))}
+                          );
+                        })}
                         {queue.length > 5 && (
                           <Text style={styles.queueMore}>{t('settings.syncQueue.more', { count: queue.length - 5 })}</Text>
                         )}
@@ -1083,38 +1251,64 @@ export default function SettingsScreen() {
                           </TouchableOpacity>
                         )}
                         <View style={styles.queueActionsRow}>
-                          <TouchableOpacity
-                            style={[styles.queueRetryBtn, (!isOnline || syncStatus === 'syncing' || queueCount === 0) && styles.queueBtnDisabled]}
-                            onPress={() => { if (isOnline && syncStatus !== 'syncing' && queueCount > 0) retrySync(); }}
-                            disabled={!isOnline || syncStatus === 'syncing' || queueCount === 0}
-                          >
-                            <Ionicons
-                              name={syncStatus === 'syncing' ? 'sync' : 'refresh'}
-                              size={14}
-                              color={!isOnline || syncStatus === 'syncing' || queueCount === 0 ? '#9CA3AF' : '#10B981'}
-                            />
-                            <Text style={[styles.queueRetryTxt, (!isOnline || syncStatus === 'syncing' || queueCount === 0) && styles.queueBtnDisabledTxt]}>
-                              {syncStatus === 'syncing'
-                                ? (syncProgress.total > 0 ? t('settings.syncQueue.syncProgress', { done: syncProgress.done, total: syncProgress.total }) : t('settings.syncQueue.syncing'))
-                                : !isOnline ? t('common.offline') : t('common.retry')}
-                            </Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.queueClearBtn}
-                            onPress={rejectedCount > 0 ? handleDismissRejectedOperations : handleClearQueue}
-                          >
-                            <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                            <Text style={styles.queueClearTxt}>
-                              {t(rejectedCount > 0
-                                ? 'settings.syncQueue.dismissRejectedAction'
-                                : 'settings.syncQueue.clearAction')}
-                            </Text>
-                          </TouchableOpacity>
+                          {queueCount > 0 && (
+                            <TouchableOpacity
+                              style={[styles.queueRetryBtn, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabled]}
+                              onPress={() => { if (isOnline && syncStatus !== 'syncing') retrySync(); }}
+                              disabled={!isOnline || syncStatus === 'syncing'}
+                              accessibilityRole="button"
+                              accessibilityLabel={t(rejectedCount > 0
+                                ? 'settings.syncQueue.retryPendingAction'
+                                : 'common.retry')}
+                              accessibilityState={{ disabled: !isOnline || syncStatus === 'syncing', busy: syncStatus === 'syncing' }}
+                            >
+                              <Ionicons
+                                name={syncStatus === 'syncing' ? 'sync' : 'refresh'}
+                                size={16}
+                                color={!isOnline || syncStatus === 'syncing' ? '#6B7280' : '#047857'}
+                              />
+                              <Text style={[styles.queueRetryTxt, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabledTxt]}>
+                                {syncStatus === 'syncing'
+                                  ? (syncProgress.total > 0 ? t('settings.syncQueue.syncProgress', { done: syncProgress.done, total: syncProgress.total }) : t('settings.syncQueue.syncing'))
+                                  : !isOnline
+                                    ? t('common.offline')
+                                    : t(rejectedCount > 0
+                                      ? 'settings.syncQueue.retryPendingAction'
+                                      : 'common.retry')}
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                          {rejectedCount > 0 ? (
+                            <TouchableOpacity
+                              style={styles.queueReviewBtn}
+                              onPress={handleDismissRejectedOperations}
+                              accessibilityRole="button"
+                              accessibilityLabel={t('settings.syncQueue.dismissRejectedAction', { count: rejectedCount })}
+                              accessibilityHint={t('settings.syncQueue.dismissRejectedHint')}
+                            >
+                              <Ionicons name="checkmark-done-outline" size={16} color={C.primary} />
+                              <Text style={styles.queueReviewTxt}>{t('settings.syncQueue.dismissRejectedAction', { count: rejectedCount })}</Text>
+                            </TouchableOpacity>
+                          ) : queueCount > 0 ? (
+                            <TouchableOpacity
+                              style={styles.queueClearBtn}
+                              onPress={handleClearQueue}
+                              accessibilityRole="button"
+                            >
+                              <Ionicons name="trash-outline" size={16} color="#DC2626" />
+                              <Text style={styles.queueClearTxt}>{t('settings.syncQueue.clearAction')}</Text>
+                            </TouchableOpacity>
+                          ) : null}
                         </View>
                       </View>
                     )}
 
-                    <TouchableOpacity style={styles.diagRefreshBtn} onPress={runDiagnostic}>
+                    <TouchableOpacity
+                      style={styles.diagRefreshBtn}
+                      onPress={runDiagnostic}
+                      accessibilityRole="button"
+                      accessibilityLabel={t('settings.diagnostic.refresh')}
+                    >
                       <Ionicons name="refresh" size={14} color={C.primary} />
                       <Text style={styles.diagRefreshTxt}>{t('settings.diagnostic.refresh')}</Text>
                     </TouchableOpacity>
@@ -1530,7 +1724,7 @@ const styles = StyleSheet.create({
 
   tabScroll: {
     borderBottomWidth: 1, borderBottomColor: C.border, backgroundColor: C.surface,
-    height: 52, flexShrink: 0, flexGrow: 0,
+    minHeight: 64, flexShrink: 0, flexGrow: 0,
   },
   tabRow: {
     flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 8,
@@ -1538,11 +1732,11 @@ const styles = StyleSheet.create({
   },
   tabBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5,
-    paddingVertical: 7, paddingHorizontal: 12, borderRadius: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
+    minHeight: 48, paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border,
     flexShrink: 0,
   },
   tabBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  tabText: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textMuted },
+  tabText: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.textSub },
   tabTextActive: { color: C.primary },
 
   integroBanner: {
@@ -1839,7 +2033,7 @@ const styles = StyleSheet.create({
   recHours: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted, minWidth: 36, textAlign: 'right' },
 
   diagRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: C.border, gap: 12 },
-  diagLabel: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textMuted, flexShrink: 0 },
+  diagLabel: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.textSub, flexShrink: 0 },
   diagValue: { fontSize: 12, fontFamily: 'Inter_500Medium', color: C.text, flex: 1, textAlign: 'right' },
   diagAlertOk: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#ECFDF5', borderRadius: 10, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#A7F3D0' },
   diagAlertWarn: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, backgroundColor: '#FFFBEB', borderRadius: 10, padding: 12, marginTop: 12, borderWidth: 1, borderColor: '#FCD34D' },
@@ -1847,29 +2041,40 @@ const styles = StyleSheet.create({
   diagAlertTextOk: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#065F46', lineHeight: 17 },
   diagAlertTextWarn: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#92400E', lineHeight: 17 },
   diagAlertTextError: { flex: 1, fontSize: 12, fontFamily: 'Inter_500Medium', color: '#991B1B', lineHeight: 17 },
-  diagRefreshBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, marginTop: 10, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
+  diagRefreshBtn: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, marginTop: 10, borderRadius: 10, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: C.primary + '40' },
   diagRefreshTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: C.primary },
+  technicalToggle: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10, paddingHorizontal: 10, borderRadius: 8, backgroundColor: C.surface2 },
+  technicalToggleText: { flex: 1, fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  technicalPanel: { marginTop: 4, paddingHorizontal: 4 },
   queueBlock: { marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A' },
   queueHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 6 },
-  queueHeaderTxt: { fontSize: 13, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
-  queueHint: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#78350F', lineHeight: 16, marginBottom: 8 },
+  queueHeaderTxt: { fontSize: 14, fontFamily: 'Inter_700Bold', color: '#78350F' },
+  queueHint: { fontSize: 12, fontFamily: 'Inter_400Regular', color: '#78350F', lineHeight: 18, marginBottom: 8 },
   queueItem: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 8, borderTopWidth: 1, borderTopColor: '#FDE68A' },
   queueItemDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#F59E0B', marginTop: 6 },
   queueItemDotErr: { backgroundColor: '#EF4444' },
-  queueItemTitle: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#92400E' },
-  queueItemMeta: { fontSize: 10, fontFamily: 'Inter_400Regular', color: '#78350F', marginTop: 1 },
-  queueItemError: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#991B1B', marginTop: 4, lineHeight: 15, backgroundColor: '#FEF2F2', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 4 },
+  queueItemTitle: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#78350F' },
+  queueItemProduct: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 2 },
+  queueItemMeta: { fontSize: 11, fontFamily: 'Inter_400Regular', color: '#78350F', marginTop: 2, lineHeight: 16 },
+  queueItemError: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#991B1B', marginTop: 6, lineHeight: 17, backgroundColor: '#FEF2F2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 6 },
+  queueServerStock: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#065F46', marginTop: 6 },
   queueMore: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#78350F', textAlign: 'center', paddingVertical: 6 },
   queueActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
-  queueRetryBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#A7F3D0', backgroundColor: '#ECFDF5' },
-  queueRetryTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#10B981' },
+  queueRetryBtn: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#6EE7B7', backgroundColor: '#ECFDF5' },
+  queueRetryTxt: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#047857', textAlign: 'center' },
   queueBtnDisabled: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' },
-  queueBtnDisabledTxt: { color: '#9CA3AF' },
-  queueClearBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
-  queueClearTxt: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#EF4444' },
+  queueBtnDisabledTxt: { color: '#6B7280' },
+  queueReviewBtn: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: C.primary + '55', backgroundColor: C.primaryBg },
+  queueReviewTxt: { fontSize: 12, fontFamily: 'Inter_700Bold', color: C.primary, textAlign: 'center' },
+  queueClearBtn: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
+  queueClearTxt: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#DC2626', textAlign: 'center' },
+  operationTechnicalToggle: { minHeight: 48, flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  operationTechnicalToggleText: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub },
+  operationTechnicalPanel: { borderRadius: 6, backgroundColor: C.surface2, padding: 8, marginBottom: 4 },
+  operationTechnicalText: { fontSize: 10, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 15 },
   queueAuthBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, paddingVertical: 8, paddingHorizontal: 10, borderRadius: 8, borderWidth: 1, borderColor: '#FCD34D', backgroundColor: '#FFFBEB', marginBottom: 8 },
   queueAuthBannerTxt: { flex: 1, fontSize: 11, fontFamily: 'Inter_500Medium', color: '#B45309', lineHeight: 16 },
-  queueReconnectBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: C.primary, marginTop: 10 },
+  queueReconnectBtn: { minHeight: 48, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: C.primary, marginTop: 10 },
   queueReconnectTxt: { fontSize: 13, fontFamily: 'Inter_700Bold', color: '#fff' },
 
   profileBtn: {

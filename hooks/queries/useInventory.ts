@@ -1,22 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as Crypto from 'expo-crypto';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 import { useNetwork, type QueuedOperation } from '@/context/NetworkContext';
 import { queryKeys } from '@/lib/queryKeys';
 import { readCache, writeCache, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
-import { genId } from '@/lib/utils';
 import { canonicalizeGtin } from '@/lib/inventoryBarcodeCore';
 import { isInventoryQueuedOperation } from '@/lib/syncQueuePolicy';
+import {
+  inventoryMovementsCacheKey,
+  inventoryProductsCacheKey,
+  isTerminalInventoryMovementOutcome,
+  normalizeInventoryMovementOutcome,
+  reconcileInventoryMovementCache,
+  reconcileTerminalInventoryMovementCache,
+  shouldBlockInventoryMovementForInsufficientStock,
+  type InventoryMovementOutcome,
+} from '@/lib/inventoryMovementOutcome';
 import type {
   InventoryMovement,
   InventoryMovementType,
   InventoryProduct,
 } from '@/constants/types';
 
-const PRODUCTS_CACHE_PREFIX = 'buildtrack_inventory_products_v1';
-const MOVEMENTS_CACHE_PREFIX = 'buildtrack_inventory_movements_v1';
 const MOVEMENT_PAGE_SIZE = 250;
 
 function numberValue(value: unknown): number {
@@ -79,18 +87,6 @@ export function toInventoryMovement(row: any): InventoryMovement {
     createdAt: row.created_at ?? new Date().toISOString(),
     pendingSync: false,
   };
-}
-
-function productsCacheKey(chantierId: string): string {
-  return `${PRODUCTS_CACHE_PREFIX}_${chantierId}`;
-}
-
-function movementsCacheKey(chantierId: string): string {
-  return `${MOVEMENTS_CACHE_PREFIX}_${chantierId}`;
-}
-
-function firstRpcRow(data: any): any {
-  return Array.isArray(data) ? data[0] : data;
 }
 
 function pendingInventoryIds(queue: QueuedOperation[]) {
@@ -180,13 +176,21 @@ export class InventoryOperationError extends Error {
   status: string;
   stockBefore?: number;
   stockAfter?: number;
+  outcome?: InventoryMovementOutcome;
 
-  constructor(status: string, message: string, stockBefore?: number, stockAfter?: number) {
+  constructor(
+    status: string,
+    message: string,
+    stockBefore?: number,
+    stockAfter?: number,
+    outcome?: InventoryMovementOutcome,
+  ) {
     super(message);
     this.name = 'InventoryOperationError';
     this.status = status;
     this.stockBefore = stockBefore;
     this.stockAfter = stockAfter;
+    this.outcome = outcome;
   }
 }
 
@@ -198,33 +202,34 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
   const orgId = chantierOrganizationId ?? user?.organizationId ?? '';
   const validChantierId = chantierId ?? '';
   const queueRef = useRef(queue);
+  const cacheHydrationRef = useRef<Promise<{
+    products: InventoryProduct[];
+    movements: InventoryMovement[];
+  }>>(Promise.resolve({ products: [], movements: [] }));
   useEffect(() => { queueRef.current = queue; }, [queue]);
 
   const productsKey = useMemo(() => queryKeys.inventoryProducts(validChantierId), [validChantierId]);
   const movementsKey = useMemo(() => queryKeys.inventoryMovements(validChantierId), [validChantierId]);
   const rejectedInventorySignature = useMemo(() => queue
     .filter(operation => operation.terminal && isInventoryQueuedOperation(operation))
-    .map(operation => `${operation.id}:${operation.terminalStatus ?? 'rejected'}`)
+    .map(operation => [
+      operation.id,
+      operation.terminalStatus ?? operation.terminalOutcome?.status ?? 'rejected',
+      operation.terminalOutcome?.operationId ?? '',
+      operation.terminalOutcome?.movementId ?? '',
+      operation.terminalOutcome?.stockBefore ?? '',
+    ].join(':'))
     .sort()
     .join('|'), [queue]);
 
-  // A movement accepted optimistically while offline can be refused later if
-  // another device consumed the stock first. Once the queue marks it terminal,
-  // reload the authoritative product and movement lists so the local stock and
-  // history no longer retain the rejected optimistic mutation.
   useEffect(() => {
-    if (!rejectedInventorySignature || !queueLoaded || !isOnline || !validChantierId) return;
-    void Promise.all([
-      queryClient.invalidateQueries({ queryKey: productsKey, refetchType: 'active' }),
-      queryClient.invalidateQueries({ queryKey: movementsKey, refetchType: 'active' }),
-    ]);
-  }, [isOnline, movementsKey, productsKey, queryClient, queueLoaded, rejectedInventorySignature, validChantierId]);
-
-  useEffect(() => {
-    if (!userId || !validChantierId) return;
-    void Promise.all([
-      readCache<InventoryProduct>(productsCacheKey(validChantierId), userId),
-      readCache<InventoryMovement>(movementsCacheKey(validChantierId), userId),
+    if (!userId || !validChantierId) {
+      cacheHydrationRef.current = Promise.resolve({ products: [], movements: [] });
+      return;
+    }
+    const hydration = Promise.all([
+      readCache<InventoryProduct>(inventoryProductsCacheKey(validChantierId), userId),
+      readCache<InventoryMovement>(inventoryMovementsCacheKey(validChantierId), userId),
     ]).then(([cachedProducts, cachedMovements]) => {
       if (cachedProducts?.length && !queryClient.getQueryData<InventoryProduct[]>(productsKey)?.length) {
         queryClient.setQueryData(productsKey, cachedProducts);
@@ -232,14 +237,23 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       if (cachedMovements?.length && !queryClient.getQueryData<InventoryMovement[]>(movementsKey)?.length) {
         queryClient.setQueryData(movementsKey, cachedMovements);
       }
+      return {
+        products: cachedProducts ?? [],
+        movements: cachedMovements ?? [],
+      };
+    }).catch(error => {
+      console.warn('[inventory] cache hydration failed:', (error as any)?.message ?? error);
+      return { products: [], movements: [] };
     });
+    cacheHydrationRef.current = hydration;
+    void hydration;
   }, [queryClient, userId, validChantierId]);
 
   const productsQuery = useQuery({
     queryKey: productsKey,
     enabled: !!userId && !!validChantierId && permissions.canViewInventory && queueLoaded,
     queryFn: async (): Promise<InventoryProduct[]> => {
-      const cached = await readCache<InventoryProduct>(productsCacheKey(validChantierId), userId) ?? [];
+      const cached = await readCache<InventoryProduct>(inventoryProductsCacheKey(validChantierId), userId) ?? [];
       if (!isSupabaseConfigured || !(await isSupabaseSessionValid())) return cached;
       try {
         const { data, error } = await (supabase.from('inventory_products') as any)
@@ -250,7 +264,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
         const fresh = (data ?? []).map(toInventoryProduct);
         const pending = pendingInventoryIds(queueRef.current).productIds;
         const merged = mergePendingProducts(fresh, cached, pending);
-        await writeCache(productsCacheKey(validChantierId), merged, userId);
+        await writeCache(inventoryProductsCacheKey(validChantierId), merged, userId);
         return merged;
       } catch (error) {
         console.warn('[inventory] product fetch failed, using cache:', (error as any)?.message ?? error);
@@ -263,7 +277,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     queryKey: movementsKey,
     enabled: !!userId && !!validChantierId && permissions.canViewInventory && queueLoaded,
     queryFn: async (): Promise<InventoryMovement[]> => {
-      const cached = await readCache<InventoryMovement>(movementsCacheKey(validChantierId), userId) ?? [];
+      const cached = await readCache<InventoryMovement>(inventoryMovementsCacheKey(validChantierId), userId) ?? [];
       if (!isSupabaseConfigured || !(await isSupabaseSessionValid())) return cached;
       try {
         const { data, error } = await (supabase.from('inventory_movements') as any)
@@ -275,7 +289,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
         const fresh = (data ?? []).map(toInventoryMovement);
         const pending = pendingInventoryIds(queueRef.current).movementIds;
         const merged = mergePendingMovements(fresh, cached, pending);
-        await writeCache(movementsCacheKey(validChantierId), merged, userId);
+        await writeCache(inventoryMovementsCacheKey(validChantierId), merged, userId);
         return merged;
       } catch (error) {
         console.warn('[inventory] movement fetch failed, using cache:', (error as any)?.message ?? error);
@@ -289,10 +303,62 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     const products = queryClient.getQueryData<InventoryProduct[]>(productsKey) ?? [];
     const movements = queryClient.getQueryData<InventoryMovement[]>(movementsKey) ?? [];
     await Promise.all([
-      writeCache(productsCacheKey(validChantierId), products, userId),
-      writeCache(movementsCacheKey(validChantierId), movements, userId),
+      writeCache(inventoryProductsCacheKey(validChantierId), products, userId),
+      writeCache(inventoryMovementsCacheKey(validChantierId), movements, userId),
     ]);
   }, [queryClient, userId, validChantierId]);
+
+  // A movement accepted optimistically while offline can be refused later if
+  // another device consumed the stock first. Reconcile the local cache before
+  // refetching so a network/refetch failure cannot leave rejected stock or
+  // history visible. The pure reconciliation is idempotent while the terminal
+  // queue entry remains available for user acknowledgement.
+  useEffect(() => {
+    if (!rejectedInventorySignature || !queueLoaded || !userId || !validChantierId) return;
+    let cancelled = false;
+
+    const reconcileAndRefresh = async () => {
+      const hydrated = await cacheHydrationRef.current;
+      if (cancelled) return;
+
+      let products = queryClient.getQueryData<InventoryProduct[]>(productsKey) ?? hydrated.products;
+      let movements = queryClient.getQueryData<InventoryMovement[]>(movementsKey) ?? hydrated.movements;
+      let changed = false;
+
+      for (const operation of queueRef.current) {
+        const outcome = operation.terminalOutcome;
+        if (
+          !operation.terminal
+          || operation.rpc?.fn !== 'record_inventory_movement'
+          || outcome?.domain !== 'inventory'
+          || (outcome.chantierId && outcome.chantierId !== validChantierId)
+        ) continue;
+
+        const reconciled = reconcileTerminalInventoryMovementCache({
+          currentProducts: products,
+          currentMovements: movements,
+          outcome: outcome as InventoryMovementOutcome,
+        });
+        products = reconciled.products;
+        movements = reconciled.movements;
+        changed ||= reconciled.changed;
+      }
+
+      if (changed) {
+        queryClient.setQueryData(productsKey, products);
+        queryClient.setQueryData(movementsKey, movements);
+        await persistCurrent();
+      }
+
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: productsKey, refetchType: 'active' }),
+        queryClient.invalidateQueries({ queryKey: movementsKey, refetchType: 'active' }),
+      ]);
+    };
+
+    void reconcileAndRefresh();
+    return () => { cancelled = true; };
+  }, [movementsKey, persistCurrent, productsKey, queryClient, queueLoaded, rejectedInventorySignature, userId, validChantierId]);
 
   const recordMovement = useCallback(async (input: RecordInventoryMovementInput) => {
     if (!user || !permissions.canRecordInventory) {
@@ -323,14 +389,19 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     const before = existingProduct?.currentStock ?? 0;
     const after = input.movementType === 'in' ? before + quantity : before - quantity;
     const negativeAllowed = !!input.allowNegative && permissions.canAdjustInventory;
-    if (after < 0 && !negativeAllowed) {
+    if (input.movementType === 'out' && shouldBlockInventoryMovementForInsufficientStock({
+      stockAfter: after,
+      negativeAllowed,
+      isOnline,
+      isServerConfigured: isSupabaseConfigured,
+    })) {
       throw new InventoryOperationError('insufficient_stock', 'Stock disponible insuffisant.', before, after);
     }
 
     const now = new Date().toISOString();
-    const productId = existingProduct?.id ?? input.productId ?? genId('stock-product');
-    const operationId = genId('stock-op');
-    const movementId = genId('stock-movement');
+    const productId = existingProduct?.id ?? input.productId ?? `stock-product-${Crypto.randomUUID()}`;
+    const operationId = Crypto.randomUUID();
+    const movementId = `stock-movement-${Crypto.randomUUID()}`;
     const pending = isSupabaseConfigured;
     const optimisticProduct: InventoryProduct = existingProduct
       ? {
@@ -435,6 +506,17 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       location: optimisticProduct.location ?? null,
       supplier: optimisticProduct.supplier ?? null,
     };
+    const outcomeContext = {
+      operationId,
+      productId,
+      movementId,
+      direction: input.movementType,
+      productName: optimisticProduct.designation,
+      productReference: optimisticProduct.reference,
+      quantity,
+      chantierId: validChantierId,
+      occurredAt: now,
+    } as const;
     const queueRpc = (queuedProductPayload: Record<string, any>) => {
       enqueueOperation({
         table: 'inventory_movements',
@@ -459,7 +541,8 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       return { product: { ...optimisticProduct, pendingSync: false }, movement: { ...optimisticMovement, pendingSync: false }, queued: false };
     }
 
-    if (!isOnline) {
+    const mustQueueBehindPendingProduct = pendingInventoryIds(queueRef.current).productIds.has(productId);
+    if (!isOnline || mustQueueBehindPendingProduct) {
       queueRpc(productPayload);
       return { product: optimisticProduct, movement: optimisticMovement, queued: true };
     }
@@ -485,34 +568,52 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       queueRpc(preparedProduct);
       return { product: optimisticProduct, movement: optimisticMovement, queued: true };
     }
-    const outcome = firstRpcRow(data);
-    if (!outcome || outcome.status !== 'ok') {
-      queryClient.setQueryData(productsKey, previousProducts);
-      queryClient.setQueryData(movementsKey, previousMovements);
+    const outcome = normalizeInventoryMovementOutcome(data, outcomeContext);
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: queryClient.getQueryData<InventoryProduct[]>(productsKey) ?? [],
+      currentMovements: queryClient.getQueryData<InventoryMovement[]>(movementsKey) ?? [],
+      previousProducts,
+      previousMovements,
+      optimisticProductId: productId,
+      optimisticMovementId: movementId,
+      outcome,
+    });
+    queryClient.setQueryData(productsKey, reconciled.products);
+    queryClient.setQueryData(movementsKey, reconciled.movements);
+
+    if (isTerminalInventoryMovementOutcome(outcome)) {
       await persistCurrent();
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: productsKey, refetchType: 'active' }),
+        queryClient.invalidateQueries({ queryKey: movementsKey, refetchType: 'active' }),
+      ]);
       throw new InventoryOperationError(
-        outcome?.status ?? 'server_error',
-        outcome?.message ?? 'Le mouvement a été refusé par le serveur.',
-        numberValue(outcome?.stock_before),
-        numberValue(outcome?.stock_after),
+        outcome.status,
+        outcome.message ?? 'Le mouvement a été refusé par le serveur.',
+        outcome.stockBefore,
+        outcome.stockAfter,
+        outcome,
       );
     }
 
-    queryClient.setQueryData<InventoryProduct[]>(productsKey, old => (old ?? []).map(product => product.id === productId ? {
-      ...product,
-      id: outcome.product_id ?? product.id,
-      currentStock: numberValue(outcome.stock_after),
-      pendingSync: false,
-    } : product));
-    queryClient.setQueryData<InventoryMovement[]>(movementsKey, old => (old ?? []).map(movement => movement.id === movementId ? {
-      ...movement,
-      id: outcome.movement_id ?? movement.id,
-      pendingSync: false,
-    } : movement));
     await persistCurrent();
     void queryClient.invalidateQueries({ queryKey: productsKey });
     void queryClient.invalidateQueries({ queryKey: movementsKey });
-    return { product: optimisticProduct, movement: optimisticMovement, queued: false };
+    const authoritativeProduct = reconciled.product ?? {
+      ...optimisticProduct,
+      id: outcome.productId ?? optimisticProduct.id,
+      currentStock: outcome.stockAfter ?? optimisticProduct.currentStock,
+      pendingSync: false,
+    };
+    const authoritativeMovement = reconciled.movement ?? {
+      ...optimisticMovement,
+      id: outcome.movementId ?? optimisticMovement.id,
+      productId: outcome.productId ?? optimisticMovement.productId,
+      stockBefore: outcome.stockBefore ?? optimisticMovement.stockBefore,
+      stockAfter: outcome.stockAfter ?? optimisticMovement.stockAfter,
+      pendingSync: false,
+    };
+    return { product: authoritativeProduct, movement: authoritativeMovement, outcome, queued: false };
   }, [enqueueOperation, isOnline, movementsKey, orgId, permissions.canAdjustInventory, permissions.canRecordInventory, persistCurrent, productsKey, queryClient, user, validChantierId]);
 
   const updateProduct = useCallback(async (productId: string, patch: UpdateInventoryProductPatch) => {
@@ -578,11 +679,24 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       queueRpc(preparedPatch);
       return { queued: true };
     }
-    const outcome = firstRpcRow(data);
-    if (!outcome || outcome.status !== 'ok') {
+    const outcome = normalizeInventoryMovementOutcome(data, {
+      productId,
+      productName: optimistic.designation,
+      productReference: optimistic.reference,
+      chantierId: validChantierId,
+      occurredAt: new Date().toISOString(),
+    });
+    if (isTerminalInventoryMovementOutcome(outcome)) {
       queryClient.setQueryData(productsKey, previous);
       await persistCurrent();
-      throw new InventoryOperationError(outcome?.status ?? 'server_error', outcome?.message ?? 'La modification a été refusée.');
+      await queryClient.invalidateQueries({ queryKey: productsKey, refetchType: 'active' });
+      throw new InventoryOperationError(
+        outcome.status,
+        outcome.message ?? 'La modification a été refusée.',
+        outcome.stockBefore,
+        outcome.stockAfter,
+        outcome,
+      );
     }
     queryClient.setQueryData<InventoryProduct[]>(productsKey, old => (old ?? []).map(product => product.id === productId ? {
       ...product,
@@ -591,8 +705,8 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     } : product));
     await persistCurrent();
     void queryClient.invalidateQueries({ queryKey: productsKey });
-    return { queued: false };
-  }, [enqueueOperation, isOnline, permissions.canManageInventoryProducts, persistCurrent, productsKey, queryClient, user]);
+    return { outcome, queued: false };
+  }, [enqueueOperation, isOnline, permissions.canManageInventoryProducts, persistCurrent, productsKey, queryClient, user, validChantierId]);
 
   const products = productsQuery.data ?? [];
   const movements = movementsQuery.data ?? [];

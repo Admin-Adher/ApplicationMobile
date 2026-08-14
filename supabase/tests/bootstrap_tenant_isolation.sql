@@ -74,6 +74,21 @@ create table public.profiles (
   preferred_language text
 );
 
+-- Compatibility authority used only while the chronological inventory
+-- migration is applied. The production authority migration replaces this
+-- helper with organization_memberships immediately afterwards.
+create or replace function public.auth_user_org()
+returns uuid
+language sql
+security definer
+stable
+set search_path = ''
+as $$
+  select p.organization_id
+  from public.profiles p
+  where p.id = auth.uid()
+$$;
+
 create table public.plans (
   id uuid primary key default gen_random_uuid(),
   name text not null unique,
@@ -227,17 +242,51 @@ create table public.journal_entries (
 
 create table public.inventory_products (
   id text primary key,
-  organization_id uuid not null references public.organizations(id),
-  chantier_id text not null,
-  photo_url text
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  chantier_id text not null references public.chantiers(id) on delete cascade,
+  reference text not null check (btrim(reference) <> ''),
+  reference_normalized text not null check (btrim(reference_normalized) <> ''),
+  designation text not null check (btrim(designation) <> ''),
+  barcode text,
+  photo_url text,
+  current_stock numeric(14,3) not null default 0,
+  total_entries numeric(14,3) not null default 0 check (total_entries >= 0),
+  total_exits numeric(14,3) not null default 0 check (total_exits >= 0),
+  min_stock numeric(14,3) not null default 0 check (min_stock >= 0),
+  location text,
+  supplier text,
+  created_by uuid references public.profiles(id) on delete set null,
+  created_by_name text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  version bigint not null default 1,
+  unique (chantier_id, reference_normalized)
 );
 
 create table public.inventory_movements (
   id text primary key,
-  organization_id uuid not null references public.organizations(id),
-  chantier_id text not null,
-  product_id text not null,
-  company_id text
+  operation_id text not null unique,
+  organization_id uuid not null references public.organizations(id) on delete cascade,
+  chantier_id text not null references public.chantiers(id) on delete cascade,
+  product_id text not null references public.inventory_products(id) on delete restrict,
+  movement_type text not null check (movement_type in ('in', 'out')),
+  quantity numeric(14,3) not null check (quantity > 0),
+  stock_before numeric(14,3) not null,
+  stock_after numeric(14,3) not null,
+  reference text not null,
+  designation text not null,
+  supplier text,
+  building_id text,
+  building_name text,
+  zone_id text,
+  zone_name text,
+  company_id text,
+  company_name text,
+  person_name text,
+  comment text,
+  created_by uuid references public.profiles(id) on delete set null,
+  user_name text not null,
+  created_at timestamptz not null default now()
 );
 
 create table public.time_entries (
