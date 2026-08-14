@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
 import { notifySessionExpired, notifySessionRecovered } from './sessionExpiry';
+export { pendingIdsForTable } from './offlineQueuePendingIds';
+export { mergeWithCache } from './offlineCacheMerge';
 
 // Maximum time we wait for getSession() before trying the AsyncStorage fallback.
 // The Supabase auth lock is capped at 5 000 ms (LOCK_MAX_MS in lib/supabase.ts).
@@ -325,124 +327,6 @@ export async function offlineQuery<T>(
     if (cached) return cached;
     return [];
   }
-}
-
-/**
- * Compute the set of row IDs that have a pending offline mutation
- * (insert or update) for the given table.
- *
- * Used by `mergeWithCache` to distinguish:
- *   - rows that are missing from the server response because they were
- *     created/updated offline and not yet synced  → KEEP from cache
- *   - rows that are missing from the server response because they were
- *     deleted server-side (or by another device)  → DROP, do not resurrect
- */
-export function pendingIdsForTable(
-  queue: Array<{
-    table: string;
-    op: 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
-    data?: any;
-    rpc?: { fn: string; args?: Record<string, any> };
-    filter?: { column: string; value: string };
-  }>,
-  table: string,
-): Set<string> {
-  const ids = new Set<string>();
-  for (const op of queue) {
-    const rpcFn = op.op === 'rpc' ? op.rpc?.fn : undefined;
-    if (table === 'reserves' && rpcFn === 'append_reserve_status_event') {
-      const reserveId = op.rpc?.args?.p_event?.reserve_id ?? op.data?.id ?? op.filter?.value;
-      if (reserveId) ids.add(String(reserveId));
-      continue;
-    }
-    if (table === 'reserves' && rpcFn === 'apply_reserve_patch') {
-      const reserveId = op.rpc?.args?.p_reserve_id ?? op.data?.id ?? op.filter?.value;
-      if (reserveId) ids.add(String(reserveId));
-      continue;
-    }
-    if (rpcFn === 'link_reserves_to_visite' || rpcFn === 'unlink_reserves_from_visite') {
-      if (table === 'visites') {
-        if (op.data?.visite_id) ids.add(String(op.data.visite_id));
-        if (rpcFn === 'link_reserves_to_visite' && Array.isArray(op.data?.previous_visite_ids)) {
-          op.data.previous_visite_ids.forEach((id: any) => {
-            if (id) ids.add(String(id));
-          });
-        }
-      }
-      if (table === 'reserves' && Array.isArray(op.data?.reserve_ids)) {
-        op.data.reserve_ids.forEach((id: any) => {
-          if (id) ids.add(String(id));
-        });
-      }
-      continue;
-    }
-    if (op.table !== table) continue;
-    if ((op.op === 'insert' || op.op === 'upsert') && op.data?.id) {
-      ids.add(String(op.data.id));
-    } else if (op.op === 'update' && op.filter?.column === 'id' && op.filter.value) {
-      ids.add(String(op.filter.value));
-    }
-  }
-  return ids;
-}
-
-/**
- * Merge fresh server data with cached data, keeping ONLY the local-only items
- * that have a pending offline mutation. Without `pendingIds`, no cached item
- * is preserved — server is the source of truth.
- *
- * Why: previously this helper kept any cached item missing from the server
- * response, treating them all as "offline-created". That caused server-side
- * deletions to never propagate (the deleted row stayed in cache forever and
- * was re-added on every fetch as a ghost).
- *
- * Safety net: when `options.queueLoaded === false`, the offline queue has not
- * yet been hydrated from AsyncStorage, so we cannot trust `pendingIds` to be
- * complete. In that case we fall back to a permissive merge that keeps every
- * cached row not present in `fresh` — this avoids the catastrophic data-loss
- * scenario where a cold-start fetch returns [] (RLS, network blip) and the
- * empty result wipes the entire local cache before the queue is restored.
- */
-export function mergeWithCache<T extends { id: string }>(
-  fresh: T[],
-  cached: T[] | null,
-  pendingIds?: Set<string>,
-  options?: { queueLoaded?: boolean },
-): T[] {
-  if (!cached || cached.length === 0) return fresh;
-  if (options && options.queueLoaded === false) {
-    const freshIds = new Set(fresh.map(item => item.id));
-    const localOnly = cached.filter(item => !freshIds.has(item.id));
-    return [...fresh, ...localOnly];
-  }
-  const freshIds = new Set(fresh.map(item => item.id));
-
-  if (!pendingIds || pendingIds.size === 0) {
-    // Server is source of truth — but keep a 5-minute safety window for items
-    // that were just created/synced and might not appear yet in the server
-    // response (RLS propagation delay, token-swap race, transient network blip).
-    // After the window they are genuinely dropped so server deletions propagate.
-    const SAFETY_WINDOW_MS = 5 * 60 * 1000;
-    const cutoff = Date.now() - SAFETY_WINDOW_MS;
-    const veryRecent = cached.filter(item => {
-      if (freshIds.has(item.id)) return false;
-      const r = item as any;
-      if (!r.createdAt) return false;
-      try { return new Date(r.createdAt).getTime() > cutoff; } catch { return false; }
-    });
-    return veryRecent.length > 0 ? [...fresh, ...veryRecent] : fresh;
-  }
-
-  const localOnly = cached.filter(
-    item => !freshIds.has(item.id) && pendingIds.has(item.id),
-  );
-  const cachedById = new Map(cached.map(item => [item.id, item]));
-  const mergedFresh = fresh.map(item =>
-    pendingIds.has(item.id) && cachedById.has(item.id)
-      ? cachedById.get(item.id)!
-      : item
-  );
-  return [...mergedFresh, ...localOnly];
 }
 
 /**

@@ -22,6 +22,7 @@ import {
   PDF_BRAND_COLOR,
   svgStringToDataUrl,
   preRenderPdfPageToDataUrl,
+  preRenderPlanImageWithAnnotationsToDataUrl,
 } from '@/lib/pdfBase';
 import PdfPlanViewer, { type PdfPlanViewerHandle } from '@/components/PdfPlanViewer';
 import CompanySelector from '@/components/CompanySelector';
@@ -63,6 +64,7 @@ import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import LocationPicker from '@/components/LocationPicker';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { PhotoAnnotationOverlay, PhotoWithAnnotations } from '@/components/PhotoAnnotator';
+import { requireAnnotatedPlanCapture } from '@/lib/plan-annotations/report-capture';
 
 const STATUS_ORDER: ReserveStatus[] = ['open', 'in_progress', 'waiting', 'verification', 'closed'];
 const LIFT_REQUEST_STATUSES: ReserveStatus[] = ['open', 'in_progress', 'waiting'];
@@ -1233,11 +1235,33 @@ export default function ReserveDetailScreen() {
           let preRenderedDataUrl: string | undefined;
           if (matchedPlan.fileType === 'pdf') {
             if (Platform.OS === 'web') {
-              const rendered = await preRenderPdfPageToDataUrl(resolvedPlanUri, 520);
+              const rendered = await preRenderPdfPageToDataUrl(
+                resolvedPlanUri,
+                520,
+                matchedPlan.annotations ?? [],
+              );
               if (rendered) preRenderedDataUrl = rendered;
             } else {
               const captured = await captureHiddenPlan(resolvedPlanUri, 'pdf', matchedPlan.annotations ?? []);
-              if (captured) preRenderedDataUrl = captured;
+              const safeCapture = requireAnnotatedPlanCapture(captured, matchedPlan.annotations ?? []);
+              if (safeCapture) preRenderedDataUrl = safeCapture;
+            }
+          } else if ((matchedPlan.annotations?.length ?? 0) > 0) {
+            if (Platform.OS === 'web') {
+              const rendered = await preRenderPlanImageWithAnnotationsToDataUrl(
+                resolvedPlanUri,
+                520,
+                matchedPlan.annotations ?? [],
+              );
+              if (rendered) preRenderedDataUrl = rendered;
+            } else {
+              const captured = await captureHiddenPlan(
+                resolvedPlanUri,
+                matchedPlan.fileType,
+                matchedPlan.annotations ?? [],
+              );
+              const safeCapture = requireAnnotatedPlanCapture(captured, matchedPlan.annotations ?? []);
+              if (safeCapture) preRenderedDataUrl = safeCapture;
             }
           }
 

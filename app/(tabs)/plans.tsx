@@ -28,7 +28,7 @@ import PriorityBadge from '@/components/PriorityBadge';
 import { uploadDocumentDetailed, isLocalUri } from '@/lib/storage';
 import { isManagedMediaRef, resolveMediaRef } from '@/lib/media';
 import { genId, formatDateFR } from '@/lib/utils';
-import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
+import { loadFileAsDataUrl, loadPhotoAsDataUrl, loadPhotoAsDataUrlForPdf, preRenderPdfPageToDataUrl, preRenderPlanImageWithAnnotationsToDataUrl, exportPDF as exportPDFHelper, printPDF as printPDFHelper, escapeHtml } from '@/lib/pdfBase';
 import { generateAndSendPdfReport } from '@/lib/email/client';
 import { compareLevels } from '@/lib/reserveUtils';
 import { parseDxf, DxfParseResult } from '@/lib/dxfParser';
@@ -64,6 +64,8 @@ import {
   getReservePinColor,
   normalizeCompanyName,
 } from '@/lib/planPinColor';
+import { sanitizePlanDrawings } from '@/lib/plan-annotations/model';
+import { requireAnnotatedPlanCapture } from '@/lib/plan-annotations/report-capture';
 
 const HINT_KEY = 'plans_hint_seen';
 const PIN_SIZE_KEY = 'plans_pin_size_scale';
@@ -270,6 +272,7 @@ async function exportPlanPDF(
   action: 'share' | 'print' = 'share',
   t?: TFunc,
   locale: string = 'fr-FR',
+  planAnnotations: SitePlan['annotations'] = [],
 ) {
   const languageCode = locale.split('-')[0].toUpperCase();
   const displayBuilding = planBuilding || reserves.find(r => !!r.building)?.building || '';
@@ -358,11 +361,30 @@ async function exportPlanPDF(
   // already-rendered WebView canvas via captureRef — avoids CDN PDF.js call
   // which is blocked in Print.printAsync's sandboxed WebView (→ dark rectangle).
   let preRenderedPdfDataUrl: string | null = null;
+  let preRenderedImageDataUrl: string | null = null;
   if (hasPlan && isPdf && exportUri) {
     if (Platform.OS === 'web') {
-      preRenderedPdfDataUrl = await preRenderPdfPageToDataUrl(exportUri, RENDER_W);
+      preRenderedPdfDataUrl = await preRenderPdfPageToDataUrl(exportUri, RENDER_W, planAnnotations ?? []);
     } else if (captureRef?.current) {
       preRenderedPdfDataUrl = await captureRef.current.captureImageDataUrl();
+    }
+  } else if (hasPlan && exportUri && (planAnnotations?.length ?? 0) > 0) {
+    if (Platform.OS === 'web') {
+      preRenderedImageDataUrl = await preRenderPlanImageWithAnnotationsToDataUrl(
+        exportUri,
+        RENDER_W,
+        planAnnotations ?? [],
+      );
+    } else if (captureRef?.current) {
+      preRenderedImageDataUrl = await captureRef.current.captureImageDataUrl();
+    }
+  }
+
+  if (Platform.OS !== 'web') {
+    if (isPdf) {
+      preRenderedPdfDataUrl = requireAnnotatedPlanCapture(preRenderedPdfDataUrl, planAnnotations ?? []);
+    } else {
+      preRenderedImageDataUrl = requireAnnotatedPlanCapture(preRenderedImageDataUrl, planAnnotations ?? []);
     }
   }
 
@@ -385,7 +407,9 @@ async function exportPlanPDF(
   };
 
   const useStaticImg = hasPlan && (!isPdf || !!preRenderedPdfDataUrl);
-  const staticImgSrc = isPdf ? (preRenderedPdfDataUrl ?? '') : (exportUri ?? '');
+  const staticImgSrc = isPdf
+    ? (preRenderedPdfDataUrl ?? '')
+    : (preRenderedImageDataUrl ?? exportUri ?? '');
 
   // Fallback canvas+script for native PDF plans that couldn't pre-render
   const fallbackCanvasScript = (!useStaticImg && hasPins) ? `(function(){
@@ -604,30 +628,43 @@ async function exportGlobalReport(
         // Without this, both branches below would be skipped and no image would appear.
         const planIsPdf = isPlanPdf(plan);
         const planIsImage = !planIsPdf && plan.fileType !== 'dxf';
+        const nativePreview = preRenderedImages?.get(plan.id);
 
         if (planIsImage) {
-          try {
+          if (nativePreview) {
+            planImgHtml = buildGlobalPlanImg(nativePreview);
+          } else try {
             const dataUrl = await loadFileAsDataUrl(plan.uri, 'image');
-            if (dataUrl) planImgHtml = buildGlobalPlanImg(dataUrl);
-          } catch { /* skip if loading fails */ }
+            if (dataUrl) {
+              const annotatedDataUrl = Platform.OS === 'web' && (plan.annotations?.length ?? 0) > 0
+                ? await preRenderPlanImageWithAnnotationsToDataUrl(dataUrl, 720, plan.annotations ?? [])
+                : null;
+              planImgHtml = buildGlobalPlanImg(annotatedDataUrl ?? dataUrl);
+            }
+          } catch (error) {
+            // Never publish a report that silently drops visible annotations.
+            if ((plan.annotations?.length ?? 0) > 0) throw error;
+          }
         } else if (planIsPdf) {
           processedPdfPlans++;
           onProgress?.(processedPdfPlans, totalPdfPlans, plan.name);
           // On native: use pre-rendered JPEG captured from the hidden PdfPlanViewer.
           // On web: render the first PDF page via PDF.js (has DOM + canvas access).
-          const nativePreview = preRenderedImages?.get(plan.id);
           if (nativePreview) {
             planImgHtml = buildGlobalPlanImg(nativePreview);
           } else if (Platform.OS === 'web') {
             try {
               const pdfDataUrl = await loadFileAsDataUrl(plan.uri, 'pdf');
               if (pdfDataUrl) {
-                const preRendered = await preRenderPdfPageToDataUrl(pdfDataUrl, 720);
+                const preRendered = await preRenderPdfPageToDataUrl(pdfDataUrl, 720, plan.annotations ?? []);
                 if (preRendered) {
                   planImgHtml = buildGlobalPlanImg(preRendered);
                 }
               }
-            } catch { /* skip if PDF rendering fails */ }
+            } catch (error) {
+              // A raw PDF fallback cannot reproduce the annotation layer.
+              if ((plan.annotations?.length ?? 0) > 0) throw error;
+            }
           }
         }
       }
@@ -990,7 +1027,7 @@ export default function PlansScreen() {
   // Hidden PDF viewer for pre-rendering plan images in the global report on native.
   // On web, preRenderPdfPageToDataUrl() handles this directly.
   const preRenderRef = useRef<PdfPlanViewerHandle>(null);
-  const [preRenderState, setPreRenderState] = useState<{ uri: string; planId: string } | null>(null);
+  const [preRenderState, setPreRenderState] = useState<{ uri: string; planId: string; isImagePlan: boolean } | null>(null);
   const preRenderReadyRef = useRef<(() => void) | null>(null);
 
   const onPreRenderReady = useCallback(() => {
@@ -999,7 +1036,7 @@ export default function PlansScreen() {
   }, []);
 
   const capturePreRenderPlan = useCallback(
-    (planUri: string, planId: string): Promise<string | null> => {
+    (planUri: string, planId: string, isImagePlan = false): Promise<string | null> => {
       if (Platform.OS === 'web') return Promise.resolve(null);
       return new Promise<string | null>((resolve) => {
         const done = (dataUrl: string | null) => {
@@ -1017,7 +1054,7 @@ export default function PlansScreen() {
             done(null);
           }
         };
-        setPreRenderState({ uri: planUri, planId });
+        setPreRenderState({ uri: planUri, planId, isImagePlan });
       });
     },
     []
@@ -1719,14 +1756,21 @@ export default function PlansScreen() {
             })
             .filter(r => !globalReportStatusFilter || globalReportStatusFilter.size === 0 || globalReportStatusFilter.has(r.status));
           const reservedPlanIds = new Set(filteredReserves.map(r => r.planId).filter(Boolean) as string[]);
-          const pdfPlansWithReserves = chantierPlans.filter(
-            p => isPlanPdf(p) && !!p.uri && reservedPlanIds.has(p.id)
+          const plansToCapture = chantierPlans.filter(
+            p => !!p.uri
+              && reservedPlanIds.has(p.id)
+              && (
+                isPlanPdf(p)
+                || (p.fileType !== 'dxf' && (p.annotations?.length ?? 0) > 0)
+              )
           );
-          for (let i = 0; i < pdfPlansWithReserves.length; i++) {
-            const plan = pdfPlansWithReserves[i];
-            setGlobalReportProgress({ current: i + 1, total: pdfPlansWithReserves.length, planName: plan.name });
-            const dataUrl = await capturePreRenderPlan(plan.uri!, plan.id);
-            if (dataUrl) preRenderedImages.set(plan.id, dataUrl);
+          for (let i = 0; i < plansToCapture.length; i++) {
+            const plan = plansToCapture[i];
+            const imagePlan = !isPlanPdf(plan);
+            setGlobalReportProgress({ current: i + 1, total: plansToCapture.length, planName: plan.name });
+            const dataUrl = await capturePreRenderPlan(plan.uri!, plan.id, imagePlan);
+            const safeDataUrl = requireAnnotatedPlanCapture(dataUrl, plan.annotations ?? []);
+            if (safeDataUrl) preRenderedImages.set(plan.id, safeDataUrl);
           }
           setGlobalReportProgress(null);
         }
@@ -1776,6 +1820,7 @@ export default function PlansScreen() {
         action,
         exportT,
         pdfLocale,
+        currentPlan?.annotations ?? [],
       );
       setPdfModalVisible(false);
     } catch {
@@ -3616,7 +3661,14 @@ export default function PlansScreen() {
                 planId={currentPlanId!}
                 isImagePlan={isImagePlan}
                 annotations={currentPlan!.annotations ?? []}
-                onAnnotationsChange={(drawings) => updateSitePlan({ ...currentPlan!, annotations: drawings })}
+                onAnnotationsChange={(drawings) => {
+                  // The WebView bridge is untrusted input. Permission is checked
+                  // again here so a forged message cannot mutate a read-only plan.
+                  if (!permissions.canCreate || !currentPlan) return;
+                  const canonicalDrawings = sanitizePlanDrawings(drawings);
+                  if (canonicalDrawings.length !== drawings.length) return;
+                  updateSitePlan({ ...currentPlan, annotations: canonicalDrawings });
+                }}
                 reserves={planReservesForViewer}
                 ghostReserves={ghostReserves}
                 pinNumberMap={pinNumberMap}
@@ -4947,7 +4999,7 @@ export default function PlansScreen() {
             ref={preRenderRef}
             planUri={preRenderState.uri}
             planId={preRenderState.planId}
-            isImagePlan={false}
+            isImagePlan={preRenderState.isImagePlan}
             reserves={[]}
             ghostReserves={[]}
             pinNumberMap={new Map()}
@@ -5251,7 +5303,7 @@ const styles = StyleSheet.create({
   zoomOverlayBtn: { width: 28, height: 28, borderRadius: 7, alignItems: 'center', justifyContent: 'center', backgroundColor: C.surface2 },
   zoomOverlayPct: { fontSize: 10, fontFamily: 'Inter_600SemiBold', color: C.textMuted, minWidth: 34, textAlign: 'center' },
 
-  fullscreenBtn: { position: 'absolute', top: 10, right: 10, width: 34, height: 34, borderRadius: 10, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', zIndex: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
+  fullscreenBtn: { position: 'absolute', top: 10, right: 10, width: 48, height: 48, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', zIndex: 30, borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)' },
 
   miniMap: { position: 'absolute', top: 10, left: 10, zIndex: 10, pointerEvents: 'none' as any },
   miniMapInner: { width: 90, height: 68, backgroundColor: 'rgba(15,17,23,0.75)', borderRadius: 6, borderWidth: 1, borderColor: C.border, overflow: 'hidden' },

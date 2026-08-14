@@ -69,7 +69,8 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(workspaceCss).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\[data-prw-plan-workarea\] \{[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
     expect(workspaceCss).toMatch(/@media \(max-width: 760px\)[\s\S]*?\[data-prw-plan-workarea\] \{[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
     expect(css).toMatch(/\.webPdfToolbarPrimary \{[\s\S]*?overflow-x: auto;/);
-    expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.webPdfAnnotateControls \{[\s\S]*?flex-wrap: nowrap;/);
+    expect(css).toMatch(/\.webPdfAnnotateControls \{[\s\S]*?position: absolute;/);
+    expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.webPdfAnnotateControls \{[\s\S]*?overflow: auto;/);
     expect(css).toMatch(/\.webPdfViewport \{[\s\S]*?overflow: auto;/);
   });
 

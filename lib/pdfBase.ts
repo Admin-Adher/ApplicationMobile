@@ -4,10 +4,13 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { resolveMediaRef } from '@/lib/media';
 import * as ImageManipulator from 'expo-image-manipulator';
-import { preRenderPdfPageToDataUrlImpl } from '@/lib/pdfPreRender';
+import {
+  preRenderPdfPageToDataUrlImpl,
+  preRenderPlanImageWithAnnotationsToDataUrlImpl,
+} from '@/lib/pdfPreRender';
 import { ensurePdfFilename } from '@/lib/pdfFilename';
 import { buildPhotoAnnotationsOverlayHtml } from '@/lib/pdfReserveHelpers';
-import type { PhotoAnnotation } from '@/constants/types';
+import type { PhotoAnnotation, PlanDrawing } from '@/constants/types';
 
 /**
  * Escapes user-supplied strings so they are safe to embed in HTML.
@@ -549,8 +552,21 @@ export async function loadFileAsDataUrl(
 export async function preRenderPdfPageToDataUrl(
   pdfUri: string,
   renderW: number,
+  annotations: readonly PlanDrawing[] = [],
 ): Promise<string | null> {
-  return preRenderPdfPageToDataUrlImpl(pdfUri, renderW);
+  return preRenderPdfPageToDataUrlImpl(pdfUri, renderW, annotations);
+}
+
+/**
+ * Adds page-one plan annotations to an image that has already been resolved or
+ * converted to a data URL by the caller. Returns null outside the web runtime.
+ */
+export async function preRenderPlanImageWithAnnotationsToDataUrl(
+  resolvedImageUri: string,
+  renderW: number,
+  annotations: readonly PlanDrawing[] = [],
+): Promise<string | null> {
+  return preRenderPlanImageWithAnnotationsToDataUrlImpl(resolvedImageUri, renderW, annotations);
 }
 
 /**

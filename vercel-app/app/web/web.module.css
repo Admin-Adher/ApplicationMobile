@@ -4305,11 +4305,12 @@
 }
 
 .webPdfShell {
+  position: relative;
   width: 100%;
   min-height: 420px;
   align-self: stretch;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
   background: #fff;
 }
 
@@ -4464,19 +4465,37 @@
   display: none !important;
 }
 
-.webPdfAnnotateControls,
+.webPdfAnnotateControls {
+  position: absolute;
+  inset-block-start: 72px;
+  inset-inline: 12px;
+  z-index: 50;
+  max-height: min(42vh, 320px);
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  overflow: auto;
+  border: 1px solid rgba(15, 48, 130, 0.22);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 14px 36px rgba(15, 23, 42, 0.2);
+}
+
 .webPdfMoveHint {
-  z-index: 7;
+  position: absolute;
+  inset-block-start: 72px;
+  inset-inline-start: 12px;
+  z-index: 45;
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
   padding: 8px 10px;
-  border-bottom: 1px solid #dde4ee;
-  background: #f8fafc;
+  border: 1px solid #dde4ee;
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.96);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
 }
 
-.webPdfAnnotateControls span,
 .webPdfMoveHint {
   color: #64748b;
   font-size: 13px;
@@ -4485,7 +4504,7 @@
 
 .webPdfAnnotateControls button {
   border: 1px solid #d8e0ec;
-  border-radius: 999px;
+  border-radius: 10px;
   min-height: 44px;
   background: #fff;
   color: #003082;
@@ -4493,6 +4512,73 @@
   font: inherit;
   font-weight: 900;
   cursor: pointer;
+}
+
+.webPdfAnnotateControls button:focus-visible,
+.webPdfDrawingTextField input:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.3);
+  outline-offset: 2px;
+}
+
+.webPdfAnnotateControls button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+.webPdfDrawingToolRail,
+.webPdfDrawingOptions,
+.webPdfDrawingActions,
+.webPdfDrawingOptionGroup {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.webPdfDrawingToolRail,
+.webPdfDrawingActions {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.webPdfDrawingToolRail > *,
+.webPdfDrawingActions > *,
+.webPdfDrawingOptionGroup > * {
+  flex: 0 0 auto;
+}
+
+.webPdfDrawingOptions {
+  flex-wrap: wrap;
+  padding-block: 2px;
+}
+
+.webPdfDrawingOptionGroup {
+  padding-inline-end: 8px;
+  border-inline-end: 1px solid #e2e8f0;
+}
+
+.webPdfDrawingTextField {
+  min-width: min(260px, 100%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.webPdfDrawingTextField input {
+  min-width: 0;
+  min-height: 44px;
+  flex: 1 1 180px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
 }
 
 .webPdfColorButton,
@@ -4556,8 +4642,7 @@
 
 .webPdfShellFullscreen .webPdfAnnotateControls,
 .webPdfShellFullscreen .webPdfMoveHint {
-  position: relative;
-  z-index: 3;
+  z-index: 50;
 }
 
 .webPdfShellFullscreen .webPdfToolbar a {
@@ -4629,6 +4714,30 @@
   z-index: 40;
   pointer-events: auto;
   cursor: crosshair;
+}
+
+.webPdfDrawing {
+  cursor: inherit;
+}
+
+.webPdfDrawingSelected {
+  cursor: pointer;
+}
+
+.webPdfDrawingHitArea {
+  fill: transparent;
+  stroke: transparent;
+  stroke-width: 12px;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+.webPdfDrawingSelectionBox {
+  fill: rgba(255, 255, 255, 0.1);
+  stroke: #0f3082;
+  stroke-width: 2px;
+  stroke-dasharray: 5 3;
+  pointer-events: none;
 }
 
 .webPdfLoading,
@@ -10450,15 +10559,10 @@
   }
 
   .webPdfAnnotateControls {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
-    overscroll-behavior-x: contain;
-    scrollbar-width: thin;
-  }
-
-  .webPdfAnnotateControls > * {
-    flex: 0 0 auto;
+    inset-block-start: 68px;
+    inset-inline: 8px;
+    max-height: min(48vh, 300px);
+    overflow: auto;
   }
 
   .planReservePanel {

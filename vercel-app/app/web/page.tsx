@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import {
@@ -66,6 +66,37 @@ import {
   type PlanPreviewRecord,
 } from './plan-reserve-workspace/plan-preview-cache';
 import {
+  PLAN_DRAWING_TOOLS,
+  beginPlanDrawing,
+  canRedoPlanDrawing,
+  canUndoPlanDrawing,
+  clearPlanDrawings,
+  commitPlanDrawing,
+  createPlanAnnotationSession,
+  deletePlanDrawing,
+  deletePlanDrawingsForPage,
+  filterPlanDrawingsByPage,
+  redoPlanDrawing,
+  sanitizePlanDrawings,
+  selectPlanDrawing,
+  undoPlanDrawing,
+  type PlanAnnotationSession,
+  type PlanDrawing,
+  type PlanDrawingTool,
+} from '../../../lib/plan-annotations/model';
+import { LatestWriteQueue } from '../../../lib/plan-annotations/latest-write-queue';
+import {
+  createPendingPlanAnnotationSnapshot,
+  getCanonicalPlanAnnotationSignature,
+  overlayPendingPlanAnnotationSnapshots,
+  type PendingPlanAnnotationSnapshot,
+} from '../../../lib/plan-annotations/pending-snapshots';
+import { renderPlanAnnotationsToCanvas } from '../../../lib/plan-annotations/canvas-renderer';
+import {
+  PlanAnnotationRasterizationError,
+  renderPlanImageWithAnnotationsToDataUrl,
+} from '../../../lib/plan-annotations/image-rasterizer';
+import {
   isRegistryBackedRef,
   resolvePrivateMediaRefs,
   retryPrivateMedia,
@@ -80,6 +111,8 @@ import {
 } from './messages-workspace/messages-model';
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
+
+const webPlanAnnotationWriteQueue = new LatestWriteQueue<PlanDrawing[]>();
 
 type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'magasinier' | 'sous_traitant' | 'observateur' | string;
 
@@ -279,20 +312,6 @@ type PinPlacementPreview = {
 };
 
 type PinMoveResult = Promise<boolean | void> | boolean | void;
-
-type WebPlanDrawingTool = 'pen' | 'line' | 'arrow' | 'rect' | 'ellipse' | 'text' | 'cloud' | 'highlight';
-
-type WebPlanDrawing = {
-  id: string;
-  tool: WebPlanDrawingTool;
-  points: Array<{ x: number; y: number }>;
-  color: string;
-  strokeWidth: number;
-  text?: string;
-  fontSize?: number;
-  opacity?: number;
-  page?: number;
-};
 
 type VisitDraft = {
   title: string;
@@ -2252,15 +2271,21 @@ async function toPdfPlanItemsForReport(plans: any[], reserves: any[]) {
   );
   const items: any[] = [];
   for (const { plan, item } of planItems) {
-    if (!activePlanIds.has(item.id) || !item.uri || !isPdfPlan(plan, item.uri)) {
+    if (!activePlanIds.has(item.id) || !item.uri) {
       items.push(item);
       continue;
     }
 
     const clientUri = resolvedUris.get(item.uri) || (!isRegistryBackedRef(item.uri) ? item.uri : '');
-    const renderedUri = clientUri
-      ? await preRenderPdfPageToDataUrl(clientUri, 720)
-      : null;
+    let renderedUri: string | null = null;
+    if (clientUri && isPdfPlan(plan, item.uri)) {
+      renderedUri = await preRenderPdfPageToDataUrl(clientUri, 720, plan?.annotations);
+    } else if (clientUri && String(item.fileType).toLowerCase() !== 'dxf') {
+      const embeddedImage = await imageUrlToPdfDataUrl(clientUri);
+      renderedUri = embeddedImage && (plan?.annotations?.length ?? 0) > 0
+        ? await renderPlanImageWithAnnotationsToDataUrl(embeddedImage, 720, plan.annotations) ?? embeddedImage
+        : embeddedImage;
+    }
     items.push(renderedUri
       ? { ...item, uri: renderedUri, fileType: 'image' }
       : item);
@@ -2288,8 +2313,13 @@ function dataUrlToPdfBytes(dataUrl: string) {
   return bytes;
 }
 
-async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
+async function preRenderPdfPageToDataUrl(
+  pdfUri: string,
+  renderWidth: number,
+  annotations: unknown = [],
+) {
   if (typeof document === 'undefined' || !pdfUri) return null;
+  const hasAnnotations = sanitizePlanDrawings(annotations).length > 0;
   try {
     const pdfjs: any = await loadPdfJs();
     const source = pdfUri.startsWith('data:')
@@ -2306,13 +2336,21 @@ async function preRenderPdfPageToDataUrl(pdfUri: string, renderWidth: number) {
       canvas.width = Math.round(viewport.width);
       canvas.height = Math.round(viewport.height);
       const context = canvas.getContext('2d');
-      if (!context) return null;
+      if (!context) {
+        if (hasAnnotations) throw new PlanAnnotationRasterizationError('Canvas is unavailable for annotated PDF export.');
+        return null;
+      }
       await page.render({ canvasContext: context, viewport }).promise;
+      renderPlanAnnotationsToCanvas(context, canvas.width, canvas.height, annotations, 1);
       return canvas.toDataURL('image/jpeg', 0.88);
     } finally {
       await pdfSession.destroy();
     }
-  } catch {
+  } catch (error) {
+    if (hasAnnotations) {
+      if (error instanceof PlanAnnotationRasterizationError) throw error;
+      throw new PlanAnnotationRasterizationError(undefined, { cause: error });
+    }
     return null;
   }
 }
@@ -2323,8 +2361,13 @@ async function getPlanImageForReserveReport(plan: any) {
   const resolved = await resolvePrivateMediaRefs([uri]);
   const clientUri = resolved.get(uri) || (!isRegistryBackedRef(uri) ? uri : '');
   if (!clientUri) return null;
-  if (!isPdfPlan(plan, clientUri)) return await imageUrlToPdfDataUrl(clientUri);
-  return await preRenderPdfPageToDataUrl(clientUri, 720);
+  if (!isPdfPlan(plan, clientUri)) {
+    const embeddedImage = await imageUrlToPdfDataUrl(clientUri);
+    if (!embeddedImage || (plan?.annotations?.length ?? 0) === 0) return embeddedImage;
+    return await renderPlanImageWithAnnotationsToDataUrl(embeddedImage, 720, plan.annotations)
+      ?? embeddedImage;
+  }
+  return await preRenderPdfPageToDataUrl(clientUri, 720, plan?.annotations);
 }
 
 function makeHistory(action: string, author: string, oldValue?: string, newValue?: string) {
@@ -2813,6 +2856,9 @@ export default function BuildTrackWebPage() {
   const authUser = authenticatedWorkspace.state.status === 'authenticated'
     ? authenticatedWorkspace.state.user
     : null;
+  const authUserIdRef = useRef<string | null>(authUser?.id ?? null);
+  authUserIdRef.current = authUser?.id ?? null;
+  const pendingWebPlanAnnotationsRef = useRef(new Map<string, PendingPlanAnnotationSnapshot>());
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
   const previewCacheOwnerRef = useRef<string | null>(null);
@@ -2991,6 +3037,7 @@ export default function BuildTrackWebPage() {
     workspaceUserIdRef.current = nextUserId;
 
     if (previousUserId !== undefined || !nextUserId) {
+      pendingWebPlanAnnotationsRef.current.clear();
       setProfile(null);
       setData(EMPTY_DATA);
       setStorageUsage(null);
@@ -3150,6 +3197,21 @@ export default function BuildTrackWebPage() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [reserveModalMode, visitModalOpen]);
 
+  function applyPendingPlanAnnotationSnapshots(sitePlans: any[], ownerId: string | null) {
+    const result = overlayPendingPlanAnnotationSnapshots(
+      sitePlans,
+      pendingWebPlanAnnotationsRef.current,
+      ownerId,
+    );
+    for (const planId of result.acknowledgedIds) {
+      const snapshot = pendingWebPlanAnnotationsRef.current.get(planId);
+      if (snapshot && snapshot.ownerId === ownerId && !snapshot.pending) {
+        pendingWebPlanAnnotationsRef.current.delete(planId);
+      }
+    }
+    return result.plans;
+  }
+
   async function loadEverything(user: SupabaseUser, opts: { background?: boolean } = {}) {
     const loadLease = authLoadGuard.begin(user.id);
     if (!loadLease.isCurrent()) return;
@@ -3275,10 +3337,11 @@ export default function BuildTrackWebPage() {
         fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError }),
         loadLease,
         sitePlans => {
-          setData(previous => ({ ...previous, sitePlans }));
-          setSelectedPlanId(previous => previous && sitePlans.some((plan: any) => plan.id === previous)
+          const protectedSitePlans = applyPendingPlanAnnotationSnapshots(sitePlans, user.id);
+          setData(previous => ({ ...previous, sitePlans: protectedSitePlans }));
+          setSelectedPlanId(previous => previous && protectedSitePlans.some((plan: any) => plan.id === previous)
             ? previous
-            : sitePlans[0]?.id ?? null);
+            : protectedSitePlans[0]?.id ?? null);
         },
       );
       const companiesPromise = fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError });
@@ -3366,12 +3429,13 @@ export default function BuildTrackWebPage() {
           })
         : photos;
       const scopedDocuments = loadedProfile.role === 'sous_traitant' ? [] : documents;
+      const protectedSitePlans = applyPendingPlanAnnotationSnapshots(sitePlans, user.id);
 
       const nextData = {
         chantiers,
         reserves: scopedReserves,
         deletedReserves: scopedDeletedReserves,
-        sitePlans,
+        sitePlans: protectedSitePlans,
         companies,
         organizations,
         visites,
@@ -3395,7 +3459,7 @@ export default function BuildTrackWebPage() {
       setData(nextData);
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
       setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : null);
-      setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
+      setSelectedPlanId(prev => prev && protectedSitePlans.some((p: any) => p.id === prev) ? prev : protectedSitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
       if (failedTables.length) {
         setError(loadT('sync.partialLoad', { tables: failedTableList(loadT, failedTables) }));
@@ -3733,20 +3797,49 @@ export default function BuildTrackWebPage() {
     setActiveTab('plans');
   }
 
-  async function updatePlanAnnotationsWeb(plan: any, annotations: WebPlanDrawing[]) {
+  function updatePlanAnnotationsWeb(plan: any, annotations: PlanDrawing[]) {
     if (!canCreate(profile) || !plan?.id) return;
+    const ownerId = authUser?.id ?? null;
+    const planId = String(plan.id);
+    const pendingSnapshot = createPendingPlanAnnotationSnapshot(ownerId, annotations, true);
+    pendingWebPlanAnnotationsRef.current.set(planId, pendingSnapshot);
     setData(prev => ({
       ...prev,
+      // Preserve this exact array identity for the reader's optimistic echo;
+      // the durable queue receives the sanitized canonical snapshot below.
       sitePlans: prev.sitePlans.map(item => item.id === plan.id ? { ...item, annotations } : item),
     }));
-    const { error: annotationError } = await supabaseBrowser
-      .from('site_plans')
-      .update({ annotations })
-      .eq('id', plan.id);
-    if (annotationError) {
-      setError(annotationError.message);
-      if (authUser) await loadEverything(authUser);
-    }
+    void webPlanAnnotationWriteQueue.enqueue(
+      `${ownerId ?? 'anonymous'}:${planId}`,
+      [...pendingSnapshot.annotations],
+      async latestAnnotations => {
+        if (authUserIdRef.current !== ownerId) throw new Error('annotation_owner_changed');
+        const { error: annotationError } = await supabaseBrowser
+          .from('site_plans')
+          .update({ annotations: latestAnnotations })
+          .eq('id', plan.id);
+        if (authUserIdRef.current !== ownerId) throw new Error('annotation_owner_changed');
+        if (annotationError) throw annotationError;
+
+        const current = pendingWebPlanAnnotationsRef.current.get(planId);
+        const latestSignature = getCanonicalPlanAnnotationSignature(latestAnnotations);
+        if (current?.ownerId === ownerId && current.signature === latestSignature) {
+          pendingWebPlanAnnotationsRef.current.set(
+            planId,
+            createPendingPlanAnnotationSnapshot(ownerId, latestAnnotations, false),
+          );
+        }
+      },
+      (annotationError, failedAnnotations) => {
+        if (authUserIdRef.current !== ownerId) return;
+        const current = pendingWebPlanAnnotationsRef.current.get(planId);
+        if (current?.signature === getCanonicalPlanAnnotationSignature(failedAnnotations)) {
+          pendingWebPlanAnnotationsRef.current.delete(planId);
+        }
+        setError(annotationError instanceof Error ? annotationError.message : 'Enregistrement des annotations impossible.');
+        if (authUser) void loadEverything(authUser);
+      },
+    ).catch(() => undefined);
   }
 
   async function toggleArchive(reserve: any) {
@@ -7889,11 +7982,48 @@ function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
   );
 }
 
-function drawingPath(points: WebPlanDrawing['points']) {
+function drawingPath(points: PlanDrawing['points']) {
   return points.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
 }
 
-function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
+function webPlanCloudPath(x1: number, y1: number, x2: number, y2: number) {
+  const sx = Math.min(x1, x2);
+  const sy = Math.min(y1, y2);
+  const width = Math.max(Math.abs(x2 - x1), 0.75);
+  const height = Math.max(Math.abs(y2 - y1), 0.75);
+  const horizontalBumps = 5;
+  const verticalBumps = Math.max(
+    2,
+    Math.min(12, Math.round(height / Math.max(width / horizontalBumps, 0.15))),
+  );
+  const bumpWidth = width / horizontalBumps;
+  const bumpHeight = height / verticalBumps;
+  const radiusX = bumpWidth * 0.55;
+  const radiusY = bumpHeight * 0.55;
+  let path = `M ${sx + bumpWidth / 2} ${sy}`;
+  for (let index = 0; index < horizontalBumps; index += 1) path += ` a ${radiusX} ${radiusY} 0 0 1 ${bumpWidth} 0`;
+  for (let index = 0; index < verticalBumps; index += 1) path += ` a ${radiusX} ${radiusY} 0 0 1 0 ${bumpHeight}`;
+  for (let index = 0; index < horizontalBumps; index += 1) path += ` a ${radiusX} ${radiusY} 0 0 1 ${-bumpWidth} 0`;
+  for (let index = 0; index < verticalBumps; index += 1) path += ` a ${radiusX} ${radiusY} 0 0 1 0 ${-bumpHeight}`;
+  return `${path} Z`;
+}
+
+const WEB_PLAN_DRAWING_PAGE = 1;
+const WEB_PLAN_DRAWING_COLORS = [
+  { value: '#ef4444', labelKey: 'plans.drawingColorRed' },
+  { value: '#f59e0b', labelKey: 'plans.drawingColorAmber' },
+  { value: '#22c55e', labelKey: 'plans.drawingColorGreen' },
+  { value: '#2563eb', labelKey: 'plans.drawingColorBlue' },
+  { value: '#111827', labelKey: 'plans.drawingColorBlack' },
+] as const;
+
+function renderWebPlanDrawing(
+  drawing: PlanDrawing,
+  key: string,
+  selected = false,
+  interactive = false,
+  accessibleLabel?: string,
+) {
   const points = drawing.points ?? [];
   if (!points.length) return null;
   const first = points[0];
@@ -7907,31 +8037,30 @@ function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
     vectorEffect: 'non-scaling-stroke' as const,
   };
 
-  if (drawing.tool === 'rect' || drawing.tool === 'cloud' || drawing.tool === 'highlight') {
+  let shape: ReactNode;
+  if (drawing.tool === 'cloud') {
+    shape = <path d={webPlanCloudPath(first.x, first.y, last.x, last.y)} fill="none" {...common} />;
+  } else if (drawing.tool === 'rect' || drawing.tool === 'highlight') {
     const x = Math.min(first.x, last.x);
     const y = Math.min(first.y, last.y);
     const width = Math.abs(last.x - first.x);
     const height = Math.abs(last.y - first.y);
-    return (
+    shape = (
       <rect
-        key={key}
         x={x}
         y={y}
         width={width}
         height={height}
-        rx={drawing.tool === 'cloud' ? 2.5 : 0.7}
+        rx={0.7}
         fill={drawing.tool === 'highlight' ? drawing.color || '#facc15' : 'none'}
         {...common}
       />
     );
-  }
-
-  if (drawing.tool === 'ellipse') {
+  } else if (drawing.tool === 'ellipse') {
     const cx = (first.x + last.x) / 2;
     const cy = (first.y + last.y) / 2;
-    return (
+    shape = (
       <ellipse
-        key={key}
         cx={cx}
         cy={cy}
         rx={Math.abs(last.x - first.x) / 2}
@@ -7940,9 +8069,7 @@ function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
         {...common}
       />
     );
-  }
-
-  if (drawing.tool === 'line' || drawing.tool === 'arrow') {
+  } else if (drawing.tool === 'line' || drawing.tool === 'arrow') {
     const angle = Math.atan2(last.y - first.y, last.x - first.x);
     const arrowLength = Math.max(1.4, strokeWidth * 4);
     const arrowAngle = Math.PI / 7;
@@ -7954,8 +8081,8 @@ function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
       x: last.x - arrowLength * Math.cos(angle + arrowAngle),
       y: last.y - arrowLength * Math.sin(angle + arrowAngle),
     };
-    return (
-      <g key={key}>
+    shape = (
+      <g>
         <line x1={first.x} y1={first.y} x2={last.x} y2={last.y} fill="none" {...common} />
         {drawing.tool === 'arrow' && (
           <path
@@ -7968,12 +8095,9 @@ function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
         )}
       </g>
     );
-  }
-
-  if (drawing.tool === 'text') {
-    return (
+  } else if (drawing.tool === 'text') {
+    shape = (
       <text
-        key={key}
         x={first.x}
         y={first.y}
         fill={drawing.color || '#ef4444'}
@@ -7984,17 +8108,57 @@ function renderWebPlanDrawing(drawing: WebPlanDrawing, key: string) {
         {drawing.text}
       </text>
     );
+  } else {
+    shape = (
+      <path
+        d={drawingPath(points)}
+        fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        {...common}
+      />
+    );
   }
 
+  const xs = points.map(point => point.x);
+  const ys = points.map(point => point.y);
+  const minX = Math.min(...xs);
+  const minY = Math.min(...ys);
+  const width = Math.max(1.8, Math.max(...xs) - minX);
+  const height = Math.max(1.8, Math.max(...ys) - minY);
   return (
-    <path
+    <g
       key={key}
-      d={drawingPath(points)}
-      fill="none"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      {...common}
-    />
+      data-plan-drawing-id={drawing.id}
+      className={selected ? styles.webPdfDrawingSelected : styles.webPdfDrawing}
+      role={interactive ? 'button' : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      aria-label={interactive ? accessibleLabel ?? `Annotation ${drawing.tool}` : undefined}
+    >
+      {shape}
+      {interactive ? (
+        <rect
+          className={styles.webPdfDrawingHitArea}
+          x={minX - 1.2}
+          y={minY - 1.2}
+          width={width + 2.4}
+          height={height + 2.4}
+          rx={1}
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : null}
+      {selected ? (
+        <rect
+          className={styles.webPdfDrawingSelectionBox}
+          x={minX - 0.9}
+          y={minY - 0.9}
+          width={width + 1.8}
+          height={height + 1.8}
+          rx={0.8}
+          vectorEffect="non-scaling-stroke"
+        />
+      ) : null}
+    </g>
   );
 }
 
@@ -8036,7 +8200,7 @@ function WebPdfPlan({
   canCreate?: boolean;
   canMovePins?: boolean;
   canAnnotate?: boolean;
-  annotations?: WebPlanDrawing[];
+  annotations?: PlanDrawing[];
   placementPreview?: PinPlacementPreview | null;
   placementActive?: boolean;
   createModeActive?: boolean;
@@ -8044,7 +8208,7 @@ function WebPdfPlan({
   onPlacePin?: (x: number, y: number) => void;
   onCreateReserveAtPin?: (x: number, y: number) => void;
   onPinMove?: (reserveId: string, x: number, y: number) => PinMoveResult;
-  onAnnotationsChange?: (annotations: WebPlanDrawing[]) => void;
+  onAnnotationsChange?: (annotations: PlanDrawing[]) => void;
   onPinClick: (reserveId: string) => void;
   onPinOpen: (reserveId: string) => void;
   onClearFocus?: () => void;
@@ -8064,6 +8228,9 @@ function WebPdfPlan({
   const capturingPreviewKeyRef = useRef('');
   const lastFocusZoomRef = useRef('');
   const drawingPointerRef = useRef<number | null>(null);
+  const liveDrawingRef = useRef<PlanDrawing | null>(null);
+  const liveDrawingFrameRef = useRef<number | null>(null);
+  const pendingAnnotationEchoRef = useRef<PlanDrawing[] | null>(null);
   const movePreviewTimerRef = useRef<number | null>(null);
   const previousFullscreenRef = useRef(false);
   const suppressNextPageClickRef = useRef(false);
@@ -8087,10 +8254,13 @@ function WebPdfPlan({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
+  const [drawTool, setDrawTool] = useState<PlanDrawingTool | 'select'>('pen');
   const [drawColor, setDrawColor] = useState('#ef4444');
   const [drawWidth, setDrawWidth] = useState(4);
-  const [liveDrawing, setLiveDrawing] = useState<WebPlanDrawing | null>(null);
-  const [localAnnotations, setLocalAnnotations] = useState<WebPlanDrawing[]>(annotations ?? []);
+  const [drawText, setDrawText] = useState('');
+  const [liveDrawing, setLiveDrawing] = useState<PlanDrawing | null>(null);
+  const [annotationSession, setAnnotationSession] = useState<PlanAnnotationSession>(() => createPlanAnnotationSession(annotations));
+  const annotationSessionRef = useRef(annotationSession);
   const [moveMode, setMoveMode] = useState(false);
   const [movePreview, setMovePreview] = useState<PinPlacementPreview | null>(null);
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
@@ -8128,7 +8298,14 @@ function WebPdfPlan({
     setError(false);
     setRenderReady(false);
     setAnnotationMode(false);
+    setDrawTool('pen');
     setLiveDrawing(null);
+    if (liveDrawingFrameRef.current != null) {
+      window.cancelAnimationFrame(liveDrawingFrameRef.current);
+      liveDrawingFrameRef.current = null;
+    }
+    liveDrawingRef.current = null;
+    drawingPointerRef.current = null;
     setMoveMode(false);
     setMovePreview(null);
     setActionMenuOpen(false);
@@ -8176,7 +8353,19 @@ function WebPdfPlan({
   }, [cachedPreview, fitCachedPreviewToViewport, fitPdfToViewport, isFullscreen, uri]);
 
   useEffect(() => {
-    setLocalAnnotations(annotations ?? []);
+    if (annotations === pendingAnnotationEchoRef.current) {
+      pendingAnnotationEchoRef.current = null;
+      return;
+    }
+    const incomingSignature = getCanonicalPlanAnnotationSignature(annotations ?? []);
+    const currentSignature = getCanonicalPlanAnnotationSignature(annotationSessionRef.current.drawings);
+    if (incomingSignature === currentSignature) {
+      pendingAnnotationEchoRef.current = null;
+      return;
+    }
+    const nextSession = createPlanAnnotationSession(sanitizePlanDrawings(annotations ?? []));
+    annotationSessionRef.current = nextSession;
+    setAnnotationSession(nextSession);
   }, [annotations, uri]);
 
   useEffect(() => {
@@ -8230,6 +8419,7 @@ function WebPdfPlan({
   useEffect(() => {
     return () => {
       if (movePreviewTimerRef.current) window.clearTimeout(movePreviewTimerRef.current);
+      if (liveDrawingFrameRef.current != null) window.cancelAnimationFrame(liveDrawingFrameRef.current);
     };
   }, []);
 
@@ -8401,9 +8591,39 @@ function WebPdfPlan({
     };
   }
 
-  function commitAnnotations(next: WebPlanDrawing[]) {
-    setLocalAnnotations(next);
-    onAnnotationsChange?.(next);
+  function applyAnnotationSession(next: PlanAnnotationSession, persist = false) {
+    const previous = annotationSessionRef.current;
+    if (next === previous) return;
+    annotationSessionRef.current = next;
+    setAnnotationSession(next);
+    if (persist && next.drawings !== previous.drawings) {
+      const persisted = [...next.drawings];
+      pendingAnnotationEchoRef.current = persisted;
+      onAnnotationsChange?.(persisted);
+    }
+  }
+
+  function renderLiveDrawingSoon() {
+    if (liveDrawingFrameRef.current != null) return;
+    liveDrawingFrameRef.current = window.requestAnimationFrame(() => {
+      liveDrawingFrameRef.current = null;
+      const current = liveDrawingRef.current;
+      setLiveDrawing(current ? { ...current, points: [...current.points] } : null);
+    });
+  }
+
+  function cancelLiveDrawing(event?: PointerEvent<SVGSVGElement>) {
+    if (event && drawingPointerRef.current !== event.pointerId) return;
+    if (liveDrawingFrameRef.current != null) {
+      window.cancelAnimationFrame(liveDrawingFrameRef.current);
+      liveDrawingFrameRef.current = null;
+    }
+    if (event && event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    drawingPointerRef.current = null;
+    liveDrawingRef.current = null;
+    setLiveDrawing(null);
   }
 
   function isPdfPanControl(target: EventTarget | null) {
@@ -8516,49 +8736,110 @@ function WebPdfPlan({
 
   function handleDrawPointerDown(event: PointerEvent<SVGSVGElement>) {
     if (!annotationMode || !canAnnotate) return;
+    if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
     event.preventDefault();
     event.stopPropagation();
+
+    if (drawTool === 'select') {
+      const drawingElement = event.target instanceof Element
+        ? event.target.closest<SVGGElement>('[data-plan-drawing-id]')
+        : null;
+      applyAnnotationSession(selectPlanDrawing(annotationSessionRef.current, drawingElement?.dataset.planDrawingId ?? null));
+      return;
+    }
+
+    if (drawTool === 'text' && !drawText.trim()) return;
     drawingPointerRef.current = event.pointerId;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     const point = pagePointFromEvent(event);
-    setLiveDrawing({
+    const started = beginPlanDrawing(annotationSessionRef.current, {
       id: `drawing-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      tool: 'pen',
-      points: [point],
+      tool: drawTool,
+      point,
       color: drawColor,
       strokeWidth: drawWidth,
       page: 1,
+      text: drawTool === 'text' ? drawText : undefined,
+      fontSize: drawTool === 'text' ? 18 : undefined,
+      opacity: drawTool === 'highlight' ? 0.28 : undefined,
     });
+    liveDrawingRef.current = started.draft ? { ...started.draft, points: [...started.draft.points] } : null;
+    setLiveDrawing(liveDrawingRef.current);
+  }
+
+  function handleDrawKeyDown(event: ReactKeyboardEvent<SVGSVGElement>) {
+    const drawingElement = event.target instanceof Element
+      ? event.target.closest<SVGGElement>('[data-plan-drawing-id]')
+      : null;
+    const drawingId = drawingElement?.dataset.planDrawingId;
+    if ((event.key === 'Enter' || event.key === ' ') && drawingId) {
+      event.preventDefault();
+      applyAnnotationSession(selectPlanDrawing(annotationSessionRef.current, drawingId));
+      return;
+    }
+    if ((event.key === 'Delete' || event.key === 'Backspace') && drawingId === annotationSessionRef.current.selectedId) {
+      event.preventDefault();
+      applyAnnotationSession(deletePlanDrawing(annotationSessionRef.current, drawingId), true);
+    }
   }
 
   function handleDrawPointerMove(event: PointerEvent<SVGSVGElement>) {
     if (drawingPointerRef.current !== event.pointerId) return;
     event.preventDefault();
+    if (!liveDrawingRef.current || liveDrawingRef.current.tool === 'text') return;
     const point = pagePointFromEvent(event);
-    setLiveDrawing(current => {
-      if (!current) return current;
-      const last = current.points[current.points.length - 1];
-      if (last && Math.abs(last.x - point.x) + Math.abs(last.y - point.y) < 0.1) return current;
-      return { ...current, points: [...current.points, point] };
-    });
+    const current = liveDrawingRef.current;
+    const last = current.points[current.points.length - 1];
+    if (last && Math.abs(last.x - point.x) + Math.abs(last.y - point.y) < 0.1) return;
+    if (current.tool === 'pen') current.points.push(point);
+    else if (current.points.length === 1) current.points.push(point);
+    else current.points[1] = point;
+    renderLiveDrawingSoon();
   }
 
   function handleDrawPointerUp(event: PointerEvent<SVGSVGElement>) {
     if (drawingPointerRef.current !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
-    drawingPointerRef.current = null;
-    setLiveDrawing(current => {
-      if (current && current.points.length > 1) {
-        commitAnnotations([...localAnnotations, current]);
-      }
-      return null;
+    const completed = liveDrawingRef.current;
+    cancelLiveDrawing(event);
+    if (!completed) return;
+    const next = commitPlanDrawing({ ...annotationSessionRef.current, draft: completed }, {
+      text: completed.text,
+      fontSize: completed.fontSize,
+      opacity: completed.opacity,
     });
+    applyAnnotationSession(next, true);
+  }
+
+  function undoAnnotation() {
+    applyAnnotationSession(undoPlanDrawing(annotationSessionRef.current), true);
+  }
+
+  function redoAnnotation() {
+    applyAnnotationSession(redoPlanDrawing(annotationSessionRef.current), true);
+  }
+
+  function deleteSelectedAnnotation() {
+    const selectedId = annotationSessionRef.current.selectedId;
+    if (!selectedId) return;
+    applyAnnotationSession(deletePlanDrawing(annotationSessionRef.current, selectedId), true);
+  }
+
+  function deletePageAnnotations() {
+    if (!window.confirm(t('plans.drawingConfirmClearPage'))) return;
+    applyAnnotationSession(deletePlanDrawingsForPage(annotationSessionRef.current, WEB_PLAN_DRAWING_PAGE), true);
+  }
+
+  function deleteAllAnnotations() {
+    if (!window.confirm(t('plans.drawingConfirmClearAll'))) return;
+    applyAnnotationSession(clearPlanDrawings(annotationSessionRef.current), true);
   }
 
   const focusedPin = focusedReserveId ? pins.find(pin => pin.reserve.id === focusedReserveId) : null;
   const activePreview = placementPreview ?? movePreview;
+  const pageAnnotations = filterPlanDrawingsByPage(annotationSession.drawings, WEB_PLAN_DRAWING_PAGE);
+  const selectedPageAnnotation = pageAnnotations.find(drawing => drawing.id === annotationSession.selectedId) ?? null;
   const zoomReady = !loading && !error && scale != null && pageSize.width > 0 && pageSize.height > 0;
   const zoomLabel = zoomReady && scale != null ? `${Math.round(scale * 100)}%` : '—';
 
@@ -8706,43 +8987,92 @@ function WebPdfPlan({
         )}
       </div>
       {canAnnotate && annotationMode && (
-        <div id={`${actionMenuId}-drawing`} className={styles.webPdfAnnotateControls}>
-          <span>Couleur</span>
-          {['#ef4444', '#f59e0b', '#22c55e', '#2563eb', '#111827'].map(color => (
+        <div
+          id={`${actionMenuId}-drawing`}
+          className={styles.webPdfAnnotateControls}
+          role="region"
+          aria-label={t('plans.drawingTools')}
+        >
+          <div className={styles.webPdfDrawingToolRail} role="toolbar" aria-label={t('plans.drawingTools')}>
             <button
-              key={color}
               type="button"
-              className={drawColor === color ? styles.webPdfColorButtonActive : styles.webPdfColorButton}
-              style={{ background: color }}
-              onClick={() => setDrawColor(color)}
-              aria-label={`Couleur ${color}`}
-            />
-          ))}
-          <span>Trait</span>
-          {[1, 4, 8, 14].map(width => (
-            <button
-              key={width}
-              type="button"
-              className={`${styles.webPdfWidthButton} ${drawWidth === width ? styles.webPdfToolbarActive : ''}`}
-              onClick={() => setDrawWidth(width)}
+              data-drawing-tool="select"
+              aria-pressed={drawTool === 'select'}
+              className={drawTool === 'select' ? styles.webPdfToolbarActive : ''}
+              onClick={() => setDrawTool('select')}
             >
-              {width}
+              {t('plans.drawingSelect')}
             </button>
-          ))}
-          <button
-            type="button"
-            disabled={localAnnotations.length === 0}
-            onClick={() => commitAnnotations(localAnnotations.slice(0, -1))}
-          >
-            Annuler
-          </button>
-          <button
-            type="button"
-            disabled={localAnnotations.length === 0}
-            onClick={() => commitAnnotations([])}
-          >
-            Effacer
-          </button>
+            {PLAN_DRAWING_TOOLS.map(tool => (
+              <button
+                key={tool}
+                type="button"
+                data-drawing-tool={tool}
+                aria-pressed={drawTool === tool}
+                className={drawTool === tool ? styles.webPdfToolbarActive : ''}
+                onClick={() => setDrawTool(tool)}
+              >
+                {t(`plans.drawingTool.${tool}`)}
+              </button>
+            ))}
+          </div>
+          <div className={styles.webPdfDrawingOptions}>
+            <div className={styles.webPdfDrawingOptionGroup} role="group" aria-label={t('plans.drawingColor')}>
+              {WEB_PLAN_DRAWING_COLORS.map(color => (
+                <button
+                  key={color.value}
+                  type="button"
+                  className={drawColor === color.value ? styles.webPdfColorButtonActive : styles.webPdfColorButton}
+                  style={{ background: color.value }}
+                  onClick={() => setDrawColor(color.value)}
+                  aria-label={t(color.labelKey)}
+                  aria-pressed={drawColor === color.value}
+                />
+              ))}
+            </div>
+            <div className={styles.webPdfDrawingOptionGroup} role="group" aria-label={t('plans.drawingWidth')}>
+              {[1, 4, 8, 14].map(width => (
+                <button
+                  key={width}
+                  type="button"
+                  className={`${styles.webPdfWidthButton} ${drawWidth === width ? styles.webPdfToolbarActive : ''}`}
+                  onClick={() => setDrawWidth(width)}
+                  aria-label={t('plans.drawingWidthValue', { width })}
+                  aria-pressed={drawWidth === width}
+                >
+                  {width}
+                </button>
+              ))}
+            </div>
+            {drawTool === 'text' ? (
+              <label className={styles.webPdfDrawingTextField}>
+                <span>{t('plans.drawingText')}</span>
+                <input
+                  value={drawText}
+                  maxLength={80}
+                  onChange={event => setDrawText(event.target.value)}
+                  placeholder={t('plans.drawingTextPlaceholder')}
+                />
+              </label>
+            ) : null}
+          </div>
+          <div className={styles.webPdfDrawingActions} role="group" aria-label={t('plans.drawingActions')}>
+            <button type="button" disabled={!canUndoPlanDrawing(annotationSession)} onClick={undoAnnotation}>
+              {t('plans.drawingUndo')}
+            </button>
+            <button type="button" disabled={!canRedoPlanDrawing(annotationSession)} onClick={redoAnnotation}>
+              {t('plans.drawingRedo')}
+            </button>
+            <button type="button" disabled={!selectedPageAnnotation} onClick={deleteSelectedAnnotation}>
+              {t('plans.drawingDeleteObject')}
+            </button>
+            <button type="button" disabled={pageAnnotations.length === 0} onClick={deletePageAnnotations}>
+              {t('plans.drawingDeletePage')}
+            </button>
+            <button type="button" disabled={annotationSession.drawings.length === 0} onClick={deleteAllAnnotations}>
+              {t('plans.drawingDeleteAll')}
+            </button>
+          </div>
         </div>
       )}
       {moveMode && focusedPin && (
@@ -8803,9 +9133,17 @@ function WebPdfPlan({
             onPointerDown={handleDrawPointerDown}
             onPointerMove={handleDrawPointerMove}
             onPointerUp={handleDrawPointerUp}
-            onPointerCancel={handleDrawPointerUp}
+            onPointerCancel={cancelLiveDrawing}
+            onKeyDown={handleDrawKeyDown}
+            aria-label={t('plans.drawingCanvas')}
           >
-            {localAnnotations.map((drawing, index) => renderWebPlanDrawing(drawing, drawing.id ?? `drawing-${index}`))}
+            {pageAnnotations.map((drawing, index) => renderWebPlanDrawing(
+              drawing,
+              drawing.id ?? `drawing-${index}`,
+              drawing.id === annotationSession.selectedId,
+              annotationMode && drawTool === 'select',
+              `${t('plans.drawing')} · ${t(`plans.drawingTool.${drawing.tool}`)}`,
+            ))}
             {liveDrawing && renderWebPlanDrawing(liveDrawing, 'live-drawing')}
           </svg>
           {activePreview && (

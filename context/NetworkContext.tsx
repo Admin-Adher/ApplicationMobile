@@ -31,6 +31,10 @@ import {
   inventoryOutcomeTranslationKey,
   isReplayableQueuedOperation,
 } from '@/lib/syncQueuePolicy';
+import {
+  coalesceQueuedOperations,
+  migrateAndCoalesceSitePlanSnapshots,
+} from '@/lib/offlineQueueCoalescing';
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
@@ -165,6 +169,8 @@ export interface QueuedOperation {
   op: 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
   filter?: { column: string; value: string };
   data?: Record<string, any>;
+  /** Opt-in key for full snapshots where only the newest queued value matters. */
+  coalesceKey?: string;
   /** Present for atomic Postgres functions replayed through PostgREST RPC. */
   rpc?: { fn: string; args?: Record<string, any> };
   /** Present only for reserve-status mutations. */
@@ -793,9 +799,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           combined.push(op);
         }
       }
-      queueRef.current = combined;
-      setQueue(combined);
-      await saveQueue(combined);
+      const coalesced = migrateAndCoalesceSitePlanSnapshots(combined, userId);
+      queueRef.current = coalesced;
+      setQueue(coalesced);
+      await saveQueue(coalesced);
       lastLoadedKeyRef.current = userKey ?? anonKey;
     } catch {
       // Conserver les opérations éventuellement créées pendant l'hydratation.
@@ -1399,6 +1406,27 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
 
           const { data: rpcData, error } = await supabaseRestRpc(op.rpc.fn, args);
+          if (!error && op.rpc.fn === 'replace_site_plan_file_safely') {
+            // The RPC protects the binary transition but deliberately touches
+            // only file columns. Persist the latest coalesced full snapshot
+            // afterwards so annotations and plan metadata cannot be dropped.
+            const snapshotPatch = (args.p_patch ?? retryRpcOp.data) as Record<string, any> | undefined;
+            const planId = args.p_plan_id;
+            if (!snapshotPatch || !planId) {
+              fail(retryRpcOp, i18n.t('networkQueue.replacePlanMissingPatch'));
+              continue;
+            }
+            const { error: metadataError } = await supabaseRestMutation(
+              'site_plans',
+              'update',
+              snapshotPatch,
+              { column: 'id', value: String(planId) },
+            );
+            if (metadataError) {
+              fail(retryRpcOp, metadataError);
+              continue;
+            }
+          }
           if (error && op.rpc.fn === 'append_reserve_status_event' && isReserveMutationRpcUnavailable(error)) {
             if (op.filter?.column === 'id' && op.data) {
               const { error: fallbackErr } = await supabaseRestMutation(
@@ -1950,10 +1978,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // avant React et AsyncStorage pour rester insensible au batching et aux
     // courses avec un enqueue concurrent.
     const processedIds = new Set(currentQueue.slice(0, processed).map(o => o.id));
-    const nextQueue = [
+    const nextQueue = coalesceQueuedOperations([
       ...remaining,
       ...queueRef.current.filter(o => !processedIds.has(o.id)),
-    ];
+    ]);
     queueRef.current = nextQueue;
     setQueue(nextQueue);
     await saveQueue(nextQueue);
@@ -2126,7 +2154,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // l'effet qui recopient la file. Sans cette mise à jour synchrone, le moteur
     // lancé juste après l'enqueue voit encore [] et l'opération attend le prochain
     // ping — voire indéfiniment après certaines reprises Android.
-    const updated = [...queueRef.current, newOp];
+    const updated = coalesceQueuedOperations([...queueRef.current, newOp]);
     queueRef.current = updated;
     setQueue(updated);
     void saveQueue(updated);

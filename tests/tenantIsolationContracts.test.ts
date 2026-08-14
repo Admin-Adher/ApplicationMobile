@@ -7,7 +7,9 @@ function repoPath(relative: string) {
 }
 
 function source(relative: string) {
-  return readFileSync(repoPath(relative), 'utf8').toLowerCase();
+  return readFileSync(repoPath(relative), 'utf8')
+    .replace(/\r\n?/g, '\n')
+    .toLowerCase();
 }
 
 const authority = source('supabase/migrations/20260810192253_organization_membership_authority.sql');

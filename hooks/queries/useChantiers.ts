@@ -11,6 +11,14 @@ import { Chantier, SitePlan, Channel, Reserve } from '@/constants/types';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import i18n from '@/lib/i18n';
+import { LatestWriteQueue } from '@/lib/plan-annotations/latest-write-queue';
+import {
+  mergeSitePlanWriteSnapshots,
+  queuedSitePlanSnapshotRequiresFileReplacement,
+  sitePlanSnapshotCoalesceKey,
+  sitePlanWriteKey,
+  type SitePlanWriteSnapshot,
+} from '@/lib/plan-annotations/site-plan-write-policy';
 
 const CHANTIERS_CACHE_KEY = 'buildtrack_chantiers_cache_v1';
 const SITE_PLANS_CACHE_KEY = 'buildtrack_site_plans_cache_v1';
@@ -22,8 +30,51 @@ export function useChantiers() {
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
   const queueRef = useRef(queue);
-  useEffect(() => { queueRef.current = queue; }, [queue]);
   const userId = user?.id;
+  const activeUserIdRef = useRef<string | null>(userId ?? null);
+  const sitePlanWriteQueueRef = useRef(new LatestWriteQueue<SitePlanWriteSnapshot>());
+  const activeSitePlanWriteCountRef = useRef(new Map<string, number>());
+  const latestSitePlanSnapshotRef = useRef(new Map<string, SitePlanWriteSnapshot>());
+  const queuedSitePlanRetryKeysRef = useRef(new Set<string>());
+  const pendingSitePlanFileReplacementKeysRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    queueRef.current = queue;
+    const queuedKeys = new Set(
+      queue
+        .map(operation => String(operation.coalesceKey ?? '').trim())
+        .filter(Boolean),
+    );
+    for (const operation of queue) {
+      const key = String(operation.coalesceKey ?? '').trim();
+      if (!key || !key.startsWith('site-plan-snapshot:')) continue;
+      queuedSitePlanRetryKeysRef.current.add(key);
+      if (operation.rpc?.fn === 'replace_site_plan_file_safely') {
+        pendingSitePlanFileReplacementKeysRef.current.add(key);
+      }
+    }
+    for (const key of queuedSitePlanRetryKeysRef.current) {
+      if (!queuedKeys.has(key) && !activeSitePlanWriteCountRef.current.get(key)) {
+        queuedSitePlanRetryKeysRef.current.delete(key);
+        pendingSitePlanFileReplacementKeysRef.current.delete(key);
+        latestSitePlanSnapshotRef.current.delete(key);
+      }
+    }
+  }, [queue]);
+
+  useEffect(() => {
+    const previousUserId = activeUserIdRef.current;
+    activeUserIdRef.current = userId ?? null;
+    if (previousUserId !== (userId ?? null)) {
+      activeSitePlanWriteCountRef.current.clear();
+      latestSitePlanSnapshotRef.current.clear();
+      queuedSitePlanRetryKeysRef.current.clear();
+      pendingSitePlanFileReplacementKeysRef.current.clear();
+    }
+    return () => {
+      if (activeUserIdRef.current === userId) activeUserIdRef.current = null;
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -245,7 +296,7 @@ export function useChantiers() {
         }
       }
     }
-  }, [queryClient, isOnlineRef, enqueueOperation]);
+  }, [queryClient, isOnlineRef, enqueueOperation, userId]);
 
   const deleteChantier = useCallback(async (id: string) => {
     const linkedLocalReserves = (queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? [])
@@ -326,7 +377,7 @@ export function useChantiers() {
         }
       }
     }
-  }, [queryClient, isOnlineRef, enqueueOperation]);
+  }, [queryClient, isOnlineRef, enqueueOperation, userId]);
 
   const addSitePlan = useCallback(async (p: SitePlan) => {
     const orgId = user?.organizationId ?? null;
@@ -394,80 +445,154 @@ export function useChantiers() {
       previousPlan.size !== p.size ||
       previousPlan.pdfPageCount !== p.pdfPageCount
     );
-    // Fix 3: offline updateSitePlan includes all fields so nothing is overwritten to null on sync
-    if (!isOnlineRef.current && isSupabaseConfigured) {
-      if (fileChanged) {
+    const ownerId = userId ?? null;
+    const writeKey = sitePlanWriteKey(ownerId, p.id);
+    const coalesceKey = sitePlanSnapshotCoalesceKey(ownerId, p.id);
+    const queuedFileReplacement = queuedSitePlanSnapshotRequiresFileReplacement(queueRef.current, coalesceKey);
+    const requiresFileReplacement = fileChanged
+      || queuedFileReplacement
+      || pendingSitePlanFileReplacementKeysRef.current.has(coalesceKey);
+    if (requiresFileReplacement) {
+      pendingSitePlanFileReplacementKeysRef.current.add(coalesceKey);
+    }
+    const snapshot: SitePlanWriteSnapshot = {
+      ownerId,
+      planId: p.id,
+      updatePayload,
+      retryPayload: updatePayload,
+      fileChanged: requiresFileReplacement,
+    };
+    latestSitePlanSnapshotRef.current.set(coalesceKey, snapshot);
+
+    const enqueueLatestSnapshotForRetry = (
+      latest: SitePlanWriteSnapshot,
+      reason: string,
+    ) => {
+      queuedSitePlanRetryKeysRef.current.add(coalesceKey);
+      if (latest.fileChanged) {
+        pendingSitePlanFileReplacementKeysRef.current.add(coalesceKey);
         enqueueOperation({
           table: 'site_plans',
           op: 'rpc',
           rpc: {
             fn: 'replace_site_plan_file_safely',
             args: {
-              p_plan_id: p.id,
-              p_patch: updatePayload,
-              p_reason: 'mobile_offline_update_site_plan_file',
+              p_plan_id: latest.planId,
+              p_patch: latest.retryPayload,
+              p_reason: reason,
             },
           },
-          data: updatePayload,
+          data: latest.retryPayload,
+          coalesceKey,
         });
-      } else {
-        enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: updatePayload });
+        return;
       }
+      enqueueOperation({
+        table: 'site_plans',
+        op: 'update',
+        filter: { column: 'id', value: latest.planId },
+        data: latest.retryPayload,
+        coalesceKey,
+      });
+    };
+
+    // Fix 3: offline updateSitePlan includes all fields so nothing is overwritten to null on sync
+    if (!isOnlineRef.current && isSupabaseConfigured) {
+      enqueueLatestSnapshotForRetry(
+        snapshot,
+        requiresFileReplacement
+          ? 'mobile_offline_update_site_plan_file'
+          : 'mobile_offline_update_site_plan',
+      );
       return;
     }
     if (isSupabaseConfigured) {
-      const prep = await uploadLocalPhotosInPayload('site_plans', updatePayload);
-      if (!prep.allOk) {
-        console.warn('[sync] updateSitePlan: file upload failed, queuing for later sync');
-        if (fileChanged) {
-          enqueueOperation({
-            table: 'site_plans',
-            op: 'rpc',
-            rpc: {
-              fn: 'replace_site_plan_file_safely',
-              args: {
-                p_plan_id: p.id,
-                p_patch: updatePayload,
-                p_reason: 'mobile_update_site_plan_file_retry',
-              },
-            },
-            data: updatePayload,
-          });
-        } else {
-          enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: updatePayload });
+      activeSitePlanWriteCountRef.current.set(
+        coalesceKey,
+        (activeSitePlanWriteCountRef.current.get(coalesceKey) ?? 0) + 1,
+      );
+      let succeeded = false;
+      try {
+        await sitePlanWriteQueueRef.current.enqueue(
+          writeKey,
+          snapshot,
+          async latest => {
+            latestSitePlanSnapshotRef.current.set(coalesceKey, latest);
+            if (activeUserIdRef.current !== latest.ownerId) throw new Error('site_plan_owner_changed');
+            const prep = await uploadLocalPhotosInPayload('site_plans', latest.updatePayload);
+            if (!prep.allOk) throw new Error('site_plan_file_upload_failed');
+            if (activeUserIdRef.current !== latest.ownerId) throw new Error('site_plan_owner_changed');
+            latest.retryPayload = prep.data!;
+            latestSitePlanSnapshotRef.current.set(coalesceKey, latest);
+            if (latest.fileChanged) {
+              const replacement = await (supabase as any).rpc('replace_site_plan_file_safely', {
+                p_plan_id: latest.planId,
+                p_patch: latest.retryPayload,
+                p_reason: 'mobile_update_site_plan_file',
+              });
+              if (replacement.error) throw replacement.error;
+
+              // The guarded RPC intentionally updates only file columns. Once
+              // the file transition is accepted, persist the complete newest
+              // snapshot (including annotations/building/revision metadata).
+              // File values now match, so the anti-loss trigger permits it.
+              const metadataUpdate = await (supabase as any)
+                .from('site_plans')
+                .update(latest.retryPayload)
+                .eq('id', latest.planId);
+              if (metadataUpdate.error) throw metadataUpdate.error;
+            } else {
+              const result = await (supabase as any)
+                .from('site_plans')
+                .update(latest.retryPayload)
+                .eq('id', latest.planId);
+              if (result.error) throw result.error;
+            }
+          },
+          (writeError, latest) => {
+            if (activeUserIdRef.current !== latest.ownerId) return;
+            console.warn('[sync] updateSitePlan final write failed, queuing latest snapshot:', writeError instanceof Error ? writeError.message : writeError);
+            enqueueLatestSnapshotForRetry(latest, latest.fileChanged
+              ? 'mobile_update_site_plan_file_retry'
+              : 'mobile_update_site_plan_retry');
+          },
+          mergeSitePlanWriteSnapshots,
+        );
+        succeeded = true;
+
+        // A previous failed snapshot may already be persisted. Never leave it
+        // behind after a newer online success: replace it with the newest full
+        // snapshot so a later replay cannot resurrect stale annotations.
+        const hasPersistedRetry = queuedSitePlanRetryKeysRef.current.has(coalesceKey)
+          || queueRef.current.some(operation => operation.coalesceKey === coalesceKey);
+        if (hasPersistedRetry) {
+          const latest = latestSitePlanSnapshotRef.current.get(coalesceKey) ?? snapshot;
+          enqueueLatestSnapshotForRetry(
+            latest,
+            latest.fileChanged
+              ? 'mobile_update_site_plan_file_latest_snapshot'
+              : 'mobile_update_site_plan_latest_snapshot',
+          );
         }
-        return;
-      }
-      const result = fileChanged
-        ? await (supabase as any).rpc('replace_site_plan_file_safely', {
-            p_plan_id: p.id,
-            p_patch: prep.data!,
-            p_reason: 'mobile_update_site_plan_file',
-          })
-        : await (supabase as any).from('site_plans').update(prep.data!).eq('id', p.id);
-      const { error } = result;
-      if (error) {
-        console.warn('[sync] updateSitePlan error, queuing for retry:', error.message);
-        if (fileChanged) {
-          enqueueOperation({
-            table: 'site_plans',
-            op: 'rpc',
-            rpc: {
-              fn: 'replace_site_plan_file_safely',
-              args: {
-                p_plan_id: p.id,
-                p_patch: prep.data!,
-                p_reason: 'mobile_update_site_plan_file_retry',
-              },
-            },
-            data: prep.data!,
-          });
-        } else {
-          enqueueOperation({ table: 'site_plans', op: 'update', filter: { column: 'id', value: p.id }, data: prep.data! });
+      } catch {
+        // The final-failure callback above owns durable retry publication.
+      } finally {
+        const remainingWrites = Math.max(
+          0,
+          (activeSitePlanWriteCountRef.current.get(coalesceKey) ?? 1) - 1,
+        );
+        if (remainingWrites > 0) activeSitePlanWriteCountRef.current.set(coalesceKey, remainingWrites);
+        else activeSitePlanWriteCountRef.current.delete(coalesceKey);
+
+        const hasPersistedRetry = queuedSitePlanRetryKeysRef.current.has(coalesceKey)
+          || queueRef.current.some(operation => operation.coalesceKey === coalesceKey);
+        if (succeeded && remainingWrites === 0 && !hasPersistedRetry) {
+          pendingSitePlanFileReplacementKeysRef.current.delete(coalesceKey);
+          latestSitePlanSnapshotRef.current.delete(coalesceKey);
         }
       }
     }
-  }, [queryClient, isOnlineRef, enqueueOperation]);
+  }, [queryClient, isOnlineRef, enqueueOperation, userId]);
 
   const deleteSitePlan = useCallback(async (id: string) => {
     const prev = queryClient.getQueryData<SitePlan[]>(queryKeys.sitePlans()) ?? [];
