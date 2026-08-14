@@ -175,6 +175,25 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(css).toContain('-webkit-line-clamp: 2');
   });
 
+  it('keeps the compact plan reserve navigator bounded, ordered and bidirectional', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const css = read('vercel-app/app/web/web.module.css');
+    const i18n = read('vercel-app/lib/i18n.ts');
+
+    expect(page).toContain('buildPlanReserveNavigatorModel(displayPlanReserves');
+    expect(page).toContain('planReserveNavigator.visibleRows.map');
+    expect(page).not.toContain('displayPlanReserves.map((reserve: any)');
+    expect(page).toContain('data-prw-plan-reserve-load-more');
+    expect(page).toContain('onClick={() => selectPlanReserve(reserve.id)}');
+    expect(page).toContain("aria-current={selected ? 'true' : undefined}");
+    expect(page).toContain('onPinClick={selectPlanReserve}');
+    expect(page).toContain('isCompactPlanView && selected && renderPlanReserveQuickCard(reserve)');
+    expect(page).toContain('aria-controls={planReservePanelId}');
+    expect(css).toMatch(/\.planReserveHeaderActions button \{[\s\S]*?width: 44px;[\s\S]*?height: 44px;/);
+    expect(css).toContain('.planReserveLoadMore');
+    expect(i18n).toContain("'plans.visibleReserveCount': '{visible} affichées sur {total}'");
+  });
+
   it('keeps every private plan preview on the fail-closed media path', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const mediaHook = read('vercel-app/app/web/plan-reserve-workspace/usePrivateMedia.ts');

@@ -46,6 +46,13 @@ import {
   syncReserveNavigatorScope,
 } from './plan-reserve-workspace/reserve-navigator';
 import {
+  buildPlanReserveNavigatorModel,
+  createPlanReserveNavigatorState,
+  getPlanReserveMarkerTextColor,
+  showNextPlanReserveBatch,
+  syncPlanReserveNavigatorScope,
+} from './plan-reserve-workspace/plan-reserve-navigator';
+import {
   calculatePdfFitScale,
   resolvePlanCanvasTapIntent,
   shouldRefitPdfOnResize,
@@ -301,6 +308,7 @@ type PlanPin = {
   x: number;
   y: number;
   color: string;
+  textColor: string;
 };
 
 type PinPlacementPreview = {
@@ -9159,7 +9167,7 @@ function WebPdfPlan({
             <button
               key={pin.reserve.id}
               className={`${styles.pin} ${focusedReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
-              style={{ left: `${pin.x}%`, top: `${pin.y}%`, '--plan-pin-color': pin.color } as CSSProperties}
+              style={{ left: `${pin.x}%`, top: `${pin.y}%`, '--plan-pin-color': pin.color, '--plan-pin-foreground': pin.textColor } as CSSProperties}
               title={openPinOnSingleTap ? `${pin.reserve.title} · ouvrir la réserve` : `${pin.reserve.title} · double-clic pour ouvrir la réserve`}
               aria-label={openPinOnSingleTap ? `Ouvrir la réserve de l'épingle ${pin.number}.` : `Sélectionner l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
               onClick={event => {
@@ -9239,7 +9247,10 @@ function PlansView({
   const [recentBuildingKeys, setRecentBuildingKeys] = useState<string[]>(() => readStoredStringList(WEB_RECENT_BUILDINGS_KEY));
   const [selectedPlanReserveId, setSelectedPlanReserveId] = useState<string | null>(null);
   const [planReservePanelOpen, setPlanReservePanelOpen] = useState(false);
+  const [planReserveNavigatorState, setPlanReserveNavigatorState] = useState(() => createPlanReserveNavigatorState('none'));
   const [focusedPlanReserveId, setFocusedPlanReserveId] = useState<string | null>(null);
+  const planReservePanelId = useId();
+  const planReserveHeadingId = useId();
   const [pinPlacementPreview, setPinPlacementPreview] = useState<PinPlacementPreview | null>(null);
   const [plansPdfOpen, setPlansPdfOpen] = useState(false);
   const [plansPdfScope, setPlansPdfScope] = useState<'plan' | 'global'>('plan');
@@ -9444,6 +9455,25 @@ function PlansView({
     () => createPlanPinNumberMap(displayPlanReserves),
     [displayPlanReserves],
   );
+  const planReserveNavigatorScopeKey = selectedPlan ? String(selectedPlan.id) : 'none';
+  const syncedPlanReserveNavigatorState = syncPlanReserveNavigatorScope(
+    planReserveNavigatorState,
+    planReserveNavigatorScopeKey,
+  );
+  const planReserveNavigator = useMemo(
+    () => buildPlanReserveNavigatorModel(displayPlanReserves, syncedPlanReserveNavigatorState, {
+      compact: isCompactPlanView,
+      selectedId: selectedPlanReserveId,
+      getNumber: reserve => getPlanPinNumber(planPinNumberMap, reserve),
+    }),
+    [
+      displayPlanReserves,
+      isCompactPlanView,
+      planPinNumberMap,
+      selectedPlanReserveId,
+      syncedPlanReserveNavigatorState,
+    ],
+  );
   const exportablePlanReserves = useMemo(
     () => planReserves.filter((reserve: any) => !isReserveArchived(reserve)),
     [planReserves],
@@ -9593,6 +9623,12 @@ function PlansView({
     setPinCreateMode(false);
   }, [selectedPlan?.id]);
   useEffect(() => {
+    setPlanReserveNavigatorState(previous => syncPlanReserveNavigatorScope(
+      previous,
+      planReserveNavigatorScopeKey,
+    ));
+  }, [planReserveNavigatorScopeKey]);
+  useEffect(() => {
     if (!focusedPlanReserveId) return;
     const timer = window.setTimeout(() => setFocusedPlanReserveId(null), 7000);
     return () => window.clearTimeout(timer);
@@ -9694,6 +9730,7 @@ function PlansView({
     .map((reserve: any) => {
       const rawX = Number(reserve.plan_x);
       const rawY = Number(reserve.plan_y);
+      const color = getReservePinColor(reserve, companies ?? []);
       // Historical web pins could be saved as 0..1. Mobile pins are 0..100.
       const ratioMode = Number.isFinite(rawX) && Number.isFinite(rawY) && Math.abs(rawX) <= 1 && Math.abs(rawY) <= 1;
       return {
@@ -9701,7 +9738,8 @@ function PlansView({
         number: getPlanPinNumber(planPinNumberMap, reserve) ?? 0,
         x: planCoordinateToPercent(reserve.plan_x, ratioMode),
         y: planCoordinateToPercent(reserve.plan_y, ratioMode),
-        color: getReservePinColor(reserve, companies ?? []),
+        color,
+        textColor: getPlanReserveMarkerTextColor(color),
       };
     })
     .filter((pin: any) => pin.x != null && pin.y != null) as PlanPin[];
@@ -9812,6 +9850,76 @@ function PlansView({
       plansPdfLanguage,
       plansPdfCompanyLabel,
       plansPdfStatusLabel,
+    );
+  }
+
+  function selectPlanReserve(reserveId: string) {
+    setSelectedPlanReserveId(reserveId);
+    setFocusedPlanReserveId(reserveId);
+  }
+
+  function clearPlanReserveSelection() {
+    setSelectedPlanReserveId(null);
+    setFocusedPlanReserveId(null);
+  }
+
+  function revealPlanReserveOnCanvas(reserveId: string) {
+    selectPlanReserve(reserveId);
+    if (!isCompactPlanView || typeof window === 'undefined') return;
+    window.requestAnimationFrame(() => {
+      const canvas = document.querySelector<HTMLElement>('[data-prw-plan-canvas]');
+      const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      canvas?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'center' });
+    });
+  }
+
+  function getPlanReserveOperationalMeta(reserve: any) {
+    const context = [
+      reserveCompanies(reserve)[0] ?? reserve.company_name,
+      reserve.zone ?? reserve.level,
+      reserve.priority ? (PRIORITY_LABELS[reserve.priority] ?? reserve.priority) : null,
+      reserve.deadline ? prettyDate(reserve.deadline) : null,
+    ].filter(Boolean);
+    return context.length > 0
+      ? context.join(' · ')
+      : (STATUS_LABELS[reserve.status] ?? reserve.status);
+  }
+
+  function renderPlanReserveQuickCard(reserve: any) {
+    const markerColor = getReservePinColor(reserve, companies ?? []);
+    return (
+      <div className={styles.planReserveQuickCard} data-prw-plan-reserve-quick-card>
+        <div className={styles.planReserveQuickHeader}>
+          <span
+            className={styles.planReserveNumber}
+            style={{ background: markerColor, color: getPlanReserveMarkerTextColor(markerColor) }}
+          >
+            {getPlanPinNumber(planPinNumberMap, reserve) ?? '—'}
+          </span>
+          <div>
+            <strong>{reserve.title}</strong>
+            <small>{getPlanReserveOperationalMeta(reserve)}</small>
+          </div>
+          <button type="button" onClick={clearPlanReserveSelection} aria-label={t('plans.closeReservePreview')}>
+            ×
+          </button>
+        </div>
+        {reserve.description && <p>{reserve.description}</p>}
+        <div className={styles.planReserveQuickActions}>
+          <button type="button" onClick={() => onOpenReserve(reserve.id)}>
+            {t('plans.openReserve')}
+          </button>
+          <button
+            type="button"
+            disabled={reserve.plan_x == null || reserve.plan_y == null}
+            onClick={() => revealPlanReserveOnCanvas(reserve.id)}
+          >
+            {reserve.plan_x == null || reserve.plan_y == null
+              ? t('plans.noPin')
+              : t('plans.centerReserveOnPlan')}
+          </button>
+        </div>
+      </div>
     );
   }
 
@@ -10215,10 +10323,7 @@ function PlansView({
                       return onMoveReservePin?.(reserve, selectedPlan, x, y) ?? false;
                     }}
                     onAnnotationsChange={(nextAnnotations) => onUpdatePlanAnnotations?.(selectedPlan, nextAnnotations)}
-                    onPinClick={(reserveId) => {
-                      setSelectedPlanReserveId(reserveId);
-                      setFocusedPlanReserveId(reserveId);
-                    }}
+                    onPinClick={selectPlanReserve}
                     onPinOpen={openReserveFromPin}
                     onClearFocus={() => setFocusedPlanReserveId(null)}
                   />
@@ -10264,13 +10369,12 @@ function PlansView({
                     <button
                       key={pin.reserve.id}
                       className={`${styles.pin} ${focusedPlanReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
-                      style={{ left: `${pin.x}%`, top: `${pin.y}%`, '--plan-pin-color': pin.color } as CSSProperties}
+                      style={{ left: `${pin.x}%`, top: `${pin.y}%`, '--plan-pin-color': pin.color, '--plan-pin-foreground': pin.textColor } as CSSProperties}
                       title={isCompactPlanView ? `${pin.reserve.title} · ouvrir la réserve` : `${pin.reserve.title} · double-clic pour ouvrir la réserve`}
                       aria-label={isCompactPlanView ? `Ouvrir la réserve de l'épingle ${pin.number}.` : `Sélectionner l'épingle ${pin.number}. Double-clic pour ouvrir la réserve.`}
                       onClick={event => {
                         event.stopPropagation();
-                        setSelectedPlanReserveId(pin.reserve.id);
-                        setFocusedPlanReserveId(pin.reserve.id);
+                        selectPlanReserve(pin.reserve.id);
                         if (isCompactPlanView) openReserveFromPin(pin.reserve.id);
                       }}
                       onDoubleClick={event => {
@@ -10292,79 +10396,92 @@ function PlansView({
                 )}
               </div>
               {planReservePanelOpen ? (
-                <aside className={styles.planReservePanel} data-prw-plan-reserves>
+                <aside
+                  id={planReservePanelId}
+                  className={styles.planReservePanel}
+                  data-prw-plan-reserves
+                  aria-labelledby={planReserveHeadingId}
+                >
                   <div className={styles.planReserveHeader}>
                     <div>
-                      <h3>Réserves</h3>
-                      <span>{displayPlanReserves.length} sur ce plan</span>
+                      <h3 id={planReserveHeadingId}>
+                        {t('plans.reservesPanel')}
+                        <span className={styles.planReserveCount}>{planReserveNavigator.totalCount}</span>
+                      </h3>
+                      <span className={styles.planReserveProgress} role="status" aria-live="polite">
+                        {isCompactPlanView
+                          ? t('plans.visibleReserveCount', {
+                              visible: planReserveNavigator.visibleCount,
+                              total: planReserveNavigator.totalCount,
+                            })
+                          : t('plans.onPlanCount', { count: planReserveNavigator.totalCount })}
+                      </span>
                     </div>
                     <div className={styles.planReserveHeaderActions}>
-                      <strong>{planPins.length} épinglées</strong>
+                      {planPins.length !== planReserveNavigator.totalCount && (
+                        <strong>{t('plans.pinnedCount', { count: planPins.length })}</strong>
+                      )}
                       <button
                         type="button"
                         onClick={() => setPlanReservePanelOpen(false)}
-                        aria-label="Replier les réserves du plan"
+                        aria-expanded={true}
+                        aria-controls={planReservePanelId}
+                        aria-label={t('plans.collapseReservePanel')}
                       >
-                        →
+                        <span className={styles.planReserveDisclosureIcon} aria-hidden="true">
+                          <WorkspaceIcon name="chevron" size={18} />
+                        </span>
                       </button>
                     </div>
                   </div>
-                  <div className={styles.planReserveList}>
-                    {displayPlanReserves.map((reserve: any) => (
-                      <button
-                        key={reserve.id}
-                        className={`${styles.planReserveRow} ${selectedPlanReserveId === reserve.id ? styles.planReserveRowActive : ''}`}
-                        data-prw-plan-reserve-row
-                        onClick={() => setSelectedPlanReserveId(reserve.id)}
-                      >
-                        <span className={styles.planReserveNumber} style={{ background: getReservePinColor(reserve, companies ?? []) }}>
-                          {getPlanPinNumber(planPinNumberMap, reserve) ?? '—'}
-                        </span>
-                        <span>
-                          <strong>{reserve.title}</strong>
-                          <small>{[STATUS_LABELS[reserve.status] ?? reserve.status, reserve.company_name, reserve.zone].filter(Boolean).join(' · ')}</small>
-                        </span>
-                      </button>
-                    ))}
-                    {!displayPlanReserves.length && (
+                  <div className={styles.planReserveList} role="list" aria-label={t('plans.reservesPanel')}>
+                    {planReserveNavigator.visibleRows.map((reserve: any) => {
+                      const selected = selectedPlanReserveId === reserve.id;
+                      const markerColor = getReservePinColor(reserve, companies ?? []);
+                      return (
+                        <div key={reserve.id} className={styles.planReserveListItem} role="listitem">
+                          <button
+                            className={`${styles.planReserveRow} ${selected ? styles.planReserveRowActive : ''}`}
+                            data-prw-plan-reserve-row
+                            aria-current={selected ? 'true' : undefined}
+                            onClick={() => selectPlanReserve(reserve.id)}
+                          >
+                            <span
+                              className={styles.planReserveNumber}
+                              style={{ background: markerColor, color: getPlanReserveMarkerTextColor(markerColor) }}
+                            >
+                              {getPlanPinNumber(planPinNumberMap, reserve) ?? '—'}
+                            </span>
+                            <span>
+                              <strong>{reserve.title}</strong>
+                              <small>{getPlanReserveOperationalMeta(reserve)}</small>
+                            </span>
+                          </button>
+                          {isCompactPlanView && selected && renderPlanReserveQuickCard(reserve)}
+                        </div>
+                      );
+                    })}
+                    {!planReserveNavigator.totalCount && (
                       <div className={styles.planReserveEmpty}>
-                        <strong>Aucune réserve</strong>
-                        <span>Les réserves épinglées sur ce plan apparaîtront ici.</span>
+                        <strong>{t('plans.noReserveOnPlan')}</strong>
+                        <span>{t('plans.noReserveOnPlanBody')}</span>
                       </div>
                     )}
                   </div>
-                  {selectedPlanReserve && (
-                    <div className={styles.planReserveQuickCard}>
-                      <div className={styles.planReserveQuickHeader}>
-                        <span className={styles.planReserveNumber} style={{ background: getReservePinColor(selectedPlanReserve, companies ?? []) }}>
-                          {getPlanPinNumber(planPinNumberMap, selectedPlanReserve) ?? '—'}
-                        </span>
-                        <div>
-                          <strong>{selectedPlanReserve.title}</strong>
-                          <small>{[STATUS_LABELS[selectedPlanReserve.status] ?? selectedPlanReserve.status, selectedPlanReserve.company_name, selectedPlanReserve.level].filter(Boolean).join(' · ')}</small>
-                        </div>
-                        <button type="button" onClick={() => setSelectedPlanReserveId(null)} aria-label="Fermer">×</button>
-                      </div>
-                      {selectedPlanReserve.description && (
-                        <p>{selectedPlanReserve.description}</p>
-                      )}
-                      <div className={styles.planReserveQuickActions}>
-                        <button
-                          type="button"
-                          onClick={() => onOpenReserve(selectedPlanReserve.id)}
-                        >
-                          Voir la réserve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null}
-                          onClick={() => setFocusedPlanReserveId(selectedPlanReserve.id)}
-                        >
-                          {selectedPlanReserve.plan_x == null || selectedPlanReserve.plan_y == null ? 'Pas d’épingle' : 'Voir sur le plan'}
-                        </button>
-                      </div>
-                    </div>
+                  {planReserveNavigator.canLoadMore && (
+                    <button
+                      type="button"
+                      className={styles.planReserveLoadMore}
+                      data-prw-plan-reserve-load-more
+                      onClick={() => setPlanReserveNavigatorState(previous => showNextPlanReserveBatch(
+                        syncPlanReserveNavigatorScope(previous, planReserveNavigatorScopeKey),
+                      ))}
+                    >
+                      <strong>{t('plans.showMoreReserves', { count: planReserveNavigator.nextBatchCount })}</strong>
+                      <span>{t('plans.remainingReserveCount', { count: planReserveNavigator.hiddenCount })}</span>
+                    </button>
                   )}
+                  {!isCompactPlanView && selectedPlanReserve && renderPlanReserveQuickCard(selectedPlanReserve)}
                 </aside>
               ) : (
                 <button
@@ -10373,12 +10490,15 @@ function PlansView({
                   data-prw-plan-reserve-rail
                   onClick={() => setPlanReservePanelOpen(true)}
                   aria-expanded={false}
-                  aria-label={`Afficher les réserves du plan (${displayPlanReserves.length})`}
+                  aria-controls={planReservePanelId}
+                  aria-label={t('plans.expandReservePanel', { count: planReserveNavigator.totalCount })}
                 >
-                  <span>Réserves</span>
-                  <strong>{displayPlanReserves.length}</strong>
-                  <em>{planPins.length} épinglées</em>
-                  <b>←</b>
+                  <span>{t('plans.reservesPanel')}</span>
+                  <strong>{planReserveNavigator.totalCount}</strong>
+                  {planPins.length !== planReserveNavigator.totalCount && (
+                    <em>{t('plans.pinnedCount', { count: planPins.length })}</em>
+                  )}
+                  <b aria-hidden="true"><WorkspaceIcon name="chevron" size={18} /></b>
                 </button>
               )}
             </div>

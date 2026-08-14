@@ -2853,11 +2853,33 @@
 
 .planReserveHeader h3 {
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .planReserveHeader span,
 .planReserveRow small {
   color: #64748b;
+}
+
+.planReserveCount {
+  display: inline-grid;
+  min-width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 999px;
+  background: #003082;
+  color: #fff !important;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.planReserveProgress {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
 }
 
 .planReserveHeader strong {
@@ -2872,8 +2894,8 @@
 .planReserveHeaderActions button {
   display: inline-grid;
   place-items: center;
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 44px;
   border: 1px solid #d8e0ec;
   border-radius: 999px;
   background: #fff;
@@ -2954,6 +2976,12 @@
   padding-right: 4px;
 }
 
+.planReserveListItem {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
 .planReserveRow {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -2966,6 +2994,8 @@
   padding: 10px;
   text-align: left;
   cursor: pointer;
+  min-height: 52px;
+  touch-action: manipulation;
 }
 
 .planReserveRow:hover {
@@ -2993,13 +3023,39 @@
 .planReserveNumber {
   display: inline-grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border-radius: 999px;
   background: #003082;
   color: #fff;
   font-size: 12px;
   font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.planReserveLoadMore {
+  width: 100%;
+  min-height: 52px;
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  border: 1px solid #c7d3e0;
+  border-radius: 10px;
+  background: #f4f7fb;
+  color: #003082;
+  padding: 9px 12px;
+  font: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.planReserveLoadMore strong {
+  font-size: 13px;
+}
+
+.planReserveLoadMore span {
+  color: #64748b;
+  font-size: 12px;
 }
 
 .planReserveEmpty {
@@ -3061,8 +3117,8 @@
 }
 
 .planReserveQuickHeader button {
-  width: 28px;
-  height: 28px;
+  width: 44px;
+  height: 44px;
   border: 1px solid #d8e0ec;
   border-radius: 999px;
   background: #fff;
@@ -3093,6 +3149,7 @@
   background: #003082;
   color: #fff;
   padding: 10px;
+  min-height: 44px;
   font: inherit;
   font-weight: 900;
   cursor: pointer;
@@ -4024,7 +4081,7 @@
   border: 0;
   border-radius: 50%;
   background: transparent !important;
-  color: #fff;
+  color: var(--plan-pin-foreground, #fff);
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
@@ -4512,6 +4569,21 @@
   font: inherit;
   font-weight: 900;
   cursor: pointer;
+}
+
+.planReserveDisclosureIcon {
+  display: inline-grid;
+  place-items: center;
+  color: currentColor !important;
+}
+
+.planReserveDisclosureIcon svg,
+.planReserveCollapsedRail b svg {
+  transition: transform 180ms ease-out;
+}
+
+.planReserveCollapsedRail b svg {
+  transform: rotate(180deg);
 }
 
 .webPdfAnnotateControls button:focus-visible,
@@ -10569,10 +10641,49 @@
     overflow: visible;
   }
 
+  .planReserveHeader {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .planReserveHeaderActions {
+    align-self: center;
+  }
+
+  .planReserveDisclosureIcon svg {
+    transform: rotate(-90deg);
+  }
+
   .planReserveList {
     max-height: none;
     overflow: visible;
     padding-right: 0;
+    gap: 0;
+    border: 1px solid #dde4ee;
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .planReserveListItem + .planReserveListItem {
+    border-top: 1px solid #e2e8f0;
+  }
+
+  .planReserveRow {
+    min-height: 56px;
+    align-items: center;
+    border: 0;
+    border-radius: 0;
+    padding: 10px 12px;
+  }
+
+  .planReserveRowActive {
+    box-shadow: inset 3px 0 0 #003082;
+  }
+
+  .planReserveListItem .planReserveQuickCard {
+    margin: 0 8px 8px;
+    border-radius: 10px;
+    box-shadow: none;
   }
 
   .planReserveCollapsedRail {
@@ -10590,6 +10701,10 @@
 
   .planReserveCollapsedRail em {
     white-space: nowrap;
+  }
+
+  .planReserveCollapsedRail b svg {
+    transform: rotate(90deg);
   }
 }
 
@@ -11078,7 +11193,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .buildingGroupChevronWeb {
+  .buildingGroupChevronWeb,
+  .planReserveDisclosureIcon svg,
+  .planReserveCollapsedRail b svg {
     transition: none;
   }
 }
