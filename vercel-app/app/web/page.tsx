@@ -38,6 +38,14 @@ import {
   WEB_PLAN_MOBILE_BUILDING_BATCH_SIZE,
 } from './plan-reserve-workspace/building-navigator';
 import {
+  buildReserveNavigatorModel,
+  createReserveNavigatorState,
+  showNextReserveBatch,
+  showReserveNavigatorDetail,
+  showReserveNavigatorList,
+  syncReserveNavigatorScope,
+} from './plan-reserve-workspace/reserve-navigator';
+import {
   calculatePdfFitScale,
   resolvePlanCanvasTapIntent,
 } from './plan-reserve-workspace/plan-interaction';
@@ -342,7 +350,7 @@ const WEB_LANGUAGE_PREFERENCE_KEY = 'buildtrack-web-language-preference-v1';
 const WEB_LANGUAGE_LEGACY_KEY = 'buildtrack-web-language';
 const WEB_EXPORT_LANGUAGE_KEY = 'buildtrack-export-language-v1';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
-const WEB_RESERVE_MOBILE_BATCH_SIZE = 40;
+const WEB_RESERVE_HISTORY_STATE = '__buildtrackReserveDetail';
 const PHOTO_ANNOTATION_COLORS = ['#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#FFFFFF', '#111827'];
 const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
 
@@ -2808,8 +2816,13 @@ export default function BuildTrackWebPage() {
   const previewCacheOwnerRef = useRef<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const previousActiveTabRef = useRef<TabId>('dashboard');
+  const reserveHistoryNavigationRef = useRef(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
+  const [reserveDetailRequest, setReserveDetailRequest] = useState<{ id: string; token: number } | null>(null);
+  const reserveDetailRequestTokenRef = useRef(0);
+  const reserveFilterScopeRef = useRef<string>('all');
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   // Réserve (déjà créée, sans épingle) en cours de localisation : depuis sa
   // fiche, l'utilisateur bascule sur l'onglet Plans et le prochain clic sur le
@@ -3379,7 +3392,7 @@ export default function BuildTrackWebPage() {
       };
       setData(nextData);
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
-      setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : scopedReserves[0]?.id ?? null);
+      setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : null);
       setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
       if (failedTables.length) {
@@ -3768,7 +3781,7 @@ export default function BuildTrackWebPage() {
       setData(prev => {
         const reserves = prev.reserves.filter(item => item.id !== reserve.id);
         const deletedReserve = { ...reserve, ...patch };
-        setSelectedReserveId(current => current === reserve.id ? reserves[0]?.id ?? null : current);
+        setSelectedReserveId(current => current === reserve.id ? null : current);
         return {
           ...prev,
           reserves,
@@ -3801,7 +3814,7 @@ export default function BuildTrackWebPage() {
       setData(prev => {
         const restoredReserve = { ...reserve, ...patch };
         const deletedReserves = prev.deletedReserves.filter(item => item.id !== reserve.id);
-        setSelectedReserveId(current => current === reserve.id ? deletedReserves[0]?.id ?? null : current);
+        setSelectedReserveId(current => current === reserve.id ? null : current);
         return {
           ...prev,
           deletedReserves,
@@ -3830,7 +3843,7 @@ export default function BuildTrackWebPage() {
     } else {
       setData(prev => {
         const deletedReserves = prev.deletedReserves.filter(item => item.id !== reserve.id);
-        setSelectedReserveId(current => current === reserve.id ? deletedReserves[0]?.id ?? null : current);
+        setSelectedReserveId(current => current === reserve.id ? null : current);
         return {
           ...prev,
           reserves: prev.reserves.filter(item => item.id !== reserve.id),
@@ -4272,11 +4285,13 @@ export default function BuildTrackWebPage() {
         setData(prev => ({ ...prev, reserves: [finalReserve, ...prev.reserves] }));
         await syncVisitReserveLink(id, reserveDraft.visiteId || null, null);
         triggerWebPush({ type: 'reserve-created', reserveId: String(id) });
-        setSelectedReserveId(id);
         const createdWithPin = basePayload.plan_x != null && basePayload.plan_y != null;
         if (reserveDraft.planId && createdWithPin) {
+          setSelectedReserveId(id);
           setSelectedPlanId(reserveDraft.planId);
           setActiveTab('plans');
+        } else {
+          openReserveDetailTab(id, finalReserve);
         }
         closeReserveModal();
         setNotice('Réserve créée.');
@@ -5490,8 +5505,91 @@ export default function BuildTrackWebPage() {
     return true;
   }
 
+  const openReserveDetailTab = useCallback((reserveId: string, targetOverride?: any) => {
+    const target = targetOverride ?? [...data.reserves, ...data.deletedReserves]
+      .find((reserve: any) => String(reserve.id) === String(reserveId));
+    if (!target) return false;
+    const targetProjectId = String(getChantierId(target) || selectedProjectId);
+    const nextStatusFilter = isReserveDeleted(target)
+      ? (canEdit(profile) ? 'deleted' : 'all')
+      : isReserveArchived(target)
+        ? 'archived'
+        : 'all';
+    reserveDetailRequestTokenRef.current += 1;
+    reserveFilterScopeRef.current = targetProjectId;
+    if (targetProjectId && targetProjectId !== selectedProjectId) {
+      setSelectedProjectId(targetProjectId);
+    }
+    setSearch('');
+    setStatusFilter(nextStatusFilter);
+    setPriorityFilter('all');
+    setCompanyFilter('all');
+    setBuildingFilter('all');
+    setPinFilter('all');
+    setSelectedReserveId(reserveId);
+    setReserveDetailRequest({ id: reserveId, token: reserveDetailRequestTokenRef.current });
+    setActiveTab('reserves');
+    return true;
+  }, [data.deletedReserves, data.reserves, profile, selectedProjectId]);
+  const handleReserveDetailRequestHandled = useCallback((token: number) => {
+    setReserveDetailRequest(current => current?.token === token ? null : current);
+  }, []);
+
+  const closeRootReserveHistory = useCallback(() => {
+    if (
+      typeof window !== 'undefined'
+      && !reserveHistoryNavigationRef.current
+      && window.history.state?.[WEB_RESERVE_HISTORY_STATE]
+    ) {
+      reserveHistoryNavigationRef.current = true;
+      window.history.back();
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    function handleReserveHistoryOutsideCompactView(event: PopStateEvent) {
+      reserveHistoryNavigationRef.current = false;
+      const state = event.state ?? {};
+      const reserveId = state[WEB_RESERVE_HISTORY_STATE] ? String(state.reserveId ?? '') : '';
+      if (!reserveId) return;
+      const compactReservesOwnEvent = activeTab === 'reserves'
+        && window.matchMedia('(max-width: 1180px)').matches;
+      if (compactReservesOwnEvent) return;
+      const target = [...data.reserves, ...data.deletedReserves]
+        .find((reserve: any) => String(reserve.id) === reserveId);
+      if (target) openReserveDetailTab(reserveId);
+    }
+    window.addEventListener('popstate', handleReserveHistoryOutsideCompactView);
+    return () => window.removeEventListener('popstate', handleReserveHistoryOutsideCompactView);
+  }, [activeTab, data.deletedReserves, data.reserves, openReserveDetailTab]);
+
+  useEffect(() => {
+    const previousActiveTab = previousActiveTabRef.current;
+    previousActiveTabRef.current = activeTab;
+    if (
+      previousActiveTab === 'reserves'
+      && activeTab !== 'reserves'
+      && typeof window !== 'undefined'
+      && window.history.state?.[WEB_RESERVE_HISTORY_STATE]
+    ) {
+      closeRootReserveHistory();
+    }
+  }, [activeTab, closeRootReserveHistory]);
+
   const canViewReserveTrash = canEdit(profile);
   const effectiveStatusFilter = statusFilter === 'deleted' && !canViewReserveTrash ? 'all' : statusFilter;
+
+  useEffect(() => {
+    if (activeTab !== 'reserves' || reserveFilterScopeRef.current === selectedProjectId) return;
+    reserveFilterScopeRef.current = selectedProjectId;
+    setSearch('');
+    setStatusFilter('all');
+    setPriorityFilter('all');
+    setCompanyFilter('all');
+    setBuildingFilter('all');
+    setPinFilter('all');
+  }, [activeTab, selectedProjectId]);
 
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
@@ -5563,9 +5661,10 @@ export default function BuildTrackWebPage() {
       return;
     }
     if (intent.projectId) setSelectedProjectId(intent.projectId);
+    reserveFilterScopeRef.current = intent.projectId ?? selectedProjectId;
     setBuildingFilter(intent.buildingName);
     setActiveTab('reserves');
-  }, []);
+  }, [selectedProjectId]);
 
   const activeProjectForReserveFilters = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
   const reserveFilterPlansById = useMemo(
@@ -5584,8 +5683,11 @@ export default function BuildTrackWebPage() {
     return { companies, buildings };
   }, [projectScoped.reserves, reserveFilterPlansById, activeProjectForReserveFilters]);
 
+  const deferredReserveSearch = useDeferredValue(search);
   const filteredReserves = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = (search === '' && deferredReserveSearch !== '') || reserveDetailRequest
+      ? ''
+      : normalizeSearchText(deferredReserveSearch);
     const sourceReserves = effectiveStatusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
     return sourceReserves.filter(r => {
       if (effectiveStatusFilter === 'deleted') {
@@ -5615,7 +5717,7 @@ export default function BuildTrackWebPage() {
       if (pinFilter === 'pinned' && !r.plan_id) return false;
       if (pinFilter === 'unpinned' && r.plan_id) return false;
       if (!q) return true;
-      const haystack = [
+      const haystack = normalizeSearchText([
         r.id,
         r.title,
         r.description,
@@ -5625,14 +5727,26 @@ export default function BuildTrackWebPage() {
         STATUS_LABELS[r.status] ?? r.status,
         PRIORITY_LABELS[r.priority] ?? r.priority,
         ...(reserveCompanies(r)),
-      ].join(' ').toLowerCase();
+      ].join(' '));
       return haystack.includes(q);
     });
-  }, [projectScoped.reserves, projectScoped.deletedReserves, search, effectiveStatusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
+  }, [projectScoped.reserves, projectScoped.deletedReserves, deferredReserveSearch, search, reserveDetailRequest, effectiveStatusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
 
   const reserveSelectionPool = effectiveStatusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
+  const scopedAllReserves = useMemo(
+    () => [...projectScoped.reserves, ...projectScoped.deletedReserves],
+    [projectScoped.deletedReserves, projectScoped.reserves],
+  );
   const selectedReserve = reserveSelectionPool.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
   const selectedFilteredReserve = filteredReserves.find(r => r.id === selectedReserveId) ?? filteredReserves[0] ?? null;
+  useEffect(() => {
+    setSelectedReserveId(previous => previous && reserveSelectionPool.some((reserve: any) => reserve.id === previous)
+      ? previous
+      : null);
+    setReserveDetailRequest(request => request && reserveSelectionPool.some((reserve: any) => reserve.id === request.id)
+      ? request
+      : null);
+  }, [reserveSelectionPool]);
   const selectedPlan = projectScoped.plans.find(p => p.id === selectedPlanId) ?? projectScoped.plans[0] ?? null;
   useEffect(() => {
     setSelectedPlanId(previous => previous && projectScoped.plans.some((plan: any) => plan.id === previous)
@@ -5802,6 +5916,10 @@ export default function BuildTrackWebPage() {
               badge: messageBadge,
               badgeLabel: messageBadge === undefined ? undefined : `${unreadMessagesCount} ${label}`,
               onSelect: () => {
+                if (tab.id === 'reserves') {
+                  setReserveDetailRequest(null);
+                  setSelectedReserveId(null);
+                }
                 setActiveTab(tab.id);
                 setMobileNavOpen(false);
               },
@@ -5856,7 +5974,9 @@ export default function BuildTrackWebPage() {
         containedWorkspace={activeTab === 'plans' || activeTab === 'reserves' || activeTab === 'visites' || activeTab === 'chantiers'}
         operationalMobile={activeTab === 'plans' || activeTab === 'reserves'}
         workspaceClassName={`${activeTab === 'plans' ? styles.workspacePlans : ''} ${activeTab === 'reserves' ? styles.workspaceReserves : ''} ${activeTab === 'visites' ? styles.workspaceVisites : ''} ${activeTab === 'chantiers' ? styles.workspaceChantiers : ''}`}
-        onProjectSelect={setSelectedProjectId}
+        onProjectSelect={projectId => {
+          setSelectedProjectId(projectId);
+        }}
         onCollapsedChange={setSidebarCollapsed}
         onMobileOpenChange={setMobileNavOpen}
         onLogout={handleSignOut}
@@ -5925,14 +6045,18 @@ export default function BuildTrackWebPage() {
             )}
             {activeTab === 'reserves' && (
               <ReservesView
-                allReserves={[...projectScoped.reserves, ...projectScoped.deletedReserves]}
+                allReserves={scopedAllReserves}
                 reserves={filteredReserves}
                 photos={projectScoped.photos}
                 profile={profile}
                 companies={data.companies}
+                scopeKey={selectedProjectId}
                 selectedReserveId={selectedReserveId}
                 selectedReserve={selectedFilteredReserve}
                 setSelectedReserveId={setSelectedReserveId}
+                detailRequest={reserveDetailRequest}
+                onDetailRequestHandled={handleReserveDetailRequestHandled}
+                onOpenReserveDetail={reserveId => openReserveDetailTab(reserveId)}
                 search={search}
                 setSearch={setSearch}
                 statusFilter={effectiveStatusFilter}
@@ -5988,8 +6112,7 @@ export default function BuildTrackWebPage() {
                 selectedProjectId={selectedProjectId}
                 selectedPlan={selectedPlan}
                 setSelectedPlanId={setSelectedPlanId}
-                setSelectedReserveId={setSelectedReserveId}
-                setTab={setActiveTab}
+                onOpenReserve={openReserveDetailTab}
                 placementReserve={placementReserveId ? (projectScoped.reserves.find((r: any) => r.id === placementReserveId) ?? null) : null}
                 onPlacementDone={() => setPlacementReserveId(null)}
                 onCreateReserve={(plan: any) => openReserveCreate({ plan })}
@@ -6109,7 +6232,7 @@ export default function BuildTrackWebPage() {
                 scoped={projectScoped}
                 data={data}
                 setTab={setActiveTab}
-                setSelectedReserveId={setSelectedReserveId}
+                onOpenReserve={openReserveDetailTab}
                 setSelectedPlanId={setSelectedPlanId}
               />
             )}
@@ -6122,8 +6245,7 @@ export default function BuildTrackWebPage() {
                 onCreateVisit={openVisitCreate}
                 onCreateReserveFromVisit={(visit: any) => openReserveCreate({ visit })}
                 onOpenReserve={(reserve: any) => {
-                  setSelectedReserveId(reserve.id);
-                  setActiveTab('reserves');
+                  openReserveDetailTab(reserve.id);
                 }}
                 onUnlinkReserve={unlinkReserveFromVisitWeb}
                 onAttachReserves={attachReservesToVisitWeb}
@@ -6187,7 +6309,7 @@ export default function BuildTrackWebPage() {
               <IncidentsView incidents={projectScoped.incidents} />
             )}
             {activeTab === 'opr' && (
-              <OprView oprs={projectScoped.oprs} reserves={projectScoped.reserves} setTab={setActiveTab} setSelectedReserveId={setSelectedReserveId} />
+              <OprView oprs={projectScoped.oprs} reserves={projectScoped.reserves} onOpenReserve={openReserveDetailTab} />
             )}
             {activeTab === 'media' && (
               <MediaView photos={projectScoped.photos} documents={projectScoped.documents} isSubcontractor={profile?.role === 'sous_traitant'} />
@@ -6304,9 +6426,13 @@ function ReservesView(props: {
   photos: any[];
   profile: Profile | null;
   companies: any[];
+  scopeKey: string;
   selectedReserveId: string | null;
   selectedReserve: any;
   setSelectedReserveId: (id: string) => void;
+  detailRequest: { id: string; token: number } | null;
+  onDetailRequestHandled: (token: number) => void;
+  onOpenReserveDetail: (reserveId: string) => boolean;
   search: string;
   setSearch: (value: string) => void;
   statusFilter: string;
@@ -6371,19 +6497,50 @@ function ReservesView(props: {
   const [liftRequestComment, setLiftRequestComment] = useState('');
   const [liftRequestFile, setLiftRequestFile] = useState<File | null>(null);
   const [liftRequestBusy, setLiftRequestBusy] = useState(false);
-  const [mobileReserveLimit, setMobileReserveLimit] = useState(WEB_RESERVE_MOBILE_BATCH_SIZE);
+  const reserveNavigatorScopeKey = [
+    props.scopeKey,
+    props.statusFilter,
+    props.priorityFilter,
+    props.companyFilter,
+    props.buildingFilter,
+    props.pinFilter,
+    props.search,
+  ].join('\u0000');
+  const [reserveNavigatorState, setReserveNavigatorState] = useState(() => createReserveNavigatorState(reserveNavigatorScopeKey));
+  const reserveListScrollTopRef = useRef(0);
+  const reserveListFocusIdRef = useRef<string | null>(null);
+  const reserveShouldRestoreListRef = useRef(false);
+  const reserveHistoryEntryRef = useRef(false);
+  const reserveDetailHistoryIdRef = useRef<string | null>(null);
+  const reserveDetailHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const syncedReserveNavigatorState = syncReserveNavigatorScope(
+    reserveNavigatorState,
+    reserveNavigatorScopeKey,
+  );
+  const effectiveReserveNavigatorState = reserveDetailHistoryIdRef.current
+    ? showReserveNavigatorDetail(syncedReserveNavigatorState)
+    : syncedReserveNavigatorState;
   const isTrashView = props.statusFilter === 'deleted';
-  const activeReserves = allReserves.filter(reserve => (
+  const currentReserves = useMemo(() => allReserves.filter(reserve => (
     !isReserveArchived(reserve)
     && !isReserveDeleted(reserve)
-    && !isReserveClosed(reserve)
-  ));
+  )), [allReserves]);
+  const activeReserves = useMemo(
+    () => currentReserves.filter(reserve => !isReserveClosed(reserve)),
+    [currentReserves],
+  );
   const explicitlySelectedReserve = props.selectedReserveId
     ? allReserves.find(reserve => reserve.id === props.selectedReserveId) ?? null
     : null;
+  const setReserveDetailOpen = useCallback((open: boolean) => {
+    setReserveNavigatorState(state => open
+      ? showReserveNavigatorDetail(state)
+      : showReserveNavigatorList(state));
+  }, []);
   const reserveWorkspace = useResponsiveWorkspaceNavigation({
     hasDetail: Boolean(explicitlySelectedReserve),
-    initialDetailOpen: Boolean(props.selectedReserveId),
+    detailOpen: effectiveReserveNavigatorState.view === 'detail',
+    onDetailOpenChange: setReserveDetailOpen,
   });
   const {
     isCompact: isCompactReserveView,
@@ -6394,10 +6551,14 @@ function ReservesView(props: {
   const mobileDetailReserve = reserveDetailOpen ? explicitlySelectedReserve : null;
   const showMobileReserveDetail = isCompactReserveView && !!mobileDetailReserve;
   const detailReserve = showMobileReserveDetail ? mobileDetailReserve : selectedReserve;
+  const reserveNavigatorModel = useMemo(
+    () => buildReserveNavigatorModel(reserves, effectiveReserveNavigatorState, props.selectedReserveId),
+    [effectiveReserveNavigatorState, props.selectedReserveId, reserves],
+  );
   const visibleReserveRows = isCompactReserveView
-    ? reserves.slice(0, mobileReserveLimit)
+    ? reserveNavigatorModel.visibleRows
     : reserves;
-  const hiddenReserveRowCount = Math.max(0, reserves.length - visibleReserveRows.length);
+  const hiddenReserveRowCount = isCompactReserveView ? reserveNavigatorModel.hiddenCount : 0;
   const selectedAssistantReserves = selectedReserve ? [selectedReserve] : [];
   const assistantTargets =
     assistantScope === 'project'
@@ -6425,8 +6586,14 @@ function ReservesView(props: {
     props.pinFilter !== 'all';
 
   useEffect(() => {
-    setMobileReserveLimit(WEB_RESERVE_MOBILE_BATCH_SIZE);
-  }, [props.buildingFilter, props.companyFilter, props.pinFilter, props.priorityFilter, props.search, props.statusFilter]);
+    reserveListScrollTopRef.current = 0;
+    reserveListFocusIdRef.current = null;
+    reserveShouldRestoreListRef.current = false;
+    setReserveNavigatorState(state => {
+      const synced = syncReserveNavigatorScope(state, reserveNavigatorScopeKey);
+      return reserveDetailHistoryIdRef.current ? showReserveNavigatorDetail(synced) : synced;
+    });
+  }, [reserveNavigatorScopeKey]);
   const selectedPhotos = reservePhotoItems(detailReserve, props.photos);
   const selectedLocalOnlyPhotos = localOnlyPhotoCount(detailReserve, props.photos);
   const lightboxPhoto = photoLightboxIndex !== null ? selectedPhotos[photoLightboxIndex] : null;
@@ -6493,24 +6660,24 @@ function ReservesView(props: {
   const filterCounts = useMemo(() => reserveFilterOptions.reduce<Record<string, number>>((acc, option) => {
     acc[option.key] =
       option.key === 'all'
-        ? activeReserves.length
+        ? currentReserves.length
         : option.key === 'archived'
           ? allReserves.filter(isReserveArchived).length
           : option.key === 'deleted'
             ? allReserves.filter(isReserveDeleted).length
           : option.key === 'overdue'
-            ? activeReserves.filter(isReserveOverdue).length
+            ? currentReserves.filter(isReserveOverdue).length
             : option.key === 'due_soon'
-              ? activeReserves.filter(reserve => isReserveDueSoon(reserve)).length
+              ? currentReserves.filter(reserve => isReserveDueSoon(reserve)).length
               : option.key === 'ack_missing'
-                ? activeReserves.filter(needsEnterpriseAck).length
+                ? currentReserves.filter(needsEnterpriseAck).length
                 : option.key === 'ack_received'
-                  ? activeReserves.filter(hasEnterpriseAck).length
-                : activeReserves.filter(reserve => reserve.status === option.key).length;
+                  ? currentReserves.filter(hasEnterpriseAck).length
+                  : currentReserves.filter(reserve => reserve.status === option.key).length;
     return acc;
-  }, {}), [activeReserves, allReserves, reserveFilterOptions]);
+  }, {}), [allReserves, currentReserves, reserveFilterOptions]);
   const quickStatusKeys = new Set(['all', 'open', 'in_progress', 'waiting']);
-  const quickStatusOptions = reserveFilterOptions.filter(option => quickStatusKeys.has(option.key) || option.key === props.statusFilter);
+  const quickStatusOptions = reserveFilterOptions.filter(option => quickStatusKeys.has(option.key));
   const advancedStatusOptions = reserveFilterOptions.filter(option => !quickStatusKeys.has(option.key));
   const advancedFilterCount = [
     props.priorityFilter,
@@ -6529,15 +6696,171 @@ function ReservesView(props: {
     }
   }, [advancedFilterActive, props.statusFilter]);
 
+  function reserveScrollOwner(source?: HTMLElement | null) {
+    if (typeof document === 'undefined') return null;
+    return (source?.closest("[data-operational-mobile='true']")
+      ?? document.querySelector("[data-operational-mobile='true']")) as HTMLElement | null;
+  }
+
+  function reserveDetailUrl(reserveId: string | null) {
+    const url = new URL(window.location.href);
+    if (reserveId) url.searchParams.set('reserve', reserveId);
+    else url.searchParams.delete('reserve');
+    return `${url.pathname}${url.search}${url.hash}`;
+  }
+
+  function pushReserveDetailHistory(reserveId: string) {
+    if (typeof window === 'undefined') return;
+    const currentState = window.history.state ?? {};
+    if (currentState[WEB_RESERVE_HISTORY_STATE]) {
+      window.history.replaceState(
+        { ...currentState, [WEB_RESERVE_HISTORY_STATE]: true, reserveId },
+        '',
+        reserveDetailUrl(reserveId),
+      );
+    } else {
+      window.history.pushState(
+        { ...currentState, [WEB_RESERVE_HISTORY_STATE]: true, reserveId },
+        '',
+        reserveDetailUrl(reserveId),
+      );
+    }
+    reserveHistoryEntryRef.current = true;
+    reserveDetailHistoryIdRef.current = null;
+  }
+
+  function closeReserveDetailAndRestore() {
+    reserveShouldRestoreListRef.current = true;
+    closeReserveDetail();
+    setCommentText('');
+    setPhotoLightboxIndex(null);
+  }
+
   useEffect(() => {
     setPdfLanguage(props.defaultReportLanguage);
   }, [props.defaultReportLanguage]);
 
   useEffect(() => {
-    if (reserveDetailOpen && (!explicitlySelectedReserve || !reserves.some(reserve => reserve.id === explicitlySelectedReserve.id))) {
-      closeReserveDetail();
+    if (reserveDetailOpen && !explicitlySelectedReserve) {
+      closeReserveDetailAndRestore();
     }
-  }, [closeReserveDetail, explicitlySelectedReserve, reserveDetailOpen, reserves]);
+  }, [closeReserveDetail, explicitlySelectedReserve, reserveDetailOpen]);
+
+  useEffect(() => {
+    const request = props.detailRequest;
+    if (!request || !explicitlySelectedReserve || String(explicitlySelectedReserve.id) !== String(request.id)) return;
+    if (!isCompactReserveView) {
+      props.onDetailRequestHandled(request.token);
+      return;
+    }
+    reserveListScrollTopRef.current = 0;
+    reserveListFocusIdRef.current = null;
+    reserveShouldRestoreListRef.current = true;
+    reserveDetailHistoryIdRef.current = request.id;
+    openReserveDetail();
+    setCommentText('');
+    props.onDetailRequestHandled(request.token);
+  }, [explicitlySelectedReserve, isCompactReserveView, openReserveDetail, props.detailRequest, props.onDetailRequestHandled]);
+
+  useEffect(() => {
+    if (!isCompactReserveView || !reserveDetailOpen || !detailReserve?.id || reserveHistoryEntryRef.current) return;
+    if (reserveDetailHistoryIdRef.current !== String(detailReserve.id)) return;
+    pushReserveDetailHistory(String(detailReserve.id));
+  }, [detailReserve?.id, isCompactReserveView, reserveDetailOpen]);
+
+  useEffect(() => {
+    if (!reserveHistoryEntryRef.current || !reserveDetailOpen || !detailReserve?.id) return;
+    if (reserveDetailHistoryIdRef.current === String(detailReserve.id)) {
+      reserveDetailHistoryIdRef.current = null;
+    }
+  }, [detailReserve?.id, reserveDetailOpen]);
+
+  useEffect(() => {
+    if (!isCompactReserveView || !reserveDetailOpen) return;
+    const scrollOwner = reserveScrollOwner();
+    if (scrollOwner) scrollOwner.scrollTop = 0;
+    const frame = window.requestAnimationFrame(() => reserveDetailHeadingRef.current?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [isCompactReserveView, reserveDetailOpen, detailReserve?.id]);
+
+  useEffect(() => {
+    if (!isCompactReserveView || reserveDetailOpen || !reserveShouldRestoreListRef.current) return;
+    reserveShouldRestoreListRef.current = false;
+    const frame = window.requestAnimationFrame(() => {
+      const scrollOwner = reserveScrollOwner();
+      if (scrollOwner) scrollOwner.scrollTop = reserveListScrollTopRef.current;
+      const selectedId = reserveListFocusIdRef.current;
+      const selectedRow = selectedId
+        ? document.querySelector(`[data-reserve-id="${CSS.escape(selectedId)}"]`) as HTMLElement | null
+        : null;
+      const fallback = document.querySelector('[data-prw-reserve-sticky] input') as HTMLElement | null;
+      (selectedRow ?? fallback)?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isCompactReserveView, reserveDetailOpen, visibleReserveRows]);
+
+  useEffect(() => {
+    if (!isCompactReserveView) return;
+    function onPopState(event: PopStateEvent) {
+      const state = event.state ?? {};
+      const reserveId = state[WEB_RESERVE_HISTORY_STATE] ? String(state.reserveId ?? '') : '';
+      if (reserveId) {
+        const target = allReserves.find(reserve => String(reserve.id) === reserveId);
+        if (!target) {
+          if (props.onOpenReserveDetail(reserveId)) return;
+          const nextState = { ...state };
+          delete nextState[WEB_RESERVE_HISTORY_STATE];
+          delete nextState.reserveId;
+          window.history.replaceState(nextState, '', reserveDetailUrl(null));
+          reserveHistoryEntryRef.current = false;
+          reserveDetailHistoryIdRef.current = null;
+          closeReserveDetailAndRestore();
+          return;
+        }
+        props.setSelectedReserveId(reserveId);
+        reserveHistoryEntryRef.current = true;
+        reserveDetailHistoryIdRef.current = reserveId;
+        reserveListScrollTopRef.current = 0;
+        reserveListFocusIdRef.current = null;
+        reserveShouldRestoreListRef.current = true;
+        openReserveDetail();
+        return;
+      }
+      if (!reserveHistoryEntryRef.current && !reserveDetailOpen) return;
+      reserveHistoryEntryRef.current = false;
+      reserveDetailHistoryIdRef.current = null;
+      closeReserveDetailAndRestore();
+    }
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [allReserves, closeReserveDetail, isCompactReserveView, openReserveDetail, props.onOpenReserveDetail, reserveDetailOpen]);
+
+  useEffect(() => {
+    if (
+      !isCompactReserveView
+      || reserveDetailOpen
+      || !explicitlySelectedReserve
+      || typeof window === 'undefined'
+    ) return;
+    const state = window.history.state ?? {};
+    const reserveId = state[WEB_RESERVE_HISTORY_STATE] ? String(state.reserveId ?? '') : '';
+    if (!reserveId || reserveId !== String(explicitlySelectedReserve.id)) return;
+    reserveHistoryEntryRef.current = true;
+    reserveDetailHistoryIdRef.current = reserveId;
+    reserveListScrollTopRef.current = 0;
+    reserveListFocusIdRef.current = null;
+    reserveShouldRestoreListRef.current = true;
+    openReserveDetail();
+  }, [explicitlySelectedReserve, isCompactReserveView, openReserveDetail, reserveDetailOpen]);
+
+  useEffect(() => {
+    if (reserveDetailOpen || !reserveHistoryEntryRef.current || reserveDetailHistoryIdRef.current) return;
+    const ownsCurrentHistoryEntry = typeof window !== 'undefined'
+      && Boolean(window.history.state?.[WEB_RESERVE_HISTORY_STATE]);
+    reserveHistoryEntryRef.current = false;
+    reserveDetailHistoryIdRef.current = null;
+    if (ownsCurrentHistoryEntry) window.history.back();
+  }, [reserveDetailOpen, reserveNavigatorScopeKey]);
 
   useEffect(() => {
     setPhotoLightboxIndex(null);
@@ -6577,12 +6900,33 @@ function ReservesView(props: {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [photoLightboxIndex, selectedPhotos.length]);
 
-  function openReserveFromList(reserve: any) {
+  function openReserveFromList(reserve: any, event: MouseEvent<HTMLButtonElement>) {
     props.setSelectedReserveId(reserve.id);
     if (isCompactReserveView) {
+      const scrollOwner = reserveScrollOwner(event.currentTarget);
+      reserveListScrollTopRef.current = scrollOwner?.scrollTop ?? 0;
+      reserveListFocusIdRef.current = String(reserve.id);
+      reserveShouldRestoreListRef.current = true;
+      reserveDetailHistoryIdRef.current = String(reserve.id);
       openReserveDetail();
       setCommentText('');
     }
+  }
+
+  function handleReserveDetailBack() {
+    if (
+      typeof window !== 'undefined'
+      && reserveHistoryEntryRef.current
+      && window.history.state?.[WEB_RESERVE_HISTORY_STATE]
+    ) {
+      reserveHistoryEntryRef.current = false;
+      reserveDetailHistoryIdRef.current = null;
+      window.history.back();
+      return;
+    }
+    reserveHistoryEntryRef.current = false;
+    reserveDetailHistoryIdRef.current = null;
+    closeReserveDetailAndRestore();
   }
 
   function moveLightboxPhoto(direction: -1 | 1) {
@@ -6709,14 +7053,15 @@ function ReservesView(props: {
       />
       {!showMobileReserveDetail && (
       <section className={`${styles.panel} ${styles.reservesListPanel}`} data-prw-panel data-prw-reserve-list>
-        <WorkspaceSearch
-          value={props.search}
-          placeholder={t('reserves.searchPlaceholder')}
-          clearLabel={t('common.clearSearch')}
-          onChange={props.setSearch}
-        />
-        <div className={styles.reserveCompactToolbar} data-prw-reserve-toolbar>
-          <div className={styles.reserveFilterRail} data-prw-filter-rail>
+        <div className={styles.reserveRailStickyWeb} data-prw-reserve-sticky>
+          <WorkspaceSearch
+            value={props.search}
+            placeholder={t('reserves.searchPlaceholder')}
+            clearLabel={t('common.clearSearch')}
+            onChange={props.setSearch}
+          />
+          <div className={styles.reserveCompactToolbar} data-prw-reserve-toolbar>
+          <div className={styles.reserveFilterRail} data-prw-filter-rail role="group" aria-label="Filtrer les réserves par statut">
             {quickStatusOptions.map(option => {
               const active = props.statusFilter === option.key;
               return (
@@ -6725,6 +7070,7 @@ function ReservesView(props: {
                   type="button"
                   className={active ? styles.reserveFilterChipActive : ''}
                   data-active={active}
+                  aria-pressed={active}
                   onClick={() => props.setStatusFilter(option.key)}
                 >
                   <span>{option.label}</span>
@@ -6737,16 +7083,19 @@ function ReservesView(props: {
             type="button"
             className={`${styles.reserveFilterToggle} ${showAdvancedFilters ? styles.reserveFilterToggleActive : ''}`}
             data-prw-filter-toggle
+            aria-expanded={showAdvancedFilters}
+            aria-controls="reserve-advanced-filters"
             onClick={() => setShowAdvancedFilters(value => !value)}
           >
             <WorkspaceIcon name="filter" size={16} />
             Filtres
             {advancedFilterCount > 0 && <em>{advancedFilterCount}</em>}
           </button>
+          </div>
         </div>
         {showAdvancedFilters && (
-          <div className={styles.reserveAdvancedPanel} data-prw-advanced>
-            <div className={styles.reserveAdvancedStatusGrid} data-prw-advanced-status>
+          <div id="reserve-advanced-filters" className={styles.reserveAdvancedPanel} data-prw-advanced>
+            <div className={styles.reserveAdvancedStatusGrid} data-prw-advanced-status role="group" aria-label="Statuts supplémentaires">
               {advancedStatusOptions.map(option => {
                 const active = props.statusFilter === option.key;
                 return (
@@ -6755,6 +7104,7 @@ function ReservesView(props: {
                     type="button"
                     className={active ? styles.reserveFilterChipActive : ''}
                     data-active={active}
+                    aria-pressed={active}
                     onClick={() => props.setStatusFilter(option.key)}
                   >
                     <span>{option.label}</span>
@@ -6799,20 +7149,28 @@ function ReservesView(props: {
           </div>
         )}
         <div className={styles.reserveListMeta} data-prw-list-meta>
-          <span>{reserves.length} affichée{reserves.length > 1 ? 's' : ''}</span>
-          <span>{isTrashView ? 'éléments récupérables' : `${activeReserves.length} active${activeReserves.length > 1 ? 's' : ''}`}</span>
+          <span role="status" aria-live="polite">
+            {visibleReserveRows.length} affichée{visibleReserveRows.length > 1 ? 's' : ''} sur {reserves.length}
+          </span>
+          <span>{isTrashView ? 'éléments récupérables' : `${currentReserves.length} non archivée${currentReserves.length > 1 ? 's' : ''}`}</span>
         </div>
         <div className={styles.reserveList} data-prw-reserve-rows>
-          {visibleReserveRows.map(reserve => (
-            <button
-              key={reserve.id}
-              className={`${styles.reserveRow} ${selectedReserve?.id === reserve.id ? styles.reserveRowActive : ''}`}
-              data-prw-reserve-row
-              data-selected={selectedReserve?.id === reserve.id}
-              onClick={() => openReserveFromList(reserve)}
-            >
+          {visibleReserveRows.map(reserve => {
+            const selectedRowId = isCompactReserveView ? props.selectedReserveId : selectedReserve?.id;
+            const isSelected = selectedRowId != null && String(selectedRowId) === String(reserve.id);
+            return (
+              <button
+                key={reserve.id}
+                className={`${styles.reserveRow} ${isSelected ? styles.reserveRowActive : ''}`}
+                data-prw-reserve-row
+                data-reserve-id={String(reserve.id)}
+                data-selected={isSelected}
+                aria-current={isSelected ? 'true' : undefined}
+                onClick={event => openReserveFromList(reserve, event)}
+              >
               <div>
-                <span className={`${styles.dot} ${styles[`priority_${reserve.priority}`] ?? ''}`} />
+                <span className={`${styles.dot} ${styles[`priority_${reserve.priority}`] ?? ''}`} aria-hidden="true" />
+                <span className={styles.srOnly}>Priorité {PRIORITY_LABELS[reserve.priority] ?? reserve.priority ?? 'non définie'}</span>
                 <strong>{reserve.id}</strong>
               </div>
               <div>
@@ -6823,16 +7181,17 @@ function ReservesView(props: {
               <em className={isReserveOverdue(reserve) ? styles.reserveStatusOverdue : ''}>
                 {isReserveDeleted(reserve) ? 'Corbeille' : isReserveArchived(reserve) ? 'Archivée' : isReserveOverdue(reserve) ? 'En retard' : STATUS_LABELS[reserve.status] ?? reserve.status}
               </em>
-            </button>
-          ))}
+              </button>
+            );
+          })}
           {hiddenReserveRowCount > 0 && (
             <button
               type="button"
               className={styles.reserveLoadMore}
-              onClick={() => setMobileReserveLimit(limit => limit + WEB_RESERVE_MOBILE_BATCH_SIZE)}
+              onClick={() => setReserveNavigatorState(showNextReserveBatch)}
             >
-              <strong>Afficher {Math.min(WEB_RESERVE_MOBILE_BATCH_SIZE, hiddenReserveRowCount)} réserves de plus</strong>
-              <span>{visibleReserveRows.length} sur {reserves.length}</span>
+              <strong>Afficher {reserveNavigatorModel.nextBatchCount} réserves de plus</strong>
+              <span>{reserveNavigatorModel.visibleCount} sur {reserveNavigatorModel.totalCount}</span>
             </button>
           )}
           {!reserves.length && (
@@ -7210,10 +7569,7 @@ function ReservesView(props: {
         {showMobileReserveDetail && (
           <WorkspaceBackButton
             label={workspaceCopy.back}
-            onClick={() => {
-              closeReserveDetail();
-              setCommentText('');
-            }}
+            onClick={handleReserveDetailBack}
           />
         )}
         {detailReserve ? (
@@ -7221,7 +7577,7 @@ function ReservesView(props: {
             <div className={styles.reserveDetailHeader} data-prw-detail-header>
               <div>
                 <p className={styles.eyebrow}>{detailReserve.id}</p>
-                <h2>{detailReserve.title}</h2>
+                <h2 ref={reserveDetailHeadingRef} tabIndex={-1}>{detailReserve.title}</h2>
                 <span>{[detailReserve.building, detailReserve.level, detailReserve.zone].filter(Boolean).join(' · ') || 'Sans localisation'}</span>
               </div>
               <span className={styles.badge}>{PRIORITY_LABELS[detailReserve.priority] ?? detailReserve.priority}</span>
@@ -8328,8 +8684,7 @@ function PlansView({
   selectedProjectId,
   selectedPlan,
   setSelectedPlanId,
-  setSelectedReserveId,
-  setTab,
+  onOpenReserve,
   placementReserve,
   onPlacementDone,
   onCreateReserve,
@@ -8767,8 +9122,7 @@ function PlansView({
     }
   };
   const openReserveFromPin = (reserveId: string) => {
-    setSelectedReserveId(reserveId);
-    setTab('reserves');
+    onOpenReserve(reserveId);
   };
   const assignOrCreatePinAt = (x: number, y: number) => {
     if (!selectedPlan) return;
@@ -9484,10 +9838,7 @@ function PlansView({
                       <div className={styles.planReserveQuickActions}>
                         <button
                           type="button"
-                          onClick={() => {
-                            setSelectedReserveId(selectedPlanReserve.id);
-                            setTab('reserves');
-                          }}
+                          onClick={() => onOpenReserve(selectedPlanReserve.id)}
                         >
                           Voir la réserve
                         </button>
@@ -11663,11 +12014,10 @@ function IncidentsView({ incidents }: { incidents: any[] }) {
   );
 }
 
-function OprView({ oprs, reserves, setTab, setSelectedReserveId }: {
+function OprView({ oprs, reserves, onOpenReserve }: {
   oprs: any[];
   reserves: any[];
-  setTab: (tab: TabId) => void;
-  setSelectedReserveId: (id: string) => void;
+  onOpenReserve: (id: string) => void;
 }) {
   const oprReserves = reserves.filter((reserve: any) => reserve.type === 'observation' || reserve.visit_type === 'opr' || reserve.source === 'opr');
   return (
@@ -11691,7 +12041,7 @@ function OprView({ oprs, reserves, setTab, setSelectedReserveId }: {
             <h3>Réserves OPR</h3>
             <div className={styles.compactList}>
               {oprReserves.slice(0, 12).map((reserve: any) => (
-                <button key={reserve.id} type="button" onClick={() => { setSelectedReserveId(reserve.id); setTab('reserves'); }}>
+                <button key={reserve.id} type="button" onClick={() => onOpenReserve(reserve.id)}>
                   <span>{STATUS_LABELS[reserve.status] ?? reserve.status ?? 'Réserve'} · {reserve.building ?? reserve.batiment ?? 'Plan'}</span>
                   <strong>{reserve.title ?? reserve.name ?? reserve.id}</strong>
                 </button>
@@ -12394,20 +12744,20 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
   );
 }
 
-function SearchView({ scoped, data, setTab, setSelectedReserveId, setSelectedPlanId }: any) {
+function SearchView({ scoped, data, setTab, onOpenReserve, setSelectedPlanId }: any) {
   const [query, setQuery] = useState('');
   // Recherche différée + mémoïsée : 7 collections scannées seulement quand la frappe se stabilise.
   const deferredQuery = useDeferredValue(query);
   const q = normalizeSearchText(deferredQuery);
   const results = useMemo(() => q.length < 2 ? [] : [
-    ...scoped.reserves.filter((item: any) => normalizeSearchText([item.id, item.title, item.description, item.building, item.level, item.zone, reserveCompanies(item).join(' ')].join(' ')).includes(q)).map((item: any) => ({ type: 'Réserve', title: item.title, meta: item.id, action: () => { setSelectedReserveId(item.id); setTab('reserves'); } })),
+    ...scoped.reserves.filter((item: any) => normalizeSearchText([item.id, item.title, item.description, item.building, item.level, item.zone, reserveCompanies(item).join(' ')].join(' ')).includes(q)).map((item: any) => ({ type: 'Réserve', title: item.title, meta: item.id, action: () => onOpenReserve(item.id) })),
     ...scoped.plans.filter((item: any) => normalizeSearchText([item.name, item.building, item.level, item.revision_code].join(' ')).includes(q)).map((item: any) => ({ type: 'Plan', title: item.name, meta: getPlanDisplayLocation(item, data.chantiers.find((project: any) => project.id === item.chantier_id)).building, action: () => { setSelectedPlanId(item.id); setTab('plans'); } })),
     ...scoped.documents.filter((item: any) => normalizeSearchText([item.name, item.category, item.type].join(' ')).includes(q)).map((item: any) => ({ type: 'Document', title: item.name, meta: item.category, action: () => setTab('documents') })),
     ...scoped.incidents.filter((item: any) => normalizeSearchText([item.title, item.description, item.location, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Incident', title: item.title, meta: item.status, action: () => setTab('incidents') })),
     ...scoped.visites.filter((item: any) => normalizeSearchText([item.title, item.notes, item.building, item.level].join(' ')).includes(q)).map((item: any) => ({ type: 'Visite', title: item.title, meta: prettyDate(item.date), action: () => setTab('visites') })),
     ...scoped.tasks.filter((item: any) => normalizeSearchText([item.title, item.description, item.company, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Tâche', title: item.title, meta: item.company, action: () => setTab('planning') })),
     ...scoped.regulatoryDocs.filter((item: any) => normalizeSearchText([item.title, item.company, item.reference, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Réglementaire', title: item.title, meta: REGULATORY_STATUS_LABELS[item.status] ?? item.status, action: () => setTab('reglementaire') })),
-  ].slice(0, 80), [q, scoped, data.chantiers, setTab, setSelectedReserveId, setSelectedPlanId]);
+  ].slice(0, 80), [q, scoped, data.chantiers, onOpenReserve, setTab, setSelectedPlanId]);
 
   return (
     <div className={styles.stack}>

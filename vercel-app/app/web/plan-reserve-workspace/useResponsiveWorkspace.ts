@@ -8,6 +8,8 @@ type ResponsiveWorkspaceOptions = {
   hasDetail: boolean;
   initialDetailOpen?: boolean;
   forceDetailOpen?: boolean;
+  detailOpen?: boolean;
+  onDetailOpenChange?: (open: boolean) => void;
 };
 
 export function shouldRenderWorkspaceDetail(isCompact: boolean, detailOpen: boolean) {
@@ -31,27 +33,34 @@ export function useResponsiveWorkspaceNavigation({
   hasDetail,
   initialDetailOpen = false,
   forceDetailOpen = false,
+  detailOpen: controlledDetailOpen,
+  onDetailOpenChange,
 }: ResponsiveWorkspaceOptions) {
   // The server snapshot intentionally starts compact. This keeps detail media out
   // of the initial HTML and hydration pass until the real viewport is known.
   const isCompact = useMediaQuery(COMPACT_WORKSPACE_QUERY, true);
-  const [detailOpen, setDetailOpen] = useState(initialDetailOpen);
+  const [uncontrolledDetailOpen, setUncontrolledDetailOpen] = useState(initialDetailOpen);
+  const detailOpen = controlledDetailOpen ?? uncontrolledDetailOpen;
+  const setDetailOpen = useCallback((open: boolean) => {
+    if (controlledDetailOpen === undefined) setUncontrolledDetailOpen(open);
+    onDetailOpenChange?.(open);
+  }, [controlledDetailOpen, onDetailOpenChange]);
 
   useEffect(() => {
     if (!isCompact) setDetailOpen(false);
-  }, [isCompact]);
+  }, [isCompact, setDetailOpen]);
 
   useEffect(() => {
     if (detailOpen && !hasDetail) setDetailOpen(false);
-  }, [detailOpen, hasDetail]);
+  }, [detailOpen, hasDetail, setDetailOpen]);
 
   useEffect(() => {
     if (isCompact && forceDetailOpen && hasDetail) setDetailOpen(true);
-  }, [forceDetailOpen, hasDetail, isCompact]);
+  }, [forceDetailOpen, hasDetail, isCompact, setDetailOpen]);
 
-  const openDetail = useCallback(() => setDetailOpen(true), []);
+  const openDetail = useCallback(() => setDetailOpen(true), [setDetailOpen]);
 
-  const closeDetail = useCallback(() => setDetailOpen(false), []);
+  const closeDetail = useCallback(() => setDetailOpen(false), [setDetailOpen]);
   const showDetail = shouldRenderWorkspaceDetail(isCompact, detailOpen);
 
   return {

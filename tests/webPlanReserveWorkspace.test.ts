@@ -50,12 +50,63 @@ describe('BuildTrack web plan and reserve workspaces', () => {
   it('uses one vertical scroll owner and batches long reserve lists across compact layouts', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const css = read('vercel-app/app/web/web.module.css');
+    const reserveNavigator = read('vercel-app/app/web/plan-reserve-workspace/reserve-navigator.ts');
 
-    expect(page).toContain('WEB_RESERVE_MOBILE_BATCH_SIZE = 40');
+    expect(reserveNavigator).toContain('WEB_RESERVE_MOBILE_BATCH_SIZE = 12');
+    expect(page).toContain('buildReserveNavigatorModel(reserves, effectiveReserveNavigatorState, props.selectedReserveId)');
+    expect(page).toContain('const syncedReserveNavigatorState = syncReserveNavigatorScope(');
     expect(page).toContain('visibleReserveRows.map');
     expect(page).toContain('className={styles.reserveLoadMore}');
+    expect(page).toContain('setReserveNavigatorState(showNextReserveBatch)');
+    expect(page).toContain('data-prw-reserve-sticky');
+    expect(css).toContain(".workspaceReserves[data-operational-mobile='true']");
+    expect(css).toMatch(/\.reservesListPanel \.reserveRailStickyWeb \{[\s\S]*?position: sticky;/);
     expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.reservesListPanel \.reserveList \{[\s\S]*?overflow: visible;/);
     expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.plansListPanel \.plansList \{[\s\S]*?overflow: visible;/);
+  });
+
+  it('separates reserve selection from explicit mobile detail navigation', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const responsiveWorkspace = read('vercel-app/app/web/plan-reserve-workspace/useResponsiveWorkspace.ts');
+    const workspaceChromeCss = read('vercel-app/app/web/plan-reserve-workspace/WorkspaceChrome.module.css');
+    const workspaceCss = read('vercel-app/app/web/plan-reserve-workspace/PlanReserveWorkspace.module.css');
+
+    expect(page).toContain('const [reserveDetailRequest, setReserveDetailRequest]');
+    expect(page).toContain('const openReserveDetailTab = useCallback');
+    expect(page).toContain("detailOpen: effectiveReserveNavigatorState.view === 'detail'");
+    expect(page).toContain('handleReserveHistoryOutsideCompactView');
+    expect(page).toContain("previousActiveTab === 'reserves'");
+    expect(page).toContain('const targetProjectId = String(getChantierId(target) || selectedProjectId)');
+    expect(page).toContain('openReserveDetailTab(id, finalReserve)');
+    expect(page.match(/setSelectedReserveId\(current => current === reserve\.id \? null : current\)/g)).toHaveLength(3);
+    expect(page).toContain('if (props.onOpenReserveDetail(reserveId)) return');
+    expect(page).toContain("reserveId !== String(explicitlySelectedReserve.id)");
+    expect(page).toContain('pushReserveDetailHistory');
+    expect(page).toContain("window.addEventListener('popstate', onPopState)");
+    expect(page).toContain('reserveListScrollTopRef.current');
+    expect(page).toContain('reserveDetailHeadingRef.current?.focus');
+    expect(page).toContain("document.querySelector('[data-prw-reserve-sticky] input')");
+    expect(page).toContain("aria-current={isSelected ? 'true' : undefined}");
+    expect(page).not.toContain('function clearReserveDetailHistory');
+    expect(page).toContain('const ownsCurrentHistoryEntry');
+    expect(page).toContain('if (ownsCurrentHistoryEntry) window.history.back()');
+    expect(page).toMatch(/reserveHistoryEntryRef\.current = false;[\s\S]*?window\.history\.back\(\);/);
+    expect(responsiveWorkspace).toContain('detailOpen: controlledDetailOpen');
+    expect(responsiveWorkspace).toContain('onDetailOpenChange');
+    expect(workspaceChromeCss).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.header\[data-compact-detail='true'\] \{[\s\S]*?display: none;/);
+    expect(workspaceCss).toMatch(/@media \(max-width: 1180px\) and \(max-height: 520px\)[\s\S]*?div:last-child \{[\s\S]*?overflow-x: auto;/);
+    expect(workspaceCss).not.toContain("div:last-child > :not([data-primary='true'])");
+  });
+
+  it('announces reserve filters and honest mobile result counts', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+
+    expect(page).toContain('aria-pressed={active}');
+    expect(page).toContain('aria-expanded={showAdvancedFilters}');
+    expect(page).toContain('aria-controls="reserve-advanced-filters"');
+    expect(page).toContain('role="status" aria-live="polite"');
+    expect(page).toContain('{visibleReserveRows.length} affichée');
+    expect(page).toContain('Priorité {PRIORITY_LABELS[reserve.priority]');
   });
 
   it('batches the mobile building library with an accessible single accordion', () => {

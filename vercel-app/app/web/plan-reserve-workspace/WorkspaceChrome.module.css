@@ -258,6 +258,10 @@
     display: inline-flex;
   }
 
+  .header[data-compact-detail='true'] {
+    display: none;
+  }
+
   .search input {
     font-size: 1rem;
   }
@@ -268,10 +272,6 @@
     grid-template-columns: 1fr;
     gap: 0.65rem;
     padding-bottom: 0.75rem;
-  }
-
-  .header[data-compact-detail='true'] {
-    display: none;
   }
 
   .heading {
