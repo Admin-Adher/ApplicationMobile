@@ -50,6 +50,7 @@ describe('BuildTrack web plan and reserve workspaces', () => {
   it('keeps the compact PDF reader intrinsic, single-line, and responsive to viewport width', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const css = read('vercel-app/app/web/web.module.css');
+    const workspaceCss = read('vercel-app/app/web/plan-reserve-workspace/PlanReserveWorkspace.module.css');
     const interaction = read('vercel-app/app/web/plan-reserve-workspace/plan-interaction.ts');
     const reader = page.slice(page.indexOf('function WebPdfPlan'), page.indexOf('function PlansView'));
 
@@ -65,6 +66,8 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(reader).not.toContain('href={selectedPlan.uri}');
     expect(interaction).toContain("export type PdfZoomMode = 'fit' | 'manual'");
     expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.plansPreviewPanel \.planCanvas \{[\s\S]*?height: auto;/);
+    expect(workspaceCss).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\[data-prw-plan-workarea\] \{[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
+    expect(workspaceCss).toMatch(/@media \(max-width: 760px\)[\s\S]*?\[data-prw-plan-workarea\] \{[\s\S]*?flex: 0 0 auto;[\s\S]*?grid-template-rows: auto auto;/);
     expect(css).toMatch(/\.webPdfToolbarPrimary \{[\s\S]*?overflow-x: auto;/);
     expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.webPdfAnnotateControls \{[\s\S]*?flex-wrap: nowrap;/);
     expect(css).toMatch(/\.webPdfViewport \{[\s\S]*?overflow: auto;/);

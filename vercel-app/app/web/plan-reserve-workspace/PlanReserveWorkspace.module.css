@@ -607,8 +607,10 @@
   }
 
   .planRoot [data-prw-plan-workarea] {
+    flex: 0 0 auto;
     height: auto;
     min-height: clamp(24rem, 60dvh, 44rem);
+    grid-template-rows: auto auto;
   }
 
   .planRoot [data-prw-plan-workarea][data-reserves-open='true'],
@@ -690,9 +692,11 @@
   }
 
   .planRoot [data-prw-plan-workarea] {
+    flex: 0 0 auto;
     height: auto;
     min-height: 0;
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
     overflow: visible;
   }
 
