@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useCallback, useContext, useDeferredValue, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import {
@@ -48,6 +48,8 @@ import {
 import {
   calculatePdfFitScale,
   resolvePlanCanvasTapIntent,
+  shouldRefitPdfOnResize,
+  type PdfZoomMode,
 } from './plan-reserve-workspace/plan-interaction';
 import {
   createDedicatedPdfLoadingTask,
@@ -8050,13 +8052,20 @@ function WebPdfPlan({
   const { t } = useWebI18n();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const actionMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement | null>(null);
   const renderTaskRef = useRef<any>(null);
   const pdfPageRef = useRef<any>(null);
+  const fitModeRef = useRef<PdfZoomMode>('fit');
+  const resizeFrameRef = useRef<number | null>(null);
+  const lastViewportWidthRef = useRef(0);
   const capturedPreviewKeyRef = useRef('');
   const capturingPreviewKeyRef = useRef('');
   const lastFocusZoomRef = useRef('');
   const drawingPointerRef = useRef<number | null>(null);
   const movePreviewTimerRef = useRef<number | null>(null);
+  const previousFullscreenRef = useRef(false);
   const suppressNextPageClickRef = useRef(false);
   const panStateRef = useRef({
     active: false,
@@ -8084,6 +8093,8 @@ function WebPdfPlan({
   const [localAnnotations, setLocalAnnotations] = useState<WebPlanDrawing[]>(annotations ?? []);
   const [moveMode, setMoveMode] = useState(false);
   const [movePreview, setMovePreview] = useState<PinPlacementPreview | null>(null);
+  const [actionMenuOpen, setActionMenuOpen] = useState(false);
+  const actionMenuId = useId();
 
   const fitCachedPreviewToViewport = useCallback((width: number, height: number) => {
     if (!width || !height || pdfPageRef.current) return;
@@ -8105,7 +8116,13 @@ function WebPdfPlan({
     setScale(calculatePdfFitScale(viewportWidth - horizontalPadding, baseViewport.width));
   }, []);
 
+  const activatePdfFit = useCallback(() => {
+    fitModeRef.current = 'fit';
+    fitPdfToViewport();
+  }, [fitPdfToViewport]);
+
   useEffect(() => {
+    fitModeRef.current = 'fit';
     setScale(null);
     setPageSize({ width: 0, height: 0 });
     setError(false);
@@ -8114,6 +8131,7 @@ function WebPdfPlan({
     setLiveDrawing(null);
     setMoveMode(false);
     setMovePreview(null);
+    setActionMenuOpen(false);
     lastFocusZoomRef.current = '';
   }, [uri]);
 
@@ -8123,7 +8141,39 @@ function WebPdfPlan({
       fitCachedPreviewToViewport(cachedPreview.width, cachedPreview.height);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [cachedPreview, fitCachedPreviewToViewport, uri]);
+  }, [cachedPreview, fitCachedPreviewToViewport, isFullscreen, uri]);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport || typeof ResizeObserver === 'undefined') return;
+
+    lastViewportWidthRef.current = viewport.clientWidth;
+    const observer = new ResizeObserver(entries => {
+      const nextWidth = entries[0]?.contentRect.width ?? viewport.clientWidth;
+      const previousWidth = lastViewportWidthRef.current;
+      lastViewportWidthRef.current = nextWidth;
+      if (!shouldRefitPdfOnResize(fitModeRef.current, previousWidth, nextWidth)) return;
+
+      if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
+      resizeFrameRef.current = window.requestAnimationFrame(() => {
+        resizeFrameRef.current = null;
+        if (pdfPageRef.current) {
+          fitPdfToViewport();
+        } else if (cachedPreview) {
+          fitCachedPreviewToViewport(cachedPreview.width, cachedPreview.height);
+        }
+      });
+    });
+
+    observer.observe(viewport);
+    return () => {
+      observer.disconnect();
+      if (resizeFrameRef.current != null) {
+        window.cancelAnimationFrame(resizeFrameRef.current);
+        resizeFrameRef.current = null;
+      }
+    };
+  }, [cachedPreview, fitCachedPreviewToViewport, fitPdfToViewport, isFullscreen, uri]);
 
   useEffect(() => {
     setLocalAnnotations(annotations ?? []);
@@ -8144,6 +8194,40 @@ function WebPdfPlan({
   }, [isFullscreen]);
 
   useEffect(() => {
+    if (previousFullscreenRef.current === isFullscreen) return;
+    previousFullscreenRef.current = isFullscreen;
+    const focusFrame = window.requestAnimationFrame(() => {
+      fullscreenButtonRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
+  }, [isFullscreen]);
+
+  useEffect(() => {
+    if (!actionMenuOpen) return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      const actions = document.getElementById(actionMenuId)?.querySelectorAll<HTMLElement>('button, a');
+      Array.from(actions ?? []).find(action => action.offsetParent !== null)?.focus();
+    });
+    const closeOnOutsidePointer = (event: globalThis.PointerEvent) => {
+      if (!actionMenuRef.current?.contains(event.target as Node)) setActionMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      event.stopPropagation();
+      setActionMenuOpen(false);
+      actionMenuButtonRef.current?.focus();
+    };
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      document.removeEventListener('pointerdown', closeOnOutsidePointer);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [actionMenuId, actionMenuOpen]);
+
+  useEffect(() => {
     return () => {
       if (movePreviewTimerRef.current) window.clearTimeout(movePreviewTimerRef.current);
     };
@@ -8154,6 +8238,7 @@ function WebPdfPlan({
     const key = `${uri}:${focusedReserveId}`;
     if (lastFocusZoomRef.current === key) return;
     lastFocusZoomRef.current = key;
+    fitModeRef.current = 'manual';
     setScale(value => {
       const current = value ?? scale ?? 1;
       return Math.min(3, Number((current * 1.8).toFixed(2)));
@@ -8222,9 +8307,10 @@ function WebPdfPlan({
 
   useEffect(() => {
     if (!pdfPageRef.current) return;
-    const frame = window.requestAnimationFrame(fitPdfToViewport);
+    if (fitModeRef.current !== 'fit') return;
+    const frame = window.requestAnimationFrame(activatePdfFit);
     return () => window.cancelAnimationFrame(frame);
-  }, [fitPdfToViewport, isFullscreen, pdfPageVersion]);
+  }, [activatePdfFit, isFullscreen, pdfPageVersion]);
 
   useEffect(() => {
     const page = pdfPageRef.current;
@@ -8305,7 +8391,7 @@ function WebPdfPlan({
       cancelled = true;
       renderTaskRef.current?.cancel?.();
     };
-  }, [onPreviewReady, pdfPageVersion, previewCacheKey, scale]);
+  }, [isFullscreen, onPreviewReady, pdfPageVersion, previewCacheKey, scale]);
 
   function pagePointFromEvent(event: MouseEvent<HTMLDivElement> | PointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -8477,6 +8563,7 @@ function WebPdfPlan({
   const zoomLabel = zoomReady && scale != null ? `${Math.round(scale * 100)}%` : '—';
 
   function retryPdfLoad() {
+    fitModeRef.current = 'fit';
     setError(false);
     setPageSize({ width: 0, height: 0 });
     setScale(null);
@@ -8484,55 +8571,142 @@ function WebPdfPlan({
   }
 
   const pdfShell = (
-    <div className={`${styles.webPdfShell} ${isFullscreen ? styles.webPdfShellFullscreen : ''}`}>
-      <div className={styles.webPdfToolbar}>
-        <div className={styles.webPdfZoomControls}>
+    <div
+      className={`${styles.webPdfShell} ${isFullscreen ? styles.webPdfShellFullscreen : ''}`}
+      role={isFullscreen ? 'dialog' : undefined}
+      aria-modal={isFullscreen || undefined}
+      aria-label={isFullscreen ? name : undefined}
+    >
+      <div className={styles.webPdfToolbar} data-web-pdf-toolbar role="group" aria-label={t('plans.readerTools')}>
+        <div className={styles.webPdfToolbarPrimary} data-web-pdf-primary-actions>
+          <div className={styles.webPdfZoomControls}>
+            <button
+              type="button"
+              aria-label={t('plans.zoomOut')}
+              disabled={!zoomReady}
+              onClick={() => {
+                fitModeRef.current = 'manual';
+                setScale(value => Math.max(0.08, Number(((value ?? 1) - 0.1).toFixed(2))));
+              }}
+            >−</button>
+            <strong aria-live="polite" aria-label={t('plans.zoomLevel')}>{zoomLabel}</strong>
+            <button
+              type="button"
+              aria-label={t('plans.zoomIn')}
+              disabled={!zoomReady}
+              onClick={() => {
+                fitModeRef.current = 'manual';
+                setScale(value => Math.min(3, Number(((value ?? 1) + 0.1).toFixed(2))));
+              }}
+            >+</button>
+          </div>
+          <button type="button" disabled={!zoomReady} onClick={activatePdfFit} aria-label={t('plans.fit')}>
+            <span className={styles.webPdfToolbarIcon} aria-hidden="true">↔</span>
+            <span className={styles.webPdfToolbarLabel}>{t('plans.fit')}</span>
+          </button>
           <button
+            ref={fullscreenButtonRef}
             type="button"
-            aria-label={t('plans.zoomOut')}
-            disabled={!zoomReady}
-            onClick={() => setScale(value => Math.max(0.08, Number(((value ?? 1) - 0.1).toFixed(2))))}
-          >−</button>
-          <strong aria-live="polite">{zoomLabel}</strong>
-          <button
-            type="button"
-            aria-label={t('plans.zoomIn')}
-            disabled={!zoomReady}
-            onClick={() => setScale(value => Math.min(3, Number(((value ?? 1) + 0.1).toFixed(2))))}
-          >+</button>
+            onClick={() => {
+              setActionMenuOpen(false);
+              setIsFullscreen(value => !value);
+            }}
+            aria-pressed={isFullscreen}
+            aria-label={isFullscreen ? t('plans.reduce') : t('plans.bigPlan')}
+          >
+            <span className={styles.webPdfToolbarIcon} aria-hidden="true">⛶</span>
+            <span className={styles.webPdfToolbarLabel}>{isFullscreen ? t('plans.reduce') : t('plans.bigPlan')}</span>
+          </button>
+          {canMovePins && focusedPin && (
+            <button
+              type="button"
+              className={`${styles.webPdfToolbarDesktopAction} ${moveMode ? styles.webPdfToolbarActive : ''}`}
+              aria-pressed={moveMode}
+              onClick={() => {
+                setMoveMode(value => !value);
+                setAnnotationMode(false);
+              }}
+            >
+              {moveMode ? t('plans.choosePinPosition') : t('plans.movePin')}
+            </button>
+          )}
+          {canAnnotate && (
+            <button
+              type="button"
+              className={`${styles.webPdfToolbarDesktopAction} ${annotationMode ? styles.webPdfToolbarActive : ''}`}
+              aria-pressed={annotationMode}
+              aria-controls={annotationMode ? `${actionMenuId}-drawing` : undefined}
+              onClick={() => {
+                setAnnotationMode(value => !value);
+                setMoveMode(false);
+              }}
+            >
+              {t('plans.drawing')}
+            </button>
+          )}
+          {uri ? (
+            <a className={styles.webPdfToolbarDesktopAction} href={uri} target="_blank" rel="noreferrer">
+              {t('plans.openPdf')} <span className={styles.srOnly}>({t('plans.newTab')})</span>
+            </a>
+          ) : null}
         </div>
-        <button type="button" disabled={!zoomReady} onClick={fitPdfToViewport}>{t('plans.fit')}</button>
-        <button type="button" onClick={() => setIsFullscreen(value => !value)}>
-          {isFullscreen ? t('plans.reduce') : t('plans.bigPlan')}
-        </button>
-        {canMovePins && focusedPin && (
-          <button
-            type="button"
-            className={moveMode ? styles.webPdfToolbarActive : ''}
-            onClick={() => {
-              setMoveMode(value => !value);
-              setAnnotationMode(false);
-            }}
-          >
-            {moveMode ? 'Cliquez la position' : 'Déplacer épingle'}
-          </button>
+        {(uri || canAnnotate || (canMovePins && focusedPin)) && (
+          <div ref={actionMenuRef} className={styles.webPdfActionMenu}>
+            <button
+              ref={actionMenuButtonRef}
+              type="button"
+              className={styles.webPdfActionMenuButton}
+              aria-expanded={actionMenuOpen}
+              aria-controls={actionMenuId}
+              aria-haspopup="true"
+              onClick={() => setActionMenuOpen(value => !value)}
+            >
+              <span aria-hidden="true">•••</span>
+              <span className={styles.webPdfToolbarLabel}>{t('plans.moreActions')}</span>
+            </button>
+            {actionMenuOpen && (
+              <div id={actionMenuId} className={styles.webPdfActionMenuPopover} role="group" aria-label={t('plans.moreActions')}>
+                {canMovePins && focusedPin && (
+                  <button
+                    type="button"
+                    className={`${styles.webPdfActionMenuCompactOnly} ${moveMode ? styles.webPdfToolbarActive : ''}`}
+                    aria-pressed={moveMode}
+                    onClick={() => {
+                      setMoveMode(value => !value);
+                      setAnnotationMode(false);
+                      setActionMenuOpen(false);
+                    }}
+                  >
+                    {moveMode ? t('plans.choosePinPosition') : t('plans.movePin')}
+                  </button>
+                )}
+                {canAnnotate && (
+                  <button
+                    type="button"
+                    className={`${styles.webPdfActionMenuCompactOnly} ${annotationMode ? styles.webPdfToolbarActive : ''}`}
+                    aria-pressed={annotationMode}
+                    aria-controls={annotationMode ? `${actionMenuId}-drawing` : undefined}
+                    onClick={() => {
+                      setAnnotationMode(value => !value);
+                      setMoveMode(false);
+                      setActionMenuOpen(false);
+                    }}
+                  >
+                    {t('plans.drawing')}
+                  </button>
+                )}
+                {uri ? (
+                  <a className={styles.webPdfActionMenuCompactOnly} href={uri} target="_blank" rel="noreferrer" onClick={() => setActionMenuOpen(false)}>
+                    {t('plans.openPdf')} <span className={styles.srOnly}>({t('plans.newTab')})</span>
+                  </a>
+                ) : null}
+              </div>
+            )}
+          </div>
         )}
-        {canAnnotate && (
-          <button
-            type="button"
-            className={annotationMode ? styles.webPdfToolbarActive : ''}
-            onClick={() => {
-              setAnnotationMode(value => !value);
-              setMoveMode(false);
-            }}
-          >
-            Crayon
-          </button>
-        )}
-        {uri ? <a href={uri} target="_blank" rel="noreferrer">{t('plans.openPdf')}</a> : null}
       </div>
       {canAnnotate && annotationMode && (
-        <div className={styles.webPdfAnnotateControls}>
+        <div id={`${actionMenuId}-drawing`} className={styles.webPdfAnnotateControls}>
           <span>Couleur</span>
           {['#ef4444', '#f59e0b', '#22c55e', '#2563eb', '#111827'].map(color => (
             <button
@@ -8579,6 +8753,7 @@ function WebPdfPlan({
       <div
         ref={viewportRef}
         className={`${styles.webPdfViewport} ${isPanning ? styles.webPdfViewportPanning : ''}`}
+        data-web-pdf-viewport
         onPointerDown={handleViewportPointerDown}
         onPointerMove={handleViewportPointerMove}
         onPointerUp={finishViewportPan}

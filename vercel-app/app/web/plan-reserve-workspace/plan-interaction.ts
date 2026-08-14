@@ -1,5 +1,7 @@
 export const PLAN_PIN_TOUCH_TARGET = 44;
 
+export type PdfZoomMode = 'fit' | 'manual';
+
 export type PlanCanvasTapIntent =
   | 'place-existing-pin'
   | 'move-focused-pin'
@@ -12,6 +14,17 @@ export function calculatePdfFitScale(viewportWidth: number, pageWidth: number) {
     return 1;
   }
   return Number(Math.min(1.2, Math.max(0.08, viewportWidth / pageWidth)).toFixed(3));
+}
+
+export function shouldRefitPdfOnResize(
+  mode: PdfZoomMode,
+  previousWidth: number,
+  nextWidth: number,
+) {
+  return mode === 'fit'
+    && Number.isFinite(nextWidth)
+    && nextWidth > 0
+    && Math.round(previousWidth) !== Math.round(nextWidth);
 }
 
 export function resolvePlanCanvasTapIntent({

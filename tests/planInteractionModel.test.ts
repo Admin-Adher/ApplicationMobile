@@ -3,6 +3,7 @@ import {
   PLAN_PIN_TOUCH_TARGET,
   calculatePdfFitScale,
   resolvePlanCanvasTapIntent,
+  shouldRefitPdfOnResize,
 } from '../vercel-app/app/web/plan-reserve-workspace/plan-interaction';
 import { shouldRenderWorkspaceDetail } from '../vercel-app/app/web/plan-reserve-workspace/useResponsiveWorkspace';
 
@@ -12,6 +13,15 @@ describe('BuildTrack mobile plan interaction model', () => {
     expect(calculatePdfFitScale(760, 760)).toBe(1);
     expect(calculatePdfFitScale(1200, 760)).toBe(1.2);
     expect(calculatePdfFitScale(0, 760)).toBe(1);
+    expect(calculatePdfFitScale(476, 2800)).toBe(0.17);
+    expect(calculatePdfFitScale(308, 2800)).toBe(0.11);
+  });
+
+  it('refits only width-fitted plans when the rounded viewport width changes', () => {
+    expect(shouldRefitPdfOnResize('fit', 390, 533)).toBe(true);
+    expect(shouldRefitPdfOnResize('manual', 390, 533)).toBe(false);
+    expect(shouldRefitPdfOnResize('fit', 390.1, 390.4)).toBe(false);
+    expect(shouldRefitPdfOnResize('fit', 390, 0)).toBe(false);
   });
 
   it('requires an explicit create mode before a canvas tap creates a reserve', () => {

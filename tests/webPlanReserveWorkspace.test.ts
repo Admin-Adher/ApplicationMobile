@@ -47,6 +47,29 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(css).toContain('.pin::before');
   });
 
+  it('keeps the compact PDF reader intrinsic, single-line, and responsive to viewport width', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const css = read('vercel-app/app/web/web.module.css');
+    const interaction = read('vercel-app/app/web/plan-reserve-workspace/plan-interaction.ts');
+    const reader = page.slice(page.indexOf('function WebPdfPlan'), page.indexOf('function PlansView'));
+
+    expect(reader).toContain('fitModeRef.current = \'manual\'');
+    expect(reader).toContain('new ResizeObserver');
+    expect(reader).toContain('shouldRefitPdfOnResize(fitModeRef.current');
+    expect(reader).toContain('observer.disconnect()');
+    expect(reader).toContain('window.cancelAnimationFrame(resizeFrameRef.current)');
+    expect(reader).toContain('data-web-pdf-primary-actions');
+    expect(reader).toContain('aria-expanded={actionMenuOpen}');
+    expect(reader).toContain("fullscreenButtonRef.current?.focus({ preventScroll: true })");
+    expect(reader).toMatch(/\{uri \? \(\s*<a[^>]*href=\{uri\}/);
+    expect(reader).not.toContain('href={selectedPlan.uri}');
+    expect(interaction).toContain("export type PdfZoomMode = 'fit' | 'manual'");
+    expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.plansPreviewPanel \.planCanvas \{[\s\S]*?height: auto;/);
+    expect(css).toMatch(/\.webPdfToolbarPrimary \{[\s\S]*?overflow-x: auto;/);
+    expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.webPdfAnnotateControls \{[\s\S]*?flex-wrap: nowrap;/);
+    expect(css).toMatch(/\.webPdfViewport \{[\s\S]*?overflow: auto;/);
+  });
+
   it('uses one vertical scroll owner and batches long reserve lists across compact layouts', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const css = read('vercel-app/app/web/web.module.css');
@@ -213,7 +236,7 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(pdfClient).toContain('createDedicatedPdfLoadingTask');
     expect(pdfClient).toContain('connection?.saveData');
     expect(page).toContain('}, [retryVersion, uri]);');
-    expect(page).toContain('}, [onPreviewReady, pdfPageVersion, previewCacheKey, scale]);');
+    expect(page).toContain('}, [isFullscreen, onPreviewReady, pdfPageVersion, previewCacheKey, scale]);');
     expect(page).not.toContain('cdn.jsdelivr.net/npm/pdfjs-dist');
   });
 });

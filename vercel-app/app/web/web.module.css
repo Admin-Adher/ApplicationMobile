@@ -4334,15 +4334,36 @@
 }
 
 .webPdfToolbar {
+  position: relative;
   z-index: 8;
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   padding: 10px;
   background: #fff;
   color: #0f172a;
   border-bottom: 1px solid #dde4ee;
+}
+
+.webPdfToolbarPrimary {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.webPdfToolbarPrimary::-webkit-scrollbar {
+  display: none;
+}
+
+.webPdfToolbarPrimary > * {
+  flex: 0 0 auto;
 }
 
 .webPdfZoomControls {
@@ -4386,6 +4407,61 @@
   min-width: 56px;
   text-align: center;
   color: #0f172a;
+}
+
+.webPdfToolbarIcon {
+  display: inline-block;
+  min-width: 1em;
+  margin-right: 6px;
+  font-size: 17px;
+  line-height: 1;
+}
+
+.webPdfActionMenu {
+  position: relative;
+  z-index: 12;
+  display: none;
+}
+
+.webPdfActionMenuButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.webPdfActionMenuPopover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  gap: 6px;
+  width: max-content;
+  min-width: 220px;
+  max-width: min(300px, calc(100vw - 32px));
+  padding: 8px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.2);
+}
+
+.webPdfActionMenuPopover button,
+.webPdfActionMenuPopover a {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 0;
+  text-align: left;
+  white-space: normal;
+}
+
+.webPdfActionMenuCompactOnly {
+  display: none !important;
 }
 
 .webPdfAnnotateControls,
@@ -4476,9 +4552,6 @@
   position: relative;
   z-index: 4;
   min-width: 0;
-  justify-content: flex-start;
-  overflow-x: auto;
-  scrollbar-width: thin;
 }
 
 .webPdfShellFullscreen .webPdfAnnotateControls,
@@ -4487,12 +4560,8 @@
   z-index: 3;
 }
 
-.webPdfShellFullscreen .webPdfToolbar > * {
-  flex: 0 0 auto;
-}
-
 .webPdfShellFullscreen .webPdfToolbar a {
-  margin-left: auto;
+  margin-left: 0;
 }
 
 .webPdfPage {
@@ -10356,20 +10425,40 @@
   }
 
   .plansPreviewPanel .planCanvas {
+    height: auto;
     min-height: 360px;
   }
 
   .webPdfToolbar {
-    flex-wrap: wrap;
-    justify-content: flex-start;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .webPdfZoomControls {
-    flex: 1 1 auto;
+    flex: 0 0 auto;
   }
 
-  .webPdfToolbar a {
-    flex: 1 1 160px;
+  .webPdfToolbarDesktopAction {
+    display: none !important;
+  }
+
+  .webPdfActionMenu {
+    display: block;
+  }
+
+  .webPdfActionMenuCompactOnly {
+    display: flex !important;
+  }
+
+  .webPdfAnnotateControls {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .webPdfAnnotateControls > * {
+    flex: 0 0 auto;
   }
 
   .planReservePanel {
@@ -10475,7 +10564,55 @@
 
   .webPdfToolbar button,
   .webPdfToolbar a {
+    min-width: 44px;
     padding: 8px 10px;
+  }
+
+  .webPdfToolbar {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .webPdfToolbarPrimary {
+    gap: 4px;
+  }
+
+  .webPdfZoomControls {
+    gap: 0;
+    padding: 0;
+  }
+
+  .webPdfToolbar strong {
+    min-width: 44px;
+  }
+
+  .webPdfToolbarPrimary > button,
+  .webPdfActionMenuButton {
+    width: 44px;
+    padding-inline: 6px;
+  }
+
+  .webPdfToolbarLabel {
+    display: none;
+  }
+
+  .webPdfToolbarIcon {
+    margin-right: 0;
+  }
+}
+
+@media (max-width: 360px) {
+  .webPdfToolbar {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .webPdfToolbarPrimary {
+    gap: 2px;
+  }
+
+  .webPdfToolbar strong {
+    min-width: 36px;
   }
 }
 
