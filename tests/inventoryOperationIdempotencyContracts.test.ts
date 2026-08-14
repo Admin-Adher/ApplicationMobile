@@ -57,6 +57,7 @@ describe('inventory movement durable idempotency contract', () => {
     expect(hashFunction).toContain("'designation'");
     expect(hashFunction).toContain("'min_stock'");
     expect(hashFunction).toContain("'allow_negative'");
+    expect(hashFunction.match(/pg_catalog\.trim_scale/g)).toHaveLength(2);
     expect(hashFunction).not.toContain("p_product ->> 'photo_url'");
   });
 

@@ -86,7 +86,9 @@ as $$
             'movement_type', lower(nullif(btrim(p_movement ->> 'movement_type'), '')),
             'quantity', case
               when pg_catalog.jsonb_typeof(p_movement -> 'quantity') = 'number'
-                then pg_catalog.to_jsonb((p_movement ->> 'quantity')::numeric)
+                then pg_catalog.to_jsonb(
+                  pg_catalog.trim_scale((p_movement ->> 'quantity')::numeric)
+                )
               else pg_catalog.to_jsonb(nullif(btrim(p_movement ->> 'quantity'), ''))
             end,
             'reference', case
@@ -116,7 +118,9 @@ as $$
             'barcode', nullif(btrim(p_product ->> 'barcode'), ''),
             'min_stock', case
               when pg_catalog.jsonb_typeof(p_product -> 'min_stock') = 'number'
-                then pg_catalog.to_jsonb((p_product ->> 'min_stock')::numeric)
+                then pg_catalog.to_jsonb(
+                  pg_catalog.trim_scale((p_product ->> 'min_stock')::numeric)
+                )
               else pg_catalog.to_jsonb(nullif(btrim(p_product ->> 'min_stock'), ''))
             end,
             'location', nullif(btrim(p_product ->> 'location'), ''),
