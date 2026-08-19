@@ -478,6 +478,7 @@ export default function InventoryWorkspace({
     setMode(nextMode);
     if (product) selectProduct(product);
     window.requestAnimationFrame(() => operationPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+    if (!product && nextProjectId) startScanner('product');
   }
 
   function changeOperationProject(projectId: string) {
