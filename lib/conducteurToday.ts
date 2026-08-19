@@ -1,5 +1,3 @@
-import { isOverdue } from './reserveUtils';
-
 type QueueReserve = {
   id: string;
   title: string;
@@ -31,6 +29,16 @@ function parseLooseDate(value?: string): Date | null {
   }
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function isOverdue(deadline?: string, status?: string): boolean {
+  if (!deadline || deadline === '—' || status === 'closed' || status === 'verification') return false;
+  const parsed = parseLooseDate(deadline);
+  if (!parsed) return false;
+  parsed.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return parsed < today;
 }
 
 export function visitDateValue(value?: string): number {
