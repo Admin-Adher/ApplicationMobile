@@ -801,38 +801,38 @@ export default function AdminScreen() {
             </TouchableOpacity>
           )}
 
+          <View style={styles.briefRow}>
+            <TouchableOpacity style={styles.briefCard} onPress={() => { /* invitations already on this tab */ }}>
+              <Text style={styles.briefLabel}>{t('adminScreen.pendingFirst')}</Text>
+              <Text style={[styles.briefValue, pendingInvitations.length > 0 && { color: C.primary }]}>{pendingInvitations.length}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.briefCard} onPress={() => setActiveTab('abonnement')}>
+              <Text style={styles.briefLabel}>{t('adminScreen.licenseDetails.activeMembers')}</Text>
+              <Text style={styles.briefValue}>{seatMax === -1 ? `${seatUsed}` : `${seatUsed}/${seatMax}`}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.briefCard} onPress={() => setActiveTab('abonnement')}>
+              <Text style={styles.briefLabel}>{t('adminScreen.license')}</Text>
+              <Text style={[styles.briefValue, (subscription?.status === 'suspended' || subscription?.status === 'expired') && { color: '#EF4444' }]}>
+                {statusCfg?.label ?? '—'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.sectionHeaderRow}>
             <Text style={styles.sectionTitle}>
               {userSearch.trim() || roleFilter !== 'all'
                 ? t('adminScreen.userFilteredCount', { filtered: filteredUsers.length, total: rolesTotal, count: rolesTotal })
                 : t('adminScreen.userCount', { count: rolesTotal })}
             </Text>
-            <View style={styles.headerActionsRow}>
-              <TouchableOpacity
-                style={[styles.apkLinkBtn, apkLinkCopied && styles.apkLinkBtnDone]}
-                onPress={handleCopyApkLink}
-                accessibilityRole="button"
-                accessibilityLabel={t('adminScreen.copyApkA11y')}
-              >
-                <Ionicons
-                  name={apkLinkCopied ? 'checkmark-circle' : 'logo-android'}
-                  size={15}
-                  color={apkLinkCopied ? '#10B981' : C.primary}
-                />
-                <Text style={[styles.apkLinkBtnText, apkLinkCopied && styles.apkLinkBtnTextDone]}>
-                  {apkLinkCopied ? t('adminScreen.copied') : t('adminScreen.apkLink')}
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.addBtn}
-                onPress={() => setInviteModal(true)}
-                accessibilityRole="button"
-                accessibilityLabel={t('adminScreen.inviteMemberA11y')}
-              >
-                <Ionicons name="person-add-outline" size={17} color="#fff" />
-                <Text style={styles.addBtnText}>{t('adminScreen.invite')}</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              style={styles.addBtn}
+              onPress={() => setInviteModal(true)}
+              accessibilityRole="button"
+              accessibilityLabel={t('adminScreen.inviteMemberA11y')}
+            >
+              <Ionicons name="person-add-outline" size={17} color="#fff" />
+              <Text style={styles.addBtnText}>{t('adminScreen.invite')}</Text>
+            </TouchableOpacity>
           </View>
 
           <View style={styles.searchWrap}>
@@ -932,7 +932,13 @@ export default function AdminScreen() {
               const avatarColor = hashColor(u.id, AVATAR_COLORS);
               const isCurrentUser = u.id === user?.id;
               return (
-                <View key={u.id} style={[styles.userCard, isCurrentUser && styles.userCardSelf]}>
+                <TouchableOpacity
+                  key={u.id}
+                  style={[styles.userCard, isCurrentUser && styles.userCardSelf]}
+                  activeOpacity={isCurrentUser ? 1 : 0.75}
+                  disabled={isCurrentUser}
+                  onPress={() => router.push({ pathname: '/admin/user/[id]', params: { id: u.id } } as any)}
+                >
                   <InitialAvatar name={u.name} color={avatarColor} />
                   <View style={styles.userInfo}>
                     <View style={styles.userNameRow}>
@@ -961,29 +967,17 @@ export default function AdminScreen() {
                   <View style={styles.userActions}>
                     {!isCurrentUser && (
                       <TouchableOpacity
-                        style={styles.iconBtnLabelled}
-                        onPress={() => router.push({ pathname: '/admin/user/[id]', params: { id: u.id } } as any)}
-                        accessibilityRole="button"
-                        accessibilityLabel={t('adminScreen.editUserA11y', { name: u.name })}
-                      >
-                        <Ionicons name="create-outline" size={15} color={C.primary} />
-                        <Text style={styles.iconBtnLabelText}>{t('adminScreen.edit')}</Text>
-                      </TouchableOpacity>
-                    )}
-                    {!isCurrentUser && <View style={styles.coActionSep} />}
-                    {!isCurrentUser && (
-                      <TouchableOpacity
                         style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
                         onPress={() => handleDeleteUser(u)}
                         accessibilityRole="button"
                         accessibilityLabel={t('adminScreen.removeUserA11y', { name: u.name })}
                       >
                         <Ionicons name="trash-outline" size={15} color={C.open} />
-                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{t('adminScreen.remove')}</Text>
                       </TouchableOpacity>
                     )}
+                    {!isCurrentUser && <Ionicons name="chevron-forward" size={16} color={C.textMuted} />}
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}
@@ -1051,8 +1045,6 @@ export default function AdminScreen() {
             </View>
           ) : (
             filteredCompanies.map(co => {
-              const workers = workerLocalMap[co.id] ?? co.actualWorkers;
-              const hours = hoursLocalMap[co.id] ?? (co.hoursWorked ?? 0);
               const linkedCount = companyUserCounts[co.id] ?? 0;
               const coLots = (co.lots ?? []).map(lid => lots.find(l => l.id === lid)).filter(Boolean) as typeof lots;
               return (
@@ -1082,92 +1074,6 @@ export default function AdminScreen() {
                           <Text style={styles.coLinkedUsersTxt}>{t('adminScreen.linkedMember', { count: linkedCount })}</Text>
                         </View>
                       )}
-                    </View>
-
-                    <View style={styles.coStatsGrid}>
-                      <View style={styles.coStatsRow}>
-                        <View style={[styles.coStat, { flex: 1 }]}>
-                          <View style={[styles.coStatDot, { backgroundColor: co.color }]} />
-                          <Text style={styles.coStatLabel} numberOfLines={1}>{t('adminScreen.planned')}</Text>
-                          <Text style={[styles.coStatVal, { color: co.color }]} numberOfLines={1}>{co.plannedWorkers}</Text>
-                        </View>
-                        <View style={[styles.coStat, { flex: 2 }]}>
-                          <View style={[styles.coStatDot, { backgroundColor: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]} />
-                          <Text style={styles.coStatLabel} numberOfLines={1}>{t('adminScreen.presentWorkers')}</Text>
-                          <TouchableOpacity
-                            onPress={() => handleWorkerCount(co, -1)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            style={styles.workerBtn}
-                          >
-                            <Ionicons name="remove" size={13} color={C.textSub} />
-                          </TouchableOpacity>
-                          <Text style={[styles.coStatVal, { color: workers > co.plannedWorkers ? '#EF4444' : C.inProgress }]} numberOfLines={1}>
-                            {workers}{workers > co.plannedWorkers ? ' ↑' : ''}
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => handleWorkerCount(co, 1)}
-                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            style={styles.workerBtn}
-                          >
-                            <Ionicons name="add" size={13} color={C.textSub} />
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                      <View style={styles.coStatsRow}>
-                        <View style={[styles.coStat, { flex: 1 }]}>
-                          <View style={[styles.coStatDot, { backgroundColor: C.textMuted }]} />
-                          <Text style={styles.coStatLabel} numberOfLines={1}>{t('adminScreen.workedHours')}</Text>
-                          {hoursEditId === co.id ? (
-                            <>
-                              <TextInput
-                                style={styles.hoursInput}
-                                value={hoursInputVal}
-                                onChangeText={setHoursInputVal}
-                                keyboardType="numeric"
-                                autoFocus
-                                selectTextOnFocus
-                                onSubmitEditing={() => commitHoursEdit(co)}
-                              />
-                              <TouchableOpacity
-                                onPress={() => commitHoursEdit(co)}
-                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                style={[styles.workerBtn, { backgroundColor: C.primary + '22' }]}
-                                accessibilityLabel={t('adminScreen.validateHours')}
-                              >
-                                <Ionicons name="checkmark" size={13} color={C.primary} />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => { setHoursEditId(null); setHoursInputVal(''); }}
-                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                style={[styles.workerBtn, { backgroundColor: '#FEF2F2' }]}
-                                accessibilityLabel={t('adminScreen.cancelHours')}
-                              >
-                                <Ionicons name="close" size={13} color="#EF4444" />
-                              </TouchableOpacity>
-                            </>
-                          ) : (
-                            <>
-                              <TouchableOpacity
-                                onPress={() => handleHoursChange(co, -8)}
-                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                style={styles.workerBtn}
-                              >
-                                <Ionicons name="remove" size={13} color={C.textSub} />
-                              </TouchableOpacity>
-                              <TouchableOpacity onPress={() => startHoursEdit(co)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                                <Text style={[styles.coStatVal, { textDecorationLine: 'underline', textDecorationStyle: 'dotted' }]} numberOfLines={1}>{hours}h</Text>
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                onPress={() => handleHoursChange(co, 8)}
-                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                                style={styles.workerBtn}
-                              >
-                                <Ionicons name="add" size={13} color={C.textSub} />
-                              </TouchableOpacity>
-                            </>
-                          )}
-                        </View>
-                      </View>
                     </View>
 
                     {(co.siret || co.insurance) && (
@@ -1256,7 +1162,6 @@ export default function AdminScreen() {
             </View>
           )}
 
-          {/* Plan Entreprise */}
           <View style={[styles.planCard, { borderTopColor: '#8B5CF6' }]}>
             <View style={styles.planTopRow}>
               <View style={{ flex: 1 }}>
@@ -1269,12 +1174,6 @@ export default function AdminScreen() {
               </View>
               <Text style={styles.planPrice}>{t('adminScreen.licenseDetails.unlimited')}</Text>
             </View>
-            {(t('adminScreen.licenseDetails.features', { returnObjects: true }) as string[]).map((f, i) => (
-              <View key={i} style={styles.featureRow}>
-                <Ionicons name="checkmark-circle" size={14} color="#8B5CF6" />
-                <Text style={styles.featureTxt}>{f}</Text>
-              </View>
-            ))}
           </View>
 
           {/* Membres actifs */}
@@ -1324,13 +1223,12 @@ export default function AdminScreen() {
             </View>
           )}
 
-          {/* Info gestion par le groupe */}
-          <View style={styles.hintCard}>
-            <Ionicons name="shield-checkmark-outline" size={15} color={C.primary} />
+          <TouchableOpacity style={styles.hintCard} onPress={handleCopyApkLink}>
+            <Ionicons name="logo-android" size={15} color={C.primary} />
             <Text style={styles.hintText}>
-              {t('adminScreen.licenseDetails.managedByGroup')}
+              {apkLinkCopied ? t('adminScreen.copied') : t('adminScreen.apkLink')}
             </Text>
-          </View>
+          </TouchableOpacity>
 
           {/* Zone dangereuse : suppression de l'organisation (super_admin uniquement,
               deleteOrganization est refusé côté contexte pour tout autre rôle) */}
@@ -1922,6 +1820,10 @@ const styles = StyleSheet.create({
 
   content: { paddingHorizontal: 16, paddingTop: 16, gap: 10 },
 
+  briefRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
+  briefCard: { flex: 1, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 14, padding: 12 },
+  briefLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 10, textTransform: 'uppercase' },
+  briefValue: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 18, marginTop: 4 },
   statsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   statCard: {
     flexBasis: '30%', flexGrow: 1,
