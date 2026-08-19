@@ -13617,6 +13617,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, canCre
 }
 
 function ChecklistsView({ profile, selectedProjectId, canCreate, canEdit, canDelete, rows, onSave, onToggle, onDelete, onMigrate }: any) {
+  const { t } = useWebI18n();
   const [title, setTitle] = useState('');
   const [busy, setBusy] = useState(false);
   const [itemsText, setItemsText] = useState('EPI conformes\nAccès sécurisé\nSignalisation en place\nZone propre\nRéserves levées');
