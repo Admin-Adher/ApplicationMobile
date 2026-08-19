@@ -17091,7 +17091,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
           }}>
             <header>
               <div>
-                <p>{editingCompanyId ? 'Mise à jour' : 'Ajout au chantier'}</p>
+                <p>{editingCompanyId ? t('common.edit') : t('pilotage.newCompany')}</p>
                 <h2>{editingCompanyId ? t('pilotage.editCompany') : t('pilotage.newCompany')}</h2>
               </div>
               <button type="button" className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Fermer</button>
