@@ -633,6 +633,8 @@ const TERRAIN_CHILD_TABS = new Set<TabId>([
   'planning',
   'incidents',
   'opr',
+  'messages',
+  'inventory',
   'media',
   'rapports',
   'equipes',
@@ -3071,18 +3073,16 @@ export default function BuildTrackWebPage() {
   const isWarehouseWebUser = profile?.role === 'magasinier';
   const isOrgAdminWebUser = String(profile?.role ?? '').toLowerCase() === 'admin';
   const isPlatformAdminWebUser = profile?.role === 'super_admin';
+  const isConducteurWebUser = String(profile?.role ?? '').toLowerCase() === 'conducteur';
   const visibleNavigationGroups: { label: string; items: TabId[] }[] = isWarehouseWebUser
     ? [{ label: 'Navigation', items: ['inventory', 'settings'] }]
     : isPlatformAdminWebUser && !supportOrg
       ? [{ label: 'Navigation', items: ['admin'] }]
-    : isPlatformAdminWebUser
+    : isPlatformAdminWebUser || isOrgAdminWebUser
       ? [{ label: 'Navigation', items: ['admin', 'dashboard', 'plans', 'reserves', 'terrain'] }]
-    : isOrgAdminWebUser
-      ? [{ label: 'Navigation', items: ['admin', 'dashboard', 'plans', 'reserves', 'terrain'] }]
-      : NAV_GROUPS.map(group => ({
-        ...group,
-        items: group.items.filter(tabId => tabId !== 'inventory' || canViewInventory(profile)),
-      }));
+    : isConducteurWebUser
+      ? [{ label: 'Navigation', items: ['dashboard', 'plans', 'reserves', 'terrain'] }]
+      : [{ label: 'Navigation', items: ['dashboard', 'plans', 'reserves', 'messages', 'terrain'] }];
 
   useEffect(() => {
     if (isWarehouseWebUser && activeTab !== 'inventory' && activeTab !== 'settings') {
@@ -12419,29 +12419,35 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
             { icon: 'warning', title: 'Mes réserves', subtitle: 'Réserves de mon entreprise', count: openReserves, tab: 'reserves', tone: 'amber' },
           ]
         : [
+            { icon: 'eye', title: 'Visites chantier', subtitle: 'Compte-rendu visite', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
+            { icon: 'clipboard', title: 'OPR', subtitle: 'Opérations de réception', count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
             { icon: 'document-text', title: 'Journal chantier', subtitle: 'Saisie quotidienne', count: scoped.journalEntries?.length ?? data.journalEntries?.length ?? 0, tab: 'journal', tone: 'green' },
             { icon: 'calendar', title: 'Pointage', subtitle: 'Arrivées et départs', count: scoped.timeEntries.filter((entry: any) => entry.date === todayISO()).length, tab: 'pointage', tone: 'blue' },
-            { icon: 'eye', title: 'Visites chantier', subtitle: 'Compte-rendu visite', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
-            { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
-            { icon: 'clipboard', title: 'OPR', subtitle: 'Opérations de réception', count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
+            ...((profile?.role === 'conducteur' || profile?.role === 'admin' || profile?.role === 'super_admin')
+              ? [{ icon: 'people' as TerrainHubIconName, title: 'Messages', subtitle: 'Échanges chantier', tab: 'messages' as TabId, tone: 'blue' as const }]
+              : []),
             { icon: 'shield', title: 'Incidents', subtitle: 'Signalements terrain', count: openIncidents, tab: 'incidents', tone: openIncidents ? 'red' : 'green' },
           ],
     },
     {
       title: 'Chantier',
-      cards: [
-        { icon: 'shield-checkmark', title: 'Chantiers', subtitle: 'Création, structure, statut', count: data.chantiers.length, tab: 'chantiers', tone: 'green' },
-        ...(profile?.role !== 'sous_traitant' && resolveWebPermissions(profile).canViewInventory
-          ? [{ icon: 'clipboard' as TerrainHubIconName, title: 'Stock', subtitle: 'Magasin et mouvements', tab: 'inventory' as TabId, tone: 'green' as const }]
-          : []),
-        { icon: 'map', title: 'Plans', subtitle: 'PDF, épingles et réserves plan', count: scoped.plans.length, tab: 'plans', tone: 'blue' },
-        { icon: 'warning', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
-        { icon: 'clipboard', title: 'Analytics', subtitle: 'Indicateurs détaillés', count: scoped.reserves.length, tab: 'analytics', tone: 'blue' },
-        { icon: 'settings', title: 'Recherche', subtitle: 'Recherche globale', tab: 'search', tone: 'blue' },
-        ...(canViewTeams
-          ? [{ icon: 'people' as TerrainHubIconName, title: 'Équipes', subtitle: `${data.companies.length} entreprise(s)`, count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
-          : []),
-      ],
+      cards: isSubcontractor
+        ? [
+            { icon: 'shield-checkmark', title: 'Chantiers', subtitle: 'Changer de chantier', count: data.chantiers.length, tab: 'chantiers', tone: 'green' },
+            { icon: 'settings', title: 'Recherche', subtitle: 'Recherche globale', tab: 'search', tone: 'blue' },
+          ]
+        : [
+            { icon: 'shield-checkmark', title: 'Chantiers', subtitle: 'Création, structure, statut', count: data.chantiers.length, tab: 'chantiers', tone: 'green' },
+            ...(resolveWebPermissions(profile).canViewInventory
+              ? [{ icon: 'clipboard' as TerrainHubIconName, title: 'Stock', subtitle: 'Magasin et mouvements', tab: 'inventory' as TabId, tone: 'green' as const }]
+              : []),
+            { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
+            { icon: 'clipboard', title: 'Analytics', subtitle: 'Indicateurs détaillés', count: scoped.reserves.length, tab: 'analytics', tone: 'blue' },
+            { icon: 'settings', title: 'Recherche', subtitle: 'Recherche globale', tab: 'search', tone: 'blue' },
+            ...(canViewTeams
+              ? [{ icon: 'people' as TerrainHubIconName, title: 'Équipes', subtitle: `${data.companies.length} entreprise(s)`, count: data.companies.length, tab: 'equipes' as TabId, tone: 'green' as const }]
+              : []),
+          ],
     },
     {
       title: 'Documents',
