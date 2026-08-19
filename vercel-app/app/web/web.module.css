@@ -11349,7 +11349,7 @@
 .pilotageRightsOverlay {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 180;
   background: rgba(15, 23, 42, 0.45);
   display: grid;
   place-items: center;
@@ -11417,7 +11417,7 @@
   background: rgba(255,255,255,0.18);
   color: #fff;
 }
-.pilotagePanel { overflow: hidden; }
+.pilotagePanel { overflow: visible; }
 .pilotageSteps {
   display: flex;
   gap: 8px;
