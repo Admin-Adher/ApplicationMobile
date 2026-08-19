@@ -841,7 +841,7 @@ export default function DashboardScreen() {
           </View>
         )}
 
-        {criticalReserves.length > 0 && (
+        {!isConducteur && criticalReserves.length > 0 && (
           <View style={styles.alertCard}>
             <View style={styles.alertHeader}>
               <View style={styles.alertIconWrap}>
@@ -852,7 +852,7 @@ export default function DashboardScreen() {
                 <Text style={styles.alertCountText}>{criticalReserves.length}</Text>
               </View>
             </View>
-            {criticalReserves.map(r => (
+            {criticalReserves.slice(0, 3).map(r => (
               <TouchableOpacity
                 key={r.id}
                 style={styles.alertItem}
@@ -866,10 +866,16 @@ export default function DashboardScreen() {
                 <Ionicons name="chevron-forward" size={14} color={C.critical} />
               </TouchableOpacity>
             ))}
+            {criticalReserves.length > 3 ? (
+              <TouchableOpacity style={styles.seeAllRow} onPress={() => router.navigate({ pathname: '/(tabs)/reserves', params: { priority: 'critical' } } as any)}>
+                <Text style={styles.seeAllText}>{t('dashboard.todaySeeCritical', { count: criticalReserves.length - 3 })}</Text>
+                <Ionicons name="chevron-forward" size={14} color={C.primary} />
+              </TouchableOpacity>
+            ) : null}
           </View>
         )}
 
-        {overdueNonCritical.length > 0 && (
+        {!isConducteur && overdueNonCritical.length > 0 && (
           <View style={styles.overdueCard}>
             <View style={styles.alertHeader}>
               <View style={styles.overdueIconWrap}>
@@ -880,7 +886,7 @@ export default function DashboardScreen() {
                 <Text style={styles.overdueCountText}>{overdueNonCritical.length}</Text>
               </View>
             </View>
-            {overdueNonCritical.map(r => (
+            {overdueNonCritical.slice(0, 3).map(r => (
               <TouchableOpacity
                 key={r.id}
                 style={styles.overdueItem}
@@ -894,6 +900,12 @@ export default function DashboardScreen() {
                 <Ionicons name="chevron-forward" size={14} color={C.high} />
               </TouchableOpacity>
             ))}
+            {overdueNonCritical.length > 3 ? (
+              <TouchableOpacity style={styles.seeAllRow} onPress={() => router.navigate({ pathname: '/(tabs)/reserves', params: { status: 'overdue' } } as any)}>
+                <Text style={styles.seeAllText}>{t('dashboard.todaySeeOverdue', { count: overdueNonCritical.length })}</Text>
+                <Ionicons name="chevron-forward" size={14} color={C.primary} />
+              </TouchableOpacity>
+            ) : null}
           </View>
         )}
 
@@ -1409,9 +1421,11 @@ const styles = StyleSheet.create({
   },
   overdueIconWrap: { width: 30, height: 30, borderRadius: 8, backgroundColor: C.high + '15', alignItems: 'center', justifyContent: 'center' },
   overdueTitle: { flex: 1, fontSize: 14, fontFamily: 'Inter_700Bold', color: C.high },
-  overdueCount: { backgroundColor: C.high, width: 22, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center' },
+  overdueCount: { backgroundColor: C.high, minWidth: 28, height: 22, borderRadius: 11, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   overdueCountText: { fontSize: 11, fontFamily: 'Inter_700Bold', color: '#fff' },
   overdueItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderTopWidth: 1, borderTopColor: C.border },
+  seeAllRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 10 },
+  seeAllText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
 
   delayCard: {
     backgroundColor: C.surface, borderRadius: 14, padding: 14,
