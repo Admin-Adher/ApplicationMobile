@@ -12012,7 +12012,7 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
     }
     return true;
   });
-  const grouped = mode === 'company'
+  const grouped: Array<[string, any[]]> = mode === 'company'
     ? Object.entries(visibleTasks.reduce((acc: Record<string, any[]>, task: any) => {
         const key = companies.find((item: any) => item.id === task.company || item.name === task.company)?.name ?? task.company ?? 'Sans entreprise';
         acc[key] = [...(acc[key] ?? []), task];
@@ -12077,7 +12077,7 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
           <div>
             <h3>Tâches</h3>
             <div className={styles.timelineList}>
-              {grouped.flatMap(([group, groupTasks]: [string, any[]]) => groupTasks.map((task: any) => {
+              {grouped.flatMap(([group, groupTasks]) => groupTasks.map((task: any) => {
                 const company = companies.find((item: any) => item.id === task.company || item.name === task.company);
                 return (
                   <article key={task.id} className={styles.timelineCard}>

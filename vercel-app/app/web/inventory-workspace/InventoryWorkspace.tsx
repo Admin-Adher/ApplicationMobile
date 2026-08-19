@@ -566,6 +566,7 @@ export default function InventoryWorkspace({
           }
           lastProductCode.current = scanned;
           void enrichScannedBarcode(scanned).then(() => {
+            if (mode !== 'in' && mode !== 'out') return;
             const existing = operationProducts.find(product => String(product.barcode ?? '') === scanned || product.reference === scanned);
             const next = nextInventoryScanPhase({ mode, existingLocation: existing?.location });
             if (next === 'confirm' && existing?.location) {
