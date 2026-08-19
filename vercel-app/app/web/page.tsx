@@ -7588,7 +7588,7 @@ function ReservesView(props: {
           )}
           {!reserves.length && (
             <p className={styles.empty}>
-              {isTrashView ? 'Corbeille vide.' : 'Aucune réserve avec ces filtres.'}
+              {isTrashView ? t('empty.trashEmpty') : t('empty.noReservesFilter')}
               {!isTrashView && (props.search || props.statusFilter !== 'all' || props.priorityFilter !== 'all' || props.companyFilter !== 'all' || props.buildingFilter !== 'all' || props.pinFilter !== 'all') ? (
                 <>
                   {' '}
@@ -7975,7 +7975,7 @@ function ReservesView(props: {
               <span className={styles.badge}>{PRIORITY_LABELS[detailReserve.priority] ?? detailReserve.priority}</span>
             </div>
             <div className={styles.reserveDetailBody} data-prw-detail-body>
-            <p className={styles.description}>{detailReserve.description || 'Aucune description.'}</p>
+            <p className={styles.description}>{detailReserve.description || t('empty.noDescription')}</p>
             <dl className={styles.metaGrid} data-prw-meta>
               <div><dt>Statut</dt><dd>{STATUS_LABELS[detailReserve.status] ?? detailReserve.status}</dd></div>
               <div><dt>Entreprise</dt><dd>{reserveCompanies(detailReserve).join(', ') || '—'}</dd></div>
@@ -10449,7 +10449,7 @@ function PlansView({
           {filteredBuildingGroups.length === 0 && (
             <p className={styles.empty}>Aucun bâtiment ou plan ne correspond à cette recherche.</p>
           )}
-          {!plans.length && <p className={styles.empty}>Aucun plan dans ce périmètre.</p>}
+          {!plans.length && <p className={styles.empty}>{t('empty.noPlanInScope')}</p>}
         </div>
       </section>
       )}
@@ -11061,7 +11061,7 @@ function PlansView({
                             </button>
                           );
                         })}
-                        {!exportablePlanReserves.length && <p className={styles.empty}>Aucune réserve sur ce plan.</p>}
+                        {!exportablePlanReserves.length && <p className={styles.empty}>{t('empty.noReserveOnPlan')}</p>}
                       </div>
                     </section>
                   )}
@@ -11202,6 +11202,7 @@ function VisitesView({
   reportLanguage,
   setReportLanguage,
 }: any) {
+  const { t } = useWebI18n();
   const [statusFilter, setStatusFilter] = useState<'all' | VisitDraft['status']>('all');
   const [selectedVisitId, setSelectedVisitId] = useState<string>('');
   const [attachVisitId, setAttachVisitId] = useState<string>('');
@@ -11619,19 +11620,19 @@ function VisitesView({
               >
                 <div className={styles.visitCardTop}>
                   <span className={styles.visitTypePill} style={{ color: type.color, background: `${type.color}16` }}>{type.label}</span>
-                  <span className={`${styles.visitStatusPill} ${styles[`visitStatus_${status}`] ?? ''}`}>{VISIT_STATUS_LABELS[status]}</span>
+                  <span className={`${styles.visitStatusPill} ${styles[`visitStatus_${status}`] ?? ''}`}>{t(`visits.status.${status}`)}</span>
                 </div>
                 <strong>{visit.title}</strong>
                 <small>{prettyDate(visit.date)}{timeRange(visit) ? ` · ${timeRange(visit)}` : ''}</small>
                 <span>{visitLocationLabel(visit)}</span>
                 <div className={styles.visitCardFooter}>
-                  <em>{cardReserves.length} réserve{cardReserves.length > 1 ? 's' : ''}</em>
-                  <em>{checklist.length ? `${done}/${checklist.length} checklist` : 'Sans checklist'}</em>
+                  <em>{t('visits.reserveCount', { count: cardReserves.length })}</em>
+                  <em>{checklist.length ? `${done}/${checklist.length}` : t('visits.noChecklistShort')}</em>
                 </div>
               </button>
             );
           })}
-          {!visibleVisits.length && <p className={styles.empty}>Aucune visite dans cette vue.</p>}
+          {!visibleVisits.length && <p className={styles.empty}>{t('visits.empty')}</p>}
         </div>
       </section>
 
@@ -11640,7 +11641,7 @@ function VisitesView({
           <>
             <div className={styles.visitDetailHeader}>
               <div>
-                <p className={styles.eyebrow}>{VISIT_TYPE_LABELS[visitType(selectedVisit)]}</p>
+                <p className={styles.eyebrow}>{t(`visits.type.${visitType(selectedVisit)}`)}</p>
                 <h2>{selectedVisit.title}</h2>
                 <span>{prettyDate(selectedVisit.date)}{timeRange(selectedVisit) ? ` · ${timeRange(selectedVisit)}` : ''}</span>
               </div>
@@ -11714,7 +11715,7 @@ function VisitesView({
                     {item.label}
                   </button>
                 ))}
-                {!visitChecklist(selectedVisit).length && <p className={styles.empty}>Aucune checklist associée.</p>}
+                {!visitChecklist(selectedVisit).length && <p className={styles.empty}>{t('visits.noChecklist')}</p>}
               </div>
             </section>
 
@@ -11732,7 +11733,7 @@ function VisitesView({
                     <span>{[participant.role, participant.company, participant.email].filter(Boolean).join(' · ') || 'Participant'}</span>
                   </article>
                 ))}
-                {!visitParticipants(selectedVisit).length && <p className={styles.empty}>Aucun participant renseigné.</p>}
+                {!visitParticipants(selectedVisit).length && <p className={styles.empty}>{t('visits.noParticipant')}</p>}
               </div>
             </section>
 
@@ -11766,7 +11767,7 @@ function VisitesView({
                     ) : null}
                   </article>
                 ))}
-                {!selectedVisitReserves.length && <p className={styles.empty}>Aucune réserve rattachée à cette visite.</p>}
+                {!selectedVisitReserves.length && <p className={styles.empty}>{t('visits.noLinkedReserve')}</p>}
               </div>
             </section>
 
@@ -12057,6 +12058,7 @@ function VisitesView({
 }
 
 function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onCreateTask, onOpenReserve, onOpenVisites }: any) {
+  const { t } = useWebI18n();
   const [mode, setMode] = useState<'week' | 'company' | 'late'>('week');
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState({ title: '', deadline: '', company: '', assignee: '' });
@@ -12161,7 +12163,7 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
                   </article>
                 );
               }))}
-              {!visibleTasks.length && <p className={styles.empty}>Aucune tâche dans cette vue.</p>}
+              {!visibleTasks.length && <p className={styles.empty}>{t('empty.noTask')}</p>}
             </div>
           </div>
           <div>
@@ -12967,6 +12969,7 @@ function IncidentsView({ incidents, profile, canCreate, canEdit, onCreate, onUpd
   onCreate?: (payload: Record<string, any>) => Promise<any>;
   onUpdate?: (incident: any, patch: Record<string, any>) => Promise<any>;
 }) {
+  const { t } = useWebI18n();
   const [filter, setFilter] = useState<'all' | 'open' | 'investigating' | 'resolved'>('all');
   const [showForm, setShowForm] = useState(false);
   const [draft, setDraft] = useState({ title: '', description: '', location: '', severity: 'moderate', status: 'open' });
@@ -13038,7 +13041,7 @@ function IncidentsView({ incidents, profile, canCreate, canEdit, onCreate, onUpd
               ) : null}
             </article>
           ))}
-          {!visible.length && <p className={styles.empty}>Aucun incident sur ce chantier.</p>}
+          {!visible.length && <p className={styles.empty}>{t('empty.noIncident')}</p>}
         </div>
       </section>
     </div>
@@ -13050,6 +13053,7 @@ function OprView({ oprs, reserves, onOpenReserve }: {
   reserves: any[];
   onOpenReserve: (id: string) => void;
 }) {
+  const { t } = useWebI18n();
   const [filter, setFilter] = useState<'all' | 'draft' | 'in_progress' | 'signed'>('all');
   const [openId, setOpenId] = useState<string | null>(null);
   const sorted = [...oprs].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')));
@@ -13115,7 +13119,7 @@ function OprView({ oprs, reserves, onOpenReserve }: {
               </article>
             );
           })}
-          {!visible.length ? <p className={styles.empty}>Aucun OPR sur ce chantier.</p> : null}
+          {!visible.length ? <p className={styles.empty}>{t('empty.noOpr')}</p> : null}
         </div>
       </section>
     </div>
@@ -13207,6 +13211,7 @@ function RestrictedTool({ title }: { title: string }) {
 }
 
 function JournalView({ profile, projectName, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
+  const { t } = useWebI18n();
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<any>(() => ({
@@ -13346,7 +13351,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
               {canDelete ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
             </article>
           ))}
-          {!entries.length ? <p className={styles.empty}>Aucune entrée journal.</p> : null}
+          {!entries.length ? <p className={styles.empty}>{t('empty.noJournal')}</p> : null}
         </div>
       </section>
     </div>
@@ -13701,7 +13706,7 @@ function ChecklistsView({ profile, selectedProjectId, canCreate, canEdit, canDel
               </article>
             );
           })}
-          {!checklists.length ? <p className={styles.empty}>Aucune checklist.</p> : null}
+          {!checklists.length ? <p className={styles.empty}>{t('empty.noChecklist')}</p> : null}
         </div>
       </section>
     </div>
