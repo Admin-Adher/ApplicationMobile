@@ -4669,7 +4669,7 @@ export default function BuildTrackWebPage() {
     if (companyError) setError(companyError.message);
   }
 
-  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[] }) {
+  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string }) {
     if (!isAdmin(profile) || !payload.name.trim()) return null;
     const row = {
       id: crypto.randomUUID(),
@@ -4681,7 +4681,7 @@ export default function BuildTrackWebPage() {
       siret: payload.siret?.trim() || null,
       insurance: payload.insurance?.trim() || null,
       lots: payload.lots ?? [],
-      color: '#3B82F6',
+      color: payload.color || '#003082',
       planned_workers: 0,
       actual_workers: 0,
       hours_worked: 0,
@@ -4915,7 +4915,7 @@ export default function BuildTrackWebPage() {
           name,
           description: payload.description ?? '',
           icon: 'business',
-      color: payload.color || '#003082',
+          color: '#3B82F6',
           type: 'building',
           members: profile.name ? [profile.name] : [],
           created_by: profile.name ?? null,
