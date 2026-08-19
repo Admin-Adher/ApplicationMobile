@@ -16652,6 +16652,11 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
     return !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q);
   });
   const editorIsSuperAdmin = profile?.role === 'super_admin';
+  const roleCounts = data.profiles.reduce((acc: Record<string, number>, user) => {
+    const role = String(user.role ?? 'observateur');
+    acc[role] = (acc[role] ?? 0) + 1;
+    return acc;
+  }, {});
   const seatUsed = data.profiles.filter(user => user.role && user.role !== 'observateur').length;
   const seatMax = license?.maxUsers ?? -1;
   const seatsLabel = seatMax === -1 ? `${data.profiles.length}` : `${seatUsed}/${seatMax}`;
@@ -16815,15 +16820,17 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
             <h2>Membres</h2>
             <p>Rôle, entreprise, puis les droits si besoin.</p>
           </div>
-          <div className={styles.pilotageInviteActions}>
-            <select value={roleFilter} onChange={event => setRoleFilter(event.target.value)}>
-              <option value="all">Tous les rôles</option>
-              {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un membre…" />
-          </div>
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un membre…" />
+        </div>
+        <div className={styles.pilotageRoleChips} role="tablist" aria-label="Filtrer par rôle">
+          <button type="button" data-active={roleFilter === 'all' ? 'true' : 'false'} onClick={() => setRoleFilter('all')}>
+            Tous <b>{data.profiles.length}</b>
+          </button>
+          {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
+            <button key={value} type="button" data-active={roleFilter === value ? 'true' : 'false'} onClick={() => setRoleFilter(value)}>
+              {label} <b>{roleCounts[value] ?? 0}</b>
+            </button>
+          ))}
         </div>
         <div className={styles.adminPermissionLegend}>
           <span><i className={styles.permissionDefaultDot} /> Défaut du rôle</span>

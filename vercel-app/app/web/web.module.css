@@ -11248,6 +11248,45 @@
 @media (max-width: 900px) {
   .pilotageCompanyForm, .pilotageLicense, .pilotageInviteLink { grid-template-columns: 1fr; }
 }
+.pilotageRoleChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 20px 14px;
+}
+.pilotageRoleChips button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #d5deea;
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pilotageRoleChips button b {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #eef2f7;
+  color: #64748b;
+  font-size: 11px;
+  text-align: center;
+}
+.pilotageRoleChips button[data-active='true'] {
+  border-color: #003082;
+  background: #003082;
+  color: #fff;
+}
+.pilotageRoleChips button[data-active='true'] b {
+  background: rgba(255,255,255,0.18);
+  color: #fff;
+}
 .pilotagePanel { overflow: hidden; }
 .pilotageSteps {
   display: flex;
