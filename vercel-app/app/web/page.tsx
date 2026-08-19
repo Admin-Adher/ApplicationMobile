@@ -160,7 +160,7 @@ type PermissionsOverride = Partial<WebPermissions>;
 const WEB_ROLE_PERMISSIONS: Record<string, WebPermissions> = {
   super_admin:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: true,  canExportInventory: true  },
   admin:         { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: true,  canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: true,  canExportInventory: true  },
-  conducteur:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: true,  canExportInventory: true  },
+  conducteur:    { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: true,  canManageTeams: true,  canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: true,  canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: false, canAdjustInventory: false, canExportInventory: true  },
   chef_equipe:   { canCreate: true,  canEdit: true,  canEditOwn: true,  canDelete: false, canExport: false, canManageTeams: false, canViewTeams: true,  canUpdateAttendance: true,  canMovePins: true,  canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: false, canAdjustInventory: false, canExportInventory: false },
   magasinier:    { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: false, canManageTeams: false, canViewTeams: false, canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: true,  canManageInventoryProducts: true,  canAdjustInventory: false, canExportInventory: true  },
   observateur:   { canCreate: false, canEdit: false, canEditOwn: false, canDelete: false, canExport: true,  canManageTeams: false, canViewTeams: true,  canUpdateAttendance: false, canMovePins: false, canEditChantier: false, canViewInventory: true,  canRecordInventory: false, canManageInventoryProducts: false, canAdjustInventory: false, canExportInventory: true  },
@@ -377,6 +377,7 @@ const EMPTY_DATA: WebState = {
 
 const WEB_LANGUAGE_PREFERENCE_KEY = 'buildtrack-web-language-preference-v1';
 const WEB_LANGUAGE_LEGACY_KEY = 'buildtrack-web-language';
+const WEB_LAST_TAB_KEY = 'buildtrack-web-last-tab-v1';
 const WEB_EXPORT_LANGUAGE_KEY = 'buildtrack-export-language-v1';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 const WEB_RESERVE_HISTORY_STATE = '__buildtrackReserveDetail';
@@ -413,7 +414,7 @@ type TabId = typeof TABS[number]['id'];
 type NavIconName = typeof TABS[number]['icon'];
 
 const NAV_GROUPS: { label: string; items: TabId[] }[] = [
-  { label: 'Navigation', items: ['dashboard', 'inventory', 'plans', 'reserves', 'messages', 'terrain'] },
+  { label: 'Navigation', items: ['dashboard', 'plans', 'reserves', 'messages', 'terrain'] },
 ];
 
 type WebI18nValue = {
@@ -1006,7 +1007,11 @@ function isAdmin(profile: Profile | null) {
 }
 
 function canPermanentlyDeleteReserve(profile: Profile | null) {
-  return profile?.role === 'super_admin' || profile?.role === 'admin' || profile?.role === 'conducteur';
+  return profile?.role === 'super_admin' || profile?.role === 'admin';
+}
+
+function isConducteur(profile: Profile | null) {
+  return profile?.role === 'conducteur';
 }
 
 function profilePermissionsOverride(profile: Profile | null): PermissionsOverride | undefined {
@@ -2871,7 +2876,12 @@ export default function BuildTrackWebPage() {
   const [data, setData] = useState<WebState>(EMPTY_DATA);
   const previewCacheOwnerRef = useRef<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    if (typeof window === 'undefined') return 'dashboard';
+    const saved = window.localStorage.getItem(WEB_LAST_TAB_KEY);
+    if (saved && TABS.some(tab => tab.id === saved) && saved !== 'inventory') return saved as TabId;
+    return 'dashboard';
+  });
   const previousActiveTabRef = useRef<TabId>('dashboard');
   const reserveHistoryNavigationRef = useRef(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
@@ -3036,6 +3046,12 @@ export default function BuildTrackWebPage() {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('buildtrack-web-sidebar-collapsed', sidebarCollapsed ? '1' : '0');
   }, [sidebarCollapsed]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (isWarehouseWebUser) return;
+    window.localStorage.setItem(WEB_LAST_TAB_KEY, activeTab);
+  }, [activeTab, isWarehouseWebUser]);
 
   const workspaceUserIdRef = useRef<string | null | undefined>(undefined);
   useEffect(() => {
@@ -5763,11 +5779,16 @@ export default function BuildTrackWebPage() {
       setBuildingFilter('all');
       return;
     }
+    if (intent.type === 'open-reserve') {
+      setActiveTab('reserves');
+      openReserveDetailTab(intent.reserveId);
+      return;
+    }
     if (intent.projectId) setSelectedProjectId(intent.projectId);
     reserveFilterScopeRef.current = intent.projectId ?? selectedProjectId;
     setBuildingFilter(intent.buildingName);
     setActiveTab('reserves');
-  }, [selectedProjectId]);
+  }, [openReserveDetailTab, selectedProjectId]);
 
   const activeProjectForReserveFilters = data.chantiers.find((item: any) => item.id === selectedProjectId) ?? null;
   const reserveFilterPlansById = useMemo(
@@ -6192,7 +6213,7 @@ export default function BuildTrackWebPage() {
                 generatingReport={generatingReport}
                 defaultReportLanguage={reportLanguage}
                 onReportLanguageChange={setReportLanguage}
-                canUseAssistant={isAdmin(profile)}
+                 canUseAssistant={isAdmin(profile) || isConducteur(profile)}
                 editable={canEdit(profile)}
                 canCreateReserve={canCreate(profile)}
                 canDeleteReserve={canDelete(profile)}
@@ -12152,14 +12173,17 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
             { icon: 'calendar', title: 'Pointage', subtitle: 'Arrivées et départs', count: scoped.timeEntries.length, tab: 'pointage', tone: 'blue' },
             { icon: 'eye', title: 'Visites chantier', subtitle: 'Compte-rendu visite', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
             { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
-            { icon: 'shield', title: 'Incidents', subtitle: 'Signalements terrain', count: openIncidents, tab: 'incidents', tone: openIncidents ? 'red' : 'green' },
             { icon: 'clipboard', title: 'OPR', subtitle: 'Opérations de réception', count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
+            { icon: 'shield', title: 'Incidents', subtitle: 'Signalements terrain', count: openIncidents, tab: 'incidents', tone: openIncidents ? 'red' : 'green' },
           ],
     },
     {
       title: 'Chantier',
       cards: [
         { icon: 'shield-checkmark', title: 'Chantiers', subtitle: 'Création, structure, statut', count: data.chantiers.length, tab: 'chantiers', tone: 'green' },
+        ...(profile?.role !== 'sous_traitant' && resolveWebPermissions(profile).canViewInventory
+          ? [{ icon: 'clipboard' as TerrainHubIconName, title: 'Stock', subtitle: 'Magasin et mouvements', tab: 'inventory' as TabId, tone: 'green' as const }]
+          : []),
         { icon: 'map', title: 'Plans', subtitle: 'PDF, épingles et réserves plan', count: scoped.plans.length, tab: 'plans', tone: 'blue' },
         { icon: 'warning', title: 'Réserves', subtitle: 'Suivi chantier et entreprises', count: scoped.reserves.length, tab: 'reserves', tone: 'amber' },
         { icon: 'clipboard', title: 'Analytics', subtitle: 'Indicateurs détaillés', count: scoped.reserves.length, tab: 'analytics', tone: 'blue' },
@@ -13552,7 +13576,7 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   const organizationSlug = organization?.slug
     ? `/${organization.slug}`
     : profile?.organization_id ?? '';
-  const canManageProject = isAdmin(profile);
+  const canManageProject = isAdmin(profile) || Boolean(resolveWebPermissions(profile).canEditChantier);
   const canEditAttendance = canUpdateAttendance(profile);
   const isSubcontractor = profile?.role === 'sous_traitant';
   const isWarehouseUser = profile?.role === 'magasinier';

@@ -74,10 +74,11 @@ export default function MoreScreen() {
     const isSousTraitant = user?.role === 'sous_traitant';
     const terrainItems: MenuItem[] = [
       ...(!isSousTraitant ? [
+        { icon: 'eye', label: t('moreScreen.items.visits.0'), subtitle: t('moreScreen.items.visits.1'), route: '/visites', color: '#F59E0B' },
+        { icon: 'clipboard', label: t('moreScreen.items.opr.0'), subtitle: t('moreScreen.items.opr.1'), route: '/opr', color: '#7C3AED' },
         { icon: 'book', label: t('moreScreen.items.journal.0'), subtitle: t('moreScreen.items.journal.1'), route: '/journal', color: '#059669' },
         { icon: 'time', label: t('moreScreen.items.pointage.0'), subtitle: t('moreScreen.items.pointage.1'), route: '/pointage', color: '#0891B2' },
-        { icon: 'clipboard', label: t('moreScreen.items.opr.0'), subtitle: t('moreScreen.items.opr.1'), route: '/opr', color: '#7C3AED' },
-        { icon: 'eye', label: t('moreScreen.items.visits.0'), subtitle: t('moreScreen.items.visits.1'), route: '/visites', color: '#F59E0B' },
+        { icon: 'chatbubbles', label: t('tabs.messages'), subtitle: t('moreScreen.items.messages.1', { defaultValue: 'Échanges chantier' }), route: '/(tabs)/messages', color: '#2563EB' },
         {
           icon: 'shield',
           label: t('moreScreen.items.incidents.0', { defaultValue: 'Incidents' }),

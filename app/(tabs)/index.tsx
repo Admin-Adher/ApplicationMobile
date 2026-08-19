@@ -18,6 +18,9 @@ import { Task, ReserveWeekStat, CompanyClosureStat } from '@/constants/types';
 import PortfolioDashboard from '@/components/PortfolioDashboard';
 import { localeForLanguage } from '@/constants/language';
 import { useTranslation } from 'react-i18next';
+import { ConducteurTodayQueue } from '@/components/ConducteurTodayQueue';
+import { buildConducteurTodayQueue } from '@/lib/conducteurToday';
+import { isConducteurRole } from '@/lib/roleNavigation';
 
 function isTaskLate(t: Task): boolean {
   if (t.status === 'done') return false;
@@ -181,7 +184,7 @@ export default function DashboardScreen() {
   const { effectiveLanguage } = useLanguage();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { stats, reserves, companies, tasks, reload, chantiers, activeChantier, realtimeConnected, isLoading: appLoading } = useApp();
+  const { stats, reserves, companies, tasks, visites, reload, chantiers, activeChantier, realtimeConnected, isLoading: appLoading, updateReserveStatus } = useApp();
   const { user, permissions } = useAuth();
   const { incidents } = useIncidents();
   const { unreadCount } = useNotifications();
@@ -194,6 +197,7 @@ export default function DashboardScreen() {
   const [personnelExpanded, setPersonnelExpanded] = useState(false);
 
   const isSousTraitant = user?.role === 'sous_traitant';
+  const isConducteur = isConducteurRole(user?.role);
 
   const userCompany = useMemo(() => {
     if (!isSousTraitant || !user?.companyId) return null;
@@ -251,6 +255,10 @@ export default function DashboardScreen() {
   const openIncidents = useMemo(
     () => incidents.filter(i => i.status !== 'resolved'),
     [incidents]
+  );
+  const todayQueue = useMemo(
+    () => buildConducteurTodayQueue(activeVisibleReserves, visites, activeChantier?.id),
+    [activeVisibleReserves, visites, activeChantier?.id],
   );
 
   const today = new Date().toLocaleDateString(localeForLanguage(effectiveLanguage), { weekday: 'long', day: 'numeric', month: 'long' });
@@ -572,6 +580,18 @@ export default function DashboardScreen() {
 
         {(chantiers.length > 0 || isSousTraitant) && (
           <>
+        {isConducteur ? (
+          <ConducteurTodayQueue
+            verification={todayQueue.verification}
+            critical={todayQueue.critical}
+            overdue={todayQueue.overdue}
+            todayVisits={todayQueue.todayVisits}
+            canEdit={permissions.canEdit}
+            author={user?.name ?? t('reserveDetail.defaultAuthor')}
+            onApprove={(id, author) => updateReserveStatus(id, 'closed', author)}
+            onReject={(id, author) => updateReserveStatus(id, 'in_progress', author)}
+          />
+        ) : null}
         <View style={styles.kpiGrid}>
           <KPICard
             label={t('dashboard.totalReserves')}
@@ -587,7 +607,7 @@ export default function DashboardScreen() {
             color={C.open}
             icon="alert-circle"
             bg={C.openBg}
-            onPress={() => router.navigate('/(tabs)/reserves' as any)}
+            onPress={() => router.navigate({ pathname: '/(tabs)/reserves', params: { status: 'open' } } as any)}
           />
           <KPICard
             label={t('dashboard.critical')}
@@ -595,7 +615,7 @@ export default function DashboardScreen() {
             color={C.critical}
             icon="warning"
             bg={C.criticalBg}
-            onPress={() => router.navigate('/(tabs)/reserves' as any)}
+            onPress={() => router.navigate({ pathname: '/(tabs)/reserves', params: { status: 'open', priority: 'critical' } } as any)}
           />
           <KPICard
             label={t('dashboard.closed')}
@@ -603,7 +623,7 @@ export default function DashboardScreen() {
             color={C.closed}
             icon="checkmark-circle"
             bg={C.closedBg}
-            onPress={() => router.navigate('/(tabs)/reserves' as any)}
+            onPress={() => router.navigate({ pathname: '/(tabs)/reserves', params: { status: 'closed' } } as any)}
           />
         </View>
 

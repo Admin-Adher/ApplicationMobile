@@ -17,7 +17,8 @@ export type { DashboardSource } from './dashboard-model';
 export type DashboardIntent =
   | { type: 'navigate'; target: DashboardDestination }
   | { type: 'open-building'; buildingName: string; projectId?: string }
-  | { type: 'select-project'; projectId: string };
+  | { type: 'select-project'; projectId: string }
+  | { type: 'open-reserve'; reserveId: string };
 
 type DashboardWebViewProps = {
   source: DashboardSource;
@@ -352,9 +353,11 @@ function MetricButton({
 function PriorityLabel({ item, copy }: { item: DashboardPriorityItem; copy: DashboardCopy }) {
   const label = item.kind === 'critical-reserve'
     ? copy.criticalReserve
-    : item.kind === 'late-task'
-      ? copy.lateTask
-      : copy.lateReserve;
+    : item.kind === 'verification-reserve'
+      ? copy.statusVerification
+      : item.kind === 'late-task'
+        ? copy.lateTask
+        : copy.lateReserve;
   return <span className={styles.priorityKind} data-kind={item.kind}>{label}</span>;
 }
 
@@ -554,7 +557,7 @@ export function DashboardWebView({
               {model.priorities.slice(0, 6).map(item => {
                 const meta = [item.building, item.company, item.deadline ? copy.deadline(new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short', year: 'numeric' }).format(item.deadline)) : ''].filter(Boolean).join(' · ');
                 return (
-                  <button key={item.id} type="button" className={styles.priorityRow} onClick={() => onIntent({ type: 'navigate', target: item.target })}>
+                  <button key={item.id} type="button" className={styles.priorityRow} onClick={() => item.reserveId ? onIntent({ type: 'open-reserve', reserveId: item.reserveId }) : onIntent({ type: 'navigate', target: item.target })}>
                     <span className={styles.priorityMarker} data-kind={item.kind} aria-hidden="true" />
                     <span className={styles.priorityText}>
                       <PriorityLabel item={item} copy={copy} />

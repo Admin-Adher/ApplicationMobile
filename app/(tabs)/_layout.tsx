@@ -9,9 +9,11 @@ import { useAppTabBadges } from '@/context/AppContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
 import { useBottomNavigationInset } from '@/hooks/useBottomNavigationInset';
+import { useAuth } from '@/context/AuthContext';
+import { isConducteurRole } from '@/lib/roleNavigation';
 
 const TAB_ITEMS = [
-  { name: 'index',    titleKey: 'tabs.dashboard', icon: 'grid',          iconOutline: 'grid-outline',        path: '/(tabs)/' },
+  { name: 'index',    titleKey: 'tabs.dashboard', icon: 'sunny',         iconOutline: 'sunny-outline',       path: '/(tabs)/' },
   { name: 'plans',    titleKey: 'tabs.plans',     icon: 'map',           iconOutline: 'map-outline',         path: '/(tabs)/plans' },
   { name: 'reserves', titleKey: 'tabs.reserves',  icon: 'warning',       iconOutline: 'warning-outline',     path: '/(tabs)/reserves' },
   { name: 'messages', titleKey: 'tabs.messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline', path: '/(tabs)/messages' },
@@ -33,10 +35,15 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
   );
 }
 
+function visibleTabItems(role?: string | null) {
+  return isConducteurRole(role) ? TAB_ITEMS.filter(tab => tab.name !== 'messages') : TAB_ITEMS;
+}
+
 function TabletSidebar() {
   const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
+  const { user } = useAuth();
   const { openReserveCount, unreadMessagesCount } = useAppTabBadges();
   const { incidents } = useIncidents();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
@@ -74,7 +81,7 @@ function TabletSidebar() {
 
       <View style={styles.sidebarDivider} />
 
-      {TAB_ITEMS.map(tab => {
+      {visibleTabItems(user?.role).map(tab => {
         const isFocused = activeTab === tab.name;
         const badgeCount =
           tab.name === 'messages' ? unreadMessagesCount :
@@ -115,6 +122,8 @@ function TabletSidebar() {
 function TabsNavigator() {
   const { t } = useTranslation();
   const router = useRouter();
+  const { user } = useAuth();
+  const hideMessagesTab = isConducteurRole(user?.role);
   const { openReserveCount, unreadMessagesCount } = useAppTabBadges();
   const { incidents } = useIncidents();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
@@ -183,7 +192,7 @@ function TabsNavigator() {
         name="index"
         options={{
           title: t('tabs.dashboard'),
-          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'grid' : 'grid-outline'} color={color} size={26} />,
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'sunny' : 'sunny-outline'} color={color} size={26} />,
         }}
       />
       <Tabs.Screen
@@ -204,6 +213,8 @@ function TabsNavigator() {
         name="messages"
         options={{
           title: t('tabs.messages'),
+          href: hideMessagesTab ? null : undefined,
+          tabBarItemStyle: hideMessagesTab ? { display: 'none' } : undefined,
           tabBarIcon: ({ color, focused }) => (
             <TabIcon name={focused ? 'chatbubbles' : 'chatbubbles-outline'} color={color} size={26} badge={unreadMessagesCount} />
           ),

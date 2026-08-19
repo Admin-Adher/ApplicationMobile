@@ -204,6 +204,7 @@ export default function SettingsScreen() {
   const [savingPwd, setSavingPwd] = useState(false);
   const [pwdMsg, setPwdMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+  const canManageProject = isAdmin || permissions.canEditChantier;
   const isSousTraitant = user?.role === 'sous_traitant';
   const isWarehouseUser = user?.role === 'magasinier';
 
@@ -1458,7 +1459,7 @@ export default function SettingsScreen() {
 
         {activeTab === 'project' && (
           <View>
-            {isAdmin && (
+            {canManageProject && (
               <View style={styles.statsGrid}>
                 {[
                   { icon: 'warning-outline', label: t('settings.projectTab.stats.reserves'), val: companies.length > 0 ? '—' : '0', color: C.waiting },
@@ -1475,7 +1476,7 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            {isAdmin && (
+            {canManageProject && (
               <View style={[styles.card, { marginBottom: 14 }]}>
                 <Text style={styles.cardTitle}>{t('settings.projectTab.quickAccess')}</Text>
                 {[
@@ -1495,7 +1496,7 @@ export default function SettingsScreen() {
               </View>
             )}
 
-            {isAdmin ? (
+            {canManageProject ? (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>{t('settings.projectTab.projectInfo')}</Text>
 

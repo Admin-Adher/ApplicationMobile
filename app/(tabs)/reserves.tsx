@@ -260,7 +260,7 @@ export default function ReservesScreen() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { company: companyParam } = useLocalSearchParams<{ company?: string }>();
+  const { company: companyParam, status: statusParam, priority: priorityParam } = useLocalSearchParams<{ company?: string; status?: string; priority?: string }>();
   const { reserves, deletedReserves, companies, isLoading, chantiers, activeChantierId, setActiveChantier, lots, batchUpdateReserves, updateReserveFields, updateReserveStatus, deleteReserve, restoreReserve, permanentlyDeleteReserve, archiveReserve, unarchiveReserve, addComment, addReserve, reload, sitePlans, photos } = useApp();
   const { permissions, user } = useAuth();
   const { exportLanguage, setExportLanguage } = useLanguage();
@@ -272,20 +272,28 @@ export default function ReservesScreen() {
   const canPinReserves = permissions.canEdit && canMovePins;
 
   const isSousTraitant = user?.role === 'sous_traitant';
-  const canUseReserveAssistant = user?.role === 'admin' || user?.role === 'super_admin';
+  const canUseReserveAssistant = user?.role === 'admin' || user?.role === 'super_admin' || user?.role === 'conducteur';
   const canTrackEnterpriseWorkflow = permissions.canEdit && !isSousTraitant;
-  const canPermanentlyDeleteFromTrash = user?.role === 'super_admin' || user?.role === 'admin' || user?.role === 'conducteur';
+  const canPermanentlyDeleteFromTrash = user?.role === 'super_admin' || user?.role === 'admin';
   const sousTraitantCompanyName = isSousTraitant && user?.companyId
     ? companies.find(c => c.id === user.companyId)?.name ?? null
     : null;
 
   const [chantierFilter, setChantierFilter] = useState<string>(activeChantierId ?? 'all');
-  const [statusFilter, setStatusFilter] = useState<StatusFilterKey>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilterKey>(
+    statusParam === 'open' || statusParam === 'in_progress' || statusParam === 'waiting' || statusParam === 'verification' || statusParam === 'closed' || statusParam === 'overdue'
+      ? statusParam
+      : 'all',
+  );
   const [enterpriseFilter, setEnterpriseFilter] = useState<EnterpriseWorkflowFilter>('all');
   const [kindFilter, setKindFilter] = useState<'all' | ReserveKind>('all');
   const [pinFilter, setPinFilter] = useState<'all' | 'pinned' | 'unpinned'>('all');
   const [buildingFilter, setBuildingFilter] = useState<string>('all');
-  const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>('all');
+  const [priorityFilter, setPriorityFilter] = useState<'all' | ReservePriority>(
+    priorityParam === 'low' || priorityParam === 'medium' || priorityParam === 'high' || priorityParam === 'critical'
+      ? priorityParam
+      : 'all',
+  );
   const [companyFilter, setCompanyFilter] = useState<string>(companyParam ?? 'all');
   const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');

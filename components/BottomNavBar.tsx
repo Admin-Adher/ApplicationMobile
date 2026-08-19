@@ -4,12 +4,14 @@ import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 import { useBottomNavigationInset } from '@/hooks/useBottomNavigationInset';
+import { isConducteurRole } from '@/lib/roleNavigation';
 
 const TABS = [
-  { key: 'dashboard', icon: 'grid', iconOff: 'grid-outline', route: '/(tabs)/' },
-  { key: 'reserves', icon: 'warning', iconOff: 'warning-outline', route: '/(tabs)/reserves' },
+  { key: 'dashboard', icon: 'sunny', iconOff: 'sunny-outline', route: '/(tabs)/' },
   { key: 'plans', icon: 'map', iconOff: 'map-outline', route: '/(tabs)/plans' },
+  { key: 'reserves', icon: 'warning', iconOff: 'warning-outline', route: '/(tabs)/reserves' },
   { key: 'messages', icon: 'chatbubbles', iconOff: 'chatbubbles-outline', route: '/(tabs)/messages' },
   { key: 'more', icon: 'hammer', iconOff: 'hammer-outline', route: '/(tabs)/more' },
 ] as const;
@@ -23,18 +25,19 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
   const bottomInset = useBottomNavigationInset();
   const router = useRouter();
   const { unreadCount } = useApp();
+  const { user } = useAuth();
+  const tabs = isConducteurRole(user?.role) ? TABS.filter(tab => tab.key !== 'messages') : TABS;
 
   const bottomPad = Platform.OS === 'web' ? 34 : bottomInset + 12;
   const barHeight = Platform.OS === 'web' ? 90 : 72 + bottomInset;
 
-  const TAB_KEYS = ['dashboard', 'reserves', 'plans', 'messages', 'more'] as const;
-  const activeIndex = TAB_KEYS.indexOf(activeTab);
+  const activeIndex = tabs.findIndex(tab => tab.key === activeTab);
 
   return (
     <View style={[styles.container, { height: barHeight, paddingBottom: bottomPad }]}>
-      {TABS.map((tab, i) => {
+      {tabs.map((tab, i) => {
         const isActive = i === activeIndex;
-        const hasBadge = i === 3 && unreadCount > 0;
+        const hasBadge = tab.key === 'messages' && unreadCount > 0;
         return (
           <TouchableOpacity
             key={tab.key}

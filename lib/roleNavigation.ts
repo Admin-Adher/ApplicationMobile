@@ -6,6 +6,17 @@ export function isWarehouseRole(role?: UserRole | string | null): boolean {
   return role === 'magasinier';
 }
 
+export function isConducteurRole(role?: UserRole | string | null): boolean {
+  return role === 'conducteur';
+}
+
+export const CONDUCTEUR_PRIMARY_TABS = ['index', 'plans', 'reserves', 'more'] as const;
+
+export function canConducteurRestoreTab(tab?: string | null): boolean {
+  if (!tab) return false;
+  return tab === '/(tabs)' || tab === '/(tabs)/index' || tab === '/(tabs)/plans' || tab === '/(tabs)/reserves';
+}
+
 /**
  * A warehouse-only account must never inherit the last operational tab from a
  * previous user on the same device. Only inventory and personal settings are

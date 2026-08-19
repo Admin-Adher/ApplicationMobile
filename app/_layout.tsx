@@ -17,7 +17,7 @@ import '@/lib/i18n';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient } from '@/lib/queryClient';
 import { asyncStoragePersister } from '@/lib/queryPersister';
-import { canWarehouseRoleAccessRootSegment, isWarehouseRole, WAREHOUSE_HOME_ROUTE } from '@/lib/roleNavigation';
+import { canConducteurRestoreTab, canWarehouseRoleAccessRootSegment, isConducteurRole, isWarehouseRole, WAREHOUSE_HOME_ROUTE } from '@/lib/roleNavigation';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AppAlertHost } from '@/lib/appAlert';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
@@ -191,6 +191,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     hasRestoredTab.current = true;
     if (isWarehouseRole(user?.role)) return;
     AsyncStorage.getItem(LAST_TAB_KEY).then((savedTab) => {
+      if (isConducteurRole(user?.role) && !canConducteurRestoreTab(savedTab)) return;
       if (savedTab && savedTab !== '/(tabs)' && savedTab !== '/(tabs)/index') {
         router.replace(savedTab as any);
       }

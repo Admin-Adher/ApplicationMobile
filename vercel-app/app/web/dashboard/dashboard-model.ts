@@ -25,12 +25,13 @@ export type DashboardSource = {
 
 export type DashboardPriorityItem = {
   id: string;
-  kind: 'critical-reserve' | 'overdue-reserve' | 'late-task';
+  kind: 'verification-reserve' | 'critical-reserve' | 'overdue-reserve' | 'late-task';
   title: string;
   building: string;
   company: string;
   deadline: Date | null;
   target: 'reserves' | 'planning';
+  reserveId?: string;
 };
 
 export type DashboardWeek = {
@@ -368,6 +369,7 @@ function buildCompanies(
 }
 
 function buildPriorities(
+  verificationReserves: DashboardRecord[],
   criticalReserves: DashboardRecord[],
   overdueReserves: DashboardRecord[],
   lateTasks: DashboardRecord[],
@@ -383,6 +385,7 @@ function buildPriorities(
     company: reserveCompanies(reserve).join(', '),
     deadline: parseDate(reserve.deadline),
     target: 'reserves',
+    reserveId: stringField(reserve, 'id') || undefined,
   });
 
   const taskItem = (task: DashboardRecord): DashboardPriorityItem => ({
@@ -396,11 +399,12 @@ function buildPriorities(
   });
 
   return [
+    ...verificationReserves.map(item => reserveItem(item, 'verification-reserve')),
     ...criticalReserves.map(item => reserveItem(item, 'critical-reserve')),
     ...overdueReserves.map(item => reserveItem(item, 'overdue-reserve')),
     ...lateTasks.map(taskItem),
   ].sort((a, b) => {
-    const rank = { 'critical-reserve': 0, 'overdue-reserve': 1, 'late-task': 2 } as const;
+    const rank = { 'verification-reserve': 0, 'critical-reserve': 1, 'overdue-reserve': 2, 'late-task': 3 } as const;
     const urgency = rank[a.kind] - rank[b.kind];
     if (urgency !== 0) return urgency;
     return (a.deadline?.getTime() ?? Number.MAX_SAFE_INTEGER) - (b.deadline?.getTime() ?? Number.MAX_SAFE_INTEGER);
@@ -425,8 +429,9 @@ export function buildDashboardModel(
     else statuses.open += 1;
   }
 
+  const verificationReserves = activeReserves.filter(reserve => normalized(reserve.status) === 'verification');
   const criticalReserves = activeReserves.filter(reserve =>
-    normalized(reserve.priority) === 'critical' && !isClosed(reserve),
+    normalized(reserve.priority) === 'critical' && !isClosed(reserve) && normalized(reserve.status) !== 'verification',
   );
   const overdueReserves = activeReserves.filter(reserve =>
     normalized(reserve.priority) !== 'critical' && isOverdue(reserve, now),
@@ -472,7 +477,7 @@ export function buildDashboardModel(
     pinnedCount: activeReserves.filter(hasPlanPin).length,
     progress: totalCount ? Math.round((closedCount / totalCount) * 100) : 0,
     statuses,
-    priorities: buildPriorities(criticalReserves, overdueReserves, lateTasks),
+    priorities: buildPriorities(verificationReserves, criticalReserves, overdueReserves, lateTasks),
     weeks: buildWeeks(activeReserves, now),
     buildings: buildBuildings(activeReserves, plansById, currentProject, now),
     companies,
