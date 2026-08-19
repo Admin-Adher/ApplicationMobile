@@ -16940,6 +16940,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
           {!users.length && <p className={styles.empty}>Aucun membre trouvé.</p>}
         </div>
       </section>
+      </> : null}
       {rightsUserId ? (() => {
         const user = data.profiles.find(item => item.id === rightsUserId);
         if (!user) return null;
