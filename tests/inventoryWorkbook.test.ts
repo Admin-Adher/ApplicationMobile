@@ -101,7 +101,7 @@ describe('inventory Excel workbook', () => {
     {
       language: 'fr' as const,
       sheets: ['Synthèse', 'État du stock', 'À commander', 'Mouvements', 'Entrées', 'Sorties', 'Par bâtiment', 'Par entreprise'],
-      stockHeaders: ['Référence', 'Désignation'],
+      stockHeaders: ['Référence', 'Désignation', 'Emplacement magasin'],
       lowStatus: 'STOCK FAIBLE',
       receipt: 'ENTRÉE',
       dateFormat: 'dd/mm/yyyy hh:mm',
@@ -109,7 +109,7 @@ describe('inventory Excel workbook', () => {
     {
       language: 'en' as const,
       sheets: ['Summary', 'Stock status', 'To reorder', 'Movements', 'Receipts', 'Issues', 'By building', 'By company'],
-      stockHeaders: ['Reference', 'Description'],
+      stockHeaders: ['Reference', 'Description', 'Storage location'],
       lowStatus: 'LOW STOCK',
       receipt: 'RECEIPT',
       dateFormat: 'mm/dd/yyyy hh:mm',
@@ -117,7 +117,7 @@ describe('inventory Excel workbook', () => {
     {
       language: 'es' as const,
       sheets: ['Resumen', 'Estado del stock', 'Por pedir', 'Movimientos', 'Entradas', 'Salidas', 'Por edificio', 'Por empresa'],
-      stockHeaders: ['Referencia', 'Descripción'],
+      stockHeaders: ['Referencia', 'Descripción', 'Ubicación de almacén'],
       lowStatus: 'STOCK BAJO',
       receipt: 'ENTRADA',
       dateFormat: 'dd/mm/yyyy hh:mm',
@@ -131,6 +131,7 @@ describe('inventory Excel workbook', () => {
     expect(parsed.SheetNames).toEqual(sheets);
     expect(parsed.Sheets[sheets[1]].A4.v).toBe(stockHeaders[0]);
     expect(parsed.Sheets[sheets[1]].B4.v).toBe(stockHeaders[1]);
+    expect(parsed.Sheets[sheets[1]].I4.v).toBe(stockHeaders[2]);
     expect(parsed.Sheets[sheets[1]].C6.v).toBe(lowStatus);
     expect(parsed.Sheets[sheets[3]].B5.v).toBe(receipt);
     expect(strFromU8(files['xl/styles.xml'])).toContain(`formatCode="${dateFormat}"`);

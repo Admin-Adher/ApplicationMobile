@@ -16,6 +16,7 @@ export type InventoryIconName =
   | 'history'
   | 'minus'
   | 'more'
+  | 'pin'
   | 'plus'
   | 'refresh'
   | 'search'
@@ -58,5 +59,6 @@ export function InventoryIcon({
   if (name === 'clock') return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>;
   if (name === 'chevron') return <svg {...common}><path d="m9 18 6-6-6-6" /></svg>;
   if (name === 'more') return <svg {...common}><circle cx="5" cy="12" r="1" fill="currentColor" /><circle cx="12" cy="12" r="1" fill="currentColor" /><circle cx="19" cy="12" r="1" fill="currentColor" /></svg>;
+  if (name === 'pin') return <svg {...common}><path d="M12 21s7-5.4 7-11a7 7 0 1 0-14 0c0 5.6 7 11 7 11Z" /><circle cx="12" cy="10" r="2.4" /></svg>;
   return <svg {...common}><circle cx="12" cy="12" r="9" /></svg>;
 }

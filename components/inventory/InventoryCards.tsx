@@ -69,6 +69,7 @@ export function InventoryProductCard({
             {product.pendingSync && <Ionicons name="cloud-upload-outline" size={15} color={C.waiting} />}
           </View>
           <Text style={styles.designation} numberOfLines={compact ? 1 : 2}>{product.designation}</Text>
+          {!!product.location && <Text style={styles.productLocationLine} numberOfLines={1}>{product.location}</Text>}
         </View>
         <View style={[styles.stockBox, low && styles.stockBoxLow]}>
           <Text style={[styles.stockValue, low && styles.stockValueLow]}>{product.currentStock}</Text>
@@ -161,6 +162,7 @@ const styles = StyleSheet.create({
   referenceRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   reference: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 14, flexShrink: 1 },
   designation: { color: C.text, fontFamily: 'Inter_500Medium', fontSize: 13, marginTop: 2 },
+  productLocationLine: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 11, marginTop: 3 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 },
   meta: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 11, flex: 1 },
   stockBox: { minWidth: 58, alignItems: 'center', paddingVertical: 7, paddingHorizontal: 8, borderRadius: 11, backgroundColor: C.primaryBg },

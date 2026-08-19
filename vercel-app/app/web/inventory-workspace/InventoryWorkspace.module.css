@@ -566,6 +566,49 @@
 .foundProduct strong { overflow: hidden; color: var(--inventory-ink); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
 .foundProduct b { color: var(--inventory-success); font-size: 0.6875rem; white-space: nowrap; }
 
+.pickLocation {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid #b7cce8;
+  border-radius: 0.5rem;
+  background: var(--inventory-blue-soft);
+  color: var(--inventory-blue);
+}
+.pickLocation[data-missing='true'] {
+  border-color: #efd2a7;
+  background: #fff8ed;
+  color: #8b4b11;
+}
+.pickLocation span { display: grid; gap: 0.15rem; min-width: 0; }
+.pickLocation small { font-size: 0.625rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; }
+.pickLocation strong { overflow: hidden; font-size: 1.05rem; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+
+.locationRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+}
+.scanFieldButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0 0.8rem;
+  border: 1px solid var(--inventory-blue);
+  border-radius: 0.5rem;
+  background: #fff;
+  color: var(--inventory-blue);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.scanFieldButton:hover { background: var(--inventory-blue-soft); }
+
 .checkbox {
   display: flex;
   align-items: center;
@@ -975,6 +1018,7 @@
   .cardActions button:last-child:nth-child(3) { grid-column: 1 / -1; }
   .foundProduct { grid-template-columns: auto minmax(0, 1fr); }
   .foundProduct b { grid-column: 1 / -1; }
+  .locationRow { grid-template-columns: 1fr; }
   .dialogBackdrop { place-items: end center; padding: 0; }
   .dialog { width: 100%; max-height: 94vh; border-radius: 0.75rem 0.75rem 0 0; }
   .editForm { padding: 1rem; }

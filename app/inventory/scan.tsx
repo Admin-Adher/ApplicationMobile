@@ -11,38 +11,64 @@ import { C } from '@/constants/colors';
 import { useAuth } from '@/context/AuthContext';
 import { persistLocalPhoto } from '@/lib/storage';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
+import {
+  initialInventoryScanPhase,
+  isSameInventoryScanCode,
+  resolveInventoryScanAction,
+  type InventoryScanPhase,
+} from '@/lib/inventoryLocationScan';
 import { recognizeInventoryLabel } from '@/lib/inventoryOcr';
+
+type ProductScanPayload = {
+  code?: string;
+  codeType?: string;
+  photoUri?: string;
+  ocrReference?: string;
+  ocrDesignation?: string;
+};
 
 export default function InventoryScanScreen() {
   const router = useRouter();
   const copy = useInventoryCopy();
-  const params = useLocalSearchParams<{ mode?: string }>();
+  const params = useLocalSearchParams<{ mode?: string; target?: string }>();
   const mode = params.mode === 'out' ? 'out' : 'in';
+  const target = params.target === 'location' ? 'location' : undefined;
   const { permissions } = useAuth();
   const cameraRef = useRef<CameraView | InventoryWebBarcodeCameraHandle | null>(null);
+  const productScan = useRef<ProductScanPayload>({});
+  const [phase, setPhase] = useState<InventoryScanPhase>(initialInventoryScanPhase(target));
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [torch, setTorch] = useState(false);
   const [takingPhoto, setTakingPhoto] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
+  const scanningLocation = phase === 'location';
+  const title = scanningLocation ? copy.scanLocation : mode === 'in' ? copy.scanEntry : copy.scanExit;
 
-  function openMovement(extra?: {
-    code?: string;
-    codeType?: string;
-    photoUri?: string;
-    ocrReference?: string;
-    ocrDesignation?: string;
-  }) {
+  function openMovement(extra?: ProductScanPayload & { location?: string }) {
     router.replace({
       pathname: '/inventory/movement',
-      params: { mode, ...(extra ?? {}) },
+      params: { mode, ...productScan.current, ...(extra ?? {}) },
     } as any);
   }
 
   function handleBarcode(result: BarcodeScanningResult) {
-    if (scanned || !result.data) return;
+    const code = result.data?.trim();
+    if (scanned || !code) return;
+    if (scanningLocation && isSameInventoryScanCode(code, productScan.current.code)) return;
     setScanned(true);
-    openMovement({ code: result.data.trim(), codeType: result.type });
+    const action = resolveInventoryScanAction({ mode, phase, target });
+    if (action === 'continue-location') {
+      productScan.current = { ...productScan.current, code, codeType: result.type };
+      setPhase('location');
+      setTimeout(() => setScanned(false), 450);
+      return;
+    }
+    if (action === 'complete-location') {
+      openMovement({ location: code });
+      return;
+    }
+    openMovement({ code, codeType: result.type });
   }
 
   async function takeLabelPhoto() {
@@ -57,11 +83,17 @@ export default function InventoryScanScreen() {
         setRecognizing(true);
         try {
           const fields = await recognizeInventoryLabel(photoUri);
-          openMovement({
+          const payload = {
             photoUri,
             ocrReference: fields.reference,
             ocrDesignation: fields.designation,
-          });
+          };
+          if (resolveInventoryScanAction({ mode, phase: 'product', target }) === 'continue-location') {
+            productScan.current = payload;
+            setPhase('location');
+          } else {
+            openMovement(payload);
+          }
         } catch (error) {
           console.warn('[inventory-ocr] label recognition failed:', error);
           openMovement({ photoUri });
@@ -78,7 +110,7 @@ export default function InventoryScanScreen() {
   if (!permissions.canRecordInventory) {
     return (
       <View style={styles.root}>
-        <Header title={mode === 'in' ? copy.scanEntry : copy.scanExit} showBack backFallback="/inventory" />
+        <Header title={title} showBack backFallback="/inventory" />
         <View style={styles.permissionBox}><Ionicons name="lock-closed-outline" size={38} color={C.textMuted} /><Text style={styles.permissionText}>{copy.restricted}</Text></View>
       </View>
     );
@@ -91,7 +123,7 @@ export default function InventoryScanScreen() {
   if (!permission.granted) {
     return (
       <View style={styles.root}>
-        <Header title={mode === 'in' ? copy.scanEntry : copy.scanExit} showBack backFallback="/inventory" />
+        <Header title={title} showBack backFallback="/inventory" />
         <View style={styles.permissionBox}>
           <Ionicons name="camera-outline" size={46} color={C.primary} />
           <Text style={styles.permissionText}>{copy.cameraPermission}</Text>
@@ -99,7 +131,7 @@ export default function InventoryScanScreen() {
             <Text style={styles.permissionButtonText}>{copy.allowCamera}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.manualLink} onPress={() => openMovement()}>
-            <Text style={styles.manualLinkText}>{copy.manualEntry}</Text>
+            <Text style={styles.manualLinkText}>{scanningLocation ? copy.skipLocation : copy.manualEntry}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -108,7 +140,7 @@ export default function InventoryScanScreen() {
 
   return (
     <View style={styles.root}>
-      <Header title={mode === 'in' ? copy.scanEntry : copy.scanExit} showBack backFallback="/inventory" />
+      <Header title={title} showBack backFallback="/inventory" />
       <View style={styles.cameraWrap}>
         {Platform.OS === 'web' ? (
           <InventoryWebBarcodeCamera
@@ -132,7 +164,7 @@ export default function InventoryScanScreen() {
         )}
         <View style={styles.overlay} pointerEvents="box-none">
           <View style={styles.topOverlay}>
-            <Text style={styles.scanHint}>{copy.scanHint}</Text>
+            <Text style={styles.scanHint}>{scanningLocation ? copy.scanLocationHint : copy.scanHint}</Text>
           </View>
           <View style={styles.frame}>
             <View style={[styles.corner, styles.cornerTL]} /><View style={[styles.corner, styles.cornerTR]} />
@@ -144,15 +176,21 @@ export default function InventoryScanScreen() {
               <Ionicons name={torch ? 'flash' : 'flash-outline'} size={23} color="#fff" />
               <Text style={styles.sideControlText}>{copy.torch}</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.shutter} onPress={takeLabelPhoto} disabled={takingPhoto || recognizing}>
-              {takingPhoto || recognizing ? <ActivityIndicator color={C.primary} /> : <Ionicons name="camera" size={28} color={C.primary} />}
-            </TouchableOpacity>
+            {scanningLocation ? (
+              <TouchableOpacity style={styles.shutter} onPress={() => openMovement()}>
+                <Ionicons name="create-outline" size={28} color={C.primary} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.shutter} onPress={takeLabelPhoto} disabled={takingPhoto || recognizing}>
+                {takingPhoto || recognizing ? <ActivityIndicator color={C.primary} /> : <Ionicons name="camera" size={28} color={C.primary} />}
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.sideControl} onPress={() => openMovement()}>
               <Ionicons name="create-outline" size={23} color="#fff" />
-              <Text style={styles.sideControlText}>{copy.manualEntry}</Text>
+              <Text style={styles.sideControlText}>{scanningLocation ? copy.skipLocation : copy.manualEntry}</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.photoHint}>{recognizing ? copy.ocrReading : copy.takeLabelPhoto}</Text>
+          <Text style={styles.photoHint}>{scanningLocation ? copy.locationHint : recognizing ? copy.ocrReading : copy.takeLabelPhoto}</Text>
         </View>
       </View>
     </View>

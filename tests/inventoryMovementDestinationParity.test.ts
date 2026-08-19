@@ -27,6 +27,19 @@ describe('inventory receipt and dispatch destination parity', () => {
     expect(web).toContain("mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint");
     expect(web).toContain("mode === 'in' ? copy.entryBuilding : copy.exitBuilding");
     expect(mobile).toContain("mode === 'in' ? copy.receiptLogistics : copy.dispatchLogistics");
-    expect(mobile).toContain('label={copy.entryBuilding}');
+    expect(mobile).toContain("mode === 'in' ? copy.entryBuilding : copy.exitBuilding");
+  });
+
+  it('lets both surfaces scan or type a warehouse location and show it on issue', () => {
+    const web = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.tsx');
+    const mobile = read('app/inventory/movement.tsx');
+    const scan = read('app/inventory/scan.tsx');
+
+    expect(web).toContain("startScanner('location')");
+    expect(web).toContain('copy.pickLocation');
+    expect(mobile).toContain('InventoryLocationScanModal');
+    expect(mobile).toContain('copy.pickLocation');
+    expect(scan).toContain('continue-location');
+    expect(scan).toContain('location: code');
   });
 });

@@ -214,12 +214,15 @@ export default function InventoryWorkspace({
   const [notice, setNotice] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerLoading, setScannerLoading] = useState(false);
+  const [scannerTarget, setScannerTarget] = useState<'product' | 'location'>('product');
   const [scanError, setScanError] = useState('');
   const [lookupState, setLookupState] = useState<LookupState>('idle');
   const [exportOpen, setExportOpen] = useState(false);
   const [exportPanelLayout, setExportPanelLayout] = useState<FloatingPanelLayout | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<WebBarcodeScannerControls | null>(null);
+  const scannerTargetRef = useRef<'product' | 'location'>('product');
+  const locationEdited = useRef(false);
   const operationPanelRef = useRef<HTMLElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -290,6 +293,7 @@ export default function InventoryWorkspace({
     setMode('stock');
     setOperationProjectId(selectedProjectId === 'all' ? '' : selectedProjectId);
     setSelectedProductId(null);
+    locationEdited.current = false;
     setForm({ ...EMPTY_FORM });
     setPhoto(null);
     setLookupState('idle');
@@ -376,6 +380,7 @@ export default function InventoryWorkspace({
   }, [exportOpen, language, reportLanguage]);
 
   function patchForm(patch: Partial<FormState>) {
+    if ('location' in patch) locationEdited.current = true;
     setForm(current => ({ ...current, ...patch }));
   }
 
@@ -412,7 +417,7 @@ export default function InventoryWorkspace({
       barcode: product.barcode ?? '',
       designation: product.designation ?? product.reference ?? '',
       supplier: product.supplier ?? '',
-      location: product.location ?? '',
+      location: locationEdited.current ? current.location : (product.location ?? ''),
       minStock: String(numberValue(product.min_stock)),
     }));
   }
@@ -436,6 +441,7 @@ export default function InventoryWorkspace({
     stopScanner();
     clearFeedback();
     setPhoto(null);
+    locationEdited.current = false;
     setForm({ ...EMPTY_FORM });
     setSelectedProductId(null);
     setLookupState('idle');
@@ -451,6 +457,7 @@ export default function InventoryWorkspace({
     setOperationProjectId(projectId);
     setSelectedProductId(null);
     setPhoto(null);
+    locationEdited.current = false;
     setForm({ ...EMPTY_FORM });
     setLookupState('idle');
     setScanError('');
@@ -508,10 +515,12 @@ export default function InventoryWorkspace({
     }
   }
 
-  async function startScanner() {
+  async function startScanner(target: 'product' | 'location' = 'product') {
     setScanError('');
     setScannerLoading(true);
-    setLookupState('idle');
+    scannerTargetRef.current = target;
+    setScannerTarget(target);
+    if (target === 'product') setLookupState('idle');
     try {
       setScannerOpen(true);
       await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
@@ -521,9 +530,19 @@ export default function InventoryWorkspace({
         video: videoRef.current,
         loadZXing: () => import('@zxing/browser'),
         onDetected: result => {
+          const scanned = result.text.trim();
+          if (!scanned) return;
           detectedDuringStart = true;
+          const nextTarget = scannerTargetRef.current;
           stopScanner();
-          void enrichScannedBarcode(result.text);
+          if (nextTarget === 'location') {
+            locationEdited.current = true;
+            patchForm({ location: scanned });
+            return;
+          }
+          void enrichScannedBarcode(scanned).then(() => {
+            if (mode === 'in') void startScanner('location');
+          });
         },
       });
       if (detectedDuringStart) controls.stop();
@@ -891,15 +910,15 @@ export default function InventoryWorkspace({
               </div>
               <datalist id="inventory-products">{operationProducts.map(product => <option key={product.id} value={product.reference}>{product.designation}</option>)}</datalist>
 
-              <button type="button" className={styles.scanButton} onClick={() => scannerOpen ? stopScanner() : void startScanner()} disabled={!operationProjectId}>
+              <button type="button" className={styles.scanButton} onClick={() => scannerOpen ? stopScanner() : void startScanner('product')} disabled={!operationProjectId}>
                 <InventoryIcon name="camera" />
-                <span>{scannerLoading ? copy.openingCamera : scannerOpen ? copy.stopCamera : copy.scan}</span>
+                <span>{scannerLoading && scannerTarget === 'product' ? copy.openingCamera : scannerOpen && scannerTarget === 'product' ? copy.stopCamera : copy.scan}</span>
               </button>
               {scannerOpen ? (
                 <div className={styles.scanner}>
-                  <video ref={videoRef} muted playsInline aria-label={copy.scannerHelp} />
+                  <video ref={videoRef} muted playsInline aria-label={scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp} />
                   <div className={styles.scanFrame} aria-hidden="true" />
-                  <p>{copy.scannerHelp}</p>
+                  <p>{scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp}</p>
                 </div>
               ) : null}
               {lookupMessage ? (
@@ -913,6 +932,15 @@ export default function InventoryWorkspace({
                   <ProductThumbnail product={selectedProduct} language={language} />
                   <span><small>{copy.productFound}</small><strong>{selectedProduct.designation || selectedProduct.reference}</strong></span>
                   <b>{numberValue(selectedProduct.current_stock)} {copy.available}</b>
+                </div>
+              ) : null}
+              {mode === 'out' && selectedProduct ? (
+                <div className={styles.pickLocation} data-missing={selectedProduct.location ? 'false' : 'true'}>
+                  <InventoryIcon name="pin" />
+                  <span>
+                    <small>{copy.pickLocation}</small>
+                    <strong>{selectedProduct.location || copy.pickLocationMissing}</strong>
+                  </span>
                 </div>
               ) : null}
             </fieldset>
@@ -939,7 +967,17 @@ export default function InventoryWorkspace({
                 </div>
                 {mode === 'in' ? <>
                   <div className={styles.field}><label htmlFor="inventory-supplier">{copy.supplier}</label><input id="inventory-supplier" value={form.supplier} onChange={event => patchForm({ supplier: event.target.value })} /></div>
-                  <div className={styles.field}><label htmlFor="inventory-location">{copy.location}</label><input id="inventory-location" value={form.location} onChange={event => patchForm({ location: event.target.value })} placeholder={copy.mainStore} /></div>
+                  <div className={styles.field}>
+                    <label htmlFor="inventory-location">{copy.location}</label>
+                    <p className={styles.fieldHint}>{copy.locationHint}</p>
+                    <div className={styles.locationRow}>
+                      <input id="inventory-location" value={form.location} onChange={event => patchForm({ location: event.target.value })} placeholder={copy.mainStore} />
+                      <button type="button" className={styles.scanFieldButton} onClick={() => scannerOpen && scannerTarget === 'location' ? stopScanner() : void startScanner('location')} disabled={!operationProjectId}>
+                        <InventoryIcon name="camera" size={16} />
+                        <span>{scannerOpen && scannerTarget === 'location' ? copy.stopCamera : copy.scanShelf}</span>
+                      </button>
+                    </div>
+                  </div>
                   <div className={styles.field}><label htmlFor="inventory-minimum">{copy.minimum}</label><input id="inventory-minimum" value={form.minStock} onChange={event => patchForm({ minStock: event.target.value })} type="number" min="0" step="any" /></div>
                   <div className={styles.field}><label htmlFor="inventory-photo">{copy.productPhoto}</label><input id="inventory-photo" className={styles.fileInput} type="file" accept="image/*" capture="environment" onChange={event => setPhoto(event.target.files?.[0] ?? null)} /></div>
                 </> : null}

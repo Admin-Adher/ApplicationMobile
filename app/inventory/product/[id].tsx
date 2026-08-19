@@ -132,7 +132,7 @@ export default function InventoryProductScreen() {
         </View>
 
         <View style={styles.infoCard}>
-          <InfoRow icon="location-outline" label={copy.location} value={product.location} />
+          <InfoRow icon="location-outline" label={copy.location} value={product.location || copy.pickLocationMissing} />
           <InfoRow icon="truck-outline" label={copy.supplier} value={product.supplier} />
           <InfoRow icon="barcode-outline" label={copy.barcode} value={product.barcode} />
           {!product.location && !product.supplier && !product.barcode && <Text style={styles.emptyInfo}>{copy.optional}</Text>}

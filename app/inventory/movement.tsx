@@ -9,6 +9,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 import Header from '@/components/Header';
+import { InventoryLocationScanModal } from '@/components/inventory/InventoryLocationScanModal';
 import { InventoryProductCard } from '@/components/inventory/InventoryCards';
 import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
@@ -26,6 +27,7 @@ import {
   type InventoryBarcodeMatch,
 } from '@/lib/inventoryBarcodeLookup';
 import { canonicalizeGtin, normalizeBarcodeLookupCode } from '@/lib/inventoryBarcodeCore';
+import { resolveInventoryStorageLocation } from '@/lib/inventoryLocationScan';
 import {
   EMPTY_INVENTORY_DESTINATION,
   createInventoryDestinationCatalog,
@@ -78,6 +80,7 @@ export default function InventoryMovementScreen() {
     productId?: string;
     ocrReference?: string;
     ocrDesignation?: string;
+    location?: string;
   }>();
   const mode = params.mode === 'out' ? 'out' : 'in';
   const destinationPolicy = inventoryDestinationPolicy(mode);
@@ -89,6 +92,7 @@ export default function InventoryMovementScreen() {
   const normalizedInitialCode = normalizeBarcodeLookupCode(params.code ?? '');
   const designationEdited = useRef(Boolean(params.ocrDesignation?.trim()));
   const supplierEdited = useRef(false);
+  const locationEdited = useRef(Boolean(params.location?.trim()));
 
   const [productId, setProductId] = useState<string | undefined>(params.productId);
   const [reference, setReference] = useState(params.ocrReference ?? normalizedInitialCode);
@@ -97,7 +101,8 @@ export default function InventoryMovementScreen() {
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(params.photoUri);
   const [quantity, setQuantity] = useState('');
   const [supplier, setSupplier] = useState('');
-  const [location, setLocation] = useState('');
+  const [location, setLocation] = useState(params.location ?? '');
+  const [locationScanOpen, setLocationScanOpen] = useState(false);
   const [minStock, setMinStock] = useState('0');
   const [destination, setDestination] = useState({ ...EMPTY_INVENTORY_DESTINATION });
   const [companyId, setCompanyId] = useState<string | undefined>();
@@ -236,7 +241,12 @@ export default function InventoryMovementScreen() {
     setDesignation(product.designation);
     setPhotoUrl(current => current ?? product.photoUrl);
     setSupplier(product.supplier ?? '');
-    setLocation(product.location ?? '');
+    setLocation(resolveInventoryStorageLocation({
+      scannedLocation: params.location,
+      productLocation: product.location,
+      edited: locationEdited.current,
+      current: location,
+    }));
     setMinStock(String(product.minStock));
   }
 
@@ -370,6 +380,15 @@ export default function InventoryMovementScreen() {
             <Ionicons name="scan-outline" size={17} color={C.primary} /><Text style={styles.scanAgainText}>{copy.rescan}</Text>
           </TouchableOpacity>
         </View>
+        {mode === 'out' && selectedProduct ? (
+          <View style={[styles.pickBanner, !selectedProduct.location && styles.pickBannerMissing]}>
+            <Ionicons name="location" size={22} color={selectedProduct.location ? C.primary : C.waiting} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pickLabel}>{copy.pickLocation}</Text>
+              <Text style={styles.pickValue}>{selectedProduct.location || copy.pickLocationMissing}</Text>
+            </View>
+          </View>
+        ) : null}
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>{copy.product}</Text>
@@ -483,18 +502,33 @@ export default function InventoryMovementScreen() {
           <Text style={styles.sectionTitle}>{mode === 'in' ? copy.receiptLogistics : copy.dispatchLogistics}</Text>
           <Text style={styles.sectionHint}>{mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint}</Text>
           {mode === 'in' && <Field label={copy.supplier} optional={copy.optional}><TextInput style={styles.input} value={supplier} onChangeText={handleSupplierChange} placeholder={copy.supplier} placeholderTextColor={C.textMuted} /></Field>}
-          <Field label={mode === 'in' ? copy.location : copy.exitBuilding} optional={mode === 'in' ? copy.optional : undefined}>
+          {mode === 'in' && (
+            <Field label={copy.location} optional={copy.optional}>
+              <Text style={styles.sectionHint}>{copy.locationHint}</Text>
+              <View style={styles.inputWithIcon}>
+                <TextInput
+                  style={styles.inputFlex}
+                  value={location}
+                  onChangeText={value => { locationEdited.current = true; setLocation(value); }}
+                  placeholder={copy.location}
+                  placeholderTextColor={C.textMuted}
+                  autoCapitalize="characters"
+                />
+                <TouchableOpacity onPress={() => setLocationScanOpen(true)} accessibilityLabel={copy.scanShelf} hitSlop={8}>
+                  <Ionicons name="scan-outline" size={22} color={C.primary} />
+                </TouchableOpacity>
+              </View>
+            </Field>
+          )}
+          <Field label={mode === 'in' ? copy.entryBuilding : copy.exitBuilding} optional={mode === 'in' ? copy.optional : undefined}>
             <TextInput
               style={styles.input}
-              value={mode === 'in' ? location : buildingName}
-              onChangeText={mode === 'in'
-                ? setLocation
-                : value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))}
-              placeholder={mode === 'in' ? copy.location : copy.exitBuilding}
+              value={buildingName}
+              onChangeText={value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))}
+              placeholder={mode === 'in' ? copy.entryBuilding : copy.exitBuilding}
               placeholderTextColor={C.textMuted}
             />
           </Field>
-          {mode === 'in' && <Field label={copy.entryBuilding} optional={destinationPolicy.buildingRequired ? undefined : copy.optional}><TextInput style={styles.input} value={buildingName} onChangeText={value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-building', buildingName: value }))} placeholder={copy.entryBuilding} placeholderTextColor={C.textMuted} /></Field>}
           {buildings.length > 0 && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
               {buildings.map(building => (
@@ -544,6 +578,23 @@ export default function InventoryMovementScreen() {
           {submitting ? <ActivityIndicator color="#fff" /> : <><Ionicons name="checkmark-circle" size={22} color="#fff" /><Text style={styles.submitText}>{mode === 'in' ? copy.validateEntry : copy.validateExit}</Text></>}
         </TouchableOpacity>
       </View>
+      <InventoryLocationScanModal
+        visible={locationScanOpen}
+        title={copy.scanLocation}
+        hint={copy.scanLocationHint}
+        torchLabel={copy.torch}
+        cancelLabel={copy.cancel}
+        cameraPermission={copy.cameraPermission}
+        allowCamera={copy.allowCamera}
+        cameraUnavailable={copy.cameraUnavailable}
+        retryLabel={copy.retryCamera}
+        onClose={() => setLocationScanOpen(false)}
+        onDetected={code => {
+          locationEdited.current = true;
+          setLocation(code);
+          setLocationScanOpen(false);
+        }}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -552,6 +603,10 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }, centerText: { color: C.text, fontFamily: 'Inter_500Medium', textAlign: 'center' },
   content: { padding: 14, gap: 12 },
   modeBanner: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, borderRadius: 14 }, modeText: { fontFamily: 'Inter_700Bold', fontSize: 15 },
+  pickBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 14, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: `${C.primary}30` },
+  pickBannerMissing: { backgroundColor: C.waitingBg, borderColor: `${C.waiting}30` },
+  pickLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 10, textTransform: 'uppercase' },
+  pickValue: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 18, marginTop: 2 },
   scanAgain: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10 }, scanAgainText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 10 },
   sectionCard: { backgroundColor: C.surface, borderRadius: 17, borderWidth: 1, borderColor: C.border, padding: 15, gap: 12 },
   sectionTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 16 },
