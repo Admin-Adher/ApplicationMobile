@@ -11240,6 +11240,53 @@
 .pilotageCompanyForm { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; }
 .pilotageCompanyForm label { display: grid; gap: 6px; font-size: 12px; font-weight: 800; color: #334155; }
 .pilotageCompanyForm input { min-height: 44px; border: 1px solid #d5deea; border-radius: 12px; padding: 0 12px; }
+.pilotageLicenseBanner {
+  margin: 0 20px 16px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  display: grid;
+  gap: 4px;
+}
+.pilotageLicenseBanner[data-tone='trial'] { background: #fffbeb; color: #92400e; }
+.pilotageLicenseBanner[data-tone='suspended'],
+.pilotageLicenseBanner[data-tone='expired'] { background: #fef2f2; color: #991b1b; }
+.pilotageLotPicker { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 16px; }
+.pilotageLotPicker button {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid #d5deea;
+  border-radius: 999px;
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.pilotageLotPicker button[data-active='true'] { border-color: #003082; background: #003082; color: #fff; }
+.pilotageRightsOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(15, 23, 42, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.pilotageRightsSheet {
+  width: min(920px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  background: #fff;
+  border-radius: 20px;
+  padding: 22px;
+}
+.pilotageRightsSheet header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
 .pilotageLicense { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 20px 20px; }
 .pilotageLicense article { padding: 16px; border: 1px solid #e8eef5; border-radius: 16px; background: #f8fafc; display: grid; gap: 4px; }
 .pilotageLicense span { color: #64748b; font-size: 12px; font-weight: 800; text-transform: uppercase; }

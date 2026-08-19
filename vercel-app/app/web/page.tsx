@@ -4669,15 +4669,18 @@ export default function BuildTrackWebPage() {
     if (companyError) setError(companyError.message);
   }
 
-  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string }) {
+  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[] }) {
     if (!isAdmin(profile) || !payload.name.trim()) return null;
     const row = {
       id: crypto.randomUUID(),
       organization_id: profile?.organization_id ?? null,
       name: payload.name.trim(),
+      short_name: payload.short_name?.trim() || payload.name.trim().slice(0, 4).toUpperCase(),
       email: payload.email?.trim() || null,
       contact: payload.contact?.trim() || '',
       siret: payload.siret?.trim() || null,
+      insurance: payload.insurance?.trim() || null,
+      lots: payload.lots ?? [],
       color: '#3B82F6',
       planned_workers: 0,
       actual_workers: 0,
@@ -16596,7 +16599,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   profile: Profile | null;
   onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void;
   onEnterSupport?: (org: { id: string; name: string }) => void;
-  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string }) => Promise<any>;
+  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[] }) => Promise<any>;
   onUpdateCompany?: (companyId: string, payload: Record<string, any>) => Promise<void> | void;
   onDeleteCompany?: (companyId: string) => Promise<void> | void;
   onRemoveUser?: (userId: string) => Promise<void> | void;
@@ -16612,31 +16615,36 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteNotice, setInviteNotice] = useState('');
   const [inviteLink, setInviteLink] = useState('');
-  const [companyDraft, setCompanyDraft] = useState({ name: '', email: '', contact: '', siret: '' });
+  const [companyDraft, setCompanyDraft] = useState({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] as string[] });
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
-  const [license, setLicense] = useState<{ status: string; planName: string; maxUsers: number } | null>(null);
-  const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at?: string; company_id?: string | null }>>([]);
+  const [rightsUserId, setRightsUserId] = useState<string | null>(null);
+  const [license, setLicense] = useState<{ status: string; planName: string; maxUsers: number; trialEndsAt?: string | null; startedAt?: string | null } | null>(null);
+  const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at?: string; company_id?: string | null; resend_count?: number; last_resent_at?: string | null }>>([]);
   const loadInvites = useCallback(async () => {
-    const { data: rows } = await supabaseBrowser.from('invitations').select('id,email,role,expires_at,company_id,status').eq('status', 'pending').order('created_at', { ascending: false });
+    const { data: rows } = await supabaseBrowser.from('invitations').select('id,email,role,expires_at,company_id,status,resend_count,last_resent_at').eq('status', 'pending').order('created_at', { ascending: false });
     setPendingInvites((rows ?? []).map((row: any) => ({
       id: String(row.id),
       email: String(row.email ?? ''),
       role: String(row.role ?? 'observateur'),
       expires_at: row.expires_at,
       company_id: row.company_id ?? null,
+      resend_count: Number(row.resend_count ?? 0),
+      last_resent_at: row.last_resent_at ?? null,
     })));
   }, []);
   useEffect(() => { void loadInvites(); }, [loadInvites]);
   useEffect(() => {
     if (!profile?.organization_id) return;
     void (async () => {
-      const { data: sub } = await supabaseBrowser.from('subscriptions').select('status, plan_id, started_at').eq('organization_id', profile.organization_id).maybeSingle();
+      const { data: sub } = await supabaseBrowser.from('subscriptions').select('status, plan_id, started_at, trial_ends_at').eq('organization_id', profile.organization_id).maybeSingle();
       if (!sub) return;
       const { data: plan } = await supabaseBrowser.from('plans').select('name, max_users').eq('id', sub.plan_id).maybeSingle();
       setLicense({
         status: String(sub.status ?? 'active'),
         planName: String(plan?.name ?? 'Entreprise'),
         maxUsers: Number(plan?.max_users ?? -1),
+        trialEndsAt: sub.trial_ends_at ?? null,
+        startedAt: sub.started_at ?? null,
       });
     })();
   }, [profile?.organization_id]);
@@ -16797,7 +16805,11 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
               <article key={invite.id} className={styles.pilotageInviteCard}>
                 <div>
                   <strong>{invite.email}</strong>
-                  <span>{ROLE_LABELS[invite.role] ?? invite.role}</span>
+                  <span>
+                    {ROLE_LABELS[invite.role] ?? invite.role}
+                    {invite.expires_at ? ` · expire ${prettyDate(invite.expires_at)}` : ''}
+                    {invite.resend_count ? ` · ${invite.resend_count} relance${invite.resend_count > 1 ? 's' : ''}` : ''}
+                  </span>
                 </div>
                 <div className={styles.pilotageInviteActions}>
                   <button type="button" className={styles.pilotageGhost} onClick={async () => {
@@ -16874,9 +16886,9 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                   <button
                     type="button"
                     className={styles.adminPermissionsButton}
-                    onClick={event => { event.stopPropagation(); setExpandedUserId(current => current === user.id ? null : user.id); }}
+                    onClick={event => { event.stopPropagation(); setRightsUserId(user.id); }}
                   >
-                    {user.role === 'super_admin' ? 'Droits fixes' : `${overrideCount} droit${overrideCount === 1 ? '' : 's'}`} {expanded ? '▴' : '▾'}
+                    {user.role === 'super_admin' ? 'Droits fixes' : 'Droits'}
                   </button>
                   {targetEditable && user.id !== profile?.id ? (
                     <button type="button" className={styles.pilotageDanger} onClick={event => {
@@ -16885,7 +16897,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                     }}>Retirer</button>
                   ) : null}
                 </div>
-                {expanded ? (
+                {false && expanded ? (
                   <div className={styles.adminPermissionsPanel}>
                     <div className={styles.adminPermissionsHeader}>
                       <div><strong>Permissions de {user.name}</strong><span>Cliquer : défaut → accordé → retiré → défaut</span></div>
@@ -16928,7 +16940,67 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
           {!users.length && <p className={styles.empty}>Aucun membre trouvé.</p>}
         </div>
       </section>
-      </> : null}
+      {rightsUserId ? (() => {
+        const user = data.profiles.find(item => item.id === rightsUserId);
+        if (!user) return null;
+        const targetEditable = editorIsSuperAdmin || (user.role !== 'admin' && user.role !== 'super_admin');
+        const permissionsEditable = targetEditable && user.role !== 'super_admin';
+        const overrides = profilePermissionsOverride(user) ?? {};
+        const overrideCount = Object.keys(overrides).length;
+        const roleDefaults = WEB_ROLE_PERMISSIONS[String(user.role)] ?? WEB_ROLE_PERMISSIONS.observateur;
+        const updatePermission = (key: keyof WebPermissions) => {
+          if (!permissionsEditable) return;
+          const next = { ...overrides };
+          const nextValue = cyclePermissionOverride(next[key]);
+          if (nextValue === undefined) delete next[key];
+          else next[key] = nextValue;
+          void onUpdateProfile(user.id, { permissions_override: next });
+        };
+        return (
+          <div className={styles.pilotageRightsOverlay} role="dialog" aria-modal="true">
+            <section className={styles.pilotageRightsSheet}>
+              <header>
+                <div>
+                  <h2>Droits de {user.name || user.email}</h2>
+                  <p>Cliquer : défaut → accordé → retiré → défaut</p>
+                </div>
+                <div className={styles.pilotageInviteActions}>
+                  {permissionsEditable && overrideCount > 0 ? <button type="button" className={styles.pilotageGhost} onClick={() => void onUpdateProfile(user.id, { permissions_override: {} })}>Réinitialiser</button> : null}
+                  <button type="button" className={styles.pilotagePrimary} onClick={() => setRightsUserId(null)}>Fermer</button>
+                </div>
+              </header>
+              <h3>Module Stock</h3>
+              <div className={styles.adminPermissionsGrid}>
+                {WEB_PERMISSION_DEFS.filter(item => item.inventory).map(item => {
+                  const override = overrides[item.key];
+                  const effective = override ?? roleDefaults[item.key];
+                  return (
+                    <button key={item.key} type="button" disabled={!permissionsEditable} className={override === true ? styles.permissionOverrideEnabled : override === false ? styles.permissionOverrideDisabled : styles.permissionRoleDefault} onClick={() => updatePermission(item.key)}>
+                      <i className={effective ? styles.permissionEffectiveOn : styles.permissionEffectiveOff} />
+                      <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                      <b>{override === true ? 'Accordé' : override === false ? 'Retiré' : roleDefaults[item.key] ? 'Par le rôle' : 'Désactivé'}</b>
+                    </button>
+                  );
+                })}
+              </div>
+              <h3>Autres modules BuildTrack</h3>
+              <div className={styles.adminPermissionsGrid}>
+                {WEB_PERMISSION_DEFS.filter(item => !item.inventory).map(item => {
+                  const override = overrides[item.key];
+                  const effective = override ?? roleDefaults[item.key];
+                  return (
+                    <button key={item.key} type="button" disabled={!permissionsEditable} className={override === true ? styles.permissionOverrideEnabled : override === false ? styles.permissionOverrideDisabled : styles.permissionRoleDefault} onClick={() => updatePermission(item.key)}>
+                      <i className={effective ? styles.permissionEffectiveOn : styles.permissionEffectiveOff} />
+                      <span><strong>{item.label}</strong><small>{item.description}</small></span>
+                      <b>{override === true ? 'Accordé' : override === false ? 'Retiré' : roleDefaults[item.key] ? 'Par le rôle' : 'Désactivé'}</b>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </div>
+        );
+      })() : null}
 
       {pilotageTab === 'companies' ? (
         <section className={`${styles.panel} ${styles.pilotagePanel}`}>
@@ -16942,32 +17014,64 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
             event.preventDefault();
             if (!companyDraft.name.trim()) return;
             if (editingCompanyId) {
-              await onUpdateCompany?.(editingCompanyId, { name: companyDraft.name.trim(), email: companyDraft.email || null, contact: companyDraft.contact, siret: companyDraft.siret || null });
+              await onUpdateCompany?.(editingCompanyId, {
+                name: companyDraft.name.trim(),
+                short_name: companyDraft.short_name.trim() || companyDraft.name.trim().slice(0, 4).toUpperCase(),
+                email: companyDraft.email || null,
+                contact: companyDraft.contact,
+                siret: companyDraft.siret || null,
+                insurance: companyDraft.insurance || null,
+                lots: companyDraft.lots,
+              });
               setEditingCompanyId(null);
             } else {
               await onCreateCompany?.(companyDraft);
             }
-            setCompanyDraft({ name: '', email: '', contact: '', siret: '' });
+            setCompanyDraft({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] });
           }}>
             <div className={styles.pilotageCompanyForm}>
               <label>Nom<input value={companyDraft.name} onChange={event => setCompanyDraft(prev => ({ ...prev, name: event.target.value }))} required /></label>
+              <label>Sigle<input value={companyDraft.short_name} onChange={event => setCompanyDraft(prev => ({ ...prev, short_name: event.target.value }))} placeholder="ABC" /></label>
               <label>Email<input value={companyDraft.email} onChange={event => setCompanyDraft(prev => ({ ...prev, email: event.target.value }))} type="email" /></label>
               <label>Téléphone<input value={companyDraft.contact} onChange={event => setCompanyDraft(prev => ({ ...prev, contact: event.target.value }))} /></label>
               <label>SIRET<input value={companyDraft.siret} onChange={event => setCompanyDraft(prev => ({ ...prev, siret: event.target.value }))} /></label>
+              <label>Assurance<input value={companyDraft.insurance} onChange={event => setCompanyDraft(prev => ({ ...prev, insurance: event.target.value }))} /></label>
               <button type="submit" className={styles.pilotagePrimary}>{editingCompanyId ? 'Enregistrer' : 'Ajouter'}</button>
             </div>
+            {data.lots.length ? (
+              <div className={styles.pilotageLotPicker}>
+                {data.lots.map((lot: any) => {
+                  const id = String(lot.id);
+                  const active = companyDraft.lots.includes(id);
+                  return (
+                    <button key={id} type="button" data-active={active ? 'true' : 'false'} onClick={() => setCompanyDraft(prev => ({
+                      ...prev,
+                      lots: active ? prev.lots.filter(item => item !== id) : [...prev.lots, id],
+                    }))}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</button>
+                  );
+                })}
+              </div>
+            ) : null}
           </form>
           <div className={styles.pilotageInviteList}>
             {data.companies.map(company => (
               <article key={company.id} className={styles.pilotageInviteCard}>
                 <div>
                   <strong>{company.name}</strong>
-                  <span>{[company.email, company.contact, company.siret].filter(Boolean).join(' · ') || 'Sans contact'}</span>
+                  <span>{[company.short_name, company.email, company.contact, company.siret, company.insurance].filter(Boolean).join(' · ') || 'Sans contact'}</span>
                 </div>
                 <div className={styles.pilotageInviteActions}>
                   <button type="button" className={styles.pilotageGhost} onClick={() => {
                     setEditingCompanyId(company.id);
-                    setCompanyDraft({ name: company.name ?? '', email: company.email ?? '', contact: company.contact ?? '', siret: company.siret ?? '' });
+                    setCompanyDraft({
+                      name: company.name ?? '',
+                      short_name: company.short_name ?? '',
+                      email: company.email ?? '',
+                      contact: company.contact ?? '',
+                      siret: company.siret ?? '',
+                      insurance: company.insurance ?? '',
+                      lots: Array.isArray(company.lots) ? company.lots.map(String) : [],
+                    });
                   }}>Modifier</button>
                   <button type="button" className={styles.pilotageDanger} onClick={() => {
                     if (window.confirm(`Supprimer ${company.name} ?`)) void onDeleteCompany?.(company.id);
@@ -16988,6 +17092,18 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
               <p>{license?.planName ?? 'Plan'} · {license?.status ?? 'inconnu'}</p>
             </div>
           </div>
+          {license?.status === 'trial' || license?.status === 'suspended' || license?.status === 'expired' ? (
+            <div className={styles.pilotageLicenseBanner} data-tone={license.status}>
+              <strong>{license.status === 'trial' ? 'Essai en cours' : license.status === 'suspended' ? 'Licence suspendue' : 'Licence expirée'}</strong>
+              <span>
+                {license.status === 'trial' && license.trialEndsAt
+                  ? `Fin d’essai le ${prettyDate(license.trialEndsAt)}.`
+                  : license.status === 'suspended'
+                    ? 'Les invitations et certains accès peuvent être bloqués. Contactez le support.'
+                    : 'Renouvelez la licence pour continuer à inviter des membres.'}
+              </span>
+            </div>
+          ) : null}
           <div className={styles.pilotageLicense}>
             <article>
               <span>Sièges</span>
