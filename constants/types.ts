@@ -692,6 +692,8 @@ export interface JournalEntry {
   weatherWind?: number;
   weatherDescription?: string;
   weatherCode?: number;
+  photoUri?: string;
+  chantierId?: string | null;
 }
 
 export interface TimeEntry {

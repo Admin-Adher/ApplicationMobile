@@ -1186,7 +1186,11 @@ function useEscapeClose(active: boolean, onClose: () => void) {
 }
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 function addDaysISO(value: string, days: number) {
@@ -2494,6 +2498,8 @@ function journalRowToEntry(row: any) {
     id: row.id,
     date: row.entry_date ?? row.date ?? '',
     weather: row.weather ?? '',
+    weatherTemp: row.weather_temp ?? row.weatherTemp,
+    weatherWind: row.weather_wind ?? row.weatherWind,
     workerCount: row.worker_count ?? row.workerCount ?? 0,
     workDone: row.work_done ?? row.workDone ?? '',
     materials: row.materials ?? '',
@@ -5251,6 +5257,9 @@ export default function BuildTrackWebPage() {
       chantier_id: payload.chantier_id ?? null,
       entry_date: payload.date || todayISO(),
       weather: String(payload.weather ?? ''),
+      weather_temp: payload.weatherTemp ?? null,
+      weather_wind: payload.weatherWind ?? null,
+      weather_code: payload.weatherCode ?? null,
       worker_count: Number(payload.workerCount ?? 0),
       work_done: String(payload.workDone ?? ''),
       materials: String(payload.materials ?? ''),
@@ -5269,6 +5278,30 @@ export default function BuildTrackWebPage() {
     setData(prev => ({ ...prev, journalEntries: [saved, ...prev.journalEntries] }));
     setNotice('Entrée de journal enregistrée.');
     return saved;
+  }
+
+  async function updateJournalEntryWeb(entry: any, payload: Record<string, any>) {
+    if (!profile || !canCreate(profile) || !entry?.id) return null;
+    const patch = {
+      entry_date: payload.date || entry.entry_date,
+      weather: String(payload.weather ?? entry.weather ?? ''),
+      weather_temp: payload.weatherTemp ?? entry.weather_temp ?? null,
+      weather_wind: payload.weatherWind ?? entry.weather_wind ?? null,
+      worker_count: Number(payload.workerCount ?? entry.worker_count ?? 0),
+      work_done: String(payload.workDone ?? entry.work_done ?? ''),
+      materials: String(payload.materials ?? entry.materials ?? ''),
+      incidents: String(payload.incidents ?? entry.incidents ?? ''),
+      observations: String(payload.observations ?? entry.observations ?? ''),
+      visitors: String(payload.visitors ?? entry.visitors ?? ''),
+    };
+    const { data: updated, error } = await supabaseBrowser.from('journal_entries').update(patch).eq('id', entry.id).select().single();
+    if (error) {
+      setError(error.message);
+      return null;
+    }
+    setData(prev => ({ ...prev, journalEntries: prev.journalEntries.map((item: any) => item.id === entry.id ? (updated ?? { ...item, ...patch }) : item) }));
+    setNotice('Entrée de journal mise à jour.');
+    return updated;
   }
 
   async function deleteJournalEntryWeb(entry: any) {
@@ -5792,6 +5825,7 @@ export default function BuildTrackWebPage() {
       oprs: data.oprs.filter(byProject),
       timeEntries: profile?.role === 'sous_traitant' ? [] : data.timeEntries,
       regulatoryDocs: profile?.role === 'sous_traitant' ? [] : data.regulatoryDocs,
+      journalEntries: (data.journalEntries ?? []).filter((item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId),
     };
   }, [data, selectedProjectId, profile, canViewReserveTrash]);
 
@@ -6367,8 +6401,9 @@ export default function BuildTrackWebPage() {
                 canCreate={canCreate(profile)}
                 canDelete={canDelete(profile)}
                 canExport={canExport(profile)}
-                rows={data.journalEntries}
+                rows={projectScoped.journalEntries}
                 onCreate={createJournalEntryWeb}
+                onUpdate={updateJournalEntryWeb}
                 onDelete={deleteJournalEntryWeb}
                 onMigrate={migrateLocalJournalWeb}
               />
@@ -12879,7 +12914,7 @@ function RestrictedTool({ title }: { title: string }) {
   );
 }
 
-function JournalView({ profile, projectName, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onDelete, onMigrate }: any) {
+function JournalView({ profile, projectName, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
   const [showForm, setShowForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<any>(() => ({
@@ -12909,21 +12944,25 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
   }, [profile, selectedProjectId]);
 
   const entries = useMemo<any[]>(() => (rows ?? [])
-    .filter((row: any) => selectedProjectId === 'all' || !row.chantier_id || row.chantier_id === selectedProjectId)
     .map(journalRowToEntry)
-    .sort((a: any, b: any) => String(b.date).localeCompare(String(a.date))), [rows, selectedProjectId]);
+    .sort((a: any, b: any) => String(b.date).localeCompare(String(a.date))), [rows]);
 
   async function submitEntry(event: React.FormEvent) {
     event.preventDefault();
     if (!canCreate || !draft.workDone.trim() || busy) return;
+    const duplicate = !draft.id && entries.some((entry: any) => entry.date === draft.date);
+    if (duplicate && !window.confirm(`Une entrée existe déjà pour le ${draft.date}. Créer quand même ?`)) return;
     setBusy(true);
     try {
       const attendanceCount = new Set(timeEntries.filter((entry: any) => entry.date === draft.date).map((entry: any) => entry.worker_name)).size;
-      const saved = await onCreate({
+      const payload = {
         ...draft,
         workerCount: Number(draft.workerCount || attendanceCount || 0),
         chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
-      });
+      };
+      const saved = draft.id
+        ? await onUpdate?.(entries.find((entry: any) => entry.id === draft.id) ?? draft, payload)
+        : await onCreate(payload);
       if (saved) {
         setDraft({ date: todayISO(), weather: '', workerCount: '', workDone: '', materials: '', incidents: '', observations: '', visitors: '' });
         setShowForm(false);
@@ -12942,16 +12981,20 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
         <td>${xmlEscape(entry.workDone)}</td>
         <td>${xmlEscape(entry.materials || '')}</td>
         <td>${xmlEscape(entry.incidents || '')}</td>
-        <td>${xmlEscape(entry.observations || '')}</td>
+        <td>${xmlEscape(entry.visitors || '')}</td>
+        <td>${xmlEscape(entry.author || '')}</td>
       </tr>
     `).join('');
     printHtmlReport(`
-      <html><head><title>Journal ${xmlEscape(projectName)}</title></head>
-      <body style="font-family:Arial,sans-serif;padding:24px">
-        <h1>Journal de chantier - ${xmlEscape(projectName)}</h1>
-        <table style="width:100%;border-collapse:collapse" border="1" cellpadding="8">
-          <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux</th><th>Matériaux</th><th>Incidents</th><th>Observations</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="7">Aucune entrée</td></tr>'}</tbody>
+      <html><head><title>Journal ${xmlEscape(projectName)}</title>
+      <style>body{font-family:Arial,sans-serif;padding:24px;color:#1e293b}h1{color:#003082}table{width:100%;border-collapse:collapse}th{background:#003082;color:#fff;padding:8px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}</style>
+      </head>
+      <body>
+        <h1>Journal de chantier — ${xmlEscape(projectName)}</h1>
+        <p>${entries.length} entrée(s) · Export ${todayISO()}</p>
+        <table>
+          <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux</th><th>Matériaux</th><th>Incidents</th><th>Visiteurs</th><th>Auteur</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="8">Aucune entrée</td></tr>'}</tbody>
         </table>
       </body></html>
     `, `BuildTrack_journal_${projectName}.pdf`);
@@ -12978,7 +13021,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
           </div>
           <div className={styles.inlineActions}>
             {canExport ? <button type="button" onClick={exportJournal}>Exporter</button> : null}
-            {canCreate ? <button type="button" onClick={() => setShowForm(value => !value)}>{showForm ? 'Fermer' : 'Nouvelle entrée'}</button> : null}
+            {canCreate ? <button type="button" onClick={() => { setDraft({ date: todayISO(), weather: '', workerCount: '', workDone: '', materials: '', incidents: '', observations: '', visitors: '' }); setShowForm(value => !value); }}>{showForm ? 'Fermer' : 'Journal du jour'}</button> : null}
           </div>
         </div>
         {canCreate && showForm && (
@@ -13005,7 +13048,9 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
                 <strong>{prettyDate(entry.date)} · {entry.workerCount || 0} présent(s)</strong>
                 <small>{entry.weather || 'Météo non renseignée'} · {entry.author}</small>
                 <p>{entry.workDone}</p>
+                {entry.incidents ? <p style={{ color: '#b45309' }}>⚠ {entry.incidents}</p> : null}
               </div>
+              {canCreate ? <button type="button" onClick={() => { setDraft({ id: entry.id, date: entry.date, weather: entry.weather ?? '', workerCount: String(entry.workerCount ?? ''), workDone: entry.workDone ?? '', materials: entry.materials ?? '', incidents: entry.incidents ?? '', observations: entry.observations ?? '', visitors: entry.visitors ?? '' }); setShowForm(true); }}>Modifier</button> : null}
               {canDelete ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
             </article>
           ))}

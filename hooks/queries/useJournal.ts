@@ -86,6 +86,11 @@ function toJournalEntry(row: any): JournalEntryWithChantier {
     id: String(row.id),
     date: isoToFRDate(row.entry_date ?? ''),
     weather: row.weather ?? '',
+    weatherTemp: row.weather_temp == null ? undefined : Number(row.weather_temp),
+    weatherWind: row.weather_wind == null ? undefined : Number(row.weather_wind),
+    weatherCode: row.weather_code == null ? undefined : Number(row.weather_code),
+    weatherDescription: row.weather_description ?? undefined,
+    photoUri: row.photo_uri ?? undefined,
     workerCount: typeof row.worker_count === 'number' ? row.worker_count : 0,
     workDone: row.work_done ?? '',
     materials: row.materials ?? '',
@@ -113,6 +118,11 @@ function fromJournalEntry(
     chantier_id: e.chantierId ?? null,
     entry_date: frToISODate(e.date),
     weather: e.weather ?? '',
+    weather_temp: e.weatherTemp ?? null,
+    weather_wind: e.weatherWind ?? null,
+    weather_code: e.weatherCode ?? null,
+    weather_description: e.weatherDescription ?? null,
+    photo_uri: e.photoUri ?? null,
     worker_count: e.workerCount ?? 0,
     work_done: e.workDone ?? '',
     materials: e.materials ?? '',
@@ -261,10 +271,31 @@ export function useJournal() {
     }
   }, [queryClient, user, enqueueOperation, persist]);
 
+  const updateEntry = useCallback(async (entry: JournalEntryWithChantier) => {
+    const orgId = user?.organizationId ?? null;
+    const authorId = user?.id ?? null;
+    queryClient.setQueryData<JournalEntryWithChantier[]>(JOURNAL_QUERY_KEY, old =>
+      (old ?? []).map(item => item.id === entry.id ? entry : item),
+    );
+    persist(queryClient.getQueryData<JournalEntryWithChantier[]>(JOURNAL_QUERY_KEY) ?? []);
+    if (!isSupabaseConfigured) return;
+    const payload = fromJournalEntry(entry, orgId, authorId);
+    if (!isOnlineRef.current) {
+      enqueueOperation({ table: JOURNAL_TABLE, op: 'update', data: payload });
+      return;
+    }
+    const { error } = await (supabase as any).from(JOURNAL_TABLE).update(payload).eq('id', entry.id);
+    if (error) {
+      console.warn('[sync] updateJournalEntry error, queuing for retry:', error.message);
+      enqueueOperation({ table: JOURNAL_TABLE, op: 'update', data: payload });
+    }
+  }, [queryClient, user, enqueueOperation, persist]);
+
   return {
     entries: query.data ?? [],
     isLoadingJournal: query.isLoading,
     addEntry,
+    updateEntry,
     invalidateJournal: () => queryClient.invalidateQueries({ queryKey: JOURNAL_QUERY_KEY }),
   };
 }

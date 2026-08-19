@@ -2,8 +2,10 @@ import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platfo
 import DateInput from '@/components/DateInput';
 import PageContainer from '@/components/PageContainer';
 import { showAlert } from '@/lib/appAlert';
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import { MediaImage } from '@/components/MediaImage';
 import * as Location from 'expo-location';
 import {
   exportPDF as exportPDFHelper,
@@ -210,13 +212,19 @@ export default function JournalScreen() {
   const { activeChantierId } = useApp();
   // Persistance Supabase offline-first (la migration one-shot des anciennes
   // clés AsyncStorage buildtrack_journal_v2/v1 s'exécute au premier fetch).
-  const { entries, addEntry } = useJournal();
+  const { entries, addEntry, updateEntry } = useJournal();
+  const siteEntries = useMemo(
+    () => entries.filter(entry => !activeChantierId || entry.chantierId === activeChantierId),
+    [entries, activeChantierId],
+  );
   const [showNew, setShowNew] = useState(false);
   const [fetchingWeather, setFetchingWeather] = useState(false);
   const [weatherDetail, setWeatherDetail] = useState<{ temp: number | null; wind: number | null; code: number | null } | null>(null);
 
   const todayFR = formatDateFR(new Date());
-  const hasTodayEntry = entries.some(e => e.date === todayFR);
+  const hasTodayEntry = siteEntries.some(e => e.date === todayFR);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
 
   const [date, setDate] = useState(formatDateFR(new Date()));
   const [weather, setWeather] = useState('');
@@ -257,6 +265,8 @@ export default function JournalScreen() {
     setWeatherDetail(null);
     setWorkerCountFromPointage(0);
     setSubmitAttempted(false);
+    setEditingId(null);
+    setPhotoUri(null);
   };
 
   const handleAutoWeather = useCallback(async () => {
@@ -297,10 +307,13 @@ export default function JournalScreen() {
     const save = () => {
       const parsedWorkers = parseInt(workerCount, 10);
       const finalWeather = weather.trim() || '—';
+      const weatherLabel = weatherDetail?.temp != null || weatherDetail?.wind != null
+        ? `${finalWeather}${weatherDetail?.temp != null ? ` · ${Math.round(weatherDetail.temp)}°C` : ''}${weatherDetail?.wind != null ? ` · ${Math.round(weatherDetail.wind)} km/h` : ''}`
+        : finalWeather;
       const entry: JournalEntry = {
-        id: genId(),
+        id: editingId ?? genId(),
         date,
-        weather: finalWeather,
+        weather: weatherLabel,
         workerCount: isNaN(parsedWorkers) || parsedWorkers < 0 ? 0 : parsedWorkers,
         workDone: workDone.trim(),
         materials: materials.trim(),
@@ -313,13 +326,16 @@ export default function JournalScreen() {
         weatherWind: weatherDetail?.wind ?? undefined,
         weatherCode: weatherDetail?.code ?? undefined,
         weatherDescription: weatherDetail ? finalWeather : undefined,
+        photoUri: photoUri ?? undefined,
+        chantierId: activeChantierId ?? null,
       };
-      void addEntry({ ...entry, chantierId: activeChantierId ?? null });
+      if (editingId) void updateEntry(entry);
+      else void addEntry(entry);
       resetForm();
       setShowNew(false);
     };
 
-    const duplicateEntry = entries.find(e => e.date === date);
+    const duplicateEntry = !editingId && siteEntries.find(e => e.date === date);
     if (duplicateEntry) {
       showAlert(
         t('journal.duplicateTitle'),
@@ -333,7 +349,7 @@ export default function JournalScreen() {
     }
 
     save();
-  }, [date, weather, workerCount, workDone, materials, incidents, observations, visitors, weatherDetail, user, entries, addEntry, activeChantierId, t]);
+  }, [date, weather, workerCount, workDone, materials, incidents, observations, visitors, weatherDetail, user, siteEntries, addEntry, updateEntry, editingId, photoUri, activeChantierId, t]);
 
   async function handleExportPDF() {
     if (!permissions.canExport) {
@@ -342,14 +358,14 @@ export default function JournalScreen() {
     }
     try {
       const exportT = getExportTranslator(exportLanguage) as unknown as (key: string, options?: any) => string;
-      const html = buildJournalHTML(entries, projectName, exportT, localeForExportLanguage(exportLanguage));
+      const html = buildJournalHTML(siteEntries, projectName, exportT, localeForExportLanguage(exportLanguage));
       await exportPDFHelper(html, buildPdfFilename(exportT('journal.pdf.filename'), [projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('common.error'), e?.message ?? t('journal.pdfError'));
     }
   }
 
-  const totalWorkers = entries.reduce((acc, e) => acc + e.workerCount, 0);
+  const totalWorkers = siteEntries.reduce((acc, e) => acc + e.workerCount, 0);
   const workDoneError = (submitAttempted || workDoneTouched) && !workDone.trim();
 
   if (user?.role === 'sous_traitant') {
@@ -376,7 +392,7 @@ export default function JournalScreen() {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Header
         title={t('journal.title')}
-        subtitle={t('journal.subtitle', { count: entries.length, project: projectName })}
+        subtitle={t('journal.subtitle', { count: siteEntries.length, project: projectName })}
         showBack
         rightLabel={permissions.canCreate ? (showNew ? t('common.cancel') : t('common.add')) : undefined}
         onRightPress={permissions.canCreate ? () => { resetForm(); setShowNew(s => !s); } : undefined}
@@ -404,10 +420,10 @@ export default function JournalScreen() {
           </TouchableOpacity>
         )}
 
-        {entries.length > 0 && (
+        {siteEntries.length > 0 && (
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <Text style={styles.statVal}>{entries.length}</Text>
+              <Text style={styles.statVal}>{siteEntries.length}</Text>
               <Text style={styles.statLabel}>{t('journal.entriesStat')}</Text>
             </View>
             <View style={styles.statCard}>
@@ -415,8 +431,8 @@ export default function JournalScreen() {
               <Text style={styles.statLabel}>{t('journal.totalWorkersStat')}</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={[styles.statVal, entries.filter(e => e.incidents).length > 0 ? { color: C.open } : {}]}>
-                {entries.filter(e => e.incidents).length}
+              <Text style={[styles.statVal, siteEntries.filter(e => e.incidents).length > 0 ? { color: C.open } : {}]}>
+                {siteEntries.filter(e => e.incidents).length}
               </Text>
               <Text style={styles.statLabel}>{t('journal.incidentsStat')}</Text>
             </View>
@@ -431,7 +447,7 @@ export default function JournalScreen() {
 
         {showNew && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t('journal.newEntry')}</Text>
+            <Text style={styles.sectionTitle}>{editingId ? t('common.edit') : t('journal.newEntry')}</Text>
 
             <DateInput label={t('journal.date')} value={date} onChange={setDate} />
 
@@ -542,9 +558,9 @@ export default function JournalScreen() {
                         { text: t('pointage.stay'), style: 'cancel' },
                         {
                           text: t('common.continue'),
-                          onPress: () => router.navigate({
-                            pathname: '/(tabs)/incidents',
-                            params: { openCreate: '1', prefillDescription: incidents.trim() },
+                          onPress: () => router.push({
+                            pathname: '/incident/new',
+                            params: { description: incidents.trim() },
                           } as any),
                         },
                       ]
@@ -569,6 +585,25 @@ export default function JournalScreen() {
             <Text style={styles.label}>{t('journal.visitorsLabel')}</Text>
             <TextInput style={styles.input} placeholder={t('journal.visitorsPlaceholder')} placeholderTextColor={C.textMuted} value={visitors} onChangeText={setVisitors} />
 
+            <Text style={styles.label}>{t('visits.new.coverPhoto')}</Text>
+            <TouchableOpacity
+              style={styles.photoBtn}
+              onPress={async () => {
+                const cam = await ImagePicker.requestCameraPermissionsAsync();
+                if (cam.status === 'granted') {
+                  const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
+                  if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+                  return;
+                }
+                const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+                if (lib.status !== 'granted') return;
+                const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7 });
+                if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+              }}
+            >
+              {photoUri ? <MediaImage source={{ uri: photoUri }} style={styles.photoPreview} /> : <Text style={styles.photoBtnTxt}>{t('visits.new.coverPhoto')}</Text>}
+            </TouchableOpacity>
+
             <Text style={styles.label}>{t('journal.observationsLabel')}</Text>
             <TextInput style={[styles.input, styles.multiline]} placeholder={t('journal.observationsPlaceholder')} placeholderTextColor={C.textMuted} value={observations} onChangeText={setObservations} multiline numberOfLines={2} />
 
@@ -579,7 +614,7 @@ export default function JournalScreen() {
           </View>
         )}
 
-        {entries.length === 0 && !showNew && (
+        {siteEntries.length === 0 && !showNew && (
           <View style={styles.emptyBox}>
             <Ionicons name="journal-outline" size={52} color={C.border} />
             <Text style={styles.emptyTitle}>{t('journal.emptyTitle')}</Text>
@@ -593,8 +628,27 @@ export default function JournalScreen() {
           </View>
         )}
 
-        {entries.map(entry => (
-          <View key={entry.id} style={styles.entryCard}>
+        {siteEntries.map(entry => (
+          <TouchableOpacity
+            key={entry.id}
+            style={styles.entryCard}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (!permissions.canCreate) return;
+              setEditingId(entry.id);
+              setDate(entry.date);
+              setWeather(entry.weather);
+              setWeatherDetail(entry.weatherTemp != null || entry.weatherWind != null ? { temp: entry.weatherTemp ?? null, wind: entry.weatherWind ?? null, code: entry.weatherCode ?? null } : null);
+              setWorkerCount(String(entry.workerCount || ''));
+              setWorkDone(entry.workDone);
+              setMaterials(entry.materials);
+              setIncidents(entry.incidents);
+              setObservations(entry.observations);
+              setVisitors(entry.visitors);
+              setPhotoUri(entry.photoUri ?? null);
+              setShowNew(true);
+            }}
+          >
             <View style={styles.entryHeader}>
               <View style={styles.entryDateBadge}>
                 <Text style={styles.entryDate}>{entry.date}</Text>
@@ -632,7 +686,8 @@ export default function JournalScreen() {
             {entry.observations ? (
               <Text style={styles.entryObs}>{entry.observations}</Text>
             ) : null}
-          </View>
+            {entry.photoUri ? <MediaImage source={{ uri: entry.photoUri }} style={styles.entryPhoto} /> : null}
+          </TouchableOpacity>
         ))}
       </ScrollView>
       </PageContainer>
@@ -643,7 +698,11 @@ export default function JournalScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { padding: 16, paddingBottom: 110 },
+  photoBtn: { minHeight: 88, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, alignItems: 'center', justifyContent: 'center', marginBottom: 10, overflow: 'hidden' },
+  photoBtnTxt: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
+  photoPreview: { width: '100%', height: 140 },
+  entryPhoto: { width: '100%', height: 120, borderRadius: 10, marginTop: 10 },
   todayCTA: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     backgroundColor: C.primaryBg, borderRadius: 14, padding: 14, marginBottom: 14,
