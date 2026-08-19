@@ -17083,7 +17083,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
               insurance: companyDraft.insurance,
               lots: companyDraft.lots,
               color: companyDraft.color,
-              logo_url: logoUrl || null,
+              logo_url: logoUrl || undefined,
             };
             if (editingCompanyId) await onUpdateCompany?.(editingCompanyId, payload);
             else await onCreateCompany?.(payload);
