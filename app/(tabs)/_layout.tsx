@@ -2,7 +2,7 @@ import { Tabs, usePathname, useRouter } from 'expo-router';
 import { InteractionManager, Platform, View, Text, StyleSheet, TouchableOpacity, useWindowDimensions, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect } from 'react';
+import { useEffect, type ComponentProps } from 'react';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useAppTabBadges } from '@/context/AppContext';
@@ -12,13 +12,22 @@ import { useBottomNavigationInset } from '@/hooks/useBottomNavigationInset';
 import { useAuth } from '@/context/AuthContext';
 import { isConducteurRole, isOrgAdminRole } from '@/lib/roleNavigation';
 
-const TAB_ITEMS = [
+type TabIconName = ComponentProps<typeof Ionicons>['name'];
+type TabItem = {
+  name: string;
+  titleKey: string;
+  icon: TabIconName;
+  iconOutline: TabIconName;
+  path: string;
+};
+
+const TAB_ITEMS: TabItem[] = [
   { name: 'index',    titleKey: 'tabs.dashboard', icon: 'sunny',         iconOutline: 'sunny-outline',       path: '/(tabs)/' },
   { name: 'plans',    titleKey: 'tabs.plans',     icon: 'map',           iconOutline: 'map-outline',         path: '/(tabs)/plans' },
   { name: 'reserves', titleKey: 'tabs.reserves',  icon: 'warning',       iconOutline: 'warning-outline',     path: '/(tabs)/reserves' },
   { name: 'messages', titleKey: 'tabs.messages',  icon: 'chatbubbles',   iconOutline: 'chatbubbles-outline', path: '/(tabs)/messages' },
   { name: 'more',     titleKey: 'tabs.more',      icon: 'hammer',        iconOutline: 'hammer-outline',      path: '/(tabs)/more' },
-] as const;
+];
 
 const PREFETCH_TAB_PATHS = ['/(tabs)/plans', '/(tabs)/reserves', '/(tabs)/messages', '/(tabs)/more'] as const;
 
@@ -35,11 +44,11 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
   );
 }
 
-function visibleTabItems(role?: string | null) {
+function visibleTabItems(role?: string | null): TabItem[] {
   if (isOrgAdminRole(role)) {
     return [
       { name: 'admin', titleKey: 'tabs.pilotage', icon: 'briefcase', iconOutline: 'briefcase-outline', path: '/(tabs)/admin' },
-      ...TAB_ITEMS.filter(tab => tab.name !== 'messages' && tab.name !== 'admin'),
+      ...TAB_ITEMS.filter(tab => tab.name !== 'messages'),
     ];
   }
   return isConducteurRole(role) ? TAB_ITEMS.filter(tab => tab.name !== 'messages') : TAB_ITEMS;

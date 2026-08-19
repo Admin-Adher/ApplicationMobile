@@ -192,8 +192,9 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         const payload = fromIncident(incident, orgIdRef.current ?? null);
         const prep = await uploadLocalPhotosInPayload('incidents', payload);
         const { error } = await ((supabase as any).from('incidents') as any).upsert(prep.data ?? payload);
-        if (prep.data?.photo_uri && prep.data.photo_uri !== incident.photoUri) {
-          const next = incidentsRef.current.map(item => item.id === incident.id ? { ...item, photoUri: prep.data.photo_uri } : item);
+        const uploadedPhoto = prep.data?.photo_uri;
+        if (uploadedPhoto && uploadedPhoto !== incident.photoUri) {
+          const next = incidentsRef.current.map(item => item.id === incident.id ? { ...item, photoUri: uploadedPhoto } : item);
           await persist(next);
         }
         if (error) throw error;
