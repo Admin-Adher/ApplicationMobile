@@ -16598,6 +16598,51 @@ function OperatorCockpit({ data, onEnterSupport }: { data: WebState; onEnterSupp
   );
 }
 
+function PilotageSelect({
+  value,
+  options,
+  disabled,
+  placeholder,
+  onChange,
+}: {
+  value: string;
+  options: Array<{ value: string; label: string }>;
+  disabled?: boolean;
+  placeholder?: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const current = options.find(option => option.value === value)?.label || placeholder || '—';
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [open]);
+  return (
+    <div className={styles.pilotageSelect} ref={rootRef} data-open={open ? 'true' : 'false'} data-disabled={disabled ? 'true' : 'false'}>
+      <button type="button" disabled={disabled} onClick={event => { event.stopPropagation(); if (!disabled) setOpen(value => !value); }}>
+        <span>{current}</span>
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6.2 8 10l4-3.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </button>
+      {open ? (
+        <ul>
+          {options.map(option => (
+            <li key={option.value || 'empty'}>
+              <button type="button" data-active={option.value === value ? 'true' : 'false'} onClick={event => { event.stopPropagation(); onChange(option.value); setOpen(false); }}>
+                {option.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCompany, onUpdateCompany, onDeleteCompany, onRemoveUser }: {
   data: WebState;
   profile: Profile | null;
@@ -16883,13 +16928,19 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                     <strong>{user.name || 'Sans nom'}</strong>
                     <span>{user.email}</span>
                   </div>
-                  <select disabled={!targetEditable} value={user.role ?? ''} onClick={event => event.stopPropagation()} onChange={event => void onUpdateProfile(user.id, { role: event.target.value })}>
-                    {roleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-                  </select>
-                  <select disabled={!targetEditable} value={user.company_id ?? ''} onClick={event => event.stopPropagation()} onChange={event => void onUpdateProfile(user.id, { company_id: event.target.value || null })}>
-                    <option value="">Aucune entreprise</option>
-                    {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-                  </select>
+                  <PilotageSelect
+                    disabled={!targetEditable}
+                    value={user.role ?? ''}
+                    options={roleOptions.map(([value, label]) => ({ value, label }))}
+                    onChange={value => void onUpdateProfile(user.id, { role: value })}
+                  />
+                  <PilotageSelect
+                    disabled={!targetEditable}
+                    value={user.company_id ?? ''}
+                    placeholder={t('pilotage.noneCompany')}
+                    options={[{ value: '', label: t('pilotage.noneCompany') }, ...data.companies.map(item => ({ value: item.id, label: item.name }))]}
+                    onChange={value => void onUpdateProfile(user.id, { company_id: value || null })}
+                  />
                   <button
                     type="button"
                     className={styles.adminPermissionsButton}
