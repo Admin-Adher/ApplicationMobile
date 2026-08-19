@@ -6259,7 +6259,7 @@ export default function BuildTrackWebPage() {
         collapsed={sidebarCollapsed}
         mobileOpen={mobileNavOpen}
         actions={[
-          ...(canCreate(profile) ? [
+          ...(canCreate(profile) && activeTab !== 'admin' ? [
             {
               id: 'new-reserve',
               label: t('common.newReserve'),
@@ -16567,15 +16567,20 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
         <Kpi title="Entreprises" value={data.companies.length} hint="Fiches orga" tone="green" />
         <Kpi title="Chantiers" value={data.chantiers.length} hint="Périmètre" />
       </div>
-      <section className={styles.panel}>
+      <section className={`${styles.panel} ${styles.pilotagePanel}`}>
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>Inviter un membre</h2>
-            <p>{inviteStep === 1 ? '1/3 · Email' : inviteStep === 2 ? '2/3 · Rôle' : '3/3 · Entreprise'}</p>
+            <p>Email, rôle, entreprise. Trois étapes, un seul bouton.</p>
           </div>
+          <ol className={styles.pilotageSteps}>
+            <li data-active={inviteStep === 1 ? 'true' : 'false'}>Email</li>
+            <li data-active={inviteStep === 2 ? 'true' : 'false'}>Rôle</li>
+            <li data-active={inviteStep === 3 ? 'true' : 'false'}>Entreprise</li>
+          </ol>
         </div>
         <form
-          className={styles.formGrid}
+          className={styles.pilotageInviteForm}
           onSubmit={async event => {
             event.preventDefault();
             if (inviteStep === 1) {
@@ -16626,67 +16631,71 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
             void loadInvites();
           }}
         >
-          {inviteStep === 1 ? (
-            <label>Email<input value={inviteEmail} onChange={event => setInviteEmail(event.target.value)} type="email" required placeholder="prenom.nom@exemple.fr" /></label>
-          ) : null}
-          {inviteStep === 2 ? (
-            <label>Rôle
-              <select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>
-                {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
-                  <option key={value} value={value}>{label}</option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {inviteStep === 3 ? (
-            <label>Entreprise
-              <select value={inviteCompanyId} onChange={event => setInviteCompanyId(event.target.value)}>
-                <option value="">Aucune</option>
-                {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
-            </label>
-          ) : null}
-          <button type="submit" disabled={inviteBusy}>{inviteBusy ? 'Envoi…' : inviteStep < 3 ? 'Continuer' : 'Inviter'}</button>
-          {inviteStep > 1 ? <button type="button" onClick={() => setInviteStep(inviteStep === 3 ? 2 : 1)}>Retour</button> : null}
+          <div className={styles.pilotageInviteRow}>
+            {inviteStep === 1 ? (
+              <label>Email<input value={inviteEmail} onChange={event => setInviteEmail(event.target.value)} type="email" required placeholder="prenom.nom@exemple.fr" /></label>
+            ) : null}
+            {inviteStep === 2 ? (
+              <label>Rôle
+                <select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>
+                  {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            {inviteStep === 3 ? (
+              <label>Entreprise
+                <select value={inviteCompanyId} onChange={event => setInviteCompanyId(event.target.value)}>
+                  <option value="">Aucune</option>
+                  {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+                </select>
+              </label>
+            ) : null}
+            <div className={styles.pilotageInviteActions}>
+              {inviteStep > 1 ? <button type="button" className={styles.pilotageGhost} onClick={() => setInviteStep(inviteStep === 3 ? 2 : 1)}>Retour</button> : null}
+              <button type="submit" className={styles.pilotagePrimary} disabled={inviteBusy}>{inviteBusy ? 'Envoi…' : inviteStep < 3 ? 'Continuer' : 'Inviter'}</button>
+            </div>
+          </div>
         </form>
-        {inviteNotice ? <p className={styles.empty}>{inviteNotice}</p> : null}
+        {inviteNotice ? <p className={styles.pilotageNotice}>{inviteNotice}</p> : null}
         {pendingInvites.length ? (
-          <div className={styles.dataTable} style={{ marginTop: 16 }}>
-            <div className={styles.tableHead}><span>Invitation</span><span>Rôle</span><span>Action</span></div>
+          <div className={styles.pilotageInviteList}>
             {pendingInvites.map(invite => (
-              <div key={invite.id} className={styles.tableRow}>
-                <strong>{invite.email}</strong>
-                <span>{ROLE_LABELS[invite.role] ?? invite.role}</span>
-                <span>
-                  <button type="button" onClick={async () => {
+              <article key={invite.id} className={styles.pilotageInviteCard}>
+                <div>
+                  <strong>{invite.email}</strong>
+                  <span>{ROLE_LABELS[invite.role] ?? invite.role}</span>
+                </div>
+                <div className={styles.pilotageInviteActions}>
+                  <button type="button" className={styles.pilotageGhost} onClick={async () => {
                     await supabaseBrowser.rpc('admin_resend_invitation', { p_invitation_id: invite.id });
                     void loadInvites();
                   }}>Relancer</button>
-                  <button type="button" onClick={async () => {
+                  <button type="button" className={styles.pilotageDanger} onClick={async () => {
                     await supabaseBrowser.rpc('admin_delete_invitation', { p_invitation_id: invite.id });
                     void loadInvites();
                   }}>Annuler</button>
-                </span>
-              </div>
+                </div>
+              </article>
             ))}
           </div>
         ) : null}
       </section>
-      <section className={styles.panel}>
+      <section className={`${styles.panel} ${styles.pilotagePanel}`}>
         <div className={styles.panelHeaderCompact}>
           <div>
-            <h2>Utilisateurs et permissions</h2>
-            <p>Le rôle définit la base. Chaque permission peut ensuite être accordée, retirée ou remise au défaut du rôle.</p>
+            <h2>Membres</h2>
+            <p>Rôle, entreprise, puis les droits si besoin.</p>
           </div>
-          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher utilisateur..." />
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un membre…" />
         </div>
         <div className={styles.adminPermissionLegend}>
           <span><i className={styles.permissionDefaultDot} /> Défaut du rôle</span>
           <span><i className={styles.permissionEnabledDot} /> Accord manuel</span>
           <span><i className={styles.permissionDisabledDot} /> Retrait manuel</span>
         </div>
-        <div className={styles.dataTable}>
-          <div className={`${styles.tableHead} ${styles.adminTableHead}`}><span>Utilisateur</span><span>Rôle</span><span>Entreprise</span><span>Email</span><span>Droits</span></div>
+        <div className={styles.pilotageMembers}>
           {users.map(user => {
             const targetEditable = editorIsSuperAdmin || (user.role !== 'admin' && user.role !== 'super_admin');
             const permissionsEditable = targetEditable && user.role !== 'super_admin';
@@ -16706,23 +16715,26 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
             };
 
             return (
-              <div key={user.id} className={styles.adminUserBlock}>
-                 <div className={`${styles.tableRow} ${styles.adminTableRow}`} role="button" tabIndex={0} onClick={() => setExpandedUserId(expanded ? null : user.id)} onKeyDown={event => { if (event.key === 'Enter') setExpandedUserId(expanded ? null : user.id); }}>
-                  <strong>{user.name}</strong>
+              <div key={user.id} className={styles.pilotageMember}>
+                <div className={styles.pilotageMemberMain} role="button" tabIndex={0} onClick={() => setExpandedUserId(expanded ? null : user.id)} onKeyDown={event => { if (event.key === 'Enter') setExpandedUserId(expanded ? null : user.id); }}>
+                  <span className={styles.pilotageAvatar}>{(user.name || user.email || '?').slice(0, 1).toUpperCase()}</span>
+                  <div className={styles.pilotageMemberId}>
+                    <strong>{user.name || 'Sans nom'}</strong>
+                    <span>{user.email}</span>
+                  </div>
                   <select disabled={!targetEditable} value={user.role ?? ''} onClick={event => event.stopPropagation()} onChange={event => void onUpdateProfile(user.id, { role: event.target.value })}>
                     {roleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
                   <select disabled={!targetEditable} value={user.company_id ?? ''} onClick={event => event.stopPropagation()} onChange={event => void onUpdateProfile(user.id, { company_id: event.target.value || null })}>
-                    <option value="">Aucune</option>
+                    <option value="">Aucune entreprise</option>
                     {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
-                  <span>{user.email}</span>
                   <button
                     type="button"
                     className={styles.adminPermissionsButton}
                     onClick={event => { event.stopPropagation(); setExpandedUserId(current => current === user.id ? null : user.id); }}
                   >
-                    {user.role === 'super_admin' ? 'Droits fixes' : `${overrideCount} surcharge${overrideCount === 1 ? '' : 's'}`} {expanded ? '▴' : '▾'}
+                    {user.role === 'super_admin' ? 'Droits fixes' : `${overrideCount} droit${overrideCount === 1 ? '' : 's'}`} {expanded ? '▴' : '▾'}
                   </button>
                 </div>
                 {expanded ? (
@@ -16765,7 +16777,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
               </div>
             );
           })}
-          {!users.length && <p className={styles.empty}>Aucun utilisateur trouvé.</p>}
+          {!users.length && <p className={styles.empty}>Aucun membre trouvé.</p>}
         </div>
       </section>
     </div>

@@ -11220,3 +11220,108 @@
     transition: none;
   }
 }
+
+.pilotagePanel { overflow: hidden; }
+.pilotageSteps {
+  display: flex;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.pilotageSteps li {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+}
+.pilotageSteps li[data-active='true'] {
+  background: #003082;
+  color: #fff;
+}
+.pilotageInviteForm { padding: 0 20px 18px; }
+.pilotageInviteRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+.pilotageInviteRow label {
+  display: grid;
+  gap: 7px;
+  color: #334155;
+  font-size: 13px;
+  font-weight: 800;
+}
+.pilotageInviteRow input,
+.pilotageInviteRow select {
+  min-height: 48px;
+  border: 1px solid #d5deea;
+  border-radius: 12px;
+  padding: 0 14px;
+  font: inherit;
+}
+.pilotageInviteActions { display: flex; gap: 8px; align-items: center; }
+.pilotagePrimary,
+.pilotageGhost,
+.pilotageDanger {
+  min-height: 44px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.pilotagePrimary { border: 0; background: #003082; color: #fff; }
+.pilotageGhost { border: 1px solid #cbd7e6; background: #fff; color: #003082; }
+.pilotageDanger { border: 1px solid #fecaca; background: #fef2f2; color: #b91c1c; }
+.pilotageNotice { margin: 0 20px 16px; color: #047857; font-weight: 700; }
+.pilotageInviteList { display: grid; gap: 8px; padding: 0 20px 18px; }
+.pilotageInviteCard {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e8eef5;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+.pilotageInviteCard strong { display: block; }
+.pilotageInviteCard span { color: #64748b; font-size: 12px; font-weight: 700; }
+.pilotageMembers { display: grid; }
+.pilotageMember { border-bottom: 1px solid #eef2f7; }
+.pilotageMemberMain {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1.2fr) 160px minmax(140px, 0.9fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+}
+.pilotageAvatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #003082;
+  color: #fff;
+  display: grid;
+  place-items: center;
+  font-weight: 800;
+}
+.pilotageMemberId { min-width: 0; }
+.pilotageMemberId strong, .pilotageMemberId span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pilotageMemberId span { color: #64748b; font-size: 12px; }
+.pilotageMemberMain select {
+  min-height: 40px;
+  border: 1px solid #d5deea;
+  border-radius: 10px;
+  padding: 0 10px;
+  background: #fff;
+}
+@media (max-width: 900px) {
+  .pilotageInviteRow, .pilotageMemberMain { grid-template-columns: 1fr; }
+  .pilotageInviteCard { flex-direction: column; align-items: stretch; }
+}
