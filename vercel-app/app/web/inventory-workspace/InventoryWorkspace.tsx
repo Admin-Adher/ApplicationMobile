@@ -21,6 +21,7 @@ import {
   type InventoryDestination,
   type InventoryDestinationIntent,
 } from '../../../../lib/inventoryDestinationModel';
+import { isSameInventoryScanCode, nextInventoryScanPhase } from '../../../../lib/inventoryLocationScan';
 import { InventoryIcon } from './InventoryIcon';
 import {
   lookupInventoryBarcode,
@@ -223,6 +224,9 @@ export default function InventoryWorkspace({
   const scannerControlsRef = useRef<WebBarcodeScannerControls | null>(null);
   const scannerTargetRef = useRef<'product' | 'location'>('product');
   const locationEdited = useRef(false);
+  const lastProductCode = useRef('');
+  const [knownLocation, setKnownLocation] = useState('');
+  const [confirmingLocation, setConfirmingLocation] = useState(false);
   const operationPanelRef = useRef<HTMLElement | null>(null);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
   const exportButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -532,16 +536,28 @@ export default function InventoryWorkspace({
         onDetected: result => {
           const scanned = result.text.trim();
           if (!scanned) return;
-          detectedDuringStart = true;
           const nextTarget = scannerTargetRef.current;
+          if (nextTarget === 'location' && isSameInventoryScanCode(scanned, lastProductCode.current)) return;
+          detectedDuringStart = true;
           stopScanner();
           if (nextTarget === 'location') {
             locationEdited.current = true;
+            setConfirmingLocation(false);
             patchForm({ location: scanned });
             return;
           }
+          lastProductCode.current = scanned;
           void enrichScannedBarcode(scanned).then(() => {
-            if (mode === 'in') void startScanner('location');
+            const existing = operationProducts.find(product => String(product.barcode ?? '') === scanned || product.reference === scanned);
+            const next = nextInventoryScanPhase({ mode, existingLocation: existing?.location });
+            if (next === 'confirm' && existing?.location) {
+              setKnownLocation(existing.location);
+              setConfirmingLocation(true);
+              locationEdited.current = true;
+              patchForm({ location: existing.location });
+              return;
+            }
+            if (next === 'location') void startScanner('location');
           });
         },
       });
@@ -569,6 +585,7 @@ export default function InventoryWorkspace({
     if (!reference) return setError(copy.referenceRequired);
     if (!Number.isFinite(quantity) || quantity <= 0) return setError(copy.quantityInvalid);
     if (mode === 'out' && !existing) return setError(copy.unknownExit);
+    if (mode === 'in' && !(form.location.trim() || existing?.location)) return setError(copy.locationRequired);
     if (destinationPolicy.buildingRequired && !form.destination.buildingName.trim()) return setError(copy.destinationRequired);
     if (!existing && !form.designation.trim()) return setError(copy.designationRequired);
     if (mode === 'out' && existing && quantity > numberValue(existing.current_stock) && !(capabilities.canAdjust && form.allowNegative)) {
@@ -618,12 +635,15 @@ export default function InventoryWorkspace({
       if (!outcome || outcome.status !== 'ok') throw new Error(outcome?.message ?? copy.operationRejected);
       await onReload();
       const movementName = mode === 'in' ? copy.receive : copy.dispatch;
-      setNotice(copy.movementSaved(movementName, numberValue(outcome.stockAfter)));
+      setNotice(`${copy.movementSaved(movementName, numberValue(outcome.stockAfter))} ${copy.scanNext}`);
       setForm({ ...EMPTY_FORM });
       setSelectedProductId(null);
       setPhoto(null);
       setLookupState('idle');
-      setMode('stock');
+      locationEdited.current = false;
+      lastProductCode.current = '';
+      setConfirmingLocation(false);
+      void startScanner('product');
     } catch (submitError: any) {
       setError(submitError?.message ?? String(submitError));
     } finally {
@@ -912,15 +932,8 @@ export default function InventoryWorkspace({
 
               <button type="button" className={styles.scanButton} onClick={() => scannerOpen ? stopScanner() : void startScanner('product')} disabled={!operationProjectId}>
                 <InventoryIcon name="camera" />
-                <span>{scannerLoading && scannerTarget === 'product' ? copy.openingCamera : scannerOpen && scannerTarget === 'product' ? copy.stopCamera : copy.scan}</span>
+                <span>{scannerLoading ? copy.openingCamera : scannerOpen ? copy.stopCamera : copy.scan}</span>
               </button>
-              {scannerOpen ? (
-                <div className={styles.scanner}>
-                  <video ref={videoRef} muted playsInline aria-label={scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp} />
-                  <div className={styles.scanFrame} aria-hidden="true" />
-                  <p>{scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp}</p>
-                </div>
-              ) : null}
               {lookupMessage ? (
                 <div className={styles.lookupStatus} data-status={lookupState} role="status">
                   {lookupState === 'found' ? <InventoryIcon name="check" /> : lookupState === 'incomplete' || lookupState === 'notFound' ? <InventoryIcon name="warning" /> : <InventoryIcon name="search" />}
@@ -934,13 +947,18 @@ export default function InventoryWorkspace({
                   <b>{numberValue(selectedProduct.current_stock)} {copy.available}</b>
                 </div>
               ) : null}
-              {mode === 'out' && selectedProduct ? (
-                <div className={styles.pickLocation} data-missing={selectedProduct.location ? 'false' : 'true'}>
+              {mode === 'out' ? (
+                <div className={styles.pickLocation} data-missing={form.location || selectedProduct?.location ? 'false' : 'true'}>
                   <InventoryIcon name="pin" />
                   <span>
-                    <small>{copy.pickLocation}</small>
-                    <strong>{selectedProduct.location || copy.pickLocationMissing}</strong>
+                    <small>{copy.pickFrom}</small>
+                    <strong>{form.location || selectedProduct?.location || copy.pickLocationMissing}</strong>
+                    <em>{copy.pickFromHint}</em>
                   </span>
+                  <button type="button" className={styles.scanFieldButton} onClick={() => void startScanner('location')} disabled={!operationProjectId}>
+                    <InventoryIcon name="camera" size={16} />
+                    <span>{form.location || selectedProduct?.location ? copy.otherLocation : copy.setLocation}</span>
+                  </button>
                 </div>
               ) : null}
             </fieldset>
@@ -966,20 +984,26 @@ export default function InventoryWorkspace({
                   />
                 </div>
                 {mode === 'in' ? <>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <strong className={styles.blockTitle}>{copy.storeHere}</strong>
+                    <p className={styles.fieldHint}>{copy.storeHereHint}</p>
+                  </div>
                   <div className={styles.field}><label htmlFor="inventory-supplier">{copy.supplier}</label><input id="inventory-supplier" value={form.supplier} onChange={event => patchForm({ supplier: event.target.value })} /></div>
                   <div className={styles.field}>
-                    <label htmlFor="inventory-location">{copy.location}</label>
-                    <p className={styles.fieldHint}>{copy.locationHint}</p>
+                    <label htmlFor="inventory-location">{copy.location} *</label>
                     <div className={styles.locationRow}>
-                      <input id="inventory-location" value={form.location} onChange={event => patchForm({ location: event.target.value })} placeholder={copy.mainStore} />
-                      <button type="button" className={styles.scanFieldButton} onClick={() => scannerOpen && scannerTarget === 'location' ? stopScanner() : void startScanner('location')} disabled={!operationProjectId}>
+                      <input id="inventory-location" value={form.location} onChange={event => patchForm({ location: event.target.value })} placeholder={copy.mainStore} required />
+                      <button type="button" className={styles.scanFieldButton} onClick={() => void startScanner('location')} disabled={!operationProjectId}>
                         <InventoryIcon name="camera" size={16} />
-                        <span>{scannerOpen && scannerTarget === 'location' ? copy.stopCamera : copy.scanShelf}</span>
+                        <span>{copy.scanShelf}</span>
                       </button>
                     </div>
                   </div>
                   <div className={styles.field}><label htmlFor="inventory-minimum">{copy.minimum}</label><input id="inventory-minimum" value={form.minStock} onChange={event => patchForm({ minStock: event.target.value })} type="number" min="0" step="any" /></div>
                   <div className={styles.field}><label htmlFor="inventory-photo">{copy.productPhoto}</label><input id="inventory-photo" className={styles.fileInput} type="file" accept="image/*" capture="environment" onChange={event => setPhoto(event.target.files?.[0] ?? null)} /></div>
+                  <div className={`${styles.field} ${styles.fieldWide}`}>
+                    <strong className={styles.blockTitle}>{copy.receivedAt}</strong>
+                  </div>
                 </> : null}
                 <p id="inventory-destination-flow-hint" className={`${styles.destinationHint} ${styles.fieldWide}`}>
                   {mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint}
@@ -1217,7 +1241,7 @@ export default function InventoryWorkspace({
                       <td><strong>{product.reference}</strong>{product.barcode ? <small>{product.barcode}</small> : null}</td>
                       <td>{product.designation || product.reference}</td>
                       <td><b className={low ? styles.lowStock : ''}>{numberValue(product.current_stock).toLocaleString(locale)}</b>{low ? <small className={styles.warning}>{copy.lowStock}</small> : null}</td>
-                      <td className={styles.numeric}>{numberValue(product.total_entries).toLocaleString(locale)}</td><td className={styles.numeric}>{numberValue(product.total_exits).toLocaleString(locale)}</td><td className={styles.numeric}>{numberValue(product.min_stock).toLocaleString(locale)}</td><td>{product.location || '—'}</td>
+                      <td className={styles.numeric}>{numberValue(product.total_entries).toLocaleString(locale)}</td><td className={styles.numeric}>{numberValue(product.total_exits).toLocaleString(locale)}</td><td className={styles.numeric}>{numberValue(product.min_stock).toLocaleString(locale)}</td><td>{product.location || copy.unstored}</td>
                       <td><div className={styles.rowActions}>{capabilities.canRecord ? <button type="button" onClick={() => openMovement('in', product)} aria-label={`${copy.receive} ${product.reference}`}><InventoryIcon name="plus" size={16} /><span>{copy.receive}</span></button> : null}{capabilities.canRecord ? <button type="button" onClick={() => openMovement('out', product)} aria-label={`${copy.dispatch} ${product.reference}`}><InventoryIcon name="minus" size={16} /><span>{copy.dispatch}</span></button> : null}{capabilities.canManage ? <button type="button" onClick={() => openProductEditor(product)} aria-label={`${copy.edit} ${product.reference}`}><InventoryIcon name="edit" size={16} /><span className={styles.srOnly}>{copy.edit}</span></button> : null}</div></td>
                     </tr>
                   );
@@ -1239,7 +1263,7 @@ export default function InventoryWorkspace({
                       <div><dt>{copy.minimum}</dt><dd>{numberValue(product.min_stock).toLocaleString(locale)}</dd></div>
                       <div><dt>{copy.entries}</dt><dd>{numberValue(product.total_entries).toLocaleString(locale)}</dd></div>
                       <div><dt>{copy.exits}</dt><dd>{numberValue(product.total_exits).toLocaleString(locale)}</dd></div>
-                      <div><dt>{copy.location}</dt><dd>{product.location || '—'}</dd></div>
+                      <div><dt>{copy.location}</dt><dd>{product.location || copy.unstored}</dd></div>
                     </dl>
                     {low ? <div className={styles.lowAlert}><InventoryIcon name="warning" size={16} /><span>{copy.lowStock}</span></div> : null}
                     {(capabilities.canRecord || capabilities.canManage) ? <div className={styles.cardActions}>{capabilities.canRecord ? <button type="button" onClick={() => openMovement('in', product)}><InventoryIcon name="plus" size={16} />{copy.receive}</button> : null}{capabilities.canRecord ? <button type="button" onClick={() => openMovement('out', product)}><InventoryIcon name="minus" size={16} />{copy.dispatch}</button> : null}{capabilities.canManage ? <button type="button" onClick={() => openProductEditor(product)} aria-label={`${copy.edit} ${product.reference}`}><InventoryIcon name="edit" size={16} /><span>{copy.edit}</span></button> : null}</div> : null}
@@ -1272,6 +1296,30 @@ export default function InventoryWorkspace({
             </form>
           </section>
         </div>
+      ) : null}
+      {(scannerOpen || confirmingLocation) && typeof document !== 'undefined' ? createPortal(
+        <div className={styles.scanOverlay} role="dialog" aria-modal="true">
+          {scannerOpen ? (
+            <>
+              <video ref={videoRef} muted playsInline className={styles.scanOverlayVideo} aria-label={scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp} />
+              <div className={styles.scanOverlayChrome}>
+                <p className={styles.scanStep}>{mode === 'in' ? (scannerTarget === 'location' ? copy.scanStepLocation : copy.scanStepProduct) : copy.scan}</p>
+                <p>{scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp}</p>
+                <button type="button" className={styles.secondaryButton} onClick={stopScanner}>{copy.stopCamera}</button>
+              </div>
+            </>
+          ) : (
+            <div className={styles.scanConfirm}>
+              <small>{copy.knownLocation}</small>
+              <strong>{knownLocation}</strong>
+              <div className={styles.locationRow}>
+                <button type="button" className={styles.primaryButton} onClick={() => { setConfirmingLocation(false); patchForm({ location: knownLocation }); }}>{copy.confirmLocation}</button>
+                <button type="button" className={styles.secondaryButton} onClick={() => { setConfirmingLocation(false); void startScanner('location'); }}>{copy.changeLocation}</button>
+              </div>
+            </div>
+          )}
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

@@ -8,13 +8,15 @@ import InventoryWebBarcodeCamera, {
   type InventoryWebBarcodeCameraHandle,
 } from '@/components/inventory/InventoryWebBarcodeCamera';
 import { C } from '@/constants/colors';
+import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useInventory } from '@/hooks/queries/useInventory';
 import { persistLocalPhoto } from '@/lib/storage';
 import { useInventoryCopy } from '@/lib/inventoryI18n';
 import {
   initialInventoryScanPhase,
   isSameInventoryScanCode,
-  resolveInventoryScanAction,
+  nextInventoryScanPhase,
   type InventoryScanPhase,
 } from '@/lib/inventoryLocationScan';
 import { recognizeInventoryLabel } from '@/lib/inventoryOcr';
@@ -34,16 +36,33 @@ export default function InventoryScanScreen() {
   const mode = params.mode === 'out' ? 'out' : 'in';
   const target = params.target === 'location' ? 'location' : undefined;
   const { permissions } = useAuth();
+  const { activeChantier } = useApp();
+  const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const cameraRef = useRef<CameraView | InventoryWebBarcodeCameraHandle | null>(null);
   const productScan = useRef<ProductScanPayload>({});
   const [phase, setPhase] = useState<InventoryScanPhase>(initialInventoryScanPhase(target));
+  const [knownLocation, setKnownLocation] = useState('');
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [torch, setTorch] = useState(false);
   const [takingPhoto, setTakingPhoto] = useState(false);
   const [recognizing, setRecognizing] = useState(false);
   const scanningLocation = phase === 'location';
-  const title = scanningLocation ? copy.scanLocation : mode === 'in' ? copy.scanEntry : copy.scanExit;
+  const confirmingLocation = phase === 'confirm';
+  const title = scanningLocation || confirmingLocation ? copy.scanLocation : mode === 'in' ? copy.scanEntry : copy.scanExit;
+
+  function continueAfterProduct(payload: ProductScanPayload) {
+    productScan.current = { ...productScan.current, ...payload };
+    const existing = inventory.findProduct(payload.code || payload.ocrReference || '')?.location;
+    const next = nextInventoryScanPhase({ mode, existingLocation: existing, target });
+    if (next === 'complete-product') {
+      openMovement(payload);
+      return;
+    }
+    setKnownLocation(existing?.trim() || '');
+    setPhase(next);
+    setScanned(false);
+  }
 
   function openMovement(extra?: ProductScanPayload & { location?: string }) {
     router.replace({
@@ -57,18 +76,11 @@ export default function InventoryScanScreen() {
     if (scanned || !code) return;
     if (scanningLocation && isSameInventoryScanCode(code, productScan.current.code)) return;
     setScanned(true);
-    const action = resolveInventoryScanAction({ mode, phase, target });
-    if (action === 'continue-location') {
-      productScan.current = { ...productScan.current, code, codeType: result.type };
-      setPhase('location');
-      setTimeout(() => setScanned(false), 450);
-      return;
-    }
-    if (action === 'complete-location') {
+    if (scanningLocation || target === 'location') {
       openMovement({ location: code });
       return;
     }
-    openMovement({ code, codeType: result.type });
+    continueAfterProduct({ code, codeType: result.type });
   }
 
   async function takeLabelPhoto() {
@@ -83,20 +95,14 @@ export default function InventoryScanScreen() {
         setRecognizing(true);
         try {
           const fields = await recognizeInventoryLabel(photoUri);
-          const payload = {
+          continueAfterProduct({
             photoUri,
             ocrReference: fields.reference,
             ocrDesignation: fields.designation,
-          };
-          if (resolveInventoryScanAction({ mode, phase: 'product', target }) === 'continue-location') {
-            productScan.current = payload;
-            setPhase('location');
-          } else {
-            openMovement(payload);
-          }
+          });
         } catch (error) {
           console.warn('[inventory-ocr] label recognition failed:', error);
-          openMovement({ photoUri });
+          continueAfterProduct({ photoUri });
         }
       }
     } catch (error: any) {
@@ -131,7 +137,7 @@ export default function InventoryScanScreen() {
             <Text style={styles.permissionButtonText}>{copy.allowCamera}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.manualLink} onPress={() => openMovement()}>
-            <Text style={styles.manualLinkText}>{scanningLocation ? copy.skipLocation : copy.manualEntry}</Text>
+            <Text style={styles.manualLinkText}>{copy.manualEntry}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -145,7 +151,7 @@ export default function InventoryScanScreen() {
         {Platform.OS === 'web' ? (
           <InventoryWebBarcodeCamera
             ref={cameraRef as Ref<InventoryWebBarcodeCameraHandle>}
-            active={!scanned}
+            active={!scanned && !confirmingLocation}
             torch={torch}
             errorMessage={copy.cameraUnavailable}
             retryLabel={copy.retryCamera}
@@ -158,39 +164,51 @@ export default function InventoryScanScreen() {
             facing="back"
             mode="picture"
             enableTorch={torch}
-            onBarcodeScanned={scanned ? undefined : handleBarcode}
+            onBarcodeScanned={scanned || confirmingLocation ? undefined : handleBarcode}
             barcodeScannerSettings={{ barcodeTypes: ['aztec', 'ean13', 'ean8', 'qr', 'pdf417', 'upc_e', 'datamatrix', 'code39', 'code93', 'itf14', 'codabar', 'code128', 'upc_a'] }}
           />
         )}
         <View style={styles.overlay} pointerEvents="box-none">
           <View style={styles.topOverlay}>
-            <Text style={styles.scanHint}>{scanningLocation ? copy.scanLocationHint : copy.scanHint}</Text>
+            {mode === 'in' && !target ? <Text style={styles.stepLabel}>{scanningLocation || confirmingLocation ? copy.scanStepLocation : copy.scanStepProduct}</Text> : null}
+            <Text style={styles.scanHint}>{scanningLocation ? copy.scanLocationHint : confirmingLocation ? copy.knownLocation : copy.scanHint}</Text>
           </View>
           <View style={styles.frame}>
             <View style={[styles.corner, styles.cornerTL]} /><View style={[styles.corner, styles.cornerTR]} />
             <View style={[styles.corner, styles.cornerBL]} /><View style={[styles.corner, styles.cornerBR]} />
             <View style={styles.scanLine} />
           </View>
-          <View style={styles.controls}>
-            <TouchableOpacity style={styles.sideControl} onPress={() => setTorch(value => !value)}>
-              <Ionicons name={torch ? 'flash' : 'flash-outline'} size={23} color="#fff" />
-              <Text style={styles.sideControlText}>{copy.torch}</Text>
-            </TouchableOpacity>
-            {scanningLocation ? (
-              <TouchableOpacity style={styles.shutter} onPress={() => openMovement()}>
-                <Ionicons name="create-outline" size={28} color={C.primary} />
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={styles.shutter} onPress={takeLabelPhoto} disabled={takingPhoto || recognizing}>
-                {takingPhoto || recognizing ? <ActivityIndicator color={C.primary} /> : <Ionicons name="camera" size={28} color={C.primary} />}
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity style={styles.sideControl} onPress={() => openMovement()}>
-              <Ionicons name="create-outline" size={23} color="#fff" />
-              <Text style={styles.sideControlText}>{scanningLocation ? copy.skipLocation : copy.manualEntry}</Text>
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.photoHint}>{scanningLocation ? copy.locationHint : recognizing ? copy.ocrReading : copy.takeLabelPhoto}</Text>
+          {confirmingLocation ? (
+            <View style={styles.confirmCard}>
+              <Text style={styles.confirmLabel}>{copy.knownLocation}</Text>
+              <Text style={styles.confirmValue}>{knownLocation}</Text>
+              <View style={styles.confirmActions}>
+                <TouchableOpacity style={styles.confirmPrimary} onPress={() => openMovement({ location: knownLocation })}>
+                  <Text style={styles.confirmPrimaryText}>{copy.confirmLocation}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.confirmSecondary} onPress={() => { setPhase('location'); setScanned(false); }}>
+                  <Text style={styles.confirmSecondaryText}>{copy.changeLocation}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <>
+              <View style={styles.controls}>
+                <TouchableOpacity style={styles.sideControl} onPress={() => setTorch(value => !value)}>
+                  <Ionicons name={torch ? 'flash' : 'flash-outline'} size={23} color="#fff" />
+                  <Text style={styles.sideControlText}>{copy.torch}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.shutter} onPress={scanningLocation ? undefined : takeLabelPhoto} disabled={scanningLocation || takingPhoto || recognizing}>
+                  {takingPhoto || recognizing ? <ActivityIndicator color={C.primary} /> : <Ionicons name={scanningLocation ? 'scan' : 'camera'} size={28} color={C.primary} />}
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.sideControl} onPress={() => openMovement()}>
+                  <Ionicons name="create-outline" size={23} color="#fff" />
+                  <Text style={styles.sideControlText}>{scanningLocation ? copy.skipLocation : copy.manualEntry}</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.photoHint}>{scanningLocation ? copy.locationHint : recognizing ? copy.ocrReading : copy.takeLabelPhoto}</Text>
+            </>
+          )}
         </View>
       </View>
     </View>
@@ -204,6 +222,15 @@ const styles = StyleSheet.create({
   overlay: { ...StyleSheet.absoluteFillObject, alignItems: 'center', justifyContent: 'space-between', paddingBottom: 28 },
   topOverlay: { width: '100%', paddingTop: 26, paddingBottom: 38, paddingHorizontal: 28, backgroundColor: 'rgba(0,0,0,0.42)' },
   scanHint: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 15, textAlign: 'center', lineHeight: 21 },
+  stepLabel: { color: '#FFCB00', fontFamily: 'Inter_700Bold', fontSize: 12, textAlign: 'center', letterSpacing: 0.6, textTransform: 'uppercase', marginBottom: 8 },
+  confirmCard: { width: '88%', marginTop: 'auto', marginBottom: 28, backgroundColor: '#fff', borderRadius: 18, padding: 18, gap: 10 },
+  confirmLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase' },
+  confirmValue: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 26 },
+  confirmActions: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  confirmPrimary: { flex: 1, minHeight: 48, borderRadius: 13, backgroundColor: C.closed, alignItems: 'center', justifyContent: 'center' },
+  confirmPrimaryText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
+  confirmSecondary: { flex: 1, minHeight: 48, borderRadius: 13, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' },
+  confirmSecondaryText: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 14 },
   frame: { position: 'absolute', top: '27%', width: '82%', height: 210 },
   corner: { position: 'absolute', width: 42, height: 42, borderColor: '#FFCB00' },
   cornerTL: { left: 0, top: 0, borderLeftWidth: 4, borderTopWidth: 4, borderTopLeftRadius: 12 },

@@ -40,6 +40,7 @@ export default function InventoryHistoryScreen() {
         || movement.buildingName?.toLowerCase().includes(needle)
         || movement.zoneName?.toLowerCase().includes(needle)
         || movement.companyName?.toLowerCase().includes(needle)
+        || movement.location?.toLowerCase().includes(needle)
         || movement.comment?.toLowerCase().includes(needle);
     });
   }, [filter, inventory.movements, search]);

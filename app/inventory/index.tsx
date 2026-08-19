@@ -1,10 +1,9 @@
 import { useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
-import ExportLanguageSelector from '@/components/ExportLanguageSelector';
 import { InventoryEmpty, InventoryMovementCard, InventoryProductCard, InventorySearch } from '@/components/inventory/InventoryCards';
 import { openChantierSwitcher } from '@/components/ChantierSwitcherSheet';
 import { C } from '@/constants/colors';
@@ -22,7 +21,7 @@ export default function InventoryHomeScreen() {
   const copy = useInventoryCopy();
   const { activeChantier } = useApp();
   const { permissions, user } = useAuth();
-  const { exportLanguage, setExportLanguage } = useLanguage();
+  const { exportLanguage } = useLanguage();
   const isWarehouseUser = isWarehouseRole(user?.role);
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const [search, setSearch] = useState('');
@@ -36,8 +35,9 @@ export default function InventoryHomeScreen() {
       product.reference.toLowerCase().includes(needle)
       || normalizeInventoryReference(product.reference).includes(normalized)
       || product.designation.toLowerCase().includes(needle)
-      || product.barcode?.toLowerCase().includes(needle),
-    ).slice(0, 6);
+      || product.barcode?.toLowerCase().includes(needle)
+      || product.location?.toLowerCase().includes(needle),
+    ).slice(0, 12);
   }, [inventory.products, search]);
 
   if (!permissions.canViewInventory) {
@@ -59,7 +59,7 @@ export default function InventoryHomeScreen() {
           rightIcon={isWarehouseUser ? 'settings-outline' : undefined}
           onRightPress={isWarehouseUser ? () => router.push('/settings' as any) : undefined}
         />
-        <InventoryEmpty icon="business-outline" title={copy.noSite} />
+        <InventoryEmpty icon="business-outline" title={copy.noSite} subtitle={copy.chooseSite} />
         <TouchableOpacity style={styles.primaryButton} onPress={openChantierSwitcher}>
           <Text style={styles.primaryButtonText}>{copy.chooseSite}</Text>
         </TouchableOpacity>
@@ -101,7 +101,7 @@ export default function InventoryHomeScreen() {
                 <Ionicons name="download-outline" size={21} color={C.primary} />
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.headerAction} onPress={() => router.push('/settings' as any)} accessibilityLabel="Paramètres">
+            <TouchableOpacity style={styles.headerAction} onPress={() => router.push('/settings' as any)} accessibilityLabel={copy.settingsA11y}>
               <Ionicons name="settings-outline" size={21} color={C.primary} />
             </TouchableOpacity>
           </View>
@@ -110,9 +110,9 @@ export default function InventoryHomeScreen() {
         onRightPress={!isWarehouseUser && permissions.canExportInventory ? handlePdfExport : undefined}
       />
       <ScrollView
-        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 32 }]}
+        contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + (permissions.canRecordInventory ? 96 : 32) }]}
         keyboardShouldPersistTaps="handled"
-        refreshControl={undefined}
+        refreshControl={<RefreshControl refreshing={inventory.isRefreshing} onRefresh={() => void inventory.refresh()} tintColor={C.primary} />}
       >
         {isWarehouseUser && (
           <TouchableOpacity style={styles.siteButton} onPress={openChantierSwitcher}>
@@ -120,11 +120,6 @@ export default function InventoryHomeScreen() {
             <Text style={styles.siteButtonText}>{activeChantier.name}</Text>
             <Ionicons name="chevron-down" size={16} color={C.textSub} />
           </TouchableOpacity>
-        )}
-        {permissions.canExportInventory && (
-          <View style={styles.exportLanguageCard}>
-            <ExportLanguageSelector compact value={exportLanguage} onChange={setExportLanguage} />
-          </View>
         )}
         <InventorySearch value={search} onChangeText={setSearch} />
         {!!search && (
@@ -183,9 +178,15 @@ export default function InventoryHomeScreen() {
           {inventory.isLoading && !inventory.movements.length ? <ActivityIndicator color={C.primary} /> : inventory.movements.slice(0, 5).map(movement => (
             <InventoryMovementCard key={movement.id} movement={movement} onPress={() => router.push(`/inventory/product/${movement.productId}` as any)} />
           ))}
-          {!inventory.isLoading && !inventory.movements.length && <InventoryEmpty title={copy.noMovement} />}
+          {!inventory.isLoading && !inventory.movements.length && <InventoryEmpty title={copy.noMovement} subtitle={copy.noMovementHint} />}
         </View>
       </ScrollView>
+      {permissions.canRecordInventory && (
+        <View style={[styles.fabRow, { bottom: Math.max(insets.bottom, 12) }]}>
+          <TouchableOpacity style={[styles.fab, { backgroundColor: C.closed }]} onPress={() => router.push('/inventory/scan?mode=in' as any)}><Ionicons name="arrow-down" size={22} color="#fff" /><Text style={styles.fabText}>{copy.entry}</Text></TouchableOpacity>
+          <TouchableOpacity style={[styles.fab, { backgroundColor: C.open }]} onPress={() => router.push('/inventory/scan?mode=out' as any)}><Ionicons name="arrow-up" size={22} color="#fff" /><Text style={styles.fabText}>{copy.exit}</Text></TouchableOpacity>
+        </View>
+      )}
       {exporting && <View style={styles.busy}><ActivityIndicator size="large" color="#fff" /></View>}
     </View>
   );
@@ -198,8 +199,10 @@ const styles = StyleSheet.create({
   headerAction: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: C.primaryBg },
   siteButton: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingHorizontal: 13, paddingVertical: 11, borderRadius: 13, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
   siteButtonText: { flex: 1, color: C.text, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
-  exportLanguageCard: { padding: 12, borderRadius: 14, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface },
   primaryButton: { alignSelf: 'center', backgroundColor: C.primary, paddingHorizontal: 20, paddingVertical: 13, borderRadius: 13 },
+  fabRow: { position: 'absolute', left: 14, right: 14, flexDirection: 'row', gap: 9 },
+  fab: { flex: 1, height: 52, borderRadius: 15, flexDirection: 'row', gap: 7, alignItems: 'center', justifyContent: 'center', shadowColor: '#001F52', shadowOpacity: 0.22, shadowRadius: 8, shadowOffset: { width: 0, height: 4 }, elevation: 5 },
+  fabText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 12 },
   primaryButtonText: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 },
   searchResults: { gap: 8 },
   actionGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },

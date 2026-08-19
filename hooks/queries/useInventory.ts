@@ -82,6 +82,7 @@ export function toInventoryMovement(row: any): InventoryMovement {
     companyName: row.company_name || undefined,
     personName: row.person_name || undefined,
     comment: row.comment || undefined,
+    location: row.location || undefined,
     createdBy: row.created_by || undefined,
     userName: String(row.user_name ?? 'Utilisateur'),
     createdAt: row.created_at ?? new Date().toISOString(),
@@ -459,6 +460,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       companyName: input.companyName,
       personName: input.personName?.trim() || undefined,
       comment: input.comment?.trim() || undefined,
+      location: input.location?.trim() || optimisticProduct.location,
       createdBy: user.id,
       userName: user.name,
       createdAt: now,
@@ -709,7 +711,12 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
   }, [enqueueOperation, isOnline, permissions.canManageInventoryProducts, persistCurrent, productsKey, queryClient, user, validChantierId]);
 
   const products = productsQuery.data ?? [];
-  const movements = movementsQuery.data ?? [];
+  const movements = useMemo(() => {
+    const locations = new Map(products.map(product => [product.id, product.location]));
+    return (movementsQuery.data ?? []).map(movement => (
+      movement.location ? movement : { ...movement, location: locations.get(movement.productId) }
+    ));
+  }, [movementsQuery.data, products]);
   const lowStockProducts = useMemo(
     () => products.filter(product => product.minStock > 0 && product.currentStock <= product.minStock),
     [products],

@@ -26,7 +26,7 @@ describe('inventory receipt and dispatch destination parity', () => {
 
     expect(web).toContain("mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint");
     expect(web).toContain("mode === 'in' ? copy.entryBuilding : copy.exitBuilding");
-    expect(mobile).toContain("mode === 'in' ? copy.receiptLogistics : copy.dispatchLogistics");
+    expect(mobile).toContain("mode === 'in' ? copy.receivedAt : copy.dispatchLogistics");
     expect(mobile).toContain("mode === 'in' ? copy.entryBuilding : copy.exitBuilding");
   });
 
@@ -36,10 +36,12 @@ describe('inventory receipt and dispatch destination parity', () => {
     const scan = read('app/inventory/scan.tsx');
 
     expect(web).toContain("startScanner('location')");
-    expect(web).toContain('copy.pickLocation');
+    expect(web).toContain('copy.pickFrom');
+    expect(web).toContain('copy.locationRequired');
     expect(mobile).toContain('InventoryLocationScanModal');
-    expect(mobile).toContain('copy.pickLocation');
-    expect(scan).toContain('continue-location');
+    expect(mobile).toContain('copy.pickFrom');
+    expect(mobile).toContain('copy.locationRequired');
+    expect(scan).toContain('nextInventoryScanPhase');
     expect(scan).toContain('location: code');
   });
 });

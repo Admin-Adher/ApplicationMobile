@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Header from '@/components/Header';
+import { InventoryLocationScanModal } from '@/components/inventory/InventoryLocationScanModal';
 import { InventoryEmpty, InventoryMovementCard } from '@/components/inventory/InventoryCards';
 import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
@@ -41,6 +42,7 @@ export default function InventoryProductScreen() {
   const [minStock, setMinStock] = useState('0');
   const [location, setLocation] = useState('');
   const [supplier, setSupplier] = useState('');
+  const [locationScanOpen, setLocationScanOpen] = useState(false);
 
   function openEditor() {
     if (!product) return;
@@ -157,10 +159,31 @@ export default function InventoryProductScreen() {
             <EditField label={copy.designation} value={designation} onChangeText={setDesignation} />
             <EditField label={copy.barcode} value={barcode} onChangeText={setBarcode} />
             <EditField label={copy.minimumStock} value={minStock} onChangeText={setMinStock} keyboardType="decimal-pad" />
-            <EditField label={copy.location} value={location} onChangeText={setLocation} />
+            <View style={styles.editField}>
+              <Text style={styles.editLabel}>{copy.location}</Text>
+              <View style={styles.locationEditRow}>
+                <TextInput style={[styles.editInput, { flex: 1 }]} value={location} onChangeText={setLocation} placeholderTextColor={C.textMuted} autoCapitalize="characters" />
+                <TouchableOpacity style={styles.scanShelfButton} onPress={() => setLocationScanOpen(true)}>
+                  <Ionicons name="scan-outline" size={18} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            </View>
             <EditField label={copy.supplier} value={supplier} onChangeText={setSupplier} />
             <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.6 }]} onPress={saveProduct} disabled={saving}>{saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>{copy.save}</Text>}</TouchableOpacity>
           </ScrollView>
+          <InventoryLocationScanModal
+            visible={locationScanOpen}
+            title={copy.scanLocation}
+            hint={copy.scanLocationHint}
+            torchLabel={copy.torch}
+            cancelLabel={copy.cancel}
+            cameraPermission={copy.cameraPermission}
+            allowCamera={copy.allowCamera}
+            cameraUnavailable={copy.cameraUnavailable}
+            retryLabel={copy.retryCamera}
+            onClose={() => setLocationScanOpen(false)}
+            onDetected={code => { setLocation(code); setLocationScanOpen(false); }}
+          />
         </KeyboardAvoidingView>
       </Modal>
     </View>
@@ -179,5 +202,5 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', gap: 8 }, stat: { flex: 1, alignItems: 'center', paddingVertical: 13, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border }, statValue: { fontFamily: 'Inter_700Bold', fontSize: 19 }, statLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 9, textTransform: 'uppercase', marginTop: 2 },
   infoCard: { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14 }, infoRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border }, infoLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 11, width: 92 }, infoValue: { flex: 1, color: C.text, fontFamily: 'Inter_600SemiBold', fontSize: 12, textAlign: 'right' }, emptyInfo: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 12, textAlign: 'center', padding: 18 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }, sectionTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 16 }, historyCount: { color: C.primary, backgroundColor: C.primaryBg, fontFamily: 'Inter_700Bold', fontSize: 10, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 }, historyList: { gap: 8 },
-  modalRoot: { flex: 1, backgroundColor: C.bg }, editContent: { padding: 16, gap: 13 }, editPhotoButton: { alignItems: 'center', gap: 8, marginBottom: 4 }, editPhoto: { width: 110, height: 110, borderRadius: 18, backgroundColor: C.surface2 }, editPhotoText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 12 }, editField: { gap: 6 }, editLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase' }, editInput: { minHeight: 48, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14 }, saveButton: { height: 52, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 5 }, saveButtonText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
+  modalRoot: { flex: 1, backgroundColor: C.bg }, editContent: { padding: 16, gap: 13 }, editPhotoButton: { alignItems: 'center', gap: 8, marginBottom: 4 }, editPhoto: { width: 110, height: 110, borderRadius: 18, backgroundColor: C.surface2 }, editPhotoText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 12 }, editField: { gap: 6 }, editLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase' }, editInput: { minHeight: 48, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14 }, locationEditRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, scanShelfButton: { width: 48, height: 48, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, saveButton: { height: 52, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 5 }, saveButtonText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
 });

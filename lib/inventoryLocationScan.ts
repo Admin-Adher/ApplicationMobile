@@ -1,7 +1,17 @@
-export type InventoryScanPhase = 'product' | 'location';
+export type InventoryScanPhase = 'product' | 'location' | 'confirm';
 
 export function initialInventoryScanPhase(target?: string): InventoryScanPhase {
   return target === 'location' ? 'location' : 'product';
+}
+
+export function nextInventoryScanPhase(options: {
+  mode: 'in' | 'out';
+  existingLocation?: string | null;
+  target?: string;
+}): InventoryScanPhase | 'complete-product' {
+  if (options.target === 'location') return 'location';
+  if (options.mode === 'out') return 'complete-product';
+  return options.existingLocation?.trim() ? 'confirm' : 'location';
 }
 
 export function resolveInventoryScanAction(options: {
@@ -10,6 +20,7 @@ export function resolveInventoryScanAction(options: {
   target?: string;
 }): 'continue-location' | 'complete-product' | 'complete-location' {
   if (options.phase === 'location' || options.target === 'location') return 'complete-location';
+  if (options.phase === 'confirm') return 'complete-product';
   if (options.mode === 'in') return 'continue-location';
   return 'complete-product';
 }

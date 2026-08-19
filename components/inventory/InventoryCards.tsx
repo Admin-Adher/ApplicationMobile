@@ -69,7 +69,7 @@ export function InventoryProductCard({
             {product.pendingSync && <Ionicons name="cloud-upload-outline" size={15} color={C.waiting} />}
           </View>
           <Text style={styles.designation} numberOfLines={compact ? 1 : 2}>{product.designation}</Text>
-          {!!product.location && <Text style={styles.productLocationLine} numberOfLines={1}>{product.location}</Text>}
+          <Text style={[styles.productLocationLine, !product.location && styles.productLocationMissing]} numberOfLines={1}>{product.location || copy.unstored}</Text>
         </View>
         <View style={[styles.stockBox, low && styles.stockBoxLow]}>
           <Text style={[styles.stockValue, low && styles.stockValueLow]}>{product.currentStock}</Text>
@@ -91,7 +91,7 @@ export function InventoryProductCard({
           <View style={styles.productStatDivider} />
           <View style={[styles.productStat, styles.productLocationStat]}>
             <Text style={styles.productStatLabel}>{copy.location}</Text>
-            <Text style={styles.productLocation} numberOfLines={1}>{product.location || '—'}</Text>
+            <Text style={styles.productLocation} numberOfLines={1}>{product.location || copy.unstored}</Text>
           </View>
         </View>
       )}
@@ -110,7 +110,7 @@ export function InventoryMovementCard({
 }) {
   const copy = useInventoryCopy();
   const incoming = movement.movementType === 'in';
-  const destination = [movement.buildingName, movement.zoneName].filter(Boolean).join(' · ')
+  const destination = [movement.location, movement.buildingName, movement.zoneName].filter(Boolean).join(' · ')
     || movement.supplier
     || movement.companyName;
   const content = (
@@ -163,6 +163,7 @@ const styles = StyleSheet.create({
   reference: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 14, flexShrink: 1 },
   designation: { color: C.text, fontFamily: 'Inter_500Medium', fontSize: 13, marginTop: 2 },
   productLocationLine: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 11, marginTop: 3 },
+  productLocationMissing: { color: C.waiting },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5 },
   meta: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 11, flex: 1 },
   stockBox: { minWidth: 58, alignItems: 'center', paddingVertical: 7, paddingHorizontal: 8, borderRadius: 11, backgroundColor: C.primaryBg },

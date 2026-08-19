@@ -480,6 +480,7 @@ export interface InventoryMovement {
   companyName?: string;
   personName?: string;
   comment?: string;
+  location?: string;
   createdBy?: string;
   userName: string;
   createdAt: string;

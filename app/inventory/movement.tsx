@@ -43,10 +43,13 @@ type BarcodeLookupState =
   | { status: 'idle' | 'searching' | 'not-found' }
   | { status: 'found'; match: InventoryBarcodeMatch };
 
-function Field({ label, optional, children }: { label: string; optional?: string; children: React.ReactNode }) {
+function Field({ label, optional, required, children }: { label: string; optional?: string; required?: boolean; children: React.ReactNode }) {
   return (
     <View style={styles.field}>
-      <View style={styles.fieldLabelRow}><Text style={styles.fieldLabel}>{label}</Text>{!!optional && <Text style={styles.optional}>{optional}</Text>}</View>
+      <View style={styles.fieldLabelRow}>
+        <Text style={styles.fieldLabel}>{label}{required ? ' *' : ''}</Text>
+        {!!optional && !required && <Text style={styles.optional}>{optional}</Text>}
+      </View>
       {children}
     </View>
   );
@@ -111,6 +114,7 @@ export default function InventoryMovementScreen() {
   const [comment, setComment] = useState('');
   const [allowNegative, setAllowNegative] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState<{ before: number; after: number; queued: boolean } | null>(null);
   const [barcodeLookup, setBarcodeLookup] = useState<BarcodeLookupState>({ status: 'idle' });
 
   const selectedProduct = useMemo(() => {
@@ -301,6 +305,7 @@ export default function InventoryMovementScreen() {
     if (mode === 'out' && !selectedProduct) return copy.productNotInStock;
     if (!selectedProduct && mode === 'in' && !designation.trim()) return copy.designationRequired;
     if (!Number.isFinite(numericQuantity) || numericQuantity <= 0) return copy.quantityRequired;
+    if (mode === 'in' && !location.trim()) return copy.locationRequired;
     if (destinationPolicy.buildingRequired && !buildingName.trim()) return copy.destinationRequired;
     if (insufficientBlocksSubmit) return copy.negativeWarning;
     return null;
@@ -337,11 +342,7 @@ export default function InventoryMovementScreen() {
         comment: comment.trim() || undefined,
         allowNegative,
       });
-      Alert.alert(
-        copy.movementSaved,
-        `${copy.currentStock}: ${result.movement.stockBefore}\n${mode === 'in' ? '+' : '−'}${numericQuantity}\n${copy.afterMovement}: ${result.movement.stockAfter}\n\n${result.queued ? copy.queued : copy.synchronized}`,
-        [{ text: 'OK', onPress: () => router.replace('/inventory' as any) }],
-      );
+      setSuccess({ before: result.movement.stockBefore, after: result.movement.stockAfter, queued: result.queued });
     } catch (operationError: any) {
       Alert.alert(copy.error, operationError?.message ?? String(operationError));
     } finally {
@@ -380,12 +381,24 @@ export default function InventoryMovementScreen() {
             <Ionicons name="scan-outline" size={17} color={C.primary} /><Text style={styles.scanAgainText}>{copy.rescan}</Text>
           </TouchableOpacity>
         </View>
-        {mode === 'out' && selectedProduct ? (
-          <View style={[styles.pickBanner, !selectedProduct.location && styles.pickBannerMissing]}>
-            <Ionicons name="location" size={22} color={selectedProduct.location ? C.primary : C.waiting} />
+        {mode === 'out' ? (
+          <View style={[styles.pickBanner, !(location || selectedProduct?.location) && styles.pickBannerMissing]}>
+            <Ionicons name="location" size={26} color={(location || selectedProduct?.location) ? C.primary : C.waiting} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.pickLabel}>{copy.pickLocation}</Text>
-              <Text style={styles.pickValue}>{selectedProduct.location || copy.pickLocationMissing}</Text>
+              <Text style={styles.pickLabel}>{copy.pickFrom}</Text>
+              <Text style={styles.pickValue}>{location || selectedProduct?.location || copy.pickLocationMissing}</Text>
+              <Text style={styles.sectionHint}>{copy.pickFromHint}</Text>
+            </View>
+            <View style={styles.pickActions}>
+              {(location || selectedProduct?.location) ? (
+                <TouchableOpacity style={styles.pickAction} onPress={() => setLocationScanOpen(true)}>
+                  <Text style={styles.pickActionText}>{copy.otherLocation}</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity style={styles.pickActionPrimary} onPress={() => setLocationScanOpen(true)}>
+                  <Text style={styles.pickActionPrimaryText}>{copy.setLocation}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         ) : null}
@@ -498,29 +511,34 @@ export default function InventoryMovementScreen() {
           )}
         </View>
 
-        <View style={styles.sectionCard}>
-          <Text style={styles.sectionTitle}>{mode === 'in' ? copy.receiptLogistics : copy.dispatchLogistics}</Text>
-          <Text style={styles.sectionHint}>{mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint}</Text>
-          {mode === 'in' && <Field label={copy.supplier} optional={copy.optional}><TextInput style={styles.input} value={supplier} onChangeText={handleSupplierChange} placeholder={copy.supplier} placeholderTextColor={C.textMuted} /></Field>}
-          {mode === 'in' && (
-            <Field label={copy.location} optional={copy.optional}>
-              <Text style={styles.sectionHint}>{copy.locationHint}</Text>
+        {mode === 'in' && (
+          <View style={styles.sectionCard}>
+            <Text style={styles.sectionTitle}>{copy.storeHere}</Text>
+            <Text style={styles.sectionHint}>{copy.storeHereHint}</Text>
+            <Field label={copy.supplier} optional={copy.optional}><TextInput style={styles.input} value={supplier} onChangeText={handleSupplierChange} placeholder={copy.supplier} placeholderTextColor={C.textMuted} /></Field>
+            <Field label={copy.location} required>
               <View style={styles.inputWithIcon}>
                 <TextInput
                   style={styles.inputFlex}
                   value={location}
                   onChangeText={value => { locationEdited.current = true; setLocation(value); }}
-                  placeholder={copy.location}
+                  placeholder="A-12"
                   placeholderTextColor={C.textMuted}
                   autoCapitalize="characters"
                 />
-                <TouchableOpacity onPress={() => setLocationScanOpen(true)} accessibilityLabel={copy.scanShelf} hitSlop={8}>
-                  <Ionicons name="scan-outline" size={22} color={C.primary} />
+                <TouchableOpacity style={styles.scanFieldButton} onPress={() => setLocationScanOpen(true)} accessibilityLabel={copy.scanShelf}>
+                  <Ionicons name="scan-outline" size={18} color="#fff" />
+                  <Text style={styles.scanFieldText}>{copy.scanShelf}</Text>
                 </TouchableOpacity>
               </View>
             </Field>
-          )}
-          <Field label={mode === 'in' ? copy.entryBuilding : copy.exitBuilding} optional={mode === 'in' ? copy.optional : undefined}>
+          </View>
+        )}
+
+        <View style={styles.sectionCard}>
+          <Text style={styles.sectionTitle}>{mode === 'in' ? copy.receivedAt : copy.dispatchLogistics}</Text>
+          <Text style={styles.sectionHint}>{mode === 'in' ? copy.entryDestinationHint : copy.exitDestinationHint}</Text>
+          <Field label={mode === 'in' ? copy.entryBuilding : copy.exitBuilding} optional={mode === 'in' ? copy.optional : undefined} required={mode === 'out'}>
             <TextInput
               style={styles.input}
               value={buildingName}
@@ -546,7 +564,7 @@ export default function InventoryMovementScreen() {
               style={[styles.input, !buildingName.trim() && styles.inputDisabled]}
               value={zoneName}
               onChangeText={value => setDestination(current => transitionInventoryDestination(destinationCatalog, current, { type: 'edit-zone', zoneName: value }))}
-              placeholder={copy.zone}
+              placeholder={buildingName.trim() ? copy.zone : copy.chooseBuildingFirst}
               placeholderTextColor={C.textMuted}
               editable={Boolean(buildingName.trim())}
               accessibilityState={{ disabled: !buildingName.trim() }}
@@ -578,6 +596,22 @@ export default function InventoryMovementScreen() {
           {submitting ? <ActivityIndicator color="#fff" /> : <><Ionicons name="checkmark-circle" size={22} color="#fff" /><Text style={styles.submitText}>{mode === 'in' ? copy.validateEntry : copy.validateExit}</Text></>}
         </TouchableOpacity>
       </View>
+      {success ? (
+        <View style={styles.successOverlay}>
+          <View style={styles.successCard}>
+            <Ionicons name="checkmark-circle" size={42} color={C.closed} />
+            <Text style={styles.successTitle}>{copy.movementSaved}</Text>
+            <Text style={styles.successMeta}>{success.before} → {success.after}</Text>
+            <Text style={styles.sectionHint}>{success.queued ? copy.queued : copy.synchronized}</Text>
+            <TouchableOpacity style={styles.successPrimary} onPress={() => router.replace(`/inventory/scan?mode=${mode}` as any)}>
+              <Text style={styles.successPrimaryText}>{copy.scanNext}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.successSecondary} onPress={() => router.replace('/inventory' as any)}>
+              <Text style={styles.successSecondaryText}>{copy.backHome}</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
       <InventoryLocationScanModal
         visible={locationScanOpen}
         title={copy.scanLocation}
@@ -603,10 +637,25 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg }, center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 }, centerText: { color: C.text, fontFamily: 'Inter_500Medium', textAlign: 'center' },
   content: { padding: 14, gap: 12 },
   modeBanner: { flexDirection: 'row', alignItems: 'center', gap: 9, padding: 12, borderRadius: 14 }, modeText: { fontFamily: 'Inter_700Bold', fontSize: 15 },
-  pickBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, borderRadius: 14, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: `${C.primary}30` },
+  pickBanner: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, padding: 14, borderRadius: 16, backgroundColor: C.primaryBg, borderWidth: 1, borderColor: `${C.primary}30` },
   pickBannerMissing: { backgroundColor: C.waitingBg, borderColor: `${C.waiting}30` },
   pickLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 10, textTransform: 'uppercase' },
-  pickValue: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 18, marginTop: 2 },
+  pickValue: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 22, marginTop: 2 },
+  pickActions: { gap: 8 },
+  pickAction: { minHeight: 40, paddingHorizontal: 12, borderRadius: 11, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
+  pickActionText: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 11 },
+  pickActionPrimary: { minHeight: 40, paddingHorizontal: 12, borderRadius: 11, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },
+  pickActionPrimaryText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 11 },
+  scanFieldButton: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: C.primary, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8 },
+  scanFieldText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 10 },
+  successOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,20,48,0.46)', alignItems: 'center', justifyContent: 'center', padding: 22 },
+  successCard: { width: '100%', maxWidth: 360, backgroundColor: '#fff', borderRadius: 20, padding: 22, alignItems: 'center', gap: 8 },
+  successTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 18 },
+  successMeta: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 22 },
+  successPrimary: { width: '100%', minHeight: 50, borderRadius: 14, backgroundColor: C.closed, alignItems: 'center', justifyContent: 'center', marginTop: 8 },
+  successPrimaryText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
+  successSecondary: { width: '100%', minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  successSecondaryText: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   scanAgain: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: '#fff', paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10 }, scanAgainText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 10 },
   sectionCard: { backgroundColor: C.surface, borderRadius: 17, borderWidth: 1, borderColor: C.border, padding: 15, gap: 12 },
   sectionTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 16 },

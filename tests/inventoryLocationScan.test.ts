@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   initialInventoryScanPhase,
   isSameInventoryScanCode,
+  nextInventoryScanPhase,
   resolveInventoryScanAction,
   resolveInventoryStorageLocation,
 } from '../lib/inventoryLocationScan';
@@ -10,6 +11,9 @@ describe('inventory location scan flow', () => {
   it('asks for a shelf scan after a product receipt, not after an issue', () => {
     expect(initialInventoryScanPhase()).toBe('product');
     expect(initialInventoryScanPhase('location')).toBe('location');
+    expect(nextInventoryScanPhase({ mode: 'in' })).toBe('location');
+    expect(nextInventoryScanPhase({ mode: 'in', existingLocation: 'A-12' })).toBe('confirm');
+    expect(nextInventoryScanPhase({ mode: 'out' })).toBe('complete-product');
     expect(resolveInventoryScanAction({ mode: 'in', phase: 'product' })).toBe('continue-location');
     expect(resolveInventoryScanAction({ mode: 'out', phase: 'product' })).toBe('complete-product');
     expect(resolveInventoryScanAction({ mode: 'in', phase: 'location' })).toBe('complete-location');
