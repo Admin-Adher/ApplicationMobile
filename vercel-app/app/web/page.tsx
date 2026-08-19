@@ -446,7 +446,8 @@ function useWebI18n() {
 }
 
 const TAB_LABEL_FALLBACK: Partial<Record<string, string>> = {
-  admin: 'Clients',
+  dashboard: 'Aujourd’hui',
+  admin: 'Pilotage',
   inventory: 'Stock',
   chantiers: 'Chantiers',
   journal: 'Journal',
@@ -458,7 +459,13 @@ const TAB_LABEL_FALLBACK: Partial<Record<string, string>> = {
   search: 'Recherche',
 };
 
-function tabLabel(tabId: TabId, t: WebTranslator) {
+function tabLabel(tabId: TabId, t: WebTranslator, role?: string | null) {
+  if (tabId === 'dashboard') return t('nav.today') === 'nav.today' ? 'Aujourd’hui' : t('nav.today');
+  if (tabId === 'admin') {
+    return role === 'super_admin'
+      ? (t('nav.clients') === 'nav.clients' ? 'Clients' : t('nav.clients'))
+      : (t('nav.pilotage') === 'nav.pilotage' ? 'Pilotage' : t('nav.pilotage'));
+  }
   const key = `nav.${tabId}`;
   const translated = t(key);
   return translated === key ? TAB_LABEL_FALLBACK[tabId] ?? translated : translated;
@@ -3062,7 +3069,7 @@ export default function BuildTrackWebPage() {
   }), [deviceLanguage, handleWebLangChange, handleWebLanguagePreferenceChange, webLang, webLanguagePreference]);
   const { t } = i18n;
   const isWarehouseWebUser = profile?.role === 'magasinier';
-  const isOrgAdminWebUser = profile?.role === 'admin';
+  const isOrgAdminWebUser = String(profile?.role ?? '').toLowerCase() === 'admin';
   const isPlatformAdminWebUser = profile?.role === 'super_admin';
   const visibleNavigationGroups: { label: string; items: TabId[] }[] = isWarehouseWebUser
     ? [{ label: 'Navigation', items: ['inventory', 'settings'] }]
@@ -6205,7 +6212,7 @@ export default function BuildTrackWebPage() {
         </div>
       ) : null}
       <WorkspaceChrome
-        title={tabLabel(activeTab, t)}
+        title={tabLabel(activeTab, t, profile?.role)}
         eyebrow={t('shell.cockpitWeb')}
         navigationLabel={t('common.mainMenu')}
         navigationGroups={visibleNavigationGroups.map(group => ({
@@ -6213,7 +6220,7 @@ export default function BuildTrackWebPage() {
           label: t(`nav.group.${group.label.toLowerCase()}`),
           items: group.items.map(tabId => {
             const tab = TABS.find(item => item.id === tabId)!;
-            const label = tabLabel(tab.id, t);
+            const label = tabLabel(tab.id, t, profile?.role);
             const navIsActive = activeTab === tab.id || (tab.id === 'terrain' && TERRAIN_CHILD_TABS.has(activeTab));
             const messageBadge = tab.id === 'messages' && unreadMessagesCount > 0
               ? (unreadMessagesCount > 9 ? '9+' : unreadMessagesCount)
