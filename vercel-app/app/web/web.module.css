@@ -10414,6 +10414,14 @@
     grid-template-columns: 1fr;
   }
 
+  .pinToolbarIntro span {
+    white-space: normal;
+  }
+
+  .reserveAdvancedFiltersWeb {
+    grid-template-columns: 1fr;
+  }
+
   .panelHeaderCompact,
   .sectionHeader,
   .modalHeader,
@@ -11626,4 +11634,22 @@
   .pilotageRoleChips button { flex: 0 0 auto; }
   .pilotagePanel { overflow: visible; }
   .adminPermissionsGrid { grid-template-columns: 1fr; }
+
+  .reservePhotoLightboxBackdrop { padding: 8px; }
+  .reservePhotoLightboxPanel { width: 100%; max-height: 96vh; border-radius: 16px; }
+  .reservePhotoLightboxHeader,
+  .reservePhotoLightboxFooter {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .reservePdfSectionHeaderWeb,
+  .reserveListMeta,
+  .reservePdfLangRowWeb {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .reservePdfModalWeb,
+  .plansPdfModalWeb {
+    width: 100%;
+  }
 }
