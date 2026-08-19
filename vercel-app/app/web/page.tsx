@@ -639,7 +639,6 @@ const TERRAIN_CHILD_TABS = new Set<TabId>([
   'rapports',
   'equipes',
   'settings',
-  'admin',
 ]);
 
 function SidebarNavIcon({ name, active = false }: { name: NavIconName; active?: boolean }) {
