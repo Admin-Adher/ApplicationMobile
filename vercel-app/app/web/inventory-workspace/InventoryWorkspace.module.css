@@ -608,6 +608,19 @@
   cursor: pointer;
 }
 .scanFieldButton:hover { background: var(--inventory-blue-soft); }
+.chipRow { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.45rem; }
+.choiceChip {
+  min-height: 2rem;
+  padding: 0.3rem 0.7rem;
+  border: 1px solid #d5deea;
+  border-radius: 999px;
+  background: #fff;
+  color: #334155;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.choiceChip[data-selected='true'] { border-color: var(--inventory-blue); background: var(--inventory-blue-soft); color: var(--inventory-blue); }
 .blockTitle { display: block; color: var(--inventory-ink); font-size: 0.8125rem; font-weight: 800; }
 .pickLocation em { display: block; margin-top: 0.2rem; font-size: 0.6875rem; font-style: normal; opacity: 0.8; }
 .scanOverlay {

@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
@@ -28,6 +29,7 @@ import {
 } from '@/lib/inventoryBarcodeLookup';
 import { canonicalizeGtin, normalizeBarcodeLookupCode } from '@/lib/inventoryBarcodeCore';
 import { resolveInventoryStorageLocation } from '@/lib/inventoryLocationScan';
+import { collectInventoryLabels, preferInventoryLabel } from '@/lib/inventoryScanMemory';
 import {
   EMPTY_INVENTORY_DESTINATION,
   createInventoryDestinationCatalog,
@@ -102,8 +104,10 @@ export default function InventoryMovementScreen() {
   const [barcode, setBarcode] = useState(normalizedInitialCode);
   const [designation, setDesignation] = useState(params.ocrDesignation ?? '');
   const [photoUrl, setPhotoUrl] = useState<string | undefined>(params.photoUri);
-  const [quantity, setQuantity] = useState('');
+  const [quantity, setQuantity] = useState('1');
   const [supplier, setSupplier] = useState('');
+  const [lastSupplier, setLastSupplier] = useState('');
+  const [lastLocation, setLastLocation] = useState('');
   const [location, setLocation] = useState(params.location ?? '');
   const [locationScanOpen, setLocationScanOpen] = useState(false);
   const [minStock, setMinStock] = useState('0');
@@ -211,6 +215,35 @@ export default function InventoryMovementScreen() {
     [buildingId, destinationCatalog],
   );
 
+  const knownSuppliers = useMemo(
+    () => collectInventoryLabels([lastSupplier, ...inventory.products.map(product => product.supplier)], supplier),
+    [inventory.products, lastSupplier, supplier],
+  );
+  const knownLocations = useMemo(
+    () => collectInventoryLabels([lastLocation, params.location, ...inventory.products.map(product => product.location)], location),
+    [inventory.products, lastLocation, location, params.location],
+  );
+
+  useEffect(() => {
+    const chantierId = activeChantier?.id;
+    if (!chantierId) return;
+    void AsyncStorage.multiGet([
+      `buildtrack-inventory-last-supplier-${chantierId}`,
+      `buildtrack-inventory-last-location-${chantierId}`,
+    ]).then(entries => {
+      const rememberedSupplier = entries[0][1]?.trim() || '';
+      const rememberedLocation = entries[1][1]?.trim() || '';
+      if (rememberedSupplier) {
+        setLastSupplier(rememberedSupplier);
+        if (!supplierEdited.current) setSupplier(current => preferInventoryLabel(current, rememberedSupplier));
+      }
+      if (rememberedLocation) {
+        setLastLocation(rememberedLocation);
+        if (!locationEdited.current) setLocation(current => preferInventoryLabel(current, rememberedLocation));
+      }
+    });
+  }, [activeChantier?.id]);
+
   const companyOptions = useMemo(() => {
     const known = new Set(companies.map(company => company.name.toLowerCase()));
     return [
@@ -244,7 +277,7 @@ export default function InventoryMovementScreen() {
     setBarcode(product.barcode ?? params.code ?? '');
     setDesignation(product.designation);
     setPhotoUrl(current => current ?? product.photoUrl);
-    setSupplier(product.supplier ?? '');
+    setSupplier(product.supplier?.trim() || (supplierEdited.current ? supplier : lastSupplier));
     setLocation(resolveInventoryStorageLocation({
       scannedLocation: params.location,
       productLocation: product.location,
@@ -267,6 +300,24 @@ export default function InventoryMovementScreen() {
   function handleSupplierChange(value: string) {
     supplierEdited.current = true;
     setSupplier(value);
+  }
+
+  function pickSupplier(value: string) {
+    supplierEdited.current = true;
+    setSupplier(value);
+  }
+
+  function pickLocation(value: string) {
+    locationEdited.current = true;
+    setLocation(value);
+  }
+
+  function bumpQuantity(delta: number) {
+    setQuantity(current => {
+      const value = Number(String(current).replace(',', '.'));
+      const next = (Number.isFinite(value) ? value : 0) + delta;
+      return String(Math.max(0, Math.round(next * 1000) / 1000));
+    });
   }
 
   function handleBarcodeChange(value: string) {
@@ -342,6 +393,12 @@ export default function InventoryMovementScreen() {
         comment: comment.trim() || undefined,
         allowNegative,
       });
+      if (activeChantier && mode === 'in') {
+        const pairs: [string, string][] = [];
+        if (supplier.trim()) pairs.push([`buildtrack-inventory-last-supplier-${activeChantier.id}`, supplier.trim()]);
+        if (location.trim()) pairs.push([`buildtrack-inventory-last-location-${activeChantier.id}`, location.trim()]);
+        if (pairs.length) void AsyncStorage.multiSet(pairs);
+      }
       setSuccess({ before: result.movement.stockBefore, after: result.movement.stockAfter, queued: result.queued });
     } catch (operationError: any) {
       Alert.alert(copy.error, operationError?.message ?? String(operationError));
@@ -493,7 +550,15 @@ export default function InventoryMovementScreen() {
           <View style={styles.quantityRow}>
             <View style={styles.stockSummary}><Text style={styles.stockSummaryLabel}>{copy.currentStock}</Text><Text style={styles.stockSummaryValue}>{stockBefore}</Text></View>
             <Ionicons name="arrow-forward" size={20} color={C.textMuted} />
-            <TextInput style={[styles.quantityInput, insufficient && styles.inputDanger]} value={quantity} onChangeText={setQuantity} placeholder="0" placeholderTextColor={C.textMuted} keyboardType="decimal-pad" selectTextOnFocus />
+            <View style={styles.quantityStepper}>
+              <TouchableOpacity style={styles.stepperBtn} onPress={() => bumpQuantity(-1)} accessibilityLabel="-1">
+                <Ionicons name="remove" size={18} color={C.text} />
+              </TouchableOpacity>
+              <TextInput style={[styles.quantityInput, insufficient && styles.inputDanger]} value={quantity} onChangeText={setQuantity} placeholder="0" placeholderTextColor={C.textMuted} keyboardType="decimal-pad" selectTextOnFocus />
+              <TouchableOpacity style={styles.stepperBtn} onPress={() => bumpQuantity(1)} accessibilityLabel="+1">
+                <Ionicons name="add" size={18} color={C.text} />
+              </TouchableOpacity>
+            </View>
             <Ionicons name="arrow-forward" size={20} color={C.textMuted} />
             <View style={[styles.stockSummary, insufficient && styles.stockSummaryDanger]}><Text style={styles.stockSummaryLabel}>{copy.afterMovement}</Text><Text style={[styles.stockSummaryValue, insufficient && { color: C.open }]}>{projectedStock}</Text></View>
           </View>
@@ -515,7 +580,16 @@ export default function InventoryMovementScreen() {
           <View style={styles.sectionCard}>
             <Text style={styles.sectionTitle}>{copy.storeHere}</Text>
             <Text style={styles.sectionHint}>{copy.storeHereHint}</Text>
-            <Field label={copy.supplier} optional={copy.optional}><TextInput style={styles.input} value={supplier} onChangeText={handleSupplierChange} placeholder={copy.supplier} placeholderTextColor={C.textMuted} /></Field>
+            <Field label={copy.supplier} optional={copy.optional}>
+              <TextInput style={styles.input} value={supplier} onChangeText={handleSupplierChange} placeholder={copy.supplier} placeholderTextColor={C.textMuted} />
+              {knownSuppliers.length > 0 ? (
+                <View style={styles.chipWrap}>
+                  {knownSuppliers.map(name => (
+                    <Chip key={name} selected={supplier.trim().toLocaleLowerCase() === name.toLocaleLowerCase()} label={name} onPress={() => pickSupplier(name)} />
+                  ))}
+                </View>
+              ) : null}
+            </Field>
             <Field label={copy.location} required>
               <View style={styles.inputWithIcon}>
                 <TextInput
@@ -531,6 +605,13 @@ export default function InventoryMovementScreen() {
                   <Text style={styles.scanFieldText}>{copy.scanShelf}</Text>
                 </TouchableOpacity>
               </View>
+              {knownLocations.length > 0 ? (
+                <View style={styles.chipWrap}>
+                  {knownLocations.map(name => (
+                    <Chip key={name} selected={location.trim().toLocaleLowerCase() === name.toLocaleLowerCase()} label={name} onPress={() => pickLocation(name)} />
+                  ))}
+                </View>
+              ) : null}
             </Field>
           </View>
         )}
@@ -673,9 +754,9 @@ const styles = StyleSheet.create({
   lookupLink: { borderRadius: 9, backgroundColor: '#fff', paddingHorizontal: 9, paddingVertical: 7 },
   lookupLinkText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 9 },
   photoButton: { flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: C.border, borderRadius: 12, padding: 8 }, photoPreview: { width: 48, height: 48, borderRadius: 9 }, photoPlaceholder: { width: 48, height: 48, borderRadius: 9, backgroundColor: C.primaryBg, alignItems: 'center', justifyContent: 'center' }, photoButtonText: { flex: 1, color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 12 },
-  quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 7 }, stockSummary: { flex: 1, minWidth: 65, backgroundColor: C.surface2, borderRadius: 12, padding: 9, alignItems: 'center' }, stockSummaryDanger: { backgroundColor: C.openBg }, stockSummaryLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 8, textTransform: 'uppercase', textAlign: 'center' }, stockSummaryValue: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 20, marginTop: 2 }, quantityInput: { width: 76, height: 56, borderRadius: 13, borderWidth: 2, borderColor: C.primary, backgroundColor: '#fff', color: C.text, fontFamily: 'Inter_700Bold', fontSize: 22, textAlign: 'center' }, inputDanger: { borderColor: C.open, color: C.open },
+  quantityRow: { flexDirection: 'row', alignItems: 'center', gap: 7 }, stockSummary: { flex: 1, minWidth: 65, backgroundColor: C.surface2, borderRadius: 12, padding: 9, alignItems: 'center' }, stockSummaryDanger: { backgroundColor: C.openBg }, stockSummaryLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 8, textTransform: 'uppercase', textAlign: 'center' }, stockSummaryValue: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 20, marginTop: 2 }, quantityStepper: { flexDirection: 'row', alignItems: 'center', gap: 4 }, stepperBtn: { width: 36, height: 44, borderRadius: 11, backgroundColor: C.surface2, alignItems: 'center', justifyContent: 'center' }, quantityInput: { width: 64, height: 56, borderRadius: 13, borderWidth: 2, borderColor: C.primary, backgroundColor: '#fff', color: C.text, fontFamily: 'Inter_700Bold', fontSize: 22, textAlign: 'center' }, inputDanger: { borderColor: C.open, color: C.open },
   warningBox: { flexDirection: 'row', gap: 9, alignItems: 'flex-start', borderRadius: 12, backgroundColor: C.openBg, padding: 11 }, warningTitle: { color: C.open, fontFamily: 'Inter_700Bold', fontSize: 12 }, warningText: { color: C.open, fontFamily: 'Inter_400Regular', fontSize: 10, marginTop: 2 }, checkRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 3 }, checkText: { flex: 1, color: C.open, fontFamily: 'Inter_500Medium', fontSize: 12 },
-  chips: { gap: 7, paddingRight: 8 }, chip: { minHeight: 44, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface }, chipSelected: { borderColor: C.primary, backgroundColor: C.primaryBg }, chipText: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 11 }, chipTextSelected: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
+  chips: { gap: 7, paddingRight: 8 }, chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 8 }, chip: { minHeight: 36, justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 22, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface }, chipSelected: { borderColor: C.primary, backgroundColor: C.primaryBg }, chipText: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 11 }, chipTextSelected: { color: C.primary, fontFamily: 'Inter_600SemiBold' },
   textArea: { minHeight: 84, paddingTop: 12 },
   inputDisabled: { opacity: 0.5, backgroundColor: C.surface2 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 14, paddingTop: 10, backgroundColor: 'rgba(244,247,251,0.96)', borderTopWidth: 1, borderTopColor: C.border }, submitButton: { minHeight: 54, borderRadius: 15, flexDirection: 'row', gap: 8, alignItems: 'center', justifyContent: 'center' }, submitText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14, letterSpacing: 0.3 }, disabled: { opacity: 0.6 },

@@ -22,6 +22,7 @@ import {
   type InventoryDestinationIntent,
 } from '../../../../lib/inventoryDestinationModel';
 import { isSameInventoryScanCode, nextInventoryScanPhase } from '../../../../lib/inventoryLocationScan';
+import { collectInventoryLabels, preferInventoryLabel } from '../../../../lib/inventoryScanMemory';
 import { InventoryIcon } from './InventoryIcon';
 import {
   lookupInventoryBarcode,
@@ -80,7 +81,7 @@ const EMPTY_FORM: FormState = {
   reference: '',
   barcode: '',
   designation: '',
-  quantity: '',
+  quantity: '1',
   supplier: '',
   location: '',
   minStock: '0',
@@ -244,6 +245,14 @@ export default function InventoryWorkspace({
   const operationProducts = useMemo(
     () => snapshot.products.filter(product => String(product.chantier_id) === String(operationProjectId)),
     [snapshot.products, operationProjectId],
+  );
+  const knownSuppliers = useMemo(
+    () => collectInventoryLabels(operationProducts.map(product => product.supplier), form.supplier),
+    [form.supplier, operationProducts],
+  );
+  const knownLocations = useMemo(
+    () => collectInventoryLabels(operationProducts.map(product => product.location), form.location),
+    [form.location, operationProducts],
   );
   const operationCompanies = useMemo(
     () => snapshot.companies.filter(company => !company.chantier_id || String(company.chantier_id) === String(operationProjectId)),
@@ -420,8 +429,8 @@ export default function InventoryWorkspace({
       reference: product.reference ?? '',
       barcode: product.barcode ?? '',
       designation: product.designation ?? product.reference ?? '',
-      supplier: product.supplier ?? '',
-      location: locationEdited.current ? current.location : (product.location ?? ''),
+      supplier: product.supplier?.trim() || current.supplier,
+      location: locationEdited.current ? current.location : (product.location ?? current.location),
       minStock: String(numberValue(product.min_stock)),
     }));
   }
@@ -441,15 +450,24 @@ export default function InventoryWorkspace({
     return found ?? null;
   }
 
+  function rememberedScanFields(projectId: string) {
+    if (typeof window === 'undefined' || !projectId) return { supplier: '', location: '' };
+    return {
+      supplier: window.localStorage.getItem(`buildtrack-inventory-last-supplier-${projectId}`) ?? '',
+      location: window.localStorage.getItem(`buildtrack-inventory-last-location-${projectId}`) ?? '',
+    };
+  }
+
   function openMovement(nextMode: 'in' | 'out', product?: InventoryProductRow) {
     stopScanner();
     clearFeedback();
     setPhoto(null);
     locationEdited.current = false;
-    setForm({ ...EMPTY_FORM });
+    const nextProjectId = product?.chantier_id ?? (projection.isAggregate ? '' : projection.activeProjectId);
+    const remembered = nextMode === 'in' ? rememberedScanFields(String(nextProjectId)) : { supplier: '', location: '' };
+    setForm({ ...EMPTY_FORM, ...remembered });
     setSelectedProductId(null);
     setLookupState('idle');
-    const nextProjectId = product?.chantier_id ?? (projection.isAggregate ? '' : projection.activeProjectId);
     setOperationProjectId(nextProjectId);
     setMode(nextMode);
     if (product) selectProduct(product);
@@ -636,7 +654,15 @@ export default function InventoryWorkspace({
       await onReload();
       const movementName = mode === 'in' ? copy.receive : copy.dispatch;
       setNotice(`${copy.movementSaved(movementName, numberValue(outcome.stockAfter))} ${copy.scanNext}`);
-      setForm({ ...EMPTY_FORM });
+      if (operationProjectId && mode === 'in') {
+        if (form.supplier.trim()) window.localStorage.setItem(`buildtrack-inventory-last-supplier-${operationProjectId}`, form.supplier.trim());
+        if (form.location.trim()) window.localStorage.setItem(`buildtrack-inventory-last-location-${operationProjectId}`, form.location.trim());
+      }
+      setForm({
+        ...EMPTY_FORM,
+        supplier: mode === 'in' ? form.supplier.trim() : '',
+        location: mode === 'in' ? form.location.trim() : '',
+      });
       setSelectedProductId(null);
       setPhoto(null);
       setLookupState('idle');
@@ -988,11 +1014,27 @@ export default function InventoryWorkspace({
                     <strong className={styles.blockTitle}>{copy.storeHere}</strong>
                     <p className={styles.fieldHint}>{copy.storeHereHint}</p>
                   </div>
-                  <div className={styles.field}><label htmlFor="inventory-supplier">{copy.supplier}</label><input id="inventory-supplier" value={form.supplier} onChange={event => patchForm({ supplier: event.target.value })} /></div>
+                  <div className={styles.field}>
+                    <label htmlFor="inventory-supplier">{copy.supplier}</label>
+                    <input id="inventory-supplier" value={form.supplier} onChange={event => patchForm({ supplier: event.target.value })} list="inventory-supplier-options" />
+                    <datalist id="inventory-supplier-options">
+                      {knownSuppliers.map(name => <option key={name} value={name} />)}
+                    </datalist>
+                    {knownSuppliers.length ? (
+                      <div className={styles.chipRow}>
+                        {knownSuppliers.map(name => (
+                          <button key={name} type="button" className={styles.choiceChip} data-selected={form.supplier === name ? 'true' : 'false'} onClick={() => patchForm({ supplier: name })}>{name}</button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
                   <div className={styles.field}>
                     <label htmlFor="inventory-location">{copy.location} *</label>
                     <div className={styles.locationRow}>
-                      <input id="inventory-location" value={form.location} onChange={event => patchForm({ location: event.target.value })} placeholder={copy.mainStore} required />
+                      <input id="inventory-location" value={form.location} onChange={event => patchForm({ location: event.target.value })} placeholder={copy.mainStore} list="inventory-location-options" required />
+                      <datalist id="inventory-location-options">
+                        {knownLocations.map(name => <option key={name} value={name} />)}
+                      </datalist>
                       <button type="button" className={styles.scanFieldButton} onClick={() => void startScanner('location')} disabled={!operationProjectId}>
                         <InventoryIcon name="camera" size={16} />
                         <span>{copy.scanShelf}</span>
