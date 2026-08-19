@@ -4669,6 +4669,60 @@ export default function BuildTrackWebPage() {
     if (companyError) setError(companyError.message);
   }
 
+  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string }) {
+    if (!isAdmin(profile) || !payload.name.trim()) return null;
+    const row = {
+      id: crypto.randomUUID(),
+      organization_id: profile?.organization_id ?? null,
+      name: payload.name.trim(),
+      email: payload.email?.trim() || null,
+      contact: payload.contact?.trim() || '',
+      siret: payload.siret?.trim() || null,
+      color: '#3B82F6',
+      planned_workers: 0,
+      actual_workers: 0,
+      hours_worked: 0,
+    };
+    const { data: inserted, error } = await supabaseBrowser.from('companies').insert(row).select().single();
+    if (error) {
+      setError(error.message);
+      return null;
+    }
+    const saved = inserted ?? row;
+    setData(prev => ({ ...prev, companies: [...prev.companies, saved] }));
+    setNotice('Entreprise créée.');
+    return saved;
+  }
+
+  async function updateCompanyWeb(companyId: string, payload: Record<string, any>) {
+    if (!isAdmin(profile)) return;
+    setData(prev => ({ ...prev, companies: prev.companies.map(item => item.id === companyId ? { ...item, ...payload } : item) }));
+    const { error } = await supabaseBrowser.from('companies').update(payload).eq('id', companyId);
+    if (error) setError(error.message);
+  }
+
+  async function deleteCompanyWeb(companyId: string) {
+    if (!isAdmin(profile)) return;
+    const previous = data.companies.find(item => item.id === companyId);
+    setData(prev => ({ ...prev, companies: prev.companies.filter(item => item.id !== companyId) }));
+    const { error } = await supabaseBrowser.from('companies').delete().eq('id', companyId);
+    if (error) {
+      setError(error.message);
+      if (previous) setData(prev => ({ ...prev, companies: [...prev.companies, previous] }));
+    }
+  }
+
+  async function removeUserWeb(userId: string) {
+    if (!isAdmin(profile) || userId === profile?.id) return;
+    const { data: revoked, error } = await supabaseBrowser.rpc('admin_revoke_membership', { p_user_id: userId });
+    if (error || !revoked?.user_id) {
+      setError(error?.message ?? 'Impossible de retirer ce membre.');
+      return;
+    }
+    setData(prev => ({ ...prev, profiles: prev.profiles.filter(item => item.id !== userId) }));
+    setNotice('Membre retiré.');
+  }
+
   async function updateTaskQuick(task: any, patch: Record<string, any>) {
     if (!canEdit(profile)) return;
     const payload = {
@@ -6695,7 +6749,16 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'admin' && (
-               <AdminView data={data} profile={profile} onUpdateProfile={updateProfileField} onEnterSupport={enterWebSupport} />
+               <AdminView
+                 data={data}
+                 profile={profile}
+                 onUpdateProfile={updateProfileField}
+                 onEnterSupport={enterWebSupport}
+                 onCreateCompany={createCompanyWeb}
+                 onUpdateCompany={updateCompanyWeb}
+                 onDeleteCompany={deleteCompanyWeb}
+                 onRemoveUser={removeUserWeb}
+               />
             )}
           </>
         )}
@@ -16528,15 +16591,30 @@ function OperatorCockpit({ data, onEnterSupport }: { data: WebState; onEnterSupp
   );
 }
 
-function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void; onEnterSupport?: (org: { id: string; name: string }) => void }) {
+function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCompany, onUpdateCompany, onDeleteCompany, onRemoveUser }: {
+  data: WebState;
+  profile: Profile | null;
+  onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void;
+  onEnterSupport?: (org: { id: string; name: string }) => void;
+  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string }) => Promise<any>;
+  onUpdateCompany?: (companyId: string, payload: Record<string, any>) => Promise<void> | void;
+  onDeleteCompany?: (companyId: string) => Promise<void> | void;
+  onRemoveUser?: (userId: string) => Promise<void> | void;
+}) {
   const [query, setQuery] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [pilotageTab, setPilotageTab] = useState<'users' | 'companies' | 'license'>('users');
+  const [roleFilter, setRoleFilter] = useState('all');
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('observateur');
   const [inviteCompanyId, setInviteCompanyId] = useState('');
   const [inviteStep, setInviteStep] = useState<1 | 2 | 3>(1);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteNotice, setInviteNotice] = useState('');
+  const [inviteLink, setInviteLink] = useState('');
+  const [companyDraft, setCompanyDraft] = useState({ name: '', email: '', contact: '', siret: '' });
+  const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [license, setLicense] = useState<{ status: string; planName: string; maxUsers: number } | null>(null);
   const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at?: string; company_id?: string | null }>>([]);
   const loadInvites = useCallback(async () => {
     const { data: rows } = await supabaseBrowser.from('invitations').select('id,email,role,expires_at,company_id,status').eq('status', 'pending').order('created_at', { ascending: false });
@@ -16549,6 +16627,19 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
     })));
   }, []);
   useEffect(() => { void loadInvites(); }, [loadInvites]);
+  useEffect(() => {
+    if (!profile?.organization_id) return;
+    void (async () => {
+      const { data: sub } = await supabaseBrowser.from('subscriptions').select('status, plan_id, started_at').eq('organization_id', profile.organization_id).maybeSingle();
+      if (!sub) return;
+      const { data: plan } = await supabaseBrowser.from('plans').select('name, max_users').eq('id', sub.plan_id).maybeSingle();
+      setLicense({
+        status: String(sub.status ?? 'active'),
+        planName: String(plan?.name ?? 'Entreprise'),
+        maxUsers: Number(plan?.max_users ?? -1),
+      });
+    })();
+  }, [profile?.organization_id]);
   if (profile?.role === 'super_admin') {
     return <OperatorCockpit data={data} onEnterSupport={onEnterSupport} />;
   }
@@ -16556,17 +16647,37 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
     return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux administrateurs.</p></section>;
   }
   const q = query.trim().toLowerCase();
-  const users = data.profiles.filter(user => !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q));
+  const users = data.profiles.filter(user => {
+    if (roleFilter !== 'all' && user.role !== roleFilter) return false;
+    return !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q);
+  });
   const editorIsSuperAdmin = profile?.role === 'super_admin';
+  const seatUsed = data.profiles.filter(user => user.role && user.role !== 'observateur').length;
+  const seatMax = license?.maxUsers ?? -1;
+  const seatsLabel = seatMax === -1 ? `${data.profiles.length}` : `${seatUsed}/${seatMax}`;
 
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Invitations" value={pendingInvites.length} hint="À traiter" tone={pendingInvites.length ? 'amber' : undefined} />
-        <Kpi title="Membres" value={data.profiles.length} hint="Comptes actifs" />
-        <Kpi title="Entreprises" value={data.companies.length} hint="Fiches orga" tone="green" />
-        <Kpi title="Chantiers" value={data.chantiers.length} hint="Périmètre" />
+        <button type="button" className={styles.pilotageKpiBtn} onClick={() => setPilotageTab('users')}>
+          <Kpi title="Invitations" value={pendingInvites.length} hint="À traiter" tone={pendingInvites.length ? 'amber' : undefined} />
+        </button>
+        <button type="button" className={styles.pilotageKpiBtn} onClick={() => setPilotageTab('license')}>
+          <Kpi title="Sièges" value={seatsLabel} hint={license?.planName ?? 'Licence'} />
+        </button>
+        <button type="button" className={styles.pilotageKpiBtn} onClick={() => setPilotageTab('companies')}>
+          <Kpi title="Entreprises" value={data.companies.length} hint="Fiches orga" tone="green" />
+        </button>
+        <button type="button" className={styles.pilotageKpiBtn} onClick={() => setPilotageTab('license')}>
+          <Kpi title="Licence" value={license?.status === 'active' ? 'Active' : license?.status ?? '—'} hint={`${data.chantiers.length} chantier(s)`} tone={license?.status === 'suspended' ? 'red' : undefined} />
+        </button>
       </div>
+      <div className={styles.pilotageTabs}>
+        <button type="button" data-active={pilotageTab === 'users' ? 'true' : 'false'} onClick={() => setPilotageTab('users')}>Membres</button>
+        <button type="button" data-active={pilotageTab === 'companies' ? 'true' : 'false'} onClick={() => setPilotageTab('companies')}>Entreprises</button>
+        <button type="button" data-active={pilotageTab === 'license' ? 'true' : 'false'} onClick={() => setPilotageTab('license')}>Licence</button>
+      </div>
+      {pilotageTab === 'users' ? <>
       <section className={`${styles.panel} ${styles.pilotagePanel}`}>
         <div className={styles.panelHeaderCompact}>
           <div>
@@ -16590,13 +16701,16 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
               return;
             }
             if (inviteStep === 2) {
-              setInviteStep(3);
+              setInviteStep(inviteRole === 'admin' ? 3 : 3);
               return;
             }
             const email = inviteEmail.trim().toLowerCase();
             if (!email.includes('@')) return setInviteNotice('Email invalide.');
+            if (inviteRole === 'sous_traitant' && !inviteCompanyId) return setInviteNotice('Une entreprise est obligatoire pour un sous-traitant.');
+            if (seatMax !== -1 && seatUsed >= seatMax) return setInviteNotice(`Quota de sièges atteint (${seatUsed}/${seatMax}).`);
             setInviteBusy(true);
             setInviteNotice('');
+            setInviteLink('');
             const { data, error } = await supabaseBrowser.rpc('admin_create_invitation', {
               p_email: email,
               p_role: inviteRole,
@@ -16608,7 +16722,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
               return setInviteNotice(error?.message ?? 'Impossible de créer l’invitation.');
             }
             const { data: authData } = await supabaseBrowser.auth.getSession();
-            await fetch('/api/send-email', {
+            const mail = await fetch('/api/send-email', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -16624,10 +16738,17 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
                 expiresAt: data.expires_at,
               }),
             }).catch(() => undefined);
+            const link = `${window.location.origin}/invite?token=${encodeURIComponent(data.token)}`;
             setInviteEmail('');
             setInviteBusy(false);
             setInviteStep(1);
-            setInviteNotice(`Invitation créée pour ${email}.`);
+            if (!mail || !mail.ok) {
+              setInviteLink(link);
+              setInviteNotice('Invitation créée, mais l’e-mail n’est pas parti. Copiez le lien.');
+            } else {
+              setInviteLink(link);
+              setInviteNotice(`Invitation envoyée à ${email}.`);
+            }
             void loadInvites();
           }}
         >
@@ -16659,6 +16780,12 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
           </div>
         </form>
         {inviteNotice ? <p className={styles.pilotageNotice}>{inviteNotice}</p> : null}
+        {inviteLink ? (
+          <div className={styles.pilotageInviteLink}>
+            <input readOnly value={inviteLink} />
+            <button type="button" className={styles.pilotageGhost} onClick={() => void navigator.clipboard.writeText(inviteLink)}>Copier le lien</button>
+          </div>
+        ) : null}
         {pendingInvites.length ? (
           <div className={styles.pilotageInviteList}>
             {pendingInvites.map(invite => (
@@ -16688,7 +16815,15 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
             <h2>Membres</h2>
             <p>Rôle, entreprise, puis les droits si besoin.</p>
           </div>
-          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un membre…" />
+          <div className={styles.pilotageInviteActions}>
+            <select value={roleFilter} onChange={event => setRoleFilter(event.target.value)}>
+              <option value="all">Tous les rôles</option>
+              {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+            <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un membre…" />
+          </div>
         </div>
         <div className={styles.adminPermissionLegend}>
           <span><i className={styles.permissionDefaultDot} /> Défaut du rôle</span>
@@ -16736,6 +16871,12 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
                   >
                     {user.role === 'super_admin' ? 'Droits fixes' : `${overrideCount} droit${overrideCount === 1 ? '' : 's'}`} {expanded ? '▴' : '▾'}
                   </button>
+                  {targetEditable && user.id !== profile?.id ? (
+                    <button type="button" className={styles.pilotageDanger} onClick={event => {
+                      event.stopPropagation();
+                      if (window.confirm(`Retirer ${user.name || user.email} ?`)) void onRemoveUser?.(user.id);
+                    }}>Retirer</button>
+                  ) : null}
                 </div>
                 {expanded ? (
                   <div className={styles.adminPermissionsPanel}>
@@ -16780,6 +16921,84 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: W
           {!users.length && <p className={styles.empty}>Aucun membre trouvé.</p>}
         </div>
       </section>
+      </> : null}
+
+      {pilotageTab === 'companies' ? (
+        <section className={`${styles.panel} ${styles.pilotagePanel}`}>
+          <div className={styles.panelHeaderCompact}>
+            <div>
+              <h2>Entreprises</h2>
+              <p>Fiches orga : nom, contact, SIRET. Sans pointage ici.</p>
+            </div>
+          </div>
+          <form className={styles.pilotageInviteForm} onSubmit={async event => {
+            event.preventDefault();
+            if (!companyDraft.name.trim()) return;
+            if (editingCompanyId) {
+              await onUpdateCompany?.(editingCompanyId, { name: companyDraft.name.trim(), email: companyDraft.email || null, contact: companyDraft.contact, siret: companyDraft.siret || null });
+              setEditingCompanyId(null);
+            } else {
+              await onCreateCompany?.(companyDraft);
+            }
+            setCompanyDraft({ name: '', email: '', contact: '', siret: '' });
+          }}>
+            <div className={styles.pilotageCompanyForm}>
+              <label>Nom<input value={companyDraft.name} onChange={event => setCompanyDraft(prev => ({ ...prev, name: event.target.value }))} required /></label>
+              <label>Email<input value={companyDraft.email} onChange={event => setCompanyDraft(prev => ({ ...prev, email: event.target.value }))} type="email" /></label>
+              <label>Téléphone<input value={companyDraft.contact} onChange={event => setCompanyDraft(prev => ({ ...prev, contact: event.target.value }))} /></label>
+              <label>SIRET<input value={companyDraft.siret} onChange={event => setCompanyDraft(prev => ({ ...prev, siret: event.target.value }))} /></label>
+              <button type="submit" className={styles.pilotagePrimary}>{editingCompanyId ? 'Enregistrer' : 'Ajouter'}</button>
+            </div>
+          </form>
+          <div className={styles.pilotageInviteList}>
+            {data.companies.map(company => (
+              <article key={company.id} className={styles.pilotageInviteCard}>
+                <div>
+                  <strong>{company.name}</strong>
+                  <span>{[company.email, company.contact, company.siret].filter(Boolean).join(' · ') || 'Sans contact'}</span>
+                </div>
+                <div className={styles.pilotageInviteActions}>
+                  <button type="button" className={styles.pilotageGhost} onClick={() => {
+                    setEditingCompanyId(company.id);
+                    setCompanyDraft({ name: company.name ?? '', email: company.email ?? '', contact: company.contact ?? '', siret: company.siret ?? '' });
+                  }}>Modifier</button>
+                  <button type="button" className={styles.pilotageDanger} onClick={() => {
+                    if (window.confirm(`Supprimer ${company.name} ?`)) void onDeleteCompany?.(company.id);
+                  }}>Supprimer</button>
+                </div>
+              </article>
+            ))}
+            {!data.companies.length ? <p className={styles.empty}>Aucune entreprise.</p> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {pilotageTab === 'license' ? (
+        <section className={`${styles.panel} ${styles.pilotagePanel}`}>
+          <div className={styles.panelHeaderCompact}>
+            <div>
+              <h2>Licence</h2>
+              <p>{license?.planName ?? 'Plan'} · {license?.status ?? 'inconnu'}</p>
+            </div>
+          </div>
+          <div className={styles.pilotageLicense}>
+            <article>
+              <span>Sièges</span>
+              <strong>{seatsLabel}</strong>
+              <small>Observateurs hors quota</small>
+            </article>
+            <article>
+              <span>Membres</span>
+              <strong>{data.profiles.length}</strong>
+              <small>{data.companies.length} entreprises</small>
+            </article>
+            <article>
+              <span>Application</span>
+              <a href="https://github.com/Admin-Adher/ApplicationMobile/releases/latest/download/buildtrack-release.apk">Télécharger l’APK</a>
+            </article>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }

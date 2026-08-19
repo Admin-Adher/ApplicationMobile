@@ -11221,6 +11221,33 @@
   }
 }
 
+.pilotageKpiBtn { border: 0; padding: 0; background: transparent; text-align: left; cursor: pointer; }
+.pilotageTabs { display: flex; gap: 8px; }
+.pilotageTabs button {
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid #d5deea;
+  border-radius: 999px;
+  background: #fff;
+  color: #64748b;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+.pilotageTabs button[data-active='true'] { border-color: #003082; background: #003082; color: #fff; }
+.pilotageInviteLink { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; padding: 0 20px 16px; }
+.pilotageInviteLink input { min-height: 44px; border: 1px solid #d5deea; border-radius: 12px; padding: 0 12px; }
+.pilotageCompanyForm { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; }
+.pilotageCompanyForm label { display: grid; gap: 6px; font-size: 12px; font-weight: 800; color: #334155; }
+.pilotageCompanyForm input { min-height: 44px; border: 1px solid #d5deea; border-radius: 12px; padding: 0 12px; }
+.pilotageLicense { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0 20px 20px; }
+.pilotageLicense article { padding: 16px; border: 1px solid #e8eef5; border-radius: 16px; background: #f8fafc; display: grid; gap: 4px; }
+.pilotageLicense span { color: #64748b; font-size: 12px; font-weight: 800; text-transform: uppercase; }
+.pilotageLicense strong { font-size: 22px; }
+.pilotageLicense a { color: #003082; font-weight: 800; }
+@media (max-width: 900px) {
+  .pilotageCompanyForm, .pilotageLicense, .pilotageInviteLink { grid-template-columns: 1fr; }
+}
 .pilotagePanel { overflow: hidden; }
 .pilotageSteps {
   display: flex;
@@ -11296,7 +11323,7 @@
 .pilotageMember { border-bottom: 1px solid #eef2f7; }
 .pilotageMemberMain {
   display: grid;
-  grid-template-columns: auto minmax(0, 1.2fr) 160px minmax(140px, 0.9fr) auto;
+  grid-template-columns: auto minmax(0, 1.2fr) 160px minmax(140px, 0.9fr) auto auto;
   gap: 12px;
   align-items: center;
   padding: 12px 16px;
