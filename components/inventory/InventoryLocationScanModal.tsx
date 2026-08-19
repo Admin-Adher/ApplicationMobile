@@ -17,6 +17,9 @@ export function InventoryLocationScanModal({
   allowCamera,
   cameraUnavailable,
   retryLabel,
+  readyTitle,
+  readyHint,
+  readyAction,
   onClose,
   onDetected,
 }: {
@@ -29,24 +32,29 @@ export function InventoryLocationScanModal({
   allowCamera: string;
   cameraUnavailable: string;
   retryLabel: string;
+  readyTitle: string;
+  readyHint: string;
+  readyAction: string;
   onClose: () => void;
   onDetected: (code: string) => void;
 }) {
   const cameraRef = useRef<CameraView | InventoryWebBarcodeCameraHandle | null>(null);
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
+  const [armed, setArmed] = useState(false);
   const [torch, setTorch] = useState(false);
 
   useEffect(() => {
     if (visible) {
       setScanned(false);
+      setArmed(false);
       setTorch(false);
     }
   }, [visible]);
 
   function handleBarcode(result: BarcodeScanningResult) {
     const code = result.data?.trim();
-    if (!visible || scanned || !code) return;
+    if (!visible || !armed || scanned || !code) return;
     setScanned(true);
     onDetected(code);
   }
@@ -67,6 +75,15 @@ export function InventoryLocationScanModal({
             <Text style={styles.permission}>{cameraPermission}</Text>
             <TouchableOpacity style={styles.allow} onPress={requestPermission}>
               <Text style={styles.allowText}>{allowCamera}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !armed ? (
+          <View style={styles.center}>
+            <Ionicons name="scan-outline" size={46} color={C.primary} />
+            <Text style={styles.readyTitle}>{readyTitle}</Text>
+            <Text style={styles.permission}>{readyHint}</Text>
+            <TouchableOpacity style={styles.allow} onPress={() => setArmed(true)}>
+              <Text style={styles.allowText}>{readyAction}</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -110,6 +127,7 @@ const styles = StyleSheet.create({
   title: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 16 },
   cancel: { color: '#FFCB00', fontFamily: 'Inter_600SemiBold', fontSize: 13 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28, gap: 16 },
+  readyTitle: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 22, textAlign: 'center' },
   permission: { color: '#fff', fontFamily: 'Inter_500Medium', fontSize: 15, textAlign: 'center', lineHeight: 22 },
   allow: { backgroundColor: C.primary, borderRadius: 13, paddingHorizontal: 20, paddingVertical: 13 },
   allowText: { color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 14 },

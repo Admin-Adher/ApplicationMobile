@@ -36,6 +36,8 @@ describe('inventory receipt and dispatch destination parity', () => {
     const scan = read('app/inventory/scan.tsx');
 
     expect(web).toContain("startScanner('location')");
+    expect(web).toContain('copy.scanReady');
+    expect(web).toContain('armScanner');
     expect(web).toContain('copy.pickFrom');
     expect(web).toContain('copy.locationRequired');
     expect(mobile).toContain('InventoryLocationScanModal');
@@ -43,5 +45,7 @@ describe('inventory receipt and dispatch destination parity', () => {
     expect(mobile).toContain('copy.locationRequired');
     expect(scan).toContain('nextInventoryScanPhase');
     expect(scan).toContain('location: code');
+    expect(scan).toContain('copy.scanReady');
+    expect(scan).toContain('setArmed(true)');
   });
 });

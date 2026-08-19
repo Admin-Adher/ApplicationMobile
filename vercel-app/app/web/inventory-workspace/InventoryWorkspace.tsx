@@ -215,6 +215,7 @@ export default function InventoryWorkspace({
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerArmed, setScannerArmed] = useState(false);
   const [scannerLoading, setScannerLoading] = useState(false);
   const [scannerTarget, setScannerTarget] = useState<'product' | 'location'>('product');
   const [scanError, setScanError] = useState('');
@@ -285,13 +286,18 @@ export default function InventoryWorkspace({
     ? copy.allProjects
     : inventoryProjectName(selectedScopeProject, copy.allProjects);
 
-  function stopScanner() {
+  function releaseScannerTracks() {
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     const stream = videoRef.current?.srcObject as MediaStream | null | undefined;
     stream?.getTracks().forEach(track => track.stop());
     if (videoRef.current) videoRef.current.srcObject = null;
     setScannerLoading(false);
+  }
+
+  function stopScanner() {
+    releaseScannerTracks();
+    setScannerArmed(false);
     setScannerOpen(false);
   }
 
@@ -537,15 +543,22 @@ export default function InventoryWorkspace({
     }
   }
 
-  async function startScanner(target: 'product' | 'location' = 'product') {
+  function startScanner(target: 'product' | 'location' = 'product') {
+    releaseScannerTracks();
     setScanError('');
-    setScannerLoading(true);
     scannerTargetRef.current = target;
     setScannerTarget(target);
     if (target === 'product') setLookupState('idle');
+    setScannerArmed(false);
+    setScannerOpen(true);
+  }
+
+  async function armScanner() {
+    setScanError('');
+    setScannerArmed(true);
+    setScannerLoading(true);
     try {
-      setScannerOpen(true);
-      await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+      await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
       if (!videoRef.current) throw new Error(copy.cameraUnavailable);
       let detectedDuringStart = false;
       const controls = await startWebBarcodeScanner({
@@ -576,7 +589,7 @@ export default function InventoryWorkspace({
               patchForm({ location: existing.location });
               return;
             }
-            if (next === 'location') void startScanner('location');
+            if (next === 'location') startScanner('location');
           });
         },
       });
@@ -1346,12 +1359,20 @@ export default function InventoryWorkspace({
       ) : null}
       {(scannerOpen || confirmingLocation) && typeof document !== 'undefined' ? createPortal(
         <div className={styles.scanOverlay} role="dialog" aria-modal="true">
-          {scannerOpen ? (
+          {scannerOpen && !scannerArmed ? (
+            <div className={styles.scanReady}>
+              <p className={styles.scanStep}>{mode === 'in' ? (scannerTarget === 'location' ? copy.scanStepLocation : copy.scanStepProduct) : copy.scan}</p>
+              <strong>{copy.scanReady}</strong>
+              <p>{scannerTarget === 'location' ? copy.scanReadyHintShelf : copy.scanReadyHint}</p>
+              <button type="button" className={styles.primaryButton} onClick={() => void armScanner()}>{copy.scanReadyAction}</button>
+              <button type="button" className={styles.secondaryButton} onClick={stopScanner}>{copy.cancel}</button>
+            </div>
+          ) : scannerOpen ? (
             <>
               <video ref={videoRef} muted playsInline className={styles.scanOverlayVideo} aria-label={scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp} />
               <div className={styles.scanOverlayChrome}>
                 <p className={styles.scanStep}>{mode === 'in' ? (scannerTarget === 'location' ? copy.scanStepLocation : copy.scanStepProduct) : copy.scan}</p>
-                <p>{scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp}</p>
+                <p>{scannerLoading ? copy.openingCamera : scannerTarget === 'location' ? copy.scannerLocationHelp : copy.scannerHelp}</p>
                 <button type="button" className={styles.secondaryButton} onClick={stopScanner}>{copy.stopCamera}</button>
               </div>
             </>

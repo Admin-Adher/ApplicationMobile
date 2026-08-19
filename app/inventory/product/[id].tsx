@@ -181,6 +181,9 @@ export default function InventoryProductScreen() {
             allowCamera={copy.allowCamera}
             cameraUnavailable={copy.cameraUnavailable}
             retryLabel={copy.retryCamera}
+            readyTitle={copy.scanReady}
+            readyHint={copy.scanReadyHintShelf}
+            readyAction={copy.scanReadyAction}
             onClose={() => setLocationScanOpen(false)}
             onDetected={code => { setLocation(code); setLocationScanOpen(false); }}
           />
