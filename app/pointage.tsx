@@ -23,7 +23,16 @@ import BottomNavBar from '@/components/BottomNavBar';
 import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function nowTime() {
+  const date = new Date();
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
 }
 
 function formatDate(iso: string) {
@@ -45,8 +54,9 @@ function calcHours(arrival: string, departure?: string): number | null {
   if (!departure) return null;
   const [ah, am] = arrival.split(':').map(Number);
   const [dh, dm] = departure.split(':').map(Number);
-  const diff = (dh * 60 + dm) - (ah * 60 + am);
-  return diff > 0 ? Math.round((diff / 60) * 10) / 10 : null;
+  let diff = (dh * 60 + dm) - (ah * 60 + am);
+  if (diff <= 0) diff += 24 * 60;
+  return Math.round((diff / 60) * 10) / 10;
 }
 
 function timeToMinutes(t: string): number {
@@ -62,7 +72,10 @@ function getWeekDates(dateISO: string): string[] {
   return Array.from({ length: 7 }, (_, i) => {
     const dd = new Date(monday);
     dd.setDate(dd.getDate() + i);
-    return dd.toISOString().slice(0, 10);
+    const year = dd.getFullYear();
+    const month = String(dd.getMonth() + 1).padStart(2, '0');
+    const day = String(dd.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
 }
 
@@ -132,7 +145,7 @@ export default function PointageScreen() {
   const departureRef = useRef<TextInput>(null);
   const companyScrollRef = useRef<ScrollView>(null);
 
-  const [depTime, setDepTime] = useState('17:00');
+  const [depTime, setDepTime] = useState(nowTime);
   const [filterCompany, setFilterCompany] = useState('');
   const dayLabels = useMemo(() => t('pointage.daysShort', { returnObjects: true }) as string[], [t]);
 
@@ -153,21 +166,6 @@ export default function PointageScreen() {
       return { date, total: dayEntries.length, actifs, partis };
     });
   }, [entries, weekDates]);
-
-  if (user !== null && user.role === 'sous_traitant') {
-    return (
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
-        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ fontSize: 17, fontFamily: 'Inter_600SemiBold', color: C.text, marginTop: 16, marginBottom: 8 }}>{t('common.restrictedAccess')}</Text>
-        <Text style={{ fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textMuted, textAlign: 'center', marginBottom: 24 }}>
-          {t('pointage.restrictedTextLong')}
-        </Text>
-        <TouchableOpacity onPress={() => goBack()} style={{ paddingHorizontal: 24, paddingVertical: 12, backgroundColor: C.primaryBg, borderRadius: 10, borderWidth: 1, borderColor: C.primary + '40' }}>
-          <Text style={{ fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.primary }}>{t('common.back')}</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
 
   const maxWeekCount = useMemo(() => Math.max(...weekChartData.map(d => d.total), 1), [weekChartData]);
 
@@ -383,7 +381,7 @@ export default function PointageScreen() {
       showAlert(t('pointage.invalidFormatTitle'), t('pointage.invalidDepartureFormat'));
       return;
     }
-    if (timeToMinutes(depTime) <= timeToMinutes(departureModal.arrivalTime)) {
+    if (depTime === departureModal.arrivalTime) {
       showAlert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrival', { arrival: departureModal.arrivalTime }));
       return;
     }
@@ -397,7 +395,7 @@ export default function PointageScreen() {
       return;
     }
     const activeEntries = allDateEntries.filter(e => !e.departureTime);
-    const conflicting = activeEntries.filter(e => timeToMinutes(depTime) <= timeToMinutes(e.arrivalTime));
+    const conflicting = activeEntries.filter(e => depTime === e.arrivalTime);
     if (conflicting.length > 0) {
       showAlert(
         t('pointage.timeConflictTitle'),
@@ -419,7 +417,11 @@ export default function PointageScreen() {
   function changeDate(offset: number) {
     const d = new Date(selectedDate + 'T12:00:00');
     d.setDate(d.getDate() + offset);
-    setSelectedDate(d.toISOString().slice(0, 10));
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    setSelectedDate(`${year}-${month}-${day}`);
+    setFilterCompany('');
   }
 
   function selectTask(taskId: string, taskTitle: string) {
@@ -433,6 +435,7 @@ export default function PointageScreen() {
   }
 
   async function handleExportCSV() {
+    if (!permissions.canExport) return;
     const exportT = getExportTranslator(exportLanguage);
     const exportLocale = localeForExportLanguage(exportLanguage);
     const formatCsvDate = (value: string) => new Date(`${value}T12:00:00`).toLocaleDateString(exportLocale);
@@ -605,10 +608,10 @@ export default function PointageScreen() {
           <Text style={styles.kpiLabel}>{t('pointage.totalHours')}</Text>
         </View>
         <View style={styles.kpiDivider} />
-        <TouchableOpacity style={styles.kpiExportBtn} onPress={handleExportCSV}>
+        {permissions.canExport ? <TouchableOpacity style={styles.kpiExportBtn} onPress={handleExportCSV}>
           <Ionicons name="download-outline" size={16} color={C.primary} />
           <Text style={styles.kpiExportText}>CSV · {exportLanguage.toUpperCase()}</Text>
-        </TouchableOpacity>
+        </TouchableOpacity> : null}
       </View>
 
       <ScrollView
@@ -619,7 +622,7 @@ export default function PointageScreen() {
         {selectedDate === todayISO() && allDateEntries.length > 0 && (
           <TouchableOpacity
             style={styles.journalBanner}
-            onPress={() => router.push('/journal')}
+            onPress={() => router.push('/journal' as any)}
             activeOpacity={0.82}
           >
             <View style={styles.journalBannerLeft}>
@@ -646,7 +649,7 @@ export default function PointageScreen() {
         {canEdit && actifs > 0 && (
           <TouchableOpacity
             style={styles.bulkDepBtn}
-            onPress={() => { setDepTime('17:00'); setBulkDepModal(true); }}
+            onPress={() => { setDepTime(nowTime()); setBulkDepModal(true); }}
             activeOpacity={0.82}
           >
             <Ionicons name="log-out-outline" size={16} color={C.open} />
@@ -751,7 +754,7 @@ export default function PointageScreen() {
                         {isActive && canEdit && (
                           <TouchableOpacity
                             style={styles.depBtn}
-                            onPress={() => { setDepartureModal(entry); setDepTime('17:00'); }}
+                            onPress={() => { setDepartureModal(entry); setDepTime(nowTime()); }}
                             hitSlop={8}
                           >
                             <Ionicons name="log-out-outline" size={13} color={C.open} />
@@ -845,7 +848,7 @@ export default function PointageScreen() {
                   {isActive && canEdit && (
                     <TouchableOpacity
                       style={styles.gridDepBtn}
-                      onPress={() => { setDepartureModal(entry); setDepTime('17:00'); }}
+                      onPress={() => { setDepartureModal(entry); setDepTime(nowTime()); }}
                     >
                       <Ionicons name="log-out-outline" size={12} color={C.open} />
                       <Text style={styles.gridDepText}>{t('pointage.departureShort')}</Text>
@@ -1054,6 +1057,9 @@ export default function PointageScreen() {
                   );
                 })()}
                 <View style={styles.presetRow}>
+                  <TouchableOpacity style={styles.presetChip} onPress={() => setDepartureTime(nowTime())}>
+                    <Text style={styles.presetChipText}>{t('pointage.now', { defaultValue: 'Maintenant' })}</Text>
+                  </TouchableOpacity>
                   {DEPARTURE_PRESETS.map(preset => (
                     <TouchableOpacity
                       key={preset}
@@ -1192,6 +1198,9 @@ export default function PointageScreen() {
               <Text style={styles.modalSub}>{departureModal.workerName} — {departureModal.companyName}</Text>
             )}
             <View style={styles.presetRow}>
+              <TouchableOpacity style={styles.presetChip} onPress={() => setDepTime(nowTime())}>
+                <Text style={styles.presetChipText}>{t('pointage.now', { defaultValue: 'Maintenant' })}</Text>
+              </TouchableOpacity>
               {DEPARTURE_PRESETS.map(t => (
                 <TouchableOpacity
                   key={t}
@@ -1238,6 +1247,9 @@ export default function PointageScreen() {
             </Text>
             <Text style={styles.fieldLabel}>{t('pointage.departureLabel')}</Text>
             <View style={styles.presetRow}>
+              <TouchableOpacity style={styles.presetChip} onPress={() => setDepTime(nowTime())}>
+                <Text style={styles.presetChipText}>{t('pointage.now', { defaultValue: 'Maintenant' })}</Text>
+              </TouchableOpacity>
               {DEPARTURE_PRESETS.map(t => (
                 <TouchableOpacity
                   key={t}

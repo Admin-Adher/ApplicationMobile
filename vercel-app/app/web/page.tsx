@@ -12287,7 +12287,7 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
           ]
         : [
             { icon: 'document-text', title: 'Journal chantier', subtitle: 'Saisie quotidienne', count: scoped.journalEntries?.length ?? data.journalEntries?.length ?? 0, tab: 'journal', tone: 'green' },
-            { icon: 'calendar', title: 'Pointage', subtitle: 'Arrivées et départs', count: scoped.timeEntries.length, tab: 'pointage', tone: 'blue' },
+            { icon: 'calendar', title: 'Pointage', subtitle: 'Arrivées et départs', count: scoped.timeEntries.filter((entry: any) => entry.date === todayISO()).length, tab: 'pointage', tone: 'blue' },
             { icon: 'eye', title: 'Visites chantier', subtitle: 'Compte-rendu visite', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
             { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
             { icon: 'clipboard', title: 'OPR', subtitle: 'Opérations de réception', count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
@@ -13063,7 +13063,7 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
 
 function PointageView({ entries, companies, profile, editable, canDelete, onCreate, onUpdate, onDelete }: any) {
   const [date, setDate] = useState(todayISO());
-  const [draft, setDraft] = useState<any>({ worker_name: '', company_id: '', arrival_time: '08:00', departure_time: '', notes: '' });
+  const [draft, setDraft] = useState<any>({ worker_name: '', company_id: companies[0]?.id ?? '', arrival_time: '08:00', departure_time: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const dayEntries = entries.filter((entry: any) => entry.date === date);
   const totalPresent = dayEntries.filter((entry: any) => !entry.departure_time).length;
@@ -13075,6 +13075,8 @@ function PointageView({ entries, companies, profile, editable, canDelete, onCrea
   async function submitEntry(event: React.FormEvent) {
     event.preventDefault();
     if (busy) return;
+    if (!draft.company_id) return;
+    if (draft.departure_time && draft.departure_time === draft.arrival_time) return;
     setBusy(true);
     try {
       const company = selectedCompany(draft.company_id);
@@ -13085,7 +13087,7 @@ function PointageView({ entries, companies, profile, editable, canDelete, onCrea
         company_color: company?.color ?? '#10B981',
       });
       if (saved) {
-        setDraft({ worker_name: '', company_id: draft.company_id, arrival_time: '08:00', departure_time: '', notes: '' });
+        setDraft({ worker_name: '', company_id: draft.company_id, arrival_time: draft.arrival_time, departure_time: '', notes: '' });
       }
     } finally {
       setBusy(false);
@@ -13115,15 +13117,18 @@ function PointageView({ entries, companies, profile, editable, canDelete, onCrea
             <label><span>Compagnon</span><input value={draft.worker_name} onChange={event => setDraft((prev: any) => ({ ...prev, worker_name: event.target.value }))} required /></label>
             <label>
               <span>Entreprise</span>
-              <select value={draft.company_id} onChange={event => setDraft((prev: any) => ({ ...prev, company_id: event.target.value }))}>
-                <option value="">Sans entreprise</option>
+              <select value={draft.company_id} required onChange={event => setDraft((prev: any) => ({ ...prev, company_id: event.target.value }))}>
+                <option value="">Entreprise *</option>
                 {companies.map((company: any) => <option key={company.id} value={company.id}>{company.name}</option>)}
               </select>
             </label>
             <label><span>Arrivée</span><input type="time" value={draft.arrival_time} onChange={event => setDraft((prev: any) => ({ ...prev, arrival_time: event.target.value }))} /></label>
             <label><span>Départ</span><input type="time" value={draft.departure_time} onChange={event => setDraft((prev: any) => ({ ...prev, departure_time: event.target.value }))} /></label>
             <label className={styles.fullSpan}><span>Notes</span><input value={draft.notes} onChange={event => setDraft((prev: any) => ({ ...prev, notes: event.target.value }))} /></label>
-            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Ajout…' : 'Ajouter pointage'}</button></div>
+            <div className={styles.modalActions}>
+              <button type="button" onClick={() => setDraft((prev: any) => ({ ...prev, arrival_time: new Date().toTimeString().slice(0, 5) }))}>Arrivée maintenant</button>
+              <button type="submit" disabled={busy}>{busy ? 'Ajout…' : 'Ajouter pointage'}</button>
+            </div>
           </form>
         )}
       </section>
@@ -13132,9 +13137,9 @@ function PointageView({ entries, companies, profile, editable, canDelete, onCrea
         <div className={styles.tableLike}>
           {dayEntries.map((entry: any) => (
             <article key={entry.id} className={styles.tableRow}>
-              <span>{entry.arrival_time} → {entry.departure_time || 'présent'}</span>
+              <span>{entry.arrival_time} → {entry.departure_time || 'présent'}{entry.departure_time ? ` · ${(() => { const [ah, am] = String(entry.arrival_time).split(':').map(Number); const [dh, dm] = String(entry.departure_time).split(':').map(Number); let diff = dh * 60 + dm - (ah * 60 + am); if (diff <= 0) diff += 24 * 60; return `${Math.round(diff / 6) / 10}h`; })()}` : ''}</span>
               <strong>{entry.worker_name}</strong>
-              <em>{entry.company_name || 'Sans entreprise'}</em>
+              <em>{entry.company_name || 'Sans entreprise'}{entry.notes ? ` · ${entry.notes}` : ''}</em>
               {(editable || canDelete) ? (
                 <div className={styles.inlineActions}>
                   {editable && !entry.departure_time ? <button type="button" onClick={() => onUpdate(entry, { departure_time: new Date().toTimeString().slice(0, 5) })}>Départ</button> : null}
