@@ -2746,6 +2746,17 @@ function createVisitDraft(projectId: string, conducteur: string, lang: Supported
   };
 }
 
+const WEB_SUPPORT_ORG_KEY = 'buildtrack-web-support-org-v1';
+let webSupportOrgId: string | null = (() => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(WEB_SUPPORT_ORG_KEY);
+    return raw ? (JSON.parse(raw) as { id?: string }).id ?? null : null;
+  } catch {
+    return null;
+  }
+})();
+
 const SUPABASE_PAGE_SIZE = 1000;
 
 async function fetchScopedTable<T = any>(
@@ -2768,8 +2779,9 @@ async function fetchScopedTable<T = any>(
       let query = supabaseBrowser.from(table).select('*');
       if (options.scoped !== false) {
         if (profile.role === 'super_admin') {
-          if (!options.orgId) return [];
-          query = query.eq('organization_id', options.orgId);
+          const orgId = options.orgId ?? webSupportOrgId;
+          if (!orgId) return [];
+          query = query.eq('organization_id', orgId);
         } else if (profile.organization_id) {
           query = query.eq('organization_id', profile.organization_id);
         }
@@ -2879,6 +2891,15 @@ export default function BuildTrackWebPage() {
   const authUserIdRef = useRef<string | null>(authUser?.id ?? null);
   authUserIdRef.current = authUser?.id ?? null;
   const pendingWebPlanAnnotationsRef = useRef(new Map<string, PendingPlanAnnotationSnapshot>());
+  const [supportOrg, setSupportOrg] = useState<{ id: string; name: string } | null>(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      const raw = window.localStorage.getItem(WEB_SUPPORT_ORG_KEY);
+      return raw ? JSON.parse(raw) as { id: string; name: string } : null;
+    } catch {
+      return null;
+    }
+  });
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
   const previewCacheOwnerRef = useRef<string | null>(null);
@@ -3039,8 +3060,10 @@ export default function BuildTrackWebPage() {
   const isPlatformAdminWebUser = profile?.role === 'super_admin';
   const visibleNavigationGroups: { label: string; items: TabId[] }[] = isWarehouseWebUser
     ? [{ label: 'Navigation', items: ['inventory', 'settings'] }]
-    : isPlatformAdminWebUser
+    : isPlatformAdminWebUser && !supportOrg
       ? [{ label: 'Navigation', items: ['admin'] }]
+    : isPlatformAdminWebUser
+      ? [{ label: 'Navigation', items: ['admin', 'dashboard', 'plans', 'reserves', 'terrain'] }]
     : isOrgAdminWebUser
       ? [{ label: 'Navigation', items: ['admin', 'dashboard', 'plans', 'reserves', 'terrain'] }]
       : NAV_GROUPS.map(group => ({
@@ -3065,10 +3088,10 @@ export default function BuildTrackWebPage() {
   }, [isOrgAdminWebUser]);
 
   useEffect(() => {
-    if (!isPlatformAdminWebUser) return;
+    if (!isPlatformAdminWebUser || supportOrg) return;
     setActiveTab('admin');
     setMobileNavOpen(false);
-  }, [isPlatformAdminWebUser]);
+  }, [isPlatformAdminWebUser, supportOrg]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -5812,6 +5835,15 @@ export default function BuildTrackWebPage() {
       openReserveDetailTab(intent.reserveId);
       return;
     }
+    if (intent.type === 'approve-lift') {
+      void updateReserveStatus(intent.reserveId, 'closed');
+      return;
+    }
+    if (intent.type === 'reject-lift') {
+      const reserve = data.reserves.find((item: any) => String(item.id) === String(intent.reserveId));
+      if (reserve) void rejectReserveVerificationWeb(reserve);
+      return;
+    }
     if (intent.projectId) setSelectedProjectId(intent.projectId);
     reserveFilterScopeRef.current = intent.projectId ?? selectedProjectId;
     setBuildingFilter(intent.buildingName);
@@ -6043,9 +6075,31 @@ export default function BuildTrackWebPage() {
     );
   }
 
+  function enterWebSupport(org: { id: string; name: string }) {
+    webSupportOrgId = org.id;
+    setSupportOrg(org);
+    if (typeof window !== 'undefined') window.localStorage.setItem(WEB_SUPPORT_ORG_KEY, JSON.stringify(org));
+    setActiveTab('dashboard');
+    if (authUser) void loadEverything(authUser);
+  }
+
+  function exitWebSupport() {
+    webSupportOrgId = null;
+    setSupportOrg(null);
+    if (typeof window !== 'undefined') window.localStorage.removeItem(WEB_SUPPORT_ORG_KEY);
+    setActiveTab('admin');
+    if (authUser) void loadEverything(authUser);
+  }
+
   return (
     <WebI18nContext.Provider value={i18n}>
       <WebStaticI18nBridge />
+      {isPlatformAdminWebUser && supportOrg ? (
+        <div className={styles.supportBanner}>
+          <strong>Support · {supportOrg.name}</strong>
+          <button type="button" onClick={exitWebSupport}>Sortir</button>
+        </div>
+      ) : null}
       <WorkspaceChrome
         title={tabLabel(activeTab, t)}
         eyebrow={t('shell.cockpitWeb')}
@@ -6518,7 +6572,7 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'admin' && (
-              <AdminView data={data} profile={profile} onUpdateProfile={updateProfileField} />
+               <AdminView data={data} profile={profile} onUpdateProfile={updateProfileField} onEnterSupport={enterWebSupport} />
             )}
           </>
         )}
@@ -11533,7 +11587,7 @@ function VisitesView({
             {canExport ? <section className={styles.visitReportCardWeb}>
               <div>
                 <strong>Compte-rendu PDF</strong>
-                <span>Structure, checklist, réserves rattachées et photos, comme sur mobile.</span>
+                 <span>Structure, checklist, réserves rattachées et signatures de la visite.</span>
               </div>
               <div className={styles.visitReportControls}>
                 {(['fr', 'en', 'es'] as const).map(language => (
@@ -12197,7 +12251,7 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
             { icon: 'warning', title: 'Mes réserves', subtitle: 'Réserves de mon entreprise', count: openReserves, tab: 'reserves', tone: 'amber' },
           ]
         : [
-            { icon: 'document-text', title: 'Journal chantier', subtitle: 'Saisie quotidienne', count: 'Web', tab: 'journal', tone: 'green' },
+            { icon: 'document-text', title: 'Journal chantier', subtitle: 'Saisie quotidienne', count: scoped.journalEntries?.length ?? data.journalEntries?.length ?? 0, tab: 'journal', tone: 'green' },
             { icon: 'calendar', title: 'Pointage', subtitle: 'Arrivées et départs', count: scoped.timeEntries.length, tab: 'pointage', tone: 'blue' },
             { icon: 'eye', title: 'Visites chantier', subtitle: 'Compte-rendu visite', count: scoped.visites.length, tab: 'visites', tone: 'blue' },
             { icon: 'calendar', title: 'Planning', subtitle: delayedTasks ? `${delayedTasks} tâche(s) en retard` : 'Tâches et échéances', count: scoped.tasks.length, tab: 'planning', tone: delayedTasks ? 'red' : 'green' },
@@ -12235,7 +12289,7 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
         ...(!isSubcontractor
           ? [
               { icon: 'document-text' as TerrainHubIconName, title: 'Documents', subtitle: 'Import et GED', count: scoped.documents.length, tab: 'documents' as TabId, tone: 'blue' as const },
-              { icon: 'clipboard' as TerrainHubIconName, title: 'Checklists', subtitle: 'Contrôle qualité', count: 'Web', tab: 'checklists' as TabId, tone: 'green' as const },
+              { icon: 'clipboard' as TerrainHubIconName, title: 'Checklists', subtitle: 'Contrôle qualité', count: data.checklists?.length ?? 0, tab: 'checklists' as TabId, tone: 'green' as const },
               { icon: 'shield-checkmark' as TerrainHubIconName, title: 'Réglementaire', subtitle: 'PPSPS, DICT, DOE', count: scoped.regulatoryDocs.length, tab: 'reglementaire' as TabId, tone: 'amber' as const },
               { icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Journalier, hebdo', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const },
             ]
@@ -16136,7 +16190,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
   );
 }
 
-function OperatorCockpit({ data }: { data: WebState }) {
+function OperatorCockpit({ data, onEnterSupport }: { data: WebState; onEnterSupport?: (org: { id: string; name: string }) => void }) {
   const [query, setQuery] = useState('');
   const [name, setName] = useState('');
   const [adminEmail, setAdminEmail] = useState('');
@@ -16181,11 +16235,12 @@ function OperatorCockpit({ data }: { data: WebState }) {
         </form>
         {notice ? <p className={styles.empty}>{notice}</p> : null}
         <div className={styles.dataTable} style={{ marginTop: 16 }}>
-          <div className={styles.tableHead}><span>Client</span><span>Slug</span></div>
+          <div className={styles.tableHead}><span>Client</span><span>Slug</span><span>Action</span></div>
           {orgs.map(org => (
             <div key={org.id} className={styles.tableRow}>
               <strong>{org.name}</strong>
               <span>{org.slug}</span>
+              <button type="button" onClick={() => onEnterSupport?.({ id: String(org.id), name: String(org.name ?? org.slug ?? org.id) })}>Support</button>
             </div>
           ))}
           {orgs.length === 0 ? <p className={styles.empty}>Aucun client.</p> : null}
@@ -16195,12 +16250,13 @@ function OperatorCockpit({ data }: { data: WebState }) {
   );
 }
 
-function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void }) {
+function AdminView({ data, profile, onUpdateProfile, onEnterSupport }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void; onEnterSupport?: (org: { id: string; name: string }) => void }) {
   const [query, setQuery] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState('observateur');
   const [inviteCompanyId, setInviteCompanyId] = useState('');
+  const [inviteStep, setInviteStep] = useState<1 | 2 | 3>(1);
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteNotice, setInviteNotice] = useState('');
   const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at?: string; company_id?: string | null }>>([]);
@@ -16216,7 +16272,7 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
   }, []);
   useEffect(() => { void loadInvites(); }, [loadInvites]);
   if (profile?.role === 'super_admin') {
-    return <OperatorCockpit data={data} />;
+    return <OperatorCockpit data={data} onEnterSupport={onEnterSupport} />;
   }
   if (!isAdmin(profile)) {
     return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux administrateurs.</p></section>;
@@ -16228,22 +16284,32 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="Utilisateurs" value={data.profiles.length} hint="Profils Supabase" />
-        <Kpi title="Entreprises" value={data.companies.length} hint="Sous-traitants" tone="green" />
-        <Kpi title="Préférences notif." value={data.notificationPreferences.length} hint="App / push / email" tone="amber" />
-        <Kpi title="Chantiers" value={data.chantiers.length} hint="Périmètre org." />
+        <Kpi title="Invitations" value={pendingInvites.length} hint="À traiter" tone={pendingInvites.length ? 'amber' : undefined} />
+        <Kpi title="Membres" value={data.profiles.length} hint="Comptes actifs" />
+        <Kpi title="Entreprises" value={data.companies.length} hint="Fiches orga" tone="green" />
+        <Kpi title="Chantiers" value={data.chantiers.length} hint="Périmètre" />
       </div>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>Inviter un membre</h2>
-            <p>Email, rôle, puis entreprise. L’invitation part par e-mail et reste relançable ici.</p>
+            <p>{inviteStep === 1 ? '1/3 · Email' : inviteStep === 2 ? '2/3 · Rôle' : '3/3 · Entreprise'}</p>
           </div>
         </div>
         <form
           className={styles.formGrid}
           onSubmit={async event => {
             event.preventDefault();
+            if (inviteStep === 1) {
+              if (!inviteEmail.includes('@')) return setInviteNotice('Email invalide.');
+              setInviteNotice('');
+              setInviteStep(2);
+              return;
+            }
+            if (inviteStep === 2) {
+              setInviteStep(3);
+              return;
+            }
             const email = inviteEmail.trim().toLowerCase();
             if (!email.includes('@')) return setInviteNotice('Email invalide.');
             setInviteBusy(true);
@@ -16277,25 +16343,33 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
             }).catch(() => undefined);
             setInviteEmail('');
             setInviteBusy(false);
+            setInviteStep(1);
             setInviteNotice(`Invitation créée pour ${email}.`);
             void loadInvites();
           }}
         >
-          <label>Email<input value={inviteEmail} onChange={event => setInviteEmail(event.target.value)} type="email" required placeholder="prenom.nom@exemple.fr" /></label>
-          <label>Rôle
-            <select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>
-              {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label>Entreprise
-            <select value={inviteCompanyId} onChange={event => setInviteCompanyId(event.target.value)}>
-              <option value="">Aucune</option>
-              {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </select>
-          </label>
-          <button type="submit" disabled={inviteBusy}>{inviteBusy ? 'Envoi…' : 'Inviter'}</button>
+          {inviteStep === 1 ? (
+            <label>Email<input value={inviteEmail} onChange={event => setInviteEmail(event.target.value)} type="email" required placeholder="prenom.nom@exemple.fr" /></label>
+          ) : null}
+          {inviteStep === 2 ? (
+            <label>Rôle
+              <select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>
+                {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </select>
+            </label>
+          ) : null}
+          {inviteStep === 3 ? (
+            <label>Entreprise
+              <select value={inviteCompanyId} onChange={event => setInviteCompanyId(event.target.value)}>
+                <option value="">Aucune</option>
+                {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+          ) : null}
+          <button type="submit" disabled={inviteBusy}>{inviteBusy ? 'Envoi…' : inviteStep < 3 ? 'Continuer' : 'Inviter'}</button>
+          {inviteStep > 1 ? <button type="button" onClick={() => setInviteStep(inviteStep === 3 ? 2 : 1)}>Retour</button> : null}
         </form>
         {inviteNotice ? <p className={styles.empty}>{inviteNotice}</p> : null}
         {pendingInvites.length ? (
@@ -16355,12 +16429,12 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
 
             return (
               <div key={user.id} className={styles.adminUserBlock}>
-                <div className={`${styles.tableRow} ${styles.adminTableRow}`}>
+                 <div className={`${styles.tableRow} ${styles.adminTableRow}`} role="button" tabIndex={0} onClick={() => setExpandedUserId(expanded ? null : user.id)} onKeyDown={event => { if (event.key === 'Enter') setExpandedUserId(expanded ? null : user.id); }}>
                   <strong>{user.name}</strong>
-                  <select disabled={!targetEditable} value={user.role ?? ''} onChange={event => void onUpdateProfile(user.id, { role: event.target.value })}>
+                  <select disabled={!targetEditable} value={user.role ?? ''} onClick={event => event.stopPropagation()} onChange={event => void onUpdateProfile(user.id, { role: event.target.value })}>
                     {roleOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                   </select>
-                  <select disabled={!targetEditable} value={user.company_id ?? ''} onChange={event => void onUpdateProfile(user.id, { company_id: event.target.value || null })}>
+                  <select disabled={!targetEditable} value={user.company_id ?? ''} onClick={event => event.stopPropagation()} onChange={event => void onUpdateProfile(user.id, { company_id: event.target.value || null })}>
                     <option value="">Aucune</option>
                     {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
                   </select>
@@ -16368,7 +16442,7 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
                   <button
                     type="button"
                     className={styles.adminPermissionsButton}
-                    onClick={() => setExpandedUserId(current => current === user.id ? null : user.id)}
+                    onClick={event => { event.stopPropagation(); setExpandedUserId(current => current === user.id ? null : user.id); }}
                   >
                     {user.role === 'super_admin' ? 'Droits fixes' : `${overrideCount} surcharge${overrideCount === 1 ? '' : 's'}`} {expanded ? '▴' : '▾'}
                   </button>

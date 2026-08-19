@@ -575,7 +575,7 @@ export default function NewVisiteScreen() {
         zone: zone || undefined,
         coverPhotoUri: coverPhotoUri ?? undefined,
         defaultPlanId: hasBuildingHierarchy ? singleVisitedLocation?.defaultPlanId : defaultPlanId ?? undefined,
-        checklistItems: checklistItems.length > 0 ? checklistItems.map(i => ({ ...i, checked: false })) : undefined,
+        checklistItems: checklistItems.length > 0 ? checklistItems : undefined,
         tags: tags.length > 0 ? tags : undefined,
         notes: notes.trim() || undefined,
         reserveDeadlineDate: reserveDeadlineDate.trim() || undefined,

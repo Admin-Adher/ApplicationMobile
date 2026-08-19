@@ -33,6 +33,10 @@ function parseLooseDate(value?: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+export function visitDateValue(value?: string): number {
+  return parseLooseDate(value)?.getTime() ?? 0;
+}
+
 export function isSameCalendarDay(value?: string, now = new Date()): boolean {
   const date = parseLooseDate(value);
   if (!date) return false;
@@ -56,7 +60,7 @@ export function buildConducteurTodayQueue<TReserve extends QueueReserve, TVisit 
   );
   const todayVisits = visits.filter(visit => {
     if (chantierId && visit.chantierId && visit.chantierId !== chantierId) return false;
-    if (visit.status === 'cancelled' || visit.status === 'done' || visit.status === 'closed') return false;
+    if (visit.status === 'cancelled' || visit.status === 'done' || visit.status === 'closed' || visit.status === 'completed') return false;
     return isSameCalendarDay(visit.date);
   });
   return { verification, critical, overdue, todayVisits };

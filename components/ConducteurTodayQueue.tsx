@@ -90,7 +90,7 @@ export function ConducteurTodayQueue({
         <Chip label={t('dashboard.todayLift')} count={verification.length} color={C.verification} onPress={() => openReserves({ status: 'verification' })} />
         <Chip label={t('dashboard.todayCritical')} count={critical.length} color={C.critical} onPress={() => openReserves({ priority: 'critical' })} />
         <Chip label={t('dashboard.todayOverdue')} count={overdue.length} color={C.high} onPress={() => openReserves({ status: 'overdue' })} />
-        <Chip label={t('dashboard.todayVisit')} count={todayVisits.length} color="#F59E0B" onPress={() => router.push('/visites' as any)} />
+        <Chip label={t('dashboard.todayVisit')} count={todayVisits.length} color="#F59E0B" onPress={() => router.push('/visites?when=today' as any)} />
       </View>
 
       {total === 0 ? (

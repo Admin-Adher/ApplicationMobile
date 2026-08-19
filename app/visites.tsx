@@ -1,6 +1,6 @@
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { goBack } from '@/lib/nav';
 import { useMemo, useState, useCallback } from 'react';
 import * as Haptics from 'expo-haptics';
@@ -13,6 +13,7 @@ import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import PageContainer from '@/components/PageContainer';
 import { showAlert } from '@/lib/appAlert';
+import { isSameCalendarDay, visitDateValue } from '@/lib/conducteurToday';
 
 const STATUS_CFG: Record<VisiteStatus, { color: string; icon: string }> = {
   planned: { color: '#6366F1', icon: 'calendar-outline' },
@@ -29,10 +30,11 @@ const TYPE_CFG: Record<VisiteType, { icon: string; color: string }> = {
   autre:     { icon: 'ellipsis-horizontal-outline', color: '#6B7280' },
 };
 
-type VisitFilter = 'all' | VisiteStatus;
+type VisitFilter = 'all' | 'today' | VisiteStatus;
 
 const FILTER_OPTIONS: { value: VisitFilter; labelKey: string }[] = [
   { value: 'all', labelKey: 'visits.statusFilter.all' },
+  { value: 'today', labelKey: 'dashboard.todayVisit' },
   { value: 'planned', labelKey: 'visits.statusFilter.planned' },
   { value: 'in_progress', labelKey: 'visits.statusFilter.in_progress' },
   { value: 'completed', labelKey: 'visits.statusFilter.completed' },
@@ -123,7 +125,8 @@ export default function VisitesScreen() {
   const { visites, reserves, deleteVisite, activeChantierId, reload, isLoading } = useApp();
   const { user, permissions } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<VisitFilter>('all');
+  const params = useLocalSearchParams<{ when?: string }>();
+  const [statusFilter, setStatusFilter] = useState<VisitFilter>(params.when === 'today' ? 'today' : 'all');
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -132,7 +135,7 @@ export default function VisitesScreen() {
 
   const chantierVisites = useMemo(
     () => visites.filter(v => !activeChantierId || v.chantierId === activeChantierId)
-      .sort((a, b) => b.date.localeCompare(a.date)),
+      .sort((a, b) => visitDateValue(b.date) - visitDateValue(a.date) || String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''))),
     [visites, activeChantierId]
   );
 
@@ -171,7 +174,9 @@ export default function VisitesScreen() {
   const visibleVisites = useMemo(
     () => statusFilter === 'all'
       ? chantierVisites
-      : chantierVisites.filter(v => v.status === statusFilter),
+      : statusFilter === 'today'
+        ? chantierVisites.filter(v => isSameCalendarDay(v.date) && v.status !== 'completed')
+        : chantierVisites.filter(v => v.status === statusFilter),
     [chantierVisites, statusFilter]
   );
 

@@ -18,7 +18,9 @@ export type DashboardIntent =
   | { type: 'navigate'; target: DashboardDestination }
   | { type: 'open-building'; buildingName: string; projectId?: string }
   | { type: 'select-project'; projectId: string }
-  | { type: 'open-reserve'; reserveId: string };
+  | { type: 'open-reserve'; reserveId: string }
+  | { type: 'approve-lift'; reserveId: string }
+  | { type: 'reject-lift'; reserveId: string };
 
 type DashboardWebViewProps = {
   source: DashboardSource;
@@ -571,15 +573,22 @@ export function DashboardWebView({
               {model.priorities.slice(0, 5).map(item => {
                 const meta = [item.building, item.company, item.deadline ? copy.deadline(new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short', year: 'numeric' }).format(item.deadline)) : ''].filter(Boolean).join(' · ');
                 return (
-                  <button key={item.id} type="button" className={styles.priorityRow} onClick={() => item.reserveId ? onIntent({ type: 'open-reserve', reserveId: item.reserveId }) : onIntent({ type: 'navigate', target: item.target })}>
-                    <span className={styles.priorityMarker} data-kind={item.kind} aria-hidden="true" />
-                    <span className={styles.priorityText}>
-                      <PriorityLabel item={item} copy={copy} />
-                      <strong>{item.title}</strong>
-                      {meta ? <small>{meta}</small> : null}
-                    </span>
-                    <DashboardIcon name="arrow" />
-                  </button>
+                  <div key={item.id} className={styles.priorityRow}>
+                    <button type="button" className={styles.priorityMain} onClick={() => item.reserveId ? onIntent({ type: 'open-reserve', reserveId: item.reserveId }) : onIntent({ type: 'navigate', target: item.target })}>
+                      <span className={styles.priorityMarker} data-kind={item.kind} aria-hidden="true" />
+                      <span className={styles.priorityText}>
+                        <PriorityLabel item={item} copy={copy} />
+                        <strong>{item.title}</strong>
+                        {meta ? <small>{meta}</small> : null}
+                      </span>
+                    </button>
+                    {item.kind === 'verification-reserve' && item.reserveId ? (
+                      <span className={styles.priorityActions}>
+                        <button type="button" className={styles.liftApprove} onClick={() => onIntent({ type: 'approve-lift', reserveId: item.reserveId! })}>Valider</button>
+                        <button type="button" className={styles.liftReject} onClick={() => onIntent({ type: 'reject-lift', reserveId: item.reserveId! })}>Refuser</button>
+                      </span>
+                    ) : <DashboardIcon name="arrow" />}
+                  </div>
                 );
               })}
               {model.priorities.length > 5 ? (

@@ -998,7 +998,11 @@ export default function InventoryWorkspace({
                 </div>
                 <div className={styles.field}>
                   <label htmlFor="inventory-quantity">{copy.quantity} *</label>
-                  <input id="inventory-quantity" value={form.quantity} onChange={event => patchForm({ quantity: event.target.value })} type="number" inputMode="decimal" min="0.001" step="any" required />
+                  <div className={styles.quantityStepper}>
+                    <button type="button" className={styles.stepperBtn} onClick={() => patchForm({ quantity: String(Math.max(0, Math.round((numberValue(form.quantity) - 1) * 1000) / 1000)) })}>-</button>
+                    <input id="inventory-quantity" value={form.quantity} onChange={event => patchForm({ quantity: event.target.value })} type="number" inputMode="decimal" min="0.001" step="any" required />
+                    <button type="button" className={styles.stepperBtn} onClick={() => patchForm({ quantity: String(Math.round((numberValue(form.quantity) + 1) * 1000) / 1000) })}>+</button>
+                  </div>
                 </div>
                 <div className={styles.field}>
                   <label htmlFor="inventory-stock-after">{copy.stockAfter}</label>
@@ -1362,6 +1366,12 @@ export default function InventoryWorkspace({
           )}
         </div>,
         document.body,
+      ) : null}
+      {capabilities.canRecord && mode !== 'in' && mode !== 'out' ? (
+        <div className={styles.fabRow}>
+          <button type="button" className={styles.fabIn} onClick={() => openMovement('in')}>{copy.receive}</button>
+          <button type="button" className={styles.fabOut} onClick={() => openMovement('out')}>{copy.dispatch}</button>
+        </div>
       ) : null}
     </div>
   );

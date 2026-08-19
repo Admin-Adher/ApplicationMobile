@@ -569,6 +569,8 @@ export function buildVisitReportHtml(payload: any): string {
   const coverPhotoUri = visit.cover_photo_uri ?? visit.coverPhotoUri ?? null;
   const companyIds: string[] = Array.isArray(visit.concerned_company_ids)
     ? visit.concerned_company_ids
+    : Array.isArray(visit.concernedCompanyIds)
+      ? visit.concernedCompanyIds
     : Array.isArray(visit.company_ids)
       ? visit.company_ids
       : [];
@@ -577,16 +579,26 @@ export function buildVisitReportHtml(payload: any): string {
     .filter(Boolean);
   const checklistItems = Array.isArray(visit.checklist_items)
     ? visit.checklist_items
+    : Array.isArray(visit.checklistItems)
+      ? visit.checklistItems
     : Array.isArray(visit.checklist)
       ? visit.checklist
       : [];
+  const visitLocations = Array.isArray(visit.visited_locations)
+    ? visit.visited_locations
+    : Array.isArray(visit.visitedLocations)
+      ? visit.visitedLocations
+      : [];
+  const locationLabel = visitLocations.map((item: any) => (
+    typeof item === 'string'
+      ? item
+      : [item.buildingName ?? item.building, item.levelName ?? item.level, item.zone].filter(Boolean).join(' · ')
+  )).filter(Boolean).join(', ');
   const scopeParts = [
     visit.building,
     visit.level,
     visit.zone,
-    Array.isArray(visit.visited_locations) && visit.visited_locations.length
-      ? visit.visited_locations.join(', ')
-      : null,
+    locationLabel || null,
   ].filter(Boolean);
   const generatedDate = formatReportDate(payload.generatedAt || Date.now(), lang, true);
   const visitDate = formatReportDate(visit.date ?? visit.created_at, lang);
@@ -656,7 +668,7 @@ export function buildVisitReportHtml(payload: any): string {
     ${[
       [copy.project, payload.chantierName],
       [copy.date, visitDate],
-      [copy.schedule, [visit.start_time, visit.end_time].filter(Boolean).join(' - ') || common.noValue],
+      [copy.schedule, [visit.start_time ?? visit.startTime, visit.end_time ?? visit.endTime].filter(Boolean).join(' - ') || common.noValue],
       [copy.manager, visit.conducteur ?? common.noValue],
       [copy.visit, `${visitType} · ${status}`],
       [copy.scope, scopeParts.join(' · ') || common.noValue],
@@ -700,8 +712,8 @@ export function buildVisitReportHtml(payload: any): string {
   </table>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:34px">
-    <div style="height:54px;border-bottom:2px solid #1e293b"></div>
-    <div style="height:54px;border-bottom:2px solid #1e293b"></div>
+    <div style="min-height:54px;border-bottom:2px solid #1e293b">${visit.conducteur_signature || visit.conducteurSignature ? `<img src="${escapeHtml(visit.conducteur_signature || visit.conducteurSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
+    <div style="min-height:54px;border-bottom:2px solid #1e293b">${visit.entreprise_signature || visit.entrepriseSignature ? `<img src="${escapeHtml(visit.entreprise_signature || visit.entrepriseSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
     <div style="text-align:center;color:#64748b;font-size:10px">${copy.manager}</div>
     <div style="text-align:center;color:#64748b;font-size:10px">${copy.signature}</div>
   </div>

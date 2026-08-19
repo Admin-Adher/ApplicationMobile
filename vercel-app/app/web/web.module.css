@@ -12,6 +12,27 @@
   line-height: 1;
   text-rendering: auto;
 }
+.supportBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  background: #5b21b6;
+  color: #fff;
+}
+.supportBanner strong { font-size: 0.85rem; }
+.supportBanner button {
+  min-height: 2rem;
+  padding: 0 0.8rem;
+  border: 1px solid rgba(255,255,255,0.35);
+  border-radius: 0.5rem;
+  background: transparent;
+  color: #fff;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
 
 .appShell {
   min-height: 100vh;

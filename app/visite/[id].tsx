@@ -3,6 +3,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { goBack } from '@/lib/nav';
 import { useMemo, useRef, useState } from 'react';
+import * as ImagePicker from 'expo-image-picker';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
@@ -872,6 +873,10 @@ export default function VisiteDetailScreen() {
   const [attachSearch, setAttachSearch] = useState('');
   const [attachSelectedIds, setAttachSelectedIds] = useState<string[]>([]);
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
+  const [editMetaVisible, setEditMetaVisible] = useState(false);
+  const [editTitle, setEditTitle] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
   const [attachSubmitting, setAttachSubmitting] = useState(false);
   const [reserveVisitActionLoadingId, setReserveVisitActionLoadingId] = useState<string | null>(null);
   const reportLanguage = exportLanguage as VisitReportLanguage;
@@ -974,6 +979,34 @@ export default function VisiteDetailScreen() {
     if (!visite) return;
     updateVisite({ ...visite, id: visite.id!, status: next });
     setStatusModalVisible(false);
+  }
+
+  function openEditMeta() {
+    if (!visite) return;
+    setEditTitle(visite.title);
+    setEditDate(visite.date);
+    setEditNotes(visite.notes ?? '');
+    setEditMetaVisible(true);
+  }
+
+  function saveEditMeta() {
+    if (!visite || !editTitle.trim()) return;
+    updateVisite({ ...visite, id: visite.id!, title: editTitle.trim(), date: editDate.trim() || visite.date, notes: editNotes.trim() || undefined });
+    setEditMetaVisible(false);
+  }
+
+  async function changeCover() {
+    if (!visite || !permissions.canEdit) return;
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (lib.status !== 'granted') return;
+      const result = await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
+      if (!result.canceled && result.assets[0]) updateVisite({ ...visite, id: visite.id!, coverPhotoUri: result.assets[0].uri });
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
+    if (!result.canceled && result.assets[0]) updateVisite({ ...visite, id: visite.id!, coverPhotoUri: result.assets[0].uri });
   }
 
   function toggleChecklistItem(itemId: string) {
@@ -1276,9 +1309,44 @@ export default function VisiteDetailScreen() {
 
         {/* Cover photo */}
         {visite.coverPhotoUri ? (
-          <View style={styles.coverPhotoCard}>
+          <TouchableOpacity style={styles.coverPhotoCard} onPress={permissions.canEdit ? changeCover : undefined} activeOpacity={0.85}>
             <MediaImage source={{ uri: visite.coverPhotoUri }} style={styles.coverPhoto} resizeMode="cover" />
+            {permissions.canEdit ? (
+              <View style={styles.coverEditBadge}>
+                <Ionicons name="camera-outline" size={14} color="#fff" />
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        ) : permissions.canEdit ? (
+          <TouchableOpacity style={styles.addPhotoBtn} onPress={changeCover}>
+            <Ionicons name="camera-outline" size={18} color={C.primary} />
+            <Text style={styles.addPhotoTxt}>{t('visits.new.coverPhoto')}</Text>
+          </TouchableOpacity>
+        ) : null}
+
+        {permissions.canEdit && visite.status !== 'completed' ? (
+          <View style={styles.fieldLoop}>
+            {visite.status === 'planned' ? (
+              <TouchableOpacity style={styles.startBtn} onPress={() => setVisitStatus('in_progress')}>
+                <Ionicons name="play" size={16} color="#fff" />
+                <Text style={styles.startBtnTxt}>{t('visits.detail.startVisit', { defaultValue: 'Démarrer la visite' })}</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.closeBtn} onPress={() => setVisitStatus('completed')}>
+                <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                <Text style={styles.startBtnTxt}>{t('visits.detail.closeVisit', { defaultValue: 'Clôturer la visite' })}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.editMetaBtn} onPress={openEditMeta}>
+              <Ionicons name="create-outline" size={16} color={C.primary} />
+              <Text style={styles.editMetaTxt}>{t('common.edit')}</Text>
+            </TouchableOpacity>
           </View>
+        ) : permissions.canEdit ? (
+          <TouchableOpacity style={styles.editMetaBtn} onPress={openEditMeta}>
+            <Ionicons name="create-outline" size={16} color={C.primary} />
+            <Text style={styles.editMetaTxt}>{t('common.edit')}</Text>
+          </TouchableOpacity>
         ) : null}
 
         <View style={styles.card}>
@@ -1443,7 +1511,7 @@ export default function VisiteDetailScreen() {
           </View>
         )}
 
-        {tunnelData && (
+        {tunnelData && visite.visitType === 'reception' && (
           <View style={styles.tunnelCard}>
             <Text style={styles.tunnelTitle}>{t('visits.detail.tunnelTitle')}</Text>
             <View style={styles.tunnelSteps}>
@@ -1676,6 +1744,27 @@ export default function VisiteDetailScreen() {
             })}
           </View>
         </View>
+      </Modal>
+
+      <Modal visible={editMetaVisible} transparent animationType="slide" onRequestClose={() => setEditMetaVisible(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.modalOverlay}>
+            <View style={styles.signModal}>
+              <Text style={styles.statusModalTitle}>{t('common.edit')}</Text>
+              <TextInput style={styles.editInput} value={editTitle} onChangeText={setEditTitle} placeholder={t('visits.new.title')} />
+              <TextInput style={styles.editInput} value={editDate} onChangeText={setEditDate} placeholder={t('visits.new.date')} />
+              <TextInput style={[styles.editInput, { minHeight: 88, textAlignVertical: 'top' }]} value={editNotes} onChangeText={setEditNotes} placeholder={t('visits.new.notes')} multiline />
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                <TouchableOpacity style={styles.editMetaBtn} onPress={() => setEditMetaVisible(false)}>
+                  <Text style={styles.editMetaTxt}>{t('common.cancel')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.startBtn} onPress={saveEditMeta}>
+                  <Text style={styles.startBtnTxt}>{t('common.save')}</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       <Modal visible={signModalVisible} transparent animationType="slide" onRequestClose={() => setSignModalVisible(false)}>
@@ -1920,6 +2009,16 @@ const styles = StyleSheet.create({
 
   coverPhotoCard: { borderRadius: 14, overflow: 'hidden', marginBottom: 16 },
   coverPhoto: { width: '100%', height: 180 },
+  coverEditBadge: { position: 'absolute', right: 10, bottom: 10, width: 32, height: 32, borderRadius: 16, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' },
+  addPhotoBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, minHeight: 48, marginBottom: 12, borderRadius: 12, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, justifyContent: 'center' },
+  addPhotoTxt: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 13 },
+  fieldLoop: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  startBtn: { flex: 1, minHeight: 48, borderRadius: 14, backgroundColor: C.closed, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  closeBtn: { flex: 1, minHeight: 48, borderRadius: 14, backgroundColor: C.primary, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  startBtnTxt: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 13 },
+  editMetaBtn: { minHeight: 48, paddingHorizontal: 14, borderRadius: 14, backgroundColor: C.primaryBg, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  editMetaTxt: { color: C.primary, fontFamily: 'Inter_700Bold', fontSize: 13 },
+  editInput: { minHeight: 46, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 12, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14, marginTop: 10 },
 
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
   tagChip: { backgroundColor: C.primary + '15', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: C.primary + '30' },

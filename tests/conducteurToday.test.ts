@@ -45,6 +45,9 @@ describe('conducteur shell', () => {
     expect(queue.critical.map(item => item.id)).toEqual(['c1']);
     expect(queue.overdue.map(item => item.id)).toEqual(['o1']);
     expect(queue.todayVisits).toHaveLength(1);
+    expect(buildConducteurTodayQueue([], [
+      { id: 'done', title: 'Done', date: new Date().toISOString().slice(0, 10), status: 'completed' },
+    ]).todayVisits).toHaveLength(0);
     expect(isSameCalendarDay(new Date().toISOString().slice(0, 10))).toBe(true);
   });
 

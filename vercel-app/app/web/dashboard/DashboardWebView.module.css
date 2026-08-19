@@ -452,9 +452,36 @@
   border-top: 1px solid #edf1f5;
 }
 
+.priorityMain {
+  display: grid;
+  grid-template-columns: 0.25rem minmax(0, 1fr);
+  align-items: center;
+  gap: 0.8rem;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.priorityActions { display: flex; gap: 0.35rem; }
+.liftApprove, .liftReject {
+  min-height: 2rem;
+  padding: 0 0.6rem;
+  border-radius: 0.45rem;
+  border: 0;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.liftApprove { background: #ecfdf5; color: #047857; }
+.liftReject { background: #fef2f2; color: #b91c1c; }
 .priorityRow {
   display: grid;
-  grid-template-columns: 0.25rem minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 0.8rem;
   min-width: 0;
