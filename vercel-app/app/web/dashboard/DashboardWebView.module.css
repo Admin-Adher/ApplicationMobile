@@ -415,6 +415,38 @@
   color: var(--dashboard-danger);
 }
 
+.todayChips {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.todayChip {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+  padding: 0.65rem 0.7rem;
+  border: 1px solid #edf1f5;
+  border-radius: 0.75rem;
+  background: #f8fafc;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.todayChip strong { font-size: 1.15rem; }
+.todayChip span { overflow: hidden; color: #64748b; font-size: 0.68rem; font-weight: 700; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.priorityMore {
+  width: 100%;
+  min-height: 2.6rem;
+  border: 0;
+  background: transparent;
+  color: #2563eb;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
 .priorityList {
   display: grid;
   border-top: 1px solid #edf1f5;

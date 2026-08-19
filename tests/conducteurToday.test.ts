@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { canAdminRestoreTab, canConducteurRestoreTab, isConducteurRole, isOrgAdminRole, isPlatformAdminRole, SUPERADMIN_HOME_ROUTE } from '../lib/roleNavigation';
 import { ROLE_PERMISSIONS } from '../lib/permissions';
-import { buildConducteurTodayQueue, isSameCalendarDay } from '../lib/conducteurToday';
+import { buildConducteurTodayQueue, isSameCalendarDay, pickTodayNowItems } from '../lib/conducteurToday';
 
 describe('conducteur shell', () => {
   it('does not give the site manager more stock power than the storekeeper', () => {
@@ -46,5 +46,18 @@ describe('conducteur shell', () => {
     expect(queue.overdue.map(item => item.id)).toEqual(['o1']);
     expect(queue.todayVisits).toHaveLength(1);
     expect(isSameCalendarDay(new Date().toISOString().slice(0, 10))).toBe(true);
+  });
+
+  it('keeps the morning brief to a handful of next actions', () => {
+    const queue = buildConducteurTodayQueue([
+      ...Array.from({ length: 8 }, (_, i) => ({ id: `v${i}`, title: `Lift ${i}`, status: 'verification', priority: 'high' })),
+      ...Array.from({ length: 6 }, (_, i) => ({ id: `c${i}`, title: `Crit ${i}`, status: 'open', priority: 'critical' })),
+      ...Array.from({ length: 20 }, (_, i) => ({ id: `o${i}`, title: `Late ${i}`, status: 'open', priority: 'high', deadline: '01/01/2020' })),
+    ], []);
+    const now = pickTodayNowItems(queue);
+    expect(now.lifts).toHaveLength(3);
+    expect(now.critical).toHaveLength(2);
+    expect(now.visits).toHaveLength(0);
+    expect(queue.overdue).toHaveLength(20);
   });
 });

@@ -552,9 +552,23 @@ export function DashboardWebView({
 
         <section className={`${styles.panel} ${styles.priorityPanel}`}>
           <PanelHeader title={copy.priorities} description={copy.prioritiesHint} action={<span className={styles.alertTotal}>{copy.alertCount(alertCount)}</span>} />
+          <div className={styles.todayChips}>
+            <button type="button" className={styles.todayChip} onClick={() => onIntent({ type: 'navigate', target: 'reserves' })}>
+              <strong>{model.statuses.verification}</strong><span>{copy.statusVerification}</span>
+            </button>
+            <button type="button" className={styles.todayChip} onClick={() => onIntent({ type: 'navigate', target: 'reserves' })}>
+              <strong>{model.criticalCount}</strong><span>{copy.criticalReserve}</span>
+            </button>
+            <button type="button" className={styles.todayChip} onClick={() => onIntent({ type: 'navigate', target: 'reserves' })}>
+              <strong>{model.overdueCount}</strong><span>{copy.lateReserve}</span>
+            </button>
+            <button type="button" className={styles.todayChip} onClick={() => onIntent({ type: 'navigate', target: 'visites' })}>
+              <strong>{model.quick.visits}</strong><span>{copy.visits}</span>
+            </button>
+          </div>
           {alertCount ? (
             <div className={styles.priorityList}>
-              {model.priorities.slice(0, 6).map(item => {
+              {model.priorities.slice(0, 5).map(item => {
                 const meta = [item.building, item.company, item.deadline ? copy.deadline(new Intl.DateTimeFormat(locale, { day: '2-digit', month: 'short', year: 'numeric' }).format(item.deadline)) : ''].filter(Boolean).join(' · ');
                 return (
                   <button key={item.id} type="button" className={styles.priorityRow} onClick={() => item.reserveId ? onIntent({ type: 'open-reserve', reserveId: item.reserveId }) : onIntent({ type: 'navigate', target: item.target })}>
@@ -568,6 +582,11 @@ export function DashboardWebView({
                   </button>
                 );
               })}
+              {model.priorities.length > 5 ? (
+                <button type="button" className={styles.priorityMore} onClick={() => onIntent({ type: 'navigate', target: 'reserves' })}>
+                  {copy.alertCount(model.priorities.length - 5)}
+                </button>
+              ) : null}
             </div>
           ) : (
             <div className={styles.successState}>

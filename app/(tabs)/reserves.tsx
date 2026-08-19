@@ -294,6 +294,15 @@ export default function ReservesScreen() {
       ? priorityParam
       : 'all',
   );
+
+  useEffect(() => {
+    if (statusParam === 'open' || statusParam === 'in_progress' || statusParam === 'waiting' || statusParam === 'verification' || statusParam === 'closed' || statusParam === 'overdue') {
+      setStatusFilter(statusParam);
+    }
+    if (priorityParam === 'low' || priorityParam === 'medium' || priorityParam === 'high' || priorityParam === 'critical') {
+      setPriorityFilter(priorityParam);
+    }
+  }, [statusParam, priorityParam]);
   const [companyFilter, setCompanyFilter] = useState<string>(companyParam ?? 'all');
   const [zoneFilter, setZoneFilter] = useState<string>('all');
   const [levelFilter, setLevelFilter] = useState<string>('all');

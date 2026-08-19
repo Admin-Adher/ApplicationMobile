@@ -61,3 +61,20 @@ export function buildConducteurTodayQueue<TReserve extends QueueReserve, TVisit 
   });
   return { verification, critical, overdue, todayVisits };
 }
+
+export const TODAY_NOW_LIMIT = 5;
+export const TODAY_LIFT_LIMIT = 3;
+
+export function pickTodayNowItems<TReserve extends QueueReserve, TVisit extends QueueVisit>(queue: {
+  verification: TReserve[];
+  critical: TReserve[];
+  overdue: TReserve[];
+  todayVisits: TVisit[];
+}) {
+  const lifts = queue.verification.slice(0, TODAY_LIFT_LIMIT);
+  const remaining = TODAY_NOW_LIMIT - lifts.length;
+  const critical = queue.critical.slice(0, Math.max(0, remaining));
+  const leftover = TODAY_NOW_LIMIT - lifts.length - critical.length;
+  const visits = leftover > 0 ? queue.todayVisits.slice(0, leftover) : [];
+  return { lifts, critical, visits };
+}
