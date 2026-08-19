@@ -11332,7 +11332,8 @@
 .pilotageLicenseBanner[data-tone='trial'] { background: #fffbeb; color: #92400e; }
 .pilotageLicenseBanner[data-tone='suspended'],
 .pilotageLicenseBanner[data-tone='expired'] { background: #fef2f2; color: #991b1b; }
-.pilotageLotPicker { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 20px 16px; }
+.pilotageLotPicker { display: flex; flex-wrap: wrap; gap: 8px; padding: 0; }
+.pilotageCompanySheet .pilotageLotPicker { padding: 0; }
 .pilotageLotPicker button {
   min-height: 34px;
   padding: 0 10px;
@@ -11578,7 +11579,51 @@
 }
 .pilotageSelect li button:hover { background: #f1f5f9; }
 .pilotageSelect li button[data-active='true'] { background: #003082; color: #fff; }
+@media (max-width: 1180px) {
+  .kpiGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pilotageMemberMain {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .pilotageMemberMain .pilotageSelect,
+  .pilotageMemberMain .adminPermissionsButton,
+  .pilotageMemberMain .pilotageDanger {
+    grid-column: 1 / -1;
+  }
+  .pilotageSelect { min-width: 0; width: 100%; }
+  .pilotageInviteRow { grid-template-columns: 1fr; }
+  .pilotageCompanyLayout,
+  .pilotageCompanyFields,
+  .pilotageLicense { grid-template-columns: 1fr; }
+  .pilotageCompanyCard { grid-template-columns: auto minmax(0, 1fr); }
+  .pilotageCompanyCard .pilotageInviteActions { grid-column: 1 / -1; }
+  .pilotageRightsOverlay,
+  .pilotageCompanySheet { padding: 12px; }
+  .pilotageRightsSheet,
+  .pilotageCompanySheet { width: 100%; border-radius: 18px; }
+  .pilotageRightsSheet header,
+  .pilotageCompanySheet header,
+  .pilotageCompanySheet footer {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .pilotageInviteActions { flex-wrap: wrap; }
+  .pilotagePrimary,
+  .pilotageGhost,
+  .pilotageDanger { width: 100%; justify-content: center; }
+}
+
 @media (max-width: 900px) {
   .pilotageInviteRow, .pilotageMemberMain { grid-template-columns: 1fr; }
   .pilotageInviteCard { flex-direction: column; align-items: stretch; }
+}
+
+@media (max-width: 640px) {
+  .kpiGrid { grid-template-columns: 1fr; }
+  .pilotageSteps { flex-wrap: wrap; }
+  .pilotageTabs { overflow-x: auto; }
+  .pilotageTabs button { flex: 0 0 auto; }
+  .pilotageRoleChips { overflow-x: auto; flex-wrap: nowrap; padding-bottom: 10px; }
+  .pilotageRoleChips button { flex: 0 0 auto; }
+  .pilotagePanel { overflow: visible; }
+  .adminPermissionsGrid { grid-template-columns: 1fr; }
 }
