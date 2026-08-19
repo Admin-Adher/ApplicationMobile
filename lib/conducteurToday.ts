@@ -1,4 +1,4 @@
-import { isOverdue } from '@/lib/reserveUtils';
+import { isOverdue } from './reserveUtils';
 
 type QueueReserve = {
   id: string;
