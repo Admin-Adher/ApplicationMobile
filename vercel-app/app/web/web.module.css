@@ -11263,12 +11263,15 @@
   font-weight: 800;
 }
 .pilotageCompanySheet {
-  width: min(680px, 100%);
+  width: min(920px, 100%);
+  max-height: calc(100vh - 40px);
+  overflow: auto;
   background: #fff;
-  border-radius: 24px;
-  padding: 24px;
+  border-radius: 28px;
+  padding: 28px;
   display: grid;
-  gap: 18px;
+  gap: 22px;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22);
 }
 .pilotageCompanySheet header, .pilotageCompanySheet footer {
   display: flex;
@@ -11276,12 +11279,40 @@
   align-items: center;
   gap: 12px;
 }
-.pilotageCompanySheet header p { margin: 0; color: #64748b; font-size: 12px; font-weight: 800; text-transform: uppercase; }
-.pilotageCompanySheet header h2 { margin: 4px 0 0; }
-.pilotageCompanyIdentity { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 16px; align-items: end; }
-.pilotageCompanyIdentity > div, .pilotageCompanyFields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pilotageCompanySheet header p { margin: 0; color: #94a3b8; font-size: 11px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
+.pilotageCompanySheet header h2 { margin: 6px 0 0; font-size: 26px; letter-spacing: -0.03em; }
+.pilotageCompanySheet h3 { margin: 0 0 10px; color: #0f172a; font-size: 13px; }
+.pilotageCompanyLayout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 28px; }
+.pilotageCompanyPreview { display: grid; gap: 14px; align-content: start; }
+.pilotageCompanyPreviewCard {
+  padding: 22px 18px;
+  border-radius: 22px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--company-color, #003082) 14%, white), #fff 62%),
+    #f8fafc;
+  border: 1px solid #e8eef5;
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.pilotageCompanyPreviewCard strong { font-size: 16px; }
+.pilotageCompanyPreviewCard span, .pilotageCompanyPreviewCard em { color: #64748b; font-size: 12px; font-style: normal; }
+.pilotageColorRow { display: flex; flex-wrap: wrap; gap: 8px; }
+.pilotageColorDot {
+  width: 22px;
+  height: 22px;
+  border: 2px solid #fff;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px #d5deea;
+  cursor: pointer;
+  padding: 0;
+}
+.pilotageColorDot[data-active='true'] { box-shadow: 0 0 0 2px #0f172a; }
+.pilotageCompanyFormCols { display: grid; gap: 18px; }
+.pilotageCompanyFields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .pilotageCompanySheet label { display: grid; gap: 6px; font-size: 12px; font-weight: 800; color: #334155; }
-.pilotageCompanySheet input { min-height: 46px; border: 1px solid #d5deea; border-radius: 12px; padding: 0 12px; font: inherit; }
+.pilotageCompanySheet input { min-height: 46px; border: 1px solid #d5deea; border-radius: 12px; padding: 0 12px; font: inherit; background: #f8fafc; }
+.pilotageCompanySheet input:focus { outline: 2px solid #00308233; background: #fff; }
 .pilotageFieldTitle { display: block; margin: 0 0 8px; font-size: 12px; }
 .pilotageCompanyForm { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)) auto; gap: 10px; align-items: end; }
 .pilotageCompanyForm label { display: grid; gap: 6px; font-size: 12px; font-weight: 800; color: #334155; }
@@ -11339,7 +11370,7 @@
 .pilotageLicense strong { font-size: 22px; }
 .pilotageLicense a { color: #003082; font-weight: 800; }
 @media (max-width: 900px) {
-  .pilotageCompanyForm, .pilotageLicense, .pilotageInviteLink, .pilotageCompanyCard, .pilotageCompanyIdentity, .pilotageCompanyIdentity > div, .pilotageCompanyFields { grid-template-columns: 1fr; }
+  .pilotageCompanyForm, .pilotageLicense, .pilotageInviteLink, .pilotageCompanyCard, .pilotageCompanyLayout, .pilotageCompanyFields { grid-template-columns: 1fr; }
 }
 .pilotageRoleChips {
   display: flex;

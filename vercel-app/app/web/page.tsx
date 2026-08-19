@@ -4915,7 +4915,7 @@ export default function BuildTrackWebPage() {
           name,
           description: payload.description ?? '',
           icon: 'business',
-          color: '#3B82F6',
+      color: payload.color || '#003082',
           type: 'building',
           members: profile.name ? [profile.name] : [],
           created_by: profile.name ?? null,
@@ -16599,7 +16599,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   profile: Profile | null;
   onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void;
   onEnterSupport?: (org: { id: string; name: string }) => void;
-  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[] }) => Promise<any>;
+  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string }) => Promise<any>;
   onUpdateCompany?: (companyId: string, payload: Record<string, any>) => Promise<void> | void;
   onDeleteCompany?: (companyId: string) => Promise<void> | void;
   onRemoveUser?: (userId: string) => Promise<void> | void;
@@ -16615,7 +16615,8 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteNotice, setInviteNotice] = useState('');
   const [inviteLink, setInviteLink] = useState('');
-  const [companyDraft, setCompanyDraft] = useState({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] as string[] });
+  const emptyCompanyDraft = { name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] as string[], color: '#003082' };
+  const [companyDraft, setCompanyDraft] = useState(emptyCompanyDraft);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [companySheetOpen, setCompanySheetOpen] = useState(false);
   const [rightsUserId, setRightsUserId] = useState<string | null>(null);
@@ -17013,7 +17014,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
             </div>
             <button type="button" className={styles.pilotagePrimary} onClick={() => {
               setEditingCompanyId(null);
-              setCompanyDraft({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] });
+              setCompanyDraft(emptyCompanyDraft);
               setCompanySheetOpen(true);
             }}>Nouvelle entreprise</button>
           </div>
@@ -17024,7 +17025,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                 .filter(Boolean);
               return (
                 <article key={company.id} className={styles.pilotageCompanyCard}>
-                  <div className={styles.pilotageCompanyMark}>{(company.short_name || company.name || '?').slice(0, 3).toUpperCase()}</div>
+                  <div className={styles.pilotageCompanyMark} style={{ background: company.color || '#003082' }}>{(company.short_name || company.name || '?').slice(0, 3).toUpperCase()}</div>
                   <div>
                     <strong>{company.name}</strong>
                     <span>{[company.email, company.contact].filter(Boolean).join(' · ') || 'Pas encore de contact'}</span>
@@ -17042,6 +17043,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                         siret: company.siret ?? '',
                         insurance: company.insurance ?? '',
                         lots: Array.isArray(company.lots) ? company.lots.map(String) : [],
+                        color: company.color || '#003082',
                       });
                       setCompanySheetOpen(true);
                     }}>Modifier</button>
@@ -17062,63 +17064,82 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
           <form className={styles.pilotageCompanySheet} onSubmit={async event => {
             event.preventDefault();
             if (!companyDraft.name.trim()) return;
-            if (editingCompanyId) {
-              await onUpdateCompany?.(editingCompanyId, {
-                name: companyDraft.name.trim(),
-                short_name: companyDraft.short_name.trim() || companyDraft.name.trim().slice(0, 4).toUpperCase(),
-                email: companyDraft.email || null,
-                contact: companyDraft.contact,
-                siret: companyDraft.siret || null,
-                insurance: companyDraft.insurance || null,
-                lots: companyDraft.lots,
-              });
-            } else {
-              await onCreateCompany?.(companyDraft);
-            }
-            setCompanyDraft({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] });
+            const payload = {
+              ...companyDraft,
+              name: companyDraft.name.trim(),
+              short_name: companyDraft.short_name.trim() || companyDraft.name.trim().slice(0, 3).toUpperCase(),
+            };
+            if (editingCompanyId) await onUpdateCompany?.(editingCompanyId, payload);
+            else await onCreateCompany?.(payload);
+            setCompanyDraft(emptyCompanyDraft);
             setEditingCompanyId(null);
             setCompanySheetOpen(false);
           }}>
             <header>
               <div>
-                <p>Fiche entreprise</p>
+                <p>{editingCompanyId ? 'Mise à jour' : 'Ajout au chantier'}</p>
                 <h2>{editingCompanyId ? 'Modifier l’entreprise' : 'Nouvelle entreprise'}</h2>
               </div>
               <button type="button" className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Fermer</button>
             </header>
-            <div className={styles.pilotageCompanyIdentity}>
-              <div className={styles.pilotageCompanyMark}>{(companyDraft.short_name || companyDraft.name || 'BT').slice(0, 3).toUpperCase()}</div>
-              <div>
-                <label>Nom de l’entreprise<input value={companyDraft.name} onChange={event => setCompanyDraft(prev => ({ ...prev, name: event.target.value, short_name: prev.short_name || event.target.value.slice(0, 3).toUpperCase() }))} required placeholder="Dupont Électricité" /></label>
-                <label>Sigle<input value={companyDraft.short_name} onChange={event => setCompanyDraft(prev => ({ ...prev, short_name: event.target.value.toUpperCase() }))} maxLength={6} placeholder="DUP" /></label>
-              </div>
-            </div>
-            <div className={styles.pilotageCompanyFields}>
-              <label>Email<input value={companyDraft.email} onChange={event => setCompanyDraft(prev => ({ ...prev, email: event.target.value }))} type="email" placeholder="contact@entreprise.fr" /></label>
-              <label>Téléphone<input value={companyDraft.contact} onChange={event => setCompanyDraft(prev => ({ ...prev, contact: event.target.value }))} placeholder="06 12 34 56 78" /></label>
-              <label>SIRET<input value={companyDraft.siret} onChange={event => setCompanyDraft(prev => ({ ...prev, siret: event.target.value }))} placeholder="123 568 941 00012" /></label>
-              <label>Assurance<input value={companyDraft.insurance} onChange={event => setCompanyDraft(prev => ({ ...prev, insurance: event.target.value }))} placeholder="Décennale, RC pro…" /></label>
-            </div>
-            {data.lots.length ? (
-              <div>
-                <strong className={styles.pilotageFieldTitle}>Lots attribués</strong>
-                <div className={styles.pilotageLotPicker}>
-                  {data.lots.map((lot: any) => {
-                    const id = String(lot.id);
-                    const active = companyDraft.lots.includes(id);
-                    return (
-                      <button key={id} type="button" data-active={active ? 'true' : 'false'} onClick={() => setCompanyDraft(prev => ({
-                        ...prev,
-                        lots: active ? prev.lots.filter(item => item !== id) : [...prev.lots, id],
-                      }))}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</button>
-                    );
-                  })}
+            <div className={styles.pilotageCompanyLayout}>
+              <aside className={styles.pilotageCompanyPreview}>
+                <div className={styles.pilotageCompanyPreviewCard} style={{ '--company-color': companyDraft.color } as any}>
+                  <div className={styles.pilotageCompanyMark} style={{ background: companyDraft.color }}>{(companyDraft.short_name || companyDraft.name || '…').slice(0, 3).toUpperCase()}</div>
+                  <strong>{companyDraft.name.trim() || 'Nom de l’entreprise'}</strong>
+                  <span>{companyDraft.email || companyDraft.contact || 'Contact à renseigner'}</span>
+                  {companyDraft.lots.length ? <em>{companyDraft.lots.length} lot{companyDraft.lots.length > 1 ? 's' : ''}</em> : <em>Aucun lot</em>}
                 </div>
+                <div className={styles.pilotageColorRow}>
+                  {['#003082', '#3B82F6', '#0F766E', '#B45309', '#BE123C', '#6D28D9', '#0369A1', '#15803D'].map(color => (
+                    <button key={color} type="button" className={styles.pilotageColorDot} data-active={companyDraft.color === color ? 'true' : 'false'} style={{ background: color }} onClick={() => setCompanyDraft(prev => ({ ...prev, color }))} aria-label={color} />
+                  ))}
+                </div>
+              </aside>
+              <div className={styles.pilotageCompanyFormCols}>
+                <section>
+                  <h3>Identité</h3>
+                  <div className={styles.pilotageCompanyFields}>
+                    <label>Nom<input value={companyDraft.name} onChange={event => setCompanyDraft(prev => ({ ...prev, name: event.target.value, short_name: prev.short_name || event.target.value.replace(/[^A-Za-zÀ-ÿ0-9]/g, '').slice(0, 3).toUpperCase() }))} required placeholder="Ex. Dupont Électricité" /></label>
+                    <label>Sigle<input value={companyDraft.short_name} onChange={event => setCompanyDraft(prev => ({ ...prev, short_name: event.target.value.toUpperCase() }))} maxLength={6} placeholder="DUP" /></label>
+                  </div>
+                </section>
+                <section>
+                  <h3>Contact</h3>
+                  <div className={styles.pilotageCompanyFields}>
+                    <label>Email<input value={companyDraft.email} onChange={event => setCompanyDraft(prev => ({ ...prev, email: event.target.value }))} type="email" placeholder="contact@entreprise.fr" /></label>
+                    <label>Téléphone<input value={companyDraft.contact} onChange={event => setCompanyDraft(prev => ({ ...prev, contact: event.target.value }))} placeholder="06 12 34 56 78" /></label>
+                  </div>
+                </section>
+                <section>
+                  <h3>Administratif</h3>
+                  <div className={styles.pilotageCompanyFields}>
+                    <label>SIRET<input value={companyDraft.siret} onChange={event => setCompanyDraft(prev => ({ ...prev, siret: event.target.value }))} placeholder="123 568 941 00012" /></label>
+                    <label>Assurance<input value={companyDraft.insurance} onChange={event => setCompanyDraft(prev => ({ ...prev, insurance: event.target.value }))} placeholder="Décennale, RC pro" /></label>
+                  </div>
+                </section>
+                {data.lots.length ? (
+                  <section>
+                    <h3>Lots</h3>
+                    <div className={styles.pilotageLotPicker}>
+                      {data.lots.map((lot: any) => {
+                        const id = String(lot.id);
+                        const active = companyDraft.lots.includes(id);
+                        return (
+                          <button key={id} type="button" data-active={active ? 'true' : 'false'} onClick={() => setCompanyDraft(prev => ({
+                            ...prev,
+                            lots: active ? prev.lots.filter(item => item !== id) : [...prev.lots, id],
+                          }))}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</button>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ) : null}
               </div>
-            ) : null}
+            </div>
             <footer>
               <button type="button" className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Annuler</button>
-              <button type="submit" className={styles.pilotagePrimary}>{editingCompanyId ? 'Enregistrer la fiche' : 'Créer l’entreprise'}</button>
+              <button type="submit" className={styles.pilotagePrimary}>{editingCompanyId ? 'Enregistrer' : 'Créer l’entreprise'}</button>
             </footer>
           </form>
         </div>
