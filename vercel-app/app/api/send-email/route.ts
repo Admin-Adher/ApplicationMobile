@@ -84,11 +84,12 @@ async function recipientAllowed(caller: CallerContext, type: string, to: string)
   }
 
   if (type === 'invitation') {
-    if (!caller.organizationId) return false;
-    const { data } = await supabase
-      .from('invitations')
-      .select('email')
-      .eq('organization_id', caller.organizationId);
+    let query = supabase.from('invitations').select('email').eq('status', 'pending');
+    if (!caller.isPlatformAdmin) {
+      if (!caller.organizationId) return false;
+      query = query.eq('organization_id', caller.organizationId);
+    }
+    const { data } = await query;
     return matchesEmail(data);
   }
 
@@ -357,7 +358,13 @@ export async function POST(req: NextRequest) {
     if (!result.success) {
       return NextResponse.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500, headers });
     }
-    return NextResponse.json({ success: true, simulated: result.simulated ?? false }, { headers });
+    if (result.simulated) {
+      return NextResponse.json(
+        { error: 'Envoi email non configuré (GMAIL_USER / GMAIL_APP_PASSWORD).', simulated: true },
+        { status: 503, headers },
+      );
+    }
+    return NextResponse.json({ success: true }, { headers });
   } catch (err: any) {
     console.error('[Email] Exception:', err?.message ?? err);
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500, headers });

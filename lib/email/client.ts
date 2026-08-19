@@ -40,8 +40,8 @@ async function callEmailApi(body: Record<string, unknown>): Promise<{ success: b
       headers: await buildAuthHeaders(),
       body: JSON.stringify(body),
     });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({} as { error?: string; success?: boolean; simulated?: boolean }));
+    if (!response.ok || data.simulated || data.success === false) {
       const errMsg = data?.error ?? response.statusText;
       console.warn('[Email Client] Échec envoi email:', errMsg);
       return { success: false, error: errMsg };

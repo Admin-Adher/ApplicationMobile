@@ -16701,6 +16701,39 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
     })));
   }, []);
   useEffect(() => { void loadInvites(); }, [loadInvites]);
+  const sendPilotageInvitationEmail = useCallback(async (payload: {
+    email: string;
+    role: string;
+    token: string;
+    expiresAt: string;
+    companyId?: string | null;
+  }) => {
+    const { data: authData } = await supabaseBrowser.auth.getSession();
+    const orgName = data.organizations.find(item => String(item.id) === String(profile?.organization_id))?.name ?? 'BuildTrack';
+    const companyName = payload.companyId
+      ? data.companies.find(item => String(item.id) === String(payload.companyId))?.name
+      : undefined;
+    const mail = await fetch('/api/send-email', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authData.session?.access_token ? { Authorization: `Bearer ${authData.session.access_token}` } : {}),
+      },
+      body: JSON.stringify({
+        type: 'invitation',
+        email: payload.email,
+        invitedByName: profile?.name ?? 'Admin',
+        organizationName: orgName,
+        role: payload.role,
+        token: payload.token,
+        expiresAt: payload.expiresAt,
+        companyName,
+      }),
+    }).catch(() => undefined);
+    if (!mail) return { ok: false as const };
+    const body = await mail.json().catch(() => ({} as { success?: boolean; simulated?: boolean; error?: string }));
+    return { ok: Boolean(mail.ok && body.success && !body.simulated), error: body.error };
+  }, [data.companies, data.organizations, profile]);
   useEffect(() => {
     if (!profile?.organization_id) return;
     void (async () => {
@@ -16802,34 +16835,19 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
               setInviteBusy(false);
               return setInviteNotice(error?.message ?? 'Impossible de créer l’invitation.');
             }
-            const { data: authData } = await supabaseBrowser.auth.getSession();
-            const mail = await fetch('/api/send-email', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                ...(authData.session?.access_token ? { Authorization: `Bearer ${authData.session.access_token}` } : {}),
-              },
-              body: JSON.stringify({
-                type: 'invitation',
-                email,
-                invitedByName: profile?.name ?? 'Admin',
-                organizationName: 'BuildTrack',
-                role: inviteRole,
-                token: data.token,
-                expiresAt: data.expires_at,
-              }),
-            }).catch(() => undefined);
+            const mail = await sendPilotageInvitationEmail({
+              email,
+              role: inviteRole,
+              token: data.token,
+              expiresAt: data.expires_at,
+              companyId: inviteCompanyId || data.company_id,
+            });
             const link = `${window.location.origin}/invite?token=${encodeURIComponent(data.token)}`;
             setInviteEmail('');
             setInviteBusy(false);
             setInviteStep(1);
-            if (!mail || !mail.ok) {
-              setInviteLink(link);
-              setInviteNotice(t('pilotage.inviteCreatedNoEmail'));
-            } else {
-              setInviteLink(link);
-              setInviteNotice(t('pilotage.inviteSent', { email }));
-            }
+            setInviteLink(link);
+            setInviteNotice(mail.ok ? t('pilotage.inviteSent', { email }) : t('pilotage.inviteCreatedNoEmail'));
             void loadInvites();
           }}
         >
@@ -16881,7 +16899,20 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                 </div>
                 <div className={styles.pilotageInviteActions}>
                   <button type="button" className={styles.pilotageGhost} onClick={async () => {
-                    await supabaseBrowser.rpc('admin_resend_invitation', { p_invitation_id: invite.id });
+                    const { data, error } = await supabaseBrowser.rpc('admin_resend_invitation', { p_invitation_id: invite.id });
+                    if (error || !data) {
+                      setInviteNotice(error?.message ?? t('pilotage.inviteCreatedNoEmail'));
+                      return;
+                    }
+                    const mail = await sendPilotageInvitationEmail({
+                      email: data.email,
+                      role: data.role,
+                      token: data.token,
+                      expiresAt: data.expires_at,
+                      companyId: data.company_id ?? invite.company_id,
+                    });
+                    setInviteLink(`${window.location.origin}/invite?token=${encodeURIComponent(data.token)}`);
+                    setInviteNotice(mail.ok ? t('pilotage.inviteSent', { email: data.email }) : t('pilotage.inviteCreatedNoEmail'));
                     void loadInvites();
                   }}>{t('pilotage.resend')}</button>
                   <button type="button" className={styles.pilotageDanger} onClick={async () => {

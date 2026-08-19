@@ -22,6 +22,7 @@ export const OPTOUT_EXEMPT_EMAIL_TYPES = new Set([
   'password-reset',
   'password-changed',
   'welcome',
+  'invitation',
 ]);
 
 function getSecret(): string {

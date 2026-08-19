@@ -38,7 +38,7 @@ async function test() {
     if (res.ok && data.success) {
       console.log('✅ Email envoyé avec succès !');
       if (data.simulated) {
-        console.log('⚠️  Mode simulation (RESEND_API_KEY absent sur Vercel)');
+        console.log('⚠️  Mode simulation (GMAIL_USER / GMAIL_APP_PASSWORD absents sur Vercel)');
       }
     } else {
       console.error('❌ Échec :', data?.error ?? res.statusText);
