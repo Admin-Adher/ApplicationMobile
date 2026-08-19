@@ -779,7 +779,7 @@ function GroupedList({ tasks, groupBy, canEdit, onDelete, onPress }: {
 
 export default function PlanningScreen() {
   const { t } = useTranslation();
-  const { tasks, deleteTask, companies, reload } = useApp();
+  const { tasks, deleteTask, companies, reload, activeChantierId } = useApp();
   const { permissions, user } = useAuth();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -795,6 +795,63 @@ export default function PlanningScreen() {
   const [search, setSearch] = useState('');
   const [showSearch, setShowSearch] = useState(false);
 
+  const siteTasks = useMemo(
+    () => tasks.filter(task => !activeChantierId || task.chantierId === activeChantierId),
+    [tasks, activeChantierId],
+  );
+
+  const isLateTask = useCallback((task: Task) => {
+    if (task.status === 'done') return false;
+    if (task.status === 'delayed') return true;
+    const deadline = parseDeadline(task.deadline);
+    if (!deadline) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return deadline < today;
+  }, []);
+
+  const delayed = siteTasks.filter(isLateTask).length;
+  const inP = siteTasks.filter(t => t.status === 'in_progress').length;
+
+  const activeCompanies = useMemo(() =>
+    companies.filter(co =>
+      siteTasks.some(t =>
+        (t.company === co.id || t.company === co.name) &&
+        (t.status === 'in_progress' || t.status === 'delayed' || isLateTask(t))
+      )
+    ).length,
+    [companies, siteTasks, isLateTask]
+  );
+
+  const avgProgress = useMemo(() => {
+    const active = siteTasks.filter(t => t.status !== 'done');
+    if (active.length === 0) return siteTasks.length > 0 ? 100 : 0;
+    return Math.round(active.reduce((s, t) => s + t.progress, 0) / active.length);
+  }, [siteTasks]);
+
+  const filtered = useMemo(() => {
+    let list = filterStatus === 'all'
+      ? siteTasks
+      : filterStatus === 'delayed'
+        ? siteTasks.filter(isLateTask)
+        : siteTasks.filter(t => t.status === filterStatus);
+    if (filterCompany !== 'all') {
+      list = list.filter(t => {
+        const co = companies.find(c => c.id === t.company || c.name === t.company);
+        return (co?.id ?? t.company) === filterCompany;
+      });
+    }
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(t =>
+        String(t.title ?? '').toLowerCase().includes(q) ||
+        String(t.assignee ?? '').toLowerCase().includes(q) ||
+        String(t.description ?? '').toLowerCase().includes(q)
+      );
+    }
+    return list;
+  }, [siteTasks, filterStatus, filterCompany, search, companies, isLateTask]);
+
   if (user?.role === 'sous_traitant') {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: C.bg, padding: 32 }}>
@@ -809,46 +866,6 @@ export default function PlanningScreen() {
       </View>
     );
   }
-
-  const delayed = tasks.filter(t => t.status === 'delayed').length;
-  const inP = tasks.filter(t => t.status === 'in_progress').length;
-
-  const activeCompanies = useMemo(() =>
-    companies.filter(co =>
-      tasks.some(t =>
-        (t.company === co.id || t.company === co.name) &&
-        (t.status === 'in_progress' || t.status === 'delayed')
-      )
-    ).length,
-    [companies, tasks]
-  );
-
-  const avgProgress = useMemo(() => {
-    const active = tasks.filter(t => t.status !== 'done');
-    if (active.length === 0) return tasks.length > 0 ? 100 : 0;
-    return Math.round(active.reduce((s, t) => s + t.progress, 0) / active.length);
-  }, [tasks]);
-
-  const filtered = useMemo(() => {
-    let list = filterStatus === 'all' ? tasks : tasks.filter(t => t.status === filterStatus);
-    if (filterCompany !== 'all') {
-      list = list.filter(t => {
-        const co = companies.find(c => c.id === t.company || c.name === t.company);
-        return (co?.id ?? t.company) === filterCompany;
-      });
-    }
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(t =>
-        t.title.toLowerCase().includes(q) ||
-        t.assignee.toLowerCase().includes(q) ||
-        (t.description ?? '').toLowerCase().includes(q)
-      );
-    }
-    return list;
-  }, [tasks, filterStatus, filterCompany, search, companies]);
-
-
 
   function handleDelete(id: string, title: string) {
     showAlert(t('taskDetail.deleteTaskTitle'), t('taskDetail.deleteTaskText', { title }), [
@@ -872,10 +889,10 @@ export default function PlanningScreen() {
     <View style={styles.container}>
       <Header
         title={t('planningScreen.title')}
-        subtitle={t('planningScreen.totalTasks', { count: tasks.length })}
+        subtitle={t('planningScreen.totalTasks', { count: siteTasks.length })}
         showBack
-        rightLabel={permissions.canCreate && tasks.length > 0 ? t('planningScreen.newTask') : undefined}
-        onRightPress={permissions.canCreate && tasks.length > 0 ? () => router.push('/task/new' as any) : undefined}
+        rightLabel={permissions.canCreate ? t('planningScreen.newTask') : undefined}
+        onRightPress={permissions.canCreate ? () => router.push('/task/new' as any) : undefined}
       />
 
       <PageContainer maxWidth={1100}>
@@ -1206,7 +1223,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: C.border, paddingVertical: 8,
   },
   searchToggleBtnActive: { backgroundColor: C.primaryBg, borderColor: C.primary },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { padding: 16, paddingBottom: 110 },
   statsRow: { flexDirection: 'row', gap: 8, marginBottom: 14 },
   statCard: {
     flex: 1, backgroundColor: C.surface, borderRadius: 12, padding: 10,

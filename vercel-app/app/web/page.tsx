@@ -4680,6 +4680,33 @@ export default function BuildTrackWebPage() {
     if (taskError) setError(taskError.message);
   }
 
+  async function createTaskWeb(payload: Record<string, any>) {
+    if (!canCreate(profile)) return null;
+    const row = {
+      id: `TSK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      organization_id: profile?.organization_id ?? null,
+      chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
+      title: String(payload.title ?? '').trim(),
+      description: String(payload.description ?? ''),
+      company: payload.company || null,
+      assignee: String(payload.assignee ?? ''),
+      status: payload.status || 'todo',
+      priority: payload.priority || 'medium',
+      progress: Number(payload.progress ?? 0),
+      deadline: payload.deadline || null,
+    };
+    if (!row.title) return null;
+    const { data: inserted, error } = await supabaseBrowser.from('tasks').insert(row).select().single();
+    if (error) {
+      setError(error.message);
+      return null;
+    }
+    const saved = inserted ?? row;
+    setData(prev => ({ ...prev, tasks: [saved, ...prev.tasks] }));
+    setNotice('Tâche créée.');
+    return saved;
+  }
+
   async function updateProfileField(userId: string, patch: Partial<Profile>) {
     if (!isAdmin(profile)) return;
     const target = data.profiles.find(user => user.id === userId);
@@ -6554,9 +6581,14 @@ export default function BuildTrackWebPage() {
                 visites={projectScoped.visites}
                 reserves={projectScoped.reserves}
                 companies={data.companies}
-                editable={canEdit(profile)}
-                onUpdateTask={updateTaskQuick}
-              />
+                 profile={profile}
+                 editable={canEdit(profile)}
+                 canCreate={canCreate(profile)}
+                 onUpdateTask={updateTaskQuick}
+                 onCreateTask={createTaskWeb}
+                 onOpenReserve={openReserveDetailTab}
+                 onOpenVisites={() => setActiveTab('visites')}
+               />
             )}
             {activeTab === 'messages' && (
               <MessagesWorkspace
@@ -11955,27 +11987,46 @@ function VisitesView({
   );
 }
 
-function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateTask }: any) {
+function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onCreateTask, onOpenReserve, onOpenVisites }: any) {
   const [mode, setMode] = useState<'week' | 'company' | 'late'>('week');
-  const now = new Date();
-  const sortedTasks = [...tasks].sort((a: any, b: any) => new Date(a.deadline ?? a.created_at ?? 0).getTime() - new Date(b.deadline ?? b.created_at ?? 0).getTime());
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({ title: '', deadline: '', company: '', assignee: '' });
+  const [busy, setBusy] = useState(false);
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Planning" />;
+  const weekStart = getWeekStart(new Date());
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+  const sortedTasks = [...tasks].sort((a: any, b: any) => (parseDateSafe(a.deadline)?.getTime() ?? 0) - (parseDateSafe(b.deadline)?.getTime() ?? 0));
   const visibleTasks = sortedTasks.filter((task: any) => {
-    if (mode === 'late') return task.deadline && new Date(task.deadline) < now && task.status !== 'done';
+    if (mode === 'late') return isTaskLateWeb(task);
+    if (mode === 'week') {
+      const deadline = parseDateSafe(task.deadline);
+      return deadline ? deadline >= weekStart && deadline < weekEnd : task.status !== 'done';
+    }
     return true;
   });
+  const grouped = mode === 'company'
+    ? Object.entries(visibleTasks.reduce((acc: Record<string, any[]>, task: any) => {
+        const key = companies.find((item: any) => item.id === task.company || item.name === task.company)?.name ?? task.company ?? 'Sans entreprise';
+        acc[key] = [...(acc[key] ?? []), task];
+        return acc;
+      }, {}))
+    : [['Tâches', visibleTasks]];
   const upcomingVisits = [...visites]
-    .sort((a: any, b: any) => new Date(a.date ?? 0).getTime() - new Date(b.date ?? 0).getTime())
-    .slice(0, 8);
+    .filter((visit: any) => {
+      const date = parseDateSafe(visit.date);
+      return date ? date >= new Date(new Date().setHours(0, 0, 0, 0)) : visit.status !== 'completed';
+    })
+    .sort((a: any, b: any) => (parseDateSafe(a.date)?.getTime() ?? 0) - (parseDateSafe(b.date)?.getTime() ?? 0));
   const reserveDeadlines = [...reserves]
     .filter((reserve: any) => reserve.deadline && reserve.status !== 'closed')
-    .sort((a: any, b: any) => new Date(a.deadline).getTime() - new Date(b.deadline).getTime())
-    .slice(0, 10);
+    .sort((a: any, b: any) => (parseDateSafe(a.deadline)?.getTime() ?? 0) - (parseDateSafe(b.deadline)?.getTime() ?? 0));
 
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
         <Kpi title="Tâches" value={tasks.length} hint="Actions planifiées" />
-        <Kpi title="En retard" value={tasks.filter((task: any) => task.deadline && new Date(task.deadline) < now && task.status !== 'done').length} hint="À reprendre vite" tone="red" />
+        <Kpi title="En retard" value={tasks.filter(isTaskLateWeb).length} hint="À reprendre vite" tone="red" />
         <Kpi title="Visites à venir" value={upcomingVisits.length} hint="Planning chantier" tone="green" />
         <Kpi title="Échéances réserves" value={reserveDeadlines.length} hint="Réserves actives" tone="amber" />
       </div>
@@ -11989,20 +12040,45 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
             <button type="button" className={mode === 'week' ? styles.segmentedActive : ''} onClick={() => setMode('week')}>Semaine</button>
             <button type="button" className={mode === 'company' ? styles.segmentedActive : ''} onClick={() => setMode('company')}>Entreprise</button>
             <button type="button" className={mode === 'late' ? styles.segmentedActive : ''} onClick={() => setMode('late')}>Retard</button>
+            {canCreate ? <button type="button" onClick={() => setShowForm(value => !value)}>{showForm ? 'Fermer' : 'Nouvelle tâche'}</button> : null}
           </div>
         </div>
+        {showForm && canCreate ? (
+          <form className={styles.formGrid} onSubmit={async event => {
+            event.preventDefault();
+            setBusy(true);
+            const saved = await onCreateTask?.(draft);
+            setBusy(false);
+            if (saved) {
+              setDraft({ title: '', deadline: '', company: '', assignee: '' });
+              setShowForm(false);
+            }
+          }}>
+            <label><span>Titre</span><input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} required /></label>
+            <label><span>Échéance</span><input type="date" value={draft.deadline} onChange={event => setDraft(prev => ({ ...prev, deadline: event.target.value }))} /></label>
+            <label><span>Entreprise</span>
+              <select value={draft.company} onChange={event => setDraft(prev => ({ ...prev, company: event.target.value }))}>
+                <option value="">Sans entreprise</option>
+                {companies.map((company: any) => <option key={company.id} value={company.name}>{company.name}</option>)}
+              </select>
+            </label>
+            <label><span>Assigné</span><input value={draft.assignee} onChange={event => setDraft(prev => ({ ...prev, assignee: event.target.value }))} /></label>
+            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Création…' : 'Créer'}</button></div>
+          </form>
+        ) : null}
         <div className={styles.timelineGrid}>
           <div>
             <h3>Tâches</h3>
             <div className={styles.timelineList}>
-              {visibleTasks.slice(0, 18).map((task: any) => {
+              {grouped.flatMap(([group, groupTasks]: [string, any[]]) => groupTasks.map((task: any) => {
                 const company = companies.find((item: any) => item.id === task.company || item.name === task.company);
                 return (
                   <article key={task.id} className={styles.timelineCard}>
-                    <span className={`${styles.statusDot} ${task.status === 'done' ? styles.dotDone : task.status === 'delayed' ? styles.dotLate : ''}`} />
+                    <span className={`${styles.statusDot} ${task.status === 'done' ? styles.dotDone : isTaskLateWeb(task) ? styles.dotLate : ''}`} />
                     <div>
+                      {mode === 'company' ? <small>{group}</small> : null}
                       <strong>{task.title ?? 'Tâche'}</strong>
-                    <small>{company?.name ?? task.company ?? 'Sans entreprise'} · {prettyDate(task.deadline)}</small>
+                    <small>{company?.name ?? task.company ?? 'Sans entreprise'} · {task.assignee || 'Non assigné'} · {prettyDate(task.deadline)}</small>
                     <div className={styles.progressMini}><span style={{ width: `${Math.max(0, Math.min(100, Number(task.progress ?? 0)))}%` }} /></div>
                     {editable && (
                       <div className={styles.quickTaskActions}>
@@ -12015,7 +12091,7 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
                     <em>{task.progress ?? 0}%</em>
                   </article>
                 );
-              })}
+              }))}
               {!visibleTasks.length && <p className={styles.empty}>Aucune tâche dans cette vue.</p>}
             </div>
           </div>
@@ -12023,24 +12099,24 @@ function PlanningView({ tasks, visites, reserves, companies, editable, onUpdateT
             <h3>Visites et échéances</h3>
             <div className={styles.timelineList}>
               {upcomingVisits.map((visit: any) => (
-                <article key={visit.id} className={styles.timelineCard}>
+                <button key={visit.id} type="button" className={styles.timelineCard} onClick={() => onOpenVisites?.()}>
                   <span className={styles.statusDot} />
                   <div>
                     <strong>{visit.title}</strong>
                     <small>{prettyDate(visit.date)} · {[visit.building, visit.level].filter(Boolean).join(' · ') || 'Périmètre chantier'}</small>
                   </div>
                   <em>{VISIT_STATUS_LABELS[visit.status as VisitDraft['status']] ?? visit.status}</em>
-                </article>
+                </button>
               ))}
               {reserveDeadlines.map((reserve: any) => (
-                <article key={reserve.id} className={styles.timelineCard}>
+                <button key={reserve.id} type="button" className={styles.timelineCard} onClick={() => onOpenReserve?.(reserve.id)}>
                   <span className={`${styles.statusDot} ${styles.dotLate}`} />
                   <div>
                     <strong>{reserve.title}</strong>
                     <small>Échéance réserve · {prettyDate(reserve.deadline)}</small>
                   </div>
                   <em>{STATUS_LABELS[reserve.status] ?? reserve.status}</em>
-                </article>
+                </button>
               ))}
               {!upcomingVisits.length && !reserveDeadlines.length && <p className={styles.empty}>Aucune échéance proche.</p>}
             </div>

@@ -201,7 +201,7 @@ export default function PointageScreen() {
   }, [allDateEntries]);
 
   const activeTasks = useMemo(() =>
-    tasks.filter(t => t.status === 'in_progress' || t.status === 'todo').slice(0, 20),
+    tasks.filter(t => t.status === 'in_progress' || t.status === 'todo' || t.status === 'delayed').slice(0, 40),
     [tasks]
   );
 

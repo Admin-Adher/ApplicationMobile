@@ -1006,7 +1006,7 @@ export default function DashboardScreen() {
               <TouchableOpacity
                 key={task.id}
                 style={styles.delayItem}
-                onPress={() => router.push('/planning' as any)}
+                onPress={() => router.push(`/task/${task.id}` as any)}
               >
                 <View style={styles.delayDot} />
                 <View style={{ flex: 1 }}>

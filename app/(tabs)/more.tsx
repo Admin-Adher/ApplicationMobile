@@ -56,7 +56,17 @@ export default function MoreScreen() {
 
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
-  const delayedCount = useMemo(() => tasks.filter(t => t.status === 'delayed').length, [tasks]);
+  const delayedCount = useMemo(() => tasks.filter(t => {
+    if (activeChantier?.id && t.chantierId && t.chantierId !== activeChantier.id) return false;
+    if (t.status === 'done') return false;
+    if (t.status === 'delayed') return true;
+    const parts = String(t.deadline ?? '').split('/');
+    if (parts.length !== 3) return false;
+    const date = new Date(Number(parts[2]), Number(parts[1]) - 1, Number(parts[0]));
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return date < today;
+  }).length, [tasks, activeChantier?.id]);
   const openIncidentsCount = useMemo(
     () => incidents.filter(i => i.status !== 'resolved' && (!activeChantier?.id || !i.chantierId || i.chantierId === activeChantier.id)).length,
     [incidents, activeChantier?.id],
