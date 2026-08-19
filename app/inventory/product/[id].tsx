@@ -29,7 +29,7 @@ export default function InventoryProductScreen() {
   const copy = useInventoryCopy();
   const { id } = useLocalSearchParams<{ id: string }>();
   const { activeChantier } = useApp();
-  const { permissions } = useAuth();
+  const { permissions, user } = useAuth();
   const inventory = useInventory(activeChantier?.id, activeChantier?.organizationId);
   const product = inventory.products.find(item => item.id === id);
   const history = useMemo(() => inventory.movements.filter(movement => movement.productId === id), [id, inventory.movements]);
@@ -43,6 +43,7 @@ export default function InventoryProductScreen() {
   const [location, setLocation] = useState('');
   const [supplier, setSupplier] = useState('');
   const [locationScanOpen, setLocationScanOpen] = useState(false);
+  const canDeleteProduct = user?.role === 'admin' || user?.role === 'super_admin';
 
   function openEditor() {
     if (!product) return;
@@ -86,6 +87,33 @@ export default function InventoryProductScreen() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function deleteCurrentProduct() {
+    if (!product) return;
+    if (!canDeleteProduct) {
+      Alert.alert(copy.error, copy.deleteForbidden);
+      return;
+    }
+    Alert.alert(copy.deleteProduct, copy.deleteProductConfirm, [
+      { text: copy.cancel, style: 'cancel' },
+      {
+        text: copy.deleteProduct,
+        style: 'destructive',
+        onPress: async () => {
+          setSaving(true);
+          try {
+            await inventory.deleteProduct(product.id);
+            setEditOpen(false);
+            router.replace('/inventory/stock' as any);
+          } catch (error: any) {
+            Alert.alert(copy.error, error?.message ?? String(error));
+          } finally {
+            setSaving(false);
+          }
+        },
+      },
+    ]);
   }
 
   function openMovement(mode: 'in' | 'out') {
@@ -170,6 +198,12 @@ export default function InventoryProductScreen() {
             </View>
             <EditField label={copy.supplier} value={supplier} onChangeText={setSupplier} />
             <TouchableOpacity style={[styles.saveButton, saving && { opacity: 0.6 }]} onPress={saveProduct} disabled={saving}>{saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveButtonText}>{copy.save}</Text>}</TouchableOpacity>
+            {canDeleteProduct ? (
+              <TouchableOpacity style={[styles.deleteButton, saving && { opacity: 0.6 }]} onPress={deleteCurrentProduct} disabled={saving}>
+                <Ionicons name="trash-outline" size={18} color="#fff" />
+                <Text style={styles.deleteButtonText}>{copy.deleteProduct}</Text>
+              </TouchableOpacity>
+            ) : null}
           </ScrollView>
           <InventoryLocationScanModal
             visible={locationScanOpen}
@@ -205,5 +239,6 @@ const styles = StyleSheet.create({
   statsRow: { flexDirection: 'row', gap: 8 }, stat: { flex: 1, alignItems: 'center', paddingVertical: 13, backgroundColor: C.surface, borderRadius: 14, borderWidth: 1, borderColor: C.border }, statValue: { fontFamily: 'Inter_700Bold', fontSize: 19 }, statLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 9, textTransform: 'uppercase', marginTop: 2 },
   infoCard: { backgroundColor: C.surface, borderRadius: 16, borderWidth: 1, borderColor: C.border, paddingHorizontal: 14 }, infoRow: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: C.border }, infoLabel: { color: C.textSub, fontFamily: 'Inter_500Medium', fontSize: 11, width: 92 }, infoValue: { flex: 1, color: C.text, fontFamily: 'Inter_600SemiBold', fontSize: 12, textAlign: 'right' }, emptyInfo: { color: C.textMuted, fontFamily: 'Inter_400Regular', fontSize: 12, textAlign: 'center', padding: 18 },
   sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 5 }, sectionTitle: { color: C.text, fontFamily: 'Inter_700Bold', fontSize: 16 }, historyCount: { color: C.primary, backgroundColor: C.primaryBg, fontFamily: 'Inter_700Bold', fontSize: 10, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 4 }, historyList: { gap: 8 },
-  modalRoot: { flex: 1, backgroundColor: C.bg }, editContent: { padding: 16, gap: 13 }, editPhotoButton: { alignItems: 'center', gap: 8, marginBottom: 4 }, editPhoto: { width: 110, height: 110, borderRadius: 18, backgroundColor: C.surface2 }, editPhotoText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 12 }, editField: { gap: 6 }, editLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase' }, editInput: { minHeight: 48, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14 }, locationEditRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, scanShelfButton: { width: 48, height: 48, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' }, saveButton: { height: 52, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 5 }, saveButtonText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
+  modalRoot: { flex: 1, backgroundColor: C.bg }, editContent: { padding: 16, gap: 13 }, editPhotoButton: { alignItems: 'center', gap: 8, marginBottom: 4 }, editPhoto: { width: 110, height: 110, borderRadius: 18, backgroundColor: C.surface2 }, editPhotoText: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 12 }, editField: { gap: 6 }, editLabel: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 11, textTransform: 'uppercase' }, editInput: { minHeight: 48, backgroundColor: C.surface, borderRadius: 12, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14 }, locationEditRow: { flexDirection: 'row', alignItems: 'center', gap: 8 }, scanShelfButton: { width: 48, height: 48, borderRadius: 12, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center' },   saveButton: { height: 52, borderRadius: 14, backgroundColor: C.primary, alignItems: 'center', justifyContent: 'center', marginTop: 5 }, saveButtonText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
+  deleteButton: { height: 52, borderRadius: 14, backgroundColor: C.open, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }, deleteButtonText: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
 });

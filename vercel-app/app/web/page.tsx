@@ -6392,6 +6392,7 @@ export default function BuildTrackWebPage() {
                     canManage: canManageInventoryProducts(profile),
                     canAdjust: canAdjustInventory(profile),
                     canExport: canExportInventory(profile),
+                    canDelete: isAdmin(profile),
                   }}
                   language={webLang}
                   reportLanguage={reportLanguage}

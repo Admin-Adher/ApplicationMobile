@@ -720,6 +720,7 @@
   min-width: 0;
   padding-top: 0.25rem;
 }
+.formActions .dangerButton { margin-right: auto; }
 .secondaryButton,
 .primaryButton,
 .dangerButton { min-width: 9.5rem; padding: 0 1rem; border: 1px solid var(--inventory-border); }

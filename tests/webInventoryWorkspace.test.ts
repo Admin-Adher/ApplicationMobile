@@ -24,7 +24,11 @@ describe('BuildTrack web inventory workspace', () => {
     expect(workspace).toContain('recordInventoryMovement({');
     expect(operations).toContain("'record_inventory_movement'");
     expect(operations).toContain("'update_inventory_product'");
+    expect(operations).toContain("'admin_delete_inventory_product'");
     expect(operations).toContain('p_operation_id: input.operationId');
+    expect(page).toContain('canDelete: isAdmin(profile)');
+    expect(workspace).toContain('capabilities.canDelete');
+    expect(workspace).toContain('deleteInventoryProduct');
   });
 
   it('makes aggregate project identity and row-scoped operations explicit', () => {

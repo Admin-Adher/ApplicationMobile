@@ -48,4 +48,18 @@ describe('inventory receipt and dispatch destination parity', () => {
     expect(scan).toContain('copy.scanReady');
     expect(scan).toContain('setArmed(true)');
   });
+
+  it('lets only admins hard-delete a stock reference without writing a movement', () => {
+    const web = read('vercel-app/app/web/inventory-workspace/InventoryWorkspace.tsx');
+    const mobile = read('app/inventory/product/[id].tsx');
+    const sql = read('supabase/migrations/20260819233000_admin_delete_inventory_product.sql');
+
+    expect(web).toContain('capabilities.canDelete');
+    expect(web).toContain('deleteInventoryProduct');
+    expect(mobile).toContain("user?.role === 'admin'");
+    expect(mobile).toContain('inventory.deleteProduct');
+    expect(sql).toContain('admin_delete_inventory_product');
+    expect(sql).toContain('delete from public.inventory_movements');
+    expect(sql).not.toContain('record_inventory_movement');
+  });
 });

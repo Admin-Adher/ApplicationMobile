@@ -86,6 +86,18 @@ export async function recordInventoryMovement(input: InventoryMovementMutation):
   };
 }
 
+export async function deleteInventoryProduct(productId: string): Promise<InventoryMutationOutcome> {
+  const { data, error } = await (supabaseBrowser.rpc as any)('admin_delete_inventory_product', {
+    p_product_id: productId,
+  });
+  if (error) throw error;
+  const outcome = Array.isArray(data) ? data[0] : data;
+  return {
+    status: outcome?.status ?? null,
+    message: outcome?.message ?? null,
+  };
+}
+
 export async function updateInventoryProduct(input: InventoryProductMutation): Promise<InventoryMutationOutcome> {
   const { data, error } = await (supabaseBrowser.rpc as any)('update_inventory_product', {
     p_product_id: input.productId,

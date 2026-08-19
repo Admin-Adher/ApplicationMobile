@@ -710,6 +710,43 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     return { outcome, queued: false };
   }, [enqueueOperation, isOnline, permissions.canManageInventoryProducts, persistCurrent, productsKey, queryClient, user, validChantierId]);
 
+  const deleteProduct = useCallback(async (productId: string) => {
+    if (!user || (user.role !== 'admin' && user.role !== 'super_admin')) {
+      throw new InventoryOperationError('forbidden', 'Seul un administrateur peut supprimer une référence.');
+    }
+    const previousProducts = queryClient.getQueryData<InventoryProduct[]>(productsKey) ?? [];
+    const previousMovements = queryClient.getQueryData<InventoryMovement[]>(movementsKey) ?? [];
+    if (!previousProducts.some(product => product.id === productId)) {
+      throw new InventoryOperationError('not_found', 'Produit introuvable.');
+    }
+    queryClient.setQueryData<InventoryProduct[]>(productsKey, old => (old ?? []).filter(product => product.id !== productId));
+    queryClient.setQueryData<InventoryMovement[]>(movementsKey, old => (old ?? []).filter(movement => movement.productId !== productId));
+    await persistCurrent();
+    if (!isSupabaseConfigured) return { queued: false };
+    if (!isOnline) {
+      queryClient.setQueryData(productsKey, previousProducts);
+      queryClient.setQueryData(movementsKey, previousMovements);
+      await persistCurrent();
+      throw new InventoryOperationError('offline', 'Connectez-vous pour supprimer une référence.');
+    }
+    const { data, error } = await (supabase.rpc as any)('admin_delete_inventory_product', {
+      p_product_id: productId,
+    });
+    const outcome = Array.isArray(data) ? data[0] : data;
+    if (error || outcome?.status !== 'ok') {
+      queryClient.setQueryData(productsKey, previousProducts);
+      queryClient.setQueryData(movementsKey, previousMovements);
+      await persistCurrent();
+      throw new InventoryOperationError(
+        outcome?.status ?? 'rejected',
+        error?.message ?? outcome?.message ?? 'La suppression a été refusée.',
+      );
+    }
+    void queryClient.invalidateQueries({ queryKey: productsKey });
+    void queryClient.invalidateQueries({ queryKey: movementsKey });
+    return { queued: false };
+  }, [isOnline, movementsKey, persistCurrent, productsKey, queryClient, user]);
+
   const products = productsQuery.data ?? [];
   const movements = useMemo(() => {
     const locations = new Map(products.map(product => [product.id, product.location]));
@@ -743,6 +780,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     findProduct,
     recordMovement,
     updateProduct,
+    deleteProduct,
     refresh: async () => {
       await Promise.all([productsQuery.refetch(), movementsQuery.refetch()]);
     },

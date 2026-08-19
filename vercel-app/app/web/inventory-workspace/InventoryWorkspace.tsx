@@ -27,6 +27,7 @@ import { InventoryIcon } from './InventoryIcon';
 import {
   lookupInventoryBarcode,
   recordInventoryMovement,
+  deleteInventoryProduct,
   updateInventoryProduct,
   uploadInventoryPhoto,
 } from './inventory-operations';
@@ -687,6 +688,25 @@ export default function InventoryWorkspace({
       void startScanner('product');
     } catch (submitError: any) {
       setError(submitError?.message ?? String(submitError));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function deleteEditingProduct() {
+    if (!capabilities.canDelete || !editingProduct) return setError(copy.deleteForbidden);
+    if (!window.confirm(copy.deleteProductConfirm)) return;
+    setError('');
+    setNotice('');
+    setSaving(true);
+    try {
+      const outcome = await deleteInventoryProduct(editingProduct.id);
+      if (!outcome || outcome.status !== 'ok') throw new Error(outcome?.message ?? copy.editRejected);
+      await onReload();
+      closeProductEditor();
+      setNotice(copy.deleteProductDone);
+    } catch (deleteError: any) {
+      setError(deleteError?.message ?? String(deleteError));
     } finally {
       setSaving(false);
     }
@@ -1353,7 +1373,7 @@ export default function InventoryWorkspace({
               <div className={styles.field}><label htmlFor="inventory-edit-location">{copy.location}</label><input id="inventory-edit-location" value={editForm.location} onChange={event => setEditForm(current => ({ ...current, location: event.target.value }))} /></div>
               <div className={styles.field}><label htmlFor="inventory-edit-supplier">{copy.supplier}</label><input id="inventory-edit-supplier" value={editForm.supplier} onChange={event => setEditForm(current => ({ ...current, supplier: event.target.value }))} /></div>
               <div className={styles.field}><label htmlFor="inventory-edit-photo">{copy.newPhoto}</label><input id="inventory-edit-photo" className={styles.fileInput} type="file" accept="image/*" capture="environment" onChange={event => setEditPhoto(event.target.files?.[0] ?? null)} /></div>
-              <div className={`${styles.formActions} ${styles.fieldWide}`}><button type="button" className={styles.secondaryButton} onClick={closeProductEditor}>{copy.cancel}</button><button type="submit" className={styles.primaryButton} disabled={saving}>{saving ? copy.saving : copy.saveProduct}</button></div>
+              <div className={`${styles.formActions} ${styles.fieldWide}`}>{capabilities.canDelete ? <button type="button" className={styles.dangerButton} onClick={() => void deleteEditingProduct()} disabled={saving}>{copy.deleteProduct}</button> : null}<button type="button" className={styles.secondaryButton} onClick={closeProductEditor}>{copy.cancel}</button><button type="submit" className={styles.primaryButton} disabled={saving}>{saving ? copy.saving : copy.saveProduct}</button></div>
             </form>
           </section>
         </div>
