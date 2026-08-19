@@ -16659,7 +16659,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   const users = data.profiles.filter(user => {
     if (roleFilter !== 'all' && user.role !== roleFilter) return false;
     return !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q);
-  });
+  }).sort((a, b) => String(a.name || a.email || '').localeCompare(String(b.name || b.email || ''), 'fr', { sensitivity: 'base' }));
   const editorIsSuperAdmin = profile?.role === 'super_admin';
   const roleCounts = data.profiles.reduce((acc: Record<string, number>, user) => {
     const role = String(user.role ?? 'observateur');
