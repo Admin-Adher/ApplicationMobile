@@ -7,6 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useNetwork } from '@/context/NetworkContext';
 import { formatDateFR } from '@/lib/utils';
 import { mergeWithCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
+import { uploadLocalPhotosInPayload } from '@/lib/storage';
 import i18n from '@/lib/i18n';
 
 const INCIDENTS_PREFIX = 'buildtrack_incidents_v3_';
@@ -14,6 +15,7 @@ const INCIDENTS_PREFIX = 'buildtrack_incidents_v3_';
 interface IncidentsContextValue {
   incidents: Incident[];
   isLoading: boolean;
+  reloadIncidents: () => void;
   addIncident: (incident: Incident) => Promise<void>;
   updateIncident: (incident: Incident) => Promise<void>;
   deleteIncident: (id: string) => Promise<void>;
@@ -187,7 +189,13 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
         const { error } = await (supabase as any).from('incidents').delete().eq('id', incident.id);
         if (error) throw error;
       } else {
-        const { error } = await ((supabase as any).from('incidents') as any).upsert(fromIncident(incident, orgIdRef.current ?? null));
+        const payload = fromIncident(incident, orgIdRef.current ?? null);
+        const prep = await uploadLocalPhotosInPayload('incidents', payload);
+        const { error } = await ((supabase as any).from('incidents') as any).upsert(prep.data ?? payload);
+        if (prep.data?.photo_uri && prep.data.photo_uri !== incident.photoUri) {
+          const next = incidentsRef.current.map(item => item.id === incident.id ? { ...item, photoUri: prep.data.photo_uri } : item);
+          await persist(next);
+        }
         if (error) throw error;
       }
     } catch (e: any) {
@@ -241,7 +249,7 @@ export function IncidentsProvider({ children }: { children: React.ReactNode }) {
   }, [enqueueOperation, incidentsKey]);
 
   return (
-    <IncidentsContext.Provider value={{ incidents, isLoading, addIncident, updateIncident, deleteIncident }}>
+    <IncidentsContext.Provider value={{ incidents, isLoading, reloadIncidents: () => setForegroundReloadSeq(seq => seq + 1), addIncident, updateIncident, deleteIncident }}>
       {children}
     </IncidentsContext.Provider>
   );

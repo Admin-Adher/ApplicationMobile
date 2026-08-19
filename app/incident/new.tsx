@@ -153,7 +153,7 @@ export default function NewIncidentScreen() {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { showAlert(t('incidentForm.permissionDenied'), t('incidentForm.galleryPermissionDenied')); return; }
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, quality: 0.8 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: false, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 
@@ -161,7 +161,7 @@ export default function NewIncidentScreen() {
     if (Platform.OS === 'web') { showAlert(t('incidentForm.info'), t('incidentForm.directCameraMobileOnly')); return; }
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') { showAlert(t('incidentForm.permissionDenied'), t('incidentForm.cameraPermissionDenied')); return; }
-    const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, quality: 0.8 });
+    const result = await ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 0.8 });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
   }
 

@@ -5280,6 +5280,49 @@ export default function BuildTrackWebPage() {
     return saved;
   }
 
+  async function createIncidentWeb(payload: Record<string, any>) {
+    if (!profile || !canCreate(profile)) return null;
+    const row = {
+      id: `INC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      organization_id: profile.organization_id ?? null,
+      chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
+      title: String(payload.title ?? '').trim(),
+      description: String(payload.description ?? ''),
+      severity: payload.severity || 'moderate',
+      status: payload.status || 'open',
+      location: String(payload.location ?? ''),
+      building: String(payload.building ?? ''),
+      reported_at: payload.reported_at || todayISO(),
+      reported_by: userLabel(profile, authUser),
+      actions: String(payload.actions ?? ''),
+    };
+    if (!row.title) return null;
+    const { data: inserted, error } = await supabaseBrowser.from('incidents').insert(row).select().single();
+    if (error) {
+      setError(error.message);
+      return null;
+    }
+    const saved = inserted ?? row;
+    setData(prev => ({ ...prev, incidents: [saved, ...prev.incidents] }));
+    setNotice('Incident signalé.');
+    return saved;
+  }
+
+  async function updateIncidentWeb(incident: any, patch: Record<string, any>) {
+    if (!profile || !canEdit(profile) || !incident?.id) return null;
+    const next = {
+      ...patch,
+      ...(patch.status === 'resolved' && incident.status !== 'resolved' ? { closed_at: todayISO(), closed_by: userLabel(profile, authUser) } : {}),
+    };
+    const { data: updated, error } = await supabaseBrowser.from('incidents').update(next).eq('id', incident.id).select().single();
+    if (error) {
+      setError(error.message);
+      return null;
+    }
+    setData(prev => ({ ...prev, incidents: prev.incidents.map((item: any) => item.id === incident.id ? (updated ?? { ...item, ...next }) : item) }));
+    return updated;
+  }
+
   async function updateJournalEntryWeb(entry: any, payload: Record<string, any>) {
     if (!profile || !canCreate(profile) || !entry?.id) return null;
     const patch = {
@@ -6547,7 +6590,14 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'incidents' && (
-              <IncidentsView incidents={projectScoped.incidents} />
+              <IncidentsView
+                incidents={projectScoped.incidents}
+                profile={profile}
+                canCreate={canCreate(profile)}
+                canEdit={canEdit(profile)}
+                onCreate={createIncidentWeb}
+                onUpdate={updateIncidentWeb}
+              />
             )}
             {activeTab === 'opr' && (
               <OprView oprs={projectScoped.oprs} reserves={projectScoped.reserves} onOpenReserve={openReserveDetailTab} />
@@ -12757,31 +12807,86 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
   );
 }
 
-function IncidentsView({ incidents }: { incidents: any[] }) {
+function IncidentsView({ incidents, profile, canCreate, canEdit, onCreate, onUpdate }: {
+  incidents: any[];
+  profile: any;
+  canCreate?: boolean;
+  canEdit?: boolean;
+  onCreate?: (payload: Record<string, any>) => Promise<any>;
+  onUpdate?: (incident: any, patch: Record<string, any>) => Promise<any>;
+}) {
+  const [filter, setFilter] = useState<'all' | 'open' | 'investigating' | 'resolved'>('all');
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({ title: '', description: '', location: '', severity: 'moderate', status: 'open' });
+  const [busy, setBusy] = useState(false);
+  const labels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu', minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
+  if (profile?.role === 'sous_traitant') return <RestrictedTool title="Incidents" />;
   const openIncidents = incidents.filter(isIncidentOpenWeb);
+  const visible = [...incidents]
+    .filter(incident => filter === 'all' || incident.status === filter)
+    .sort((a, b) => String(b.reported_at ?? b.created_at ?? '').localeCompare(String(a.reported_at ?? a.created_at ?? '')));
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
         <Kpi title="Incidents ouverts" value={openIncidents.length} hint="À traiter" tone={openIncidents.length ? 'red' : 'green'} />
         <Kpi title="Total incidents" value={incidents.length} hint="Historique terrain" />
-        <Kpi title="Critiques" value={incidents.filter((incident: any) => incident.priority === 'critical' || incident.severity === 'critical').length} hint="Priorité haute" tone="red" />
-        <Kpi title="Clôturés" value={incidents.filter((incident: any) => !isIncidentOpenWeb(incident)).length} hint="Résolus" tone="green" />
+        <Kpi title="Critiques" value={incidents.filter((incident: any) => incident.severity === 'critical').length} hint="Gravité critique" tone="red" />
+        <Kpi title="Clôturés" value={incidents.filter((incident: any) => incident.status === 'resolved').length} hint="Résolus" tone="green" />
       </div>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>Incidents terrain</h2>
-            <p>Suivi sécurité et alertes remontées depuis le chantier.</p>
+            <p>Signaler, suivre et clôturer les alertes sécurité.</p>
+          </div>
+          <div className={styles.inlineActions}>
+            {(['all', 'open', 'investigating', 'resolved'] as const).map(value => (
+              <button key={value} type="button" onClick={() => setFilter(value)}>{value === 'all' ? 'Tous' : labels[value]}</button>
+            ))}
+            {canCreate ? <button type="button" onClick={() => setShowForm(value => !value)}>{showForm ? 'Fermer' : 'Signaler'}</button> : null}
           </div>
         </div>
+        {showForm && canCreate ? (
+          <form className={styles.formGrid} onSubmit={async event => {
+            event.preventDefault();
+            setBusy(true);
+            const saved = await onCreate?.(draft);
+            setBusy(false);
+            if (saved) {
+              setDraft({ title: '', description: '', location: '', severity: 'moderate', status: 'open' });
+              setShowForm(false);
+            }
+          }}>
+            <label><span>Titre</span><input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} required /></label>
+            <label><span>Lieu</span><input value={draft.location} onChange={event => setDraft(prev => ({ ...prev, location: event.target.value }))} /></label>
+            <label><span>Gravité</span>
+              <select value={draft.severity} onChange={event => setDraft(prev => ({ ...prev, severity: event.target.value }))}>
+                <option value="minor">Mineur</option>
+                <option value="moderate">Modéré</option>
+                <option value="major">Majeur</option>
+                <option value="critical">Critique</option>
+              </select>
+            </label>
+            <label className={styles.fullSpan}><span>Description</span><textarea rows={3} value={draft.description} onChange={event => setDraft(prev => ({ ...prev, description: event.target.value }))} /></label>
+            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Envoi…' : 'Signaler'}</button></div>
+          </form>
+        ) : null}
         <div className={styles.compactList}>
-          {incidents.map((incident: any) => (
-            <button key={incident.id}>
-              <span>{STATUS_LABELS[incident.status] ?? incident.status ?? 'Incident'} · {prettyDate(incident.created_at ?? incident.date, true)}</span>
-              <strong>{incident.title ?? incident.name ?? incident.description ?? incident.id}</strong>
-            </button>
+          {visible.map((incident: any) => (
+            <article key={incident.id} className={styles.timelineCard}>
+              <span>{labels[incident.status] ?? incident.status} · {labels[incident.severity] ?? incident.severity} · {prettyDate(incident.reported_at ?? incident.created_at)}</span>
+              <strong>{incident.title ?? incident.description ?? incident.id}</strong>
+              {incident.description ? <p>{incident.description}</p> : null}
+              {incident.location ? <small>{incident.location}</small> : null}
+              {canEdit && incident.status !== 'resolved' ? (
+                <div className={styles.inlineActions}>
+                  {incident.status === 'open' ? <button type="button" onClick={() => onUpdate?.(incident, { status: 'investigating' })}>En cours</button> : null}
+                  <button type="button" onClick={() => onUpdate?.(incident, { status: 'resolved' })}>Clôturer</button>
+                </div>
+              ) : null}
+            </article>
           ))}
-          {!incidents.length && <p className={styles.empty}>Aucun incident terrain.</p>}
+          {!visible.length && <p className={styles.empty}>Aucun incident sur ce chantier.</p>}
         </div>
       </section>
     </div>

@@ -57,7 +57,10 @@ export default function MoreScreen() {
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
 
   const delayedCount = useMemo(() => tasks.filter(t => t.status === 'delayed').length, [tasks]);
-  const openIncidentsCount = useMemo(() => incidents.filter(i => i.status !== 'resolved').length, [incidents]);
+  const openIncidentsCount = useMemo(
+    () => incidents.filter(i => i.status !== 'resolved' && (!activeChantier?.id || !i.chantierId || i.chantierId === activeChantier.id)).length,
+    [incidents, activeChantier?.id],
+  );
   const recentDocsCount = useMemo(() => {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
@@ -80,7 +83,7 @@ export default function MoreScreen() {
         ...(!isWarehouseRole(user?.role) ? [{ icon: 'book', label: t('moreScreen.items.journal.0'), subtitle: t('moreScreen.items.journal.1'), route: '/journal', color: '#059669' } as MenuItem] : []),
         ...(!isWarehouseRole(user?.role) ? [{ icon: 'time', label: t('moreScreen.items.pointage.0'), subtitle: t('moreScreen.items.pointage.1'), route: '/pointage', color: '#0891B2' } as MenuItem] : []),
         { icon: 'chatbubbles', label: t('tabs.messages'), subtitle: t('moreScreen.items.messages.1', { defaultValue: 'Échanges chantier' }), route: '/(tabs)/messages', color: '#2563EB' },
-        {
+        ...(!isWarehouseRole(user?.role) ? [{
           icon: 'shield',
           label: t('moreScreen.items.incidents.0', { defaultValue: 'Incidents' }),
           subtitle: openIncidentsCount > 0
@@ -89,7 +92,7 @@ export default function MoreScreen() {
           route: '/(tabs)/incidents',
           color: '#EF4444',
           badge: openIncidentsCount || undefined,
-        },
+        }] as MenuItem[] : []),
       ] : [
         { icon: 'warning', label: t('moreScreen.items.myReserves.0'), subtitle: t('moreScreen.items.myReserves.1'), route: '/sous-traitant', color: '#10B981' },
       ]),

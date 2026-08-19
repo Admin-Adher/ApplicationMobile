@@ -253,8 +253,8 @@ export default function DashboardScreen() {
     return all;
   }, [tasks, isSousTraitant, userCompany, activeChantier]);
   const openIncidents = useMemo(
-    () => incidents.filter(i => i.status !== 'resolved'),
-    [incidents]
+    () => incidents.filter(i => i.status !== 'resolved' && (!activeChantier?.id || !i.chantierId || i.chantierId === activeChantier.id)),
+    [incidents, activeChantier?.id])
   );
   const todayQueue = useMemo(
     () => buildConducteurTodayQueue(activeVisibleReserves, visites, activeChantier?.id),

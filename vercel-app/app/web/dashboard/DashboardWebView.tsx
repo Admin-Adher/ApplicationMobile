@@ -490,7 +490,7 @@ export function DashboardWebView({
         <MetricButton value={model.totalCount} label={copy.totalReserves} hint={copy.totalHint} tone="blue" icon="clipboard" onClick={() => onIntent({ type: 'navigate', target: 'reserves' })} />
         <MetricButton value={model.remainingCount} label={copy.remaining} hint={copy.remainingHint(model.statuses.open, model.statuses.inProgress)} tone="orange" icon="backlog" onClick={() => onIntent({ type: 'navigate', target: 'reserves' })} />
         <MetricButton value={model.overdueCount} label={copy.overdue} hint={copy.overdueHint(model.criticalCount)} tone="danger" icon="warning" onClick={() => onIntent({ type: 'navigate', target: 'reserves' })} />
-        <MetricButton value={model.openIncidentCount + model.lateTaskCount} label={copy.fieldAlerts} hint={copy.fieldAlertsHint(model.openIncidentCount, model.lateTaskCount)} tone={model.openIncidentCount + model.lateTaskCount ? 'danger' : 'green'} icon="shield" onClick={() => onIntent({ type: 'navigate', target: model.openIncidentCount ? 'terrain' : 'planning' })} />
+        <MetricButton value={model.openIncidentCount + model.lateTaskCount} label={copy.fieldAlerts} hint={copy.fieldAlertsHint(model.openIncidentCount, model.lateTaskCount)} tone={model.openIncidentCount + model.lateTaskCount ? 'danger' : 'green'} icon="shield" onClick={() => onIntent({ type: 'navigate', target: model.openIncidentCount ? 'incidents' : 'planning' })} />
       </section>
 
       {model.portfolio.length > 1 ? (

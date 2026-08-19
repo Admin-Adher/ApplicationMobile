@@ -558,10 +558,13 @@ export default function JournalScreen() {
                         { text: t('pointage.stay'), style: 'cancel' },
                         {
                           text: t('common.continue'),
-                          onPress: () => router.push({
-                            pathname: '/incident/new',
-                            params: { description: incidents.trim() },
-                          } as any),
+                          onPress: () => {
+                            if (workDone.trim()) handleCreate();
+                            router.push({
+                              pathname: '/incident/new',
+                              params: { description: incidents.trim() },
+                            } as any);
+                          },
                         },
                       ]
                     );

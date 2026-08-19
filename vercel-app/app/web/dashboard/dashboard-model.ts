@@ -6,7 +6,8 @@ export type DashboardDestination =
   | 'terrain'
   | 'plans'
   | 'visites'
-  | 'messages';
+  | 'messages'
+  | 'incidents';
 
 export type DashboardSource = {
   projects: DashboardRecord[];

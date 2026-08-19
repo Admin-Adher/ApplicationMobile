@@ -14,6 +14,7 @@ import { Incident, IncidentSeverity, IncidentStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import PageContainer from '@/components/PageContainer';
 import { showAlert } from '@/lib/appAlert';
+import { visitDateValue } from '@/lib/conducteurToday';
 import { IncidentSkeletonCard as SkeletonCard } from '@/components/SkeletonCard';
 
 const SEVERITY_CONFIG: Record<IncidentSeverity, { color: string; bg: string; icon: string }> = {
@@ -61,8 +62,8 @@ export default function IncidentsScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { permissions, user } = useAuth();
-  const { incidents, isLoading, deleteIncident } = useIncidents();
-  const { reload } = useApp();
+  const { incidents, isLoading, deleteIncident, reloadIncidents } = useIncidents();
+  const { reload, activeChantierId } = useApp();
 
   const [search, setSearch] = useState('');
   const [filterSeverity, setFilterSeverity] = useState<FilterSeverity>('all');
@@ -71,21 +72,28 @@ export default function IncidentsScreen() {
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    try { await Promise.resolve(reload()); } finally { setRefreshing(false); }
-  }, [reload]);
+    try { await Promise.resolve(reload()); reloadIncidents(); } finally { setRefreshing(false); }
+  }, [reload, reloadIncidents]);
 
   const filtered = useMemo(() => {
     return incidents.filter(i => {
+      if (activeChantierId && i.chantierId && i.chantierId !== activeChantierId) return false;
       if (filterSeverity !== 'all' && i.severity !== filterSeverity) return false;
       if (filterStatus !== 'all' && i.status !== filterStatus) return false;
-      if (search && !i.title.toLowerCase().includes(search.toLowerCase()) &&
-          !i.location.toLowerCase().includes(search.toLowerCase()) &&
-          !i.description.toLowerCase().includes(search.toLowerCase())) return false;
+      const needle = search.trim().toLowerCase();
+      if (needle) {
+        const haystack = [i.title, i.location, i.description, i.building].map(value => String(value ?? '').toLowerCase()).join(' ');
+        if (!haystack.includes(needle)) return false;
+      }
       return true;
-    }).sort((a, b) => b.reportedAt.localeCompare(a.reportedAt));
-  }, [incidents, filterSeverity, filterStatus, search]);
+    }).sort((a, b) => visitDateValue(b.reportedAt) - visitDateValue(a.reportedAt));
+  }, [incidents, filterSeverity, filterStatus, search, activeChantierId]);
 
-  const openCount = incidents.filter(i => i.status !== 'resolved').length;
+  const siteIncidents = useMemo(
+    () => incidents.filter(i => !activeChantierId || !i.chantierId || i.chantierId === activeChantierId),
+    [incidents, activeChantierId],
+  );
+  const openCount = siteIncidents.filter(i => i.status !== 'resolved').length;
 
   if (user?.role === 'sous_traitant') {
     return (
@@ -324,12 +332,12 @@ export default function IncidentsScreen() {
             );
           })
         )}
-        <View style={{ height: 32 }} />
+        <View style={{ height: 96 }} />
       </ScrollView>
 
       {permissions.canCreate && (
         <TouchableOpacity
-          style={[styles.fab, { bottom: Math.max(insets.bottom + 16, 24) }]}
+          style={[styles.fab, { bottom: Math.max(insets.bottom + 72, 80) }]}
           onPress={() => router.push('/incident/new' as any)}
           activeOpacity={0.85}
         >
