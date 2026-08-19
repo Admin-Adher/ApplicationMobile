@@ -16617,6 +16617,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   const [inviteLink, setInviteLink] = useState('');
   const [companyDraft, setCompanyDraft] = useState({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] as string[] });
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
+  const [companySheetOpen, setCompanySheetOpen] = useState(false);
   const [rightsUserId, setRightsUserId] = useState<string | null>(null);
   const [license, setLicense] = useState<{ status: string; planName: string; maxUsers: number; trialEndsAt?: string | null; startedAt?: string | null } | null>(null);
   const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at?: string; company_id?: string | null; resend_count?: number; last_resent_at?: string | null }>>([]);
@@ -17008,10 +17009,57 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
           <div className={styles.panelHeaderCompact}>
             <div>
               <h2>Entreprises</h2>
-              <p>Fiches orga : nom, contact, SIRET. Sans pointage ici.</p>
+              <p>{data.companies.length} fiche{data.companies.length > 1 ? 's' : ''} sur l’organisation.</p>
             </div>
+            <button type="button" className={styles.pilotagePrimary} onClick={() => {
+              setEditingCompanyId(null);
+              setCompanyDraft({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] });
+              setCompanySheetOpen(true);
+            }}>Nouvelle entreprise</button>
           </div>
-          <form className={styles.pilotageInviteForm} onSubmit={async event => {
+          <div className={styles.pilotageCompanyGrid}>
+            {data.companies.map(company => {
+              const lotNames = (Array.isArray(company.lots) ? company.lots : [])
+                .map((id: string) => data.lots.find((lot: any) => String(lot.id) === String(id))?.name)
+                .filter(Boolean);
+              return (
+                <article key={company.id} className={styles.pilotageCompanyCard}>
+                  <div className={styles.pilotageCompanyMark}>{(company.short_name || company.name || '?').slice(0, 3).toUpperCase()}</div>
+                  <div>
+                    <strong>{company.name}</strong>
+                    <span>{[company.email, company.contact].filter(Boolean).join(' · ') || 'Pas encore de contact'}</span>
+                    {company.siret || company.insurance ? <small>{[company.siret && `SIRET ${company.siret}`, company.insurance].filter(Boolean).join(' · ')}</small> : null}
+                    {lotNames.length ? <em>{lotNames.join(' · ')}</em> : null}
+                  </div>
+                  <div className={styles.pilotageInviteActions}>
+                    <button type="button" className={styles.pilotageGhost} onClick={() => {
+                      setEditingCompanyId(company.id);
+                      setCompanyDraft({
+                        name: company.name ?? '',
+                        short_name: company.short_name ?? '',
+                        email: company.email ?? '',
+                        contact: company.contact ?? '',
+                        siret: company.siret ?? '',
+                        insurance: company.insurance ?? '',
+                        lots: Array.isArray(company.lots) ? company.lots.map(String) : [],
+                      });
+                      setCompanySheetOpen(true);
+                    }}>Modifier</button>
+                    <button type="button" className={styles.pilotageDanger} onClick={() => {
+                      if (window.confirm(`Supprimer ${company.name} ?`)) void onDeleteCompany?.(company.id);
+                    }}>Supprimer</button>
+                  </div>
+                </article>
+              );
+            })}
+            {!data.companies.length ? <p className={styles.empty}>Aucune entreprise pour le moment.</p> : null}
+          </div>
+        </section>
+      ) : null}
+
+      {companySheetOpen ? (
+        <div className={styles.pilotageRightsOverlay} role="dialog" aria-modal="true">
+          <form className={styles.pilotageCompanySheet} onSubmit={async event => {
             event.preventDefault();
             if (!companyDraft.name.trim()) return;
             if (editingCompanyId) {
@@ -17024,65 +17072,56 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                 insurance: companyDraft.insurance || null,
                 lots: companyDraft.lots,
               });
-              setEditingCompanyId(null);
             } else {
               await onCreateCompany?.(companyDraft);
             }
             setCompanyDraft({ name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] });
+            setEditingCompanyId(null);
+            setCompanySheetOpen(false);
           }}>
-            <div className={styles.pilotageCompanyForm}>
-              <label>Nom<input value={companyDraft.name} onChange={event => setCompanyDraft(prev => ({ ...prev, name: event.target.value }))} required /></label>
-              <label>Sigle<input value={companyDraft.short_name} onChange={event => setCompanyDraft(prev => ({ ...prev, short_name: event.target.value }))} placeholder="ABC" /></label>
-              <label>Email<input value={companyDraft.email} onChange={event => setCompanyDraft(prev => ({ ...prev, email: event.target.value }))} type="email" /></label>
-              <label>Téléphone<input value={companyDraft.contact} onChange={event => setCompanyDraft(prev => ({ ...prev, contact: event.target.value }))} /></label>
-              <label>SIRET<input value={companyDraft.siret} onChange={event => setCompanyDraft(prev => ({ ...prev, siret: event.target.value }))} /></label>
-              <label>Assurance<input value={companyDraft.insurance} onChange={event => setCompanyDraft(prev => ({ ...prev, insurance: event.target.value }))} /></label>
-              <button type="submit" className={styles.pilotagePrimary}>{editingCompanyId ? 'Enregistrer' : 'Ajouter'}</button>
+            <header>
+              <div>
+                <p>Fiche entreprise</p>
+                <h2>{editingCompanyId ? 'Modifier l’entreprise' : 'Nouvelle entreprise'}</h2>
+              </div>
+              <button type="button" className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Fermer</button>
+            </header>
+            <div className={styles.pilotageCompanyIdentity}>
+              <div className={styles.pilotageCompanyMark}>{(companyDraft.short_name || companyDraft.name || 'BT').slice(0, 3).toUpperCase()}</div>
+              <div>
+                <label>Nom de l’entreprise<input value={companyDraft.name} onChange={event => setCompanyDraft(prev => ({ ...prev, name: event.target.value, short_name: prev.short_name || event.target.value.slice(0, 3).toUpperCase() }))} required placeholder="Dupont Électricité" /></label>
+                <label>Sigle<input value={companyDraft.short_name} onChange={event => setCompanyDraft(prev => ({ ...prev, short_name: event.target.value.toUpperCase() }))} maxLength={6} placeholder="DUP" /></label>
+              </div>
+            </div>
+            <div className={styles.pilotageCompanyFields}>
+              <label>Email<input value={companyDraft.email} onChange={event => setCompanyDraft(prev => ({ ...prev, email: event.target.value }))} type="email" placeholder="contact@entreprise.fr" /></label>
+              <label>Téléphone<input value={companyDraft.contact} onChange={event => setCompanyDraft(prev => ({ ...prev, contact: event.target.value }))} placeholder="06 12 34 56 78" /></label>
+              <label>SIRET<input value={companyDraft.siret} onChange={event => setCompanyDraft(prev => ({ ...prev, siret: event.target.value }))} placeholder="123 568 941 00012" /></label>
+              <label>Assurance<input value={companyDraft.insurance} onChange={event => setCompanyDraft(prev => ({ ...prev, insurance: event.target.value }))} placeholder="Décennale, RC pro…" /></label>
             </div>
             {data.lots.length ? (
-              <div className={styles.pilotageLotPicker}>
-                {data.lots.map((lot: any) => {
-                  const id = String(lot.id);
-                  const active = companyDraft.lots.includes(id);
-                  return (
-                    <button key={id} type="button" data-active={active ? 'true' : 'false'} onClick={() => setCompanyDraft(prev => ({
-                      ...prev,
-                      lots: active ? prev.lots.filter(item => item !== id) : [...prev.lots, id],
-                    }))}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</button>
-                  );
-                })}
+              <div>
+                <strong className={styles.pilotageFieldTitle}>Lots attribués</strong>
+                <div className={styles.pilotageLotPicker}>
+                  {data.lots.map((lot: any) => {
+                    const id = String(lot.id);
+                    const active = companyDraft.lots.includes(id);
+                    return (
+                      <button key={id} type="button" data-active={active ? 'true' : 'false'} onClick={() => setCompanyDraft(prev => ({
+                        ...prev,
+                        lots: active ? prev.lots.filter(item => item !== id) : [...prev.lots, id],
+                      }))}>{lot.code ? `${lot.code} · ${lot.name}` : lot.name}</button>
+                    );
+                  })}
+                </div>
               </div>
             ) : null}
+            <footer>
+              <button type="button" className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Annuler</button>
+              <button type="submit" className={styles.pilotagePrimary}>{editingCompanyId ? 'Enregistrer la fiche' : 'Créer l’entreprise'}</button>
+            </footer>
           </form>
-          <div className={styles.pilotageInviteList}>
-            {data.companies.map(company => (
-              <article key={company.id} className={styles.pilotageInviteCard}>
-                <div>
-                  <strong>{company.name}</strong>
-                  <span>{[company.short_name, company.email, company.contact, company.siret, company.insurance].filter(Boolean).join(' · ') || 'Sans contact'}</span>
-                </div>
-                <div className={styles.pilotageInviteActions}>
-                  <button type="button" className={styles.pilotageGhost} onClick={() => {
-                    setEditingCompanyId(company.id);
-                    setCompanyDraft({
-                      name: company.name ?? '',
-                      short_name: company.short_name ?? '',
-                      email: company.email ?? '',
-                      contact: company.contact ?? '',
-                      siret: company.siret ?? '',
-                      insurance: company.insurance ?? '',
-                      lots: Array.isArray(company.lots) ? company.lots.map(String) : [],
-                    });
-                  }}>Modifier</button>
-                  <button type="button" className={styles.pilotageDanger} onClick={() => {
-                    if (window.confirm(`Supprimer ${company.name} ?`)) void onDeleteCompany?.(company.id);
-                  }}>Supprimer</button>
-                </div>
-              </article>
-            ))}
-            {!data.companies.length ? <p className={styles.empty}>Aucune entreprise.</p> : null}
-          </div>
-        </section>
+        </div>
       ) : null}
 
       {pilotageTab === 'license' ? (
