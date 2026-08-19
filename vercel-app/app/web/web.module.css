@@ -10163,6 +10163,16 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .terrainHubIntro {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .terrainHubCardText strong,
+  .terrainHubCardText small {
+    white-space: normal;
+  }
+
   .twoCols,
   .threeCols,
   .timelineGrid {
@@ -10748,6 +10758,23 @@
 
   .terrainHubCard {
     min-height: 78px;
+    align-items: flex-start;
+  }
+
+  .terrainHubCard em {
+    align-self: center;
+  }
+
+  .timelineCard,
+  .compactList button,
+  .listRow {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .timelineCard em,
+  .compactList button > span:last-child {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .workspace {
