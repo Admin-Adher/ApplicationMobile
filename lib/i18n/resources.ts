@@ -1017,7 +1017,8 @@ export const resources: Resource = {
         },
       },
       tabs: {
-        dashboard: 'Dashboard',
+        dashboard: 'Aujourd’hui',
+        pilotage: 'Pilotage',
         reserves: 'Réserves',
         plans: 'Plans',
         messages: 'Messages',
@@ -1041,8 +1042,17 @@ export const resources: Resource = {
         sous_traitant: 'Portail entreprise — voir et traiter ses propres réserves (gratuit)',
       },
       adminScreen: {
-        headerTitle: 'Administration',
-        headerSubtitle: 'Gestion des accès et des équipes',
+        headerTitle: 'Pilotage',
+        headerSubtitle: 'Administrateur · {{org}}',
+        inviteStepEmail: '1/3 · Email',
+        inviteStepRole: '2/3 · Rôle',
+        inviteStepCompany: '3/3 · Entreprise',
+        inviteNext: 'Continuer',
+        inviteBack: 'Retour',
+        pendingFirst: 'Invitations à traiter',
+        seatsShort: '{{used}} / {{max}} sièges',
+        seatsUnlimited: 'Sièges illimités',
+        accessDenied: 'Accès réservé aux administrateurs',
         dangerZone: {
           title: 'Zone dangereuse',
           description: "La suppression de l'organisation « {{name}} » efface définitivement ses membres, entreprises, invitations et données.",
@@ -5652,6 +5662,7 @@ export const resources: Resource = {
       },
       tabs: {
         dashboard: 'Today',
+        pilotage: 'Ops',
         reserves: 'Punch',
         plans: 'Plans',
         messages: 'Messages',
@@ -5675,8 +5686,17 @@ export const resources: Resource = {
         sous_traitant: 'Company portal — view and process own reserves (free)',
       },
       adminScreen: {
-        headerTitle: 'Administration',
-        headerSubtitle: 'Access and team management',
+        headerTitle: 'Ops',
+        headerSubtitle: 'Administrator · {{org}}',
+        inviteStepEmail: '1/3 · Email',
+        inviteStepRole: '2/3 · Role',
+        inviteStepCompany: '3/3 · Company',
+        inviteNext: 'Continue',
+        inviteBack: 'Back',
+        pendingFirst: 'Invitations to handle',
+        seatsShort: '{{used}} / {{max}} seats',
+        seatsUnlimited: 'Unlimited seats',
+        accessDenied: 'Administrators only',
         dangerZone: {
           title: 'Danger zone',
           description: 'Deleting the organization "{{name}}" permanently erases its members, companies, invitations and data.',
@@ -7226,7 +7246,7 @@ export const resources: Resource = {
         newOrgShort: 'New org',
         tabs: {
           orgs: 'Organizations',
-        dashboard: 'Aujourd’hui',
+          dashboard: 'Dashboard',
         },
         status: {
           trial: 'Trial',
@@ -10285,7 +10305,8 @@ export const resources: Resource = {
         },
       },
       tabs: {
-        dashboard: 'Panel',
+        dashboard: 'Hoy',
+        pilotage: 'Pilotaje',
         reserves: 'Incidencias',
         plans: 'Planos',
         messages: 'Mensajes',
@@ -10309,8 +10330,17 @@ export const resources: Resource = {
         sous_traitant: 'Portal empresa — ver y tratar sus propias reservas (gratis)',
       },
       adminScreen: {
-        headerTitle: 'Administración',
-        headerSubtitle: 'Gestión de accesos y equipos',
+        headerTitle: 'Pilotaje',
+        headerSubtitle: 'Administrador · {{org}}',
+        inviteStepEmail: '1/3 · Email',
+        inviteStepRole: '2/3 · Rol',
+        inviteStepCompany: '3/3 · Empresa',
+        inviteNext: 'Continuar',
+        inviteBack: 'Volver',
+        pendingFirst: 'Invitaciones por tratar',
+        seatsShort: '{{used}} / {{max}} plazas',
+        seatsUnlimited: 'Plazas ilimitadas',
+        accessDenied: 'Acceso reservado a los administradores',
         dangerZone: {
           title: 'Zona peligrosa',
           description: 'Eliminar la organización «{{name}}» borra definitivamente sus miembros, empresas, invitaciones y datos.',
@@ -11860,7 +11890,7 @@ export const resources: Resource = {
         newOrgShort: 'Nueva org.',
         tabs: {
           orgs: 'Organizaciones',
-        dashboard: 'Hoy',
+          dashboard: 'Panel',
         },
         status: {
           trial: 'Prueba',

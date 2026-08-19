@@ -20,7 +20,7 @@ import { localeForLanguage } from '@/constants/language';
 import { useTranslation } from 'react-i18next';
 import { ConducteurTodayQueue } from '@/components/ConducteurTodayQueue';
 import { buildConducteurTodayQueue } from '@/lib/conducteurToday';
-import { isConducteurRole } from '@/lib/roleNavigation';
+import { isConducteurRole, isOrgAdminRole } from '@/lib/roleNavigation';
 
 function isTaskLate(t: Task): boolean {
   if (t.status === 'done') return false;
@@ -197,7 +197,7 @@ export default function DashboardScreen() {
   const [personnelExpanded, setPersonnelExpanded] = useState(false);
 
   const isSousTraitant = user?.role === 'sous_traitant';
-  const isConducteur = isConducteurRole(user?.role);
+  const isConducteur = isConducteurRole(user?.role) || isOrgAdminRole(user?.role);
 
   const userCompany = useMemo(() => {
     if (!isSousTraitant || !user?.companyId) return null;

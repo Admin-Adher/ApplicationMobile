@@ -17,7 +17,7 @@ import '@/lib/i18n';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient } from '@/lib/queryClient';
 import { asyncStoragePersister } from '@/lib/queryPersister';
-import { canConducteurRestoreTab, canWarehouseRoleAccessRootSegment, isConducteurRole, isWarehouseRole, WAREHOUSE_HOME_ROUTE } from '@/lib/roleNavigation';
+import { ADMIN_HOME_ROUTE, canAdminRestoreTab, canConducteurRestoreTab, canWarehouseRoleAccessRootSegment, isConducteurRole, isOrgAdminRole, isWarehouseRole, WAREHOUSE_HOME_ROUTE } from '@/lib/roleNavigation';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AppAlertHost } from '@/lib/appAlert';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
@@ -191,6 +191,14 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     hasRestoredTab.current = true;
     if (isWarehouseRole(user?.role)) return;
     AsyncStorage.getItem(LAST_TAB_KEY).then((savedTab) => {
+      if (isOrgAdminRole(user?.role)) {
+        if (savedTab && canAdminRestoreTab(savedTab) && savedTab !== ADMIN_HOME_ROUTE) {
+          router.replace(savedTab as any);
+        } else {
+          router.replace(ADMIN_HOME_ROUTE as any);
+        }
+        return;
+      }
       if (isConducteurRole(user?.role) && !canConducteurRestoreTab(savedTab)) return;
       if (savedTab && savedTab !== '/(tabs)' && savedTab !== '/(tabs)/index') {
         router.replace(savedTab as any);

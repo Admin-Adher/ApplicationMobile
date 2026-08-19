@@ -446,6 +446,7 @@ function useWebI18n() {
 }
 
 const TAB_LABEL_FALLBACK: Partial<Record<string, string>> = {
+  admin: 'Pilotage',
   inventory: 'Stock',
   chantiers: 'Chantiers',
   journal: 'Journal',
@@ -3028,9 +3029,12 @@ export default function BuildTrackWebPage() {
   }), [deviceLanguage, handleWebLangChange, handleWebLanguagePreferenceChange, webLang, webLanguagePreference]);
   const { t } = i18n;
   const isWarehouseWebUser = profile?.role === 'magasinier';
+  const isOrgAdminWebUser = profile?.role === 'admin';
   const visibleNavigationGroups: { label: string; items: TabId[] }[] = isWarehouseWebUser
     ? [{ label: 'Navigation', items: ['inventory', 'settings'] }]
-    : NAV_GROUPS.map(group => ({
+    : isOrgAdminWebUser
+      ? [{ label: 'Navigation', items: ['admin', 'dashboard', 'plans', 'reserves', 'terrain'] }]
+      : NAV_GROUPS.map(group => ({
         ...group,
         items: group.items.filter(tabId => tabId !== 'inventory' || canViewInventory(profile)),
       }));
@@ -3041,6 +3045,15 @@ export default function BuildTrackWebPage() {
       setMobileNavOpen(false);
     }
   }, [activeTab, isWarehouseWebUser]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isOrgAdminWebUser) return;
+    const saved = window.localStorage.getItem(WEB_LAST_TAB_KEY);
+    if (!saved) {
+      setActiveTab('admin');
+      setMobileNavOpen(false);
+    }
+  }, [isOrgAdminWebUser]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -16111,8 +16124,25 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
 function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void }) {
   const [query, setQuery] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRole, setInviteRole] = useState('observateur');
+  const [inviteCompanyId, setInviteCompanyId] = useState('');
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteNotice, setInviteNotice] = useState('');
+  const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at?: string; company_id?: string | null }>>([]);
+  const loadInvites = useCallback(async () => {
+    const { data: rows } = await supabaseBrowser.from('invitations').select('id,email,role,expires_at,company_id,status').eq('status', 'pending').order('created_at', { ascending: false });
+    setPendingInvites((rows ?? []).map((row: any) => ({
+      id: String(row.id),
+      email: String(row.email ?? ''),
+      role: String(row.role ?? 'observateur'),
+      expires_at: row.expires_at,
+      company_id: row.company_id ?? null,
+    })));
+  }, []);
+  useEffect(() => { void loadInvites(); }, [loadInvites]);
   if (!isAdmin(profile)) {
-    return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux admins et super admins.</p></section>;
+    return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux administrateurs.</p></section>;
   }
   const q = query.trim().toLowerCase();
   const users = data.profiles.filter(user => !q || [user.name, user.email, user.role, user.role_label].join(' ').toLowerCase().includes(q));
@@ -16126,6 +16156,93 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
         <Kpi title="Préférences notif." value={data.notificationPreferences.length} hint="App / push / email" tone="amber" />
         <Kpi title="Chantiers" value={data.chantiers.length} hint="Périmètre org." />
       </div>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Inviter un membre</h2>
+            <p>Email, rôle, puis entreprise. L’invitation part par e-mail et reste relançable ici.</p>
+          </div>
+        </div>
+        <form
+          className={styles.formGrid}
+          onSubmit={async event => {
+            event.preventDefault();
+            const email = inviteEmail.trim().toLowerCase();
+            if (!email.includes('@')) return setInviteNotice('Email invalide.');
+            setInviteBusy(true);
+            setInviteNotice('');
+            const { data, error } = await supabaseBrowser.rpc('admin_create_invitation', {
+              p_email: email,
+              p_role: inviteRole,
+              p_company_id: inviteCompanyId || null,
+              p_expires_at: null,
+            });
+            if (error || !data) {
+              setInviteBusy(false);
+              return setInviteNotice(error?.message ?? 'Impossible de créer l’invitation.');
+            }
+            const { data: authData } = await supabaseBrowser.auth.getSession();
+            await fetch('/api/send-email', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(authData.session?.access_token ? { Authorization: `Bearer ${authData.session.access_token}` } : {}),
+              },
+              body: JSON.stringify({
+                type: 'invitation',
+                email,
+                invitedByName: profile?.name ?? 'Admin',
+                organizationName: 'BuildTrack',
+                role: inviteRole,
+                token: data.token,
+                expiresAt: data.expires_at,
+              }),
+            }).catch(() => undefined);
+            setInviteEmail('');
+            setInviteBusy(false);
+            setInviteNotice(`Invitation créée pour ${email}.`);
+            void loadInvites();
+          }}
+        >
+          <label>Email<input value={inviteEmail} onChange={event => setInviteEmail(event.target.value)} type="email" required placeholder="prenom.nom@exemple.fr" /></label>
+          <label>Rôle
+            <select value={inviteRole} onChange={event => setInviteRole(event.target.value)}>
+              {Object.entries(ROLE_LABELS).filter(([value]) => value !== 'super_admin').map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>Entreprise
+            <select value={inviteCompanyId} onChange={event => setInviteCompanyId(event.target.value)}>
+              <option value="">Aucune</option>
+              {data.companies.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+          </label>
+          <button type="submit" disabled={inviteBusy}>{inviteBusy ? 'Envoi…' : 'Inviter'}</button>
+        </form>
+        {inviteNotice ? <p className={styles.empty}>{inviteNotice}</p> : null}
+        {pendingInvites.length ? (
+          <div className={styles.dataTable} style={{ marginTop: 16 }}>
+            <div className={styles.tableHead}><span>Invitation</span><span>Rôle</span><span>Action</span></div>
+            {pendingInvites.map(invite => (
+              <div key={invite.id} className={styles.tableRow}>
+                <strong>{invite.email}</strong>
+                <span>{ROLE_LABELS[invite.role] ?? invite.role}</span>
+                <span>
+                  <button type="button" onClick={async () => {
+                    await supabaseBrowser.rpc('admin_resend_invitation', { p_invitation_id: invite.id });
+                    void loadInvites();
+                  }}>Relancer</button>
+                  <button type="button" onClick={async () => {
+                    await supabaseBrowser.rpc('admin_delete_invitation', { p_invitation_id: invite.id });
+                    void loadInvites();
+                  }}>Annuler</button>
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </section>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>

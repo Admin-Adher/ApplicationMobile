@@ -10,6 +10,21 @@ export function isConducteurRole(role?: UserRole | string | null): boolean {
   return role === 'conducteur';
 }
 
+export function isOrgAdminRole(role?: UserRole | string | null): boolean {
+  return role === 'admin';
+}
+
+export const ADMIN_HOME_ROUTE = '/(tabs)/admin' as const;
+
+export function canAdminRestoreTab(tab?: string | null): boolean {
+  if (!tab) return false;
+  return tab === '/(tabs)/admin'
+    || tab === '/(tabs)'
+    || tab === '/(tabs)/index'
+    || tab === '/(tabs)/plans'
+    || tab === '/(tabs)/reserves';
+}
+
 export const CONDUCTEUR_PRIMARY_TABS = ['index', 'plans', 'reserves', 'more'] as const;
 
 export function canConducteurRestoreTab(tab?: string | null): boolean {

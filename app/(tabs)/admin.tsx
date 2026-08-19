@@ -138,6 +138,7 @@ export default function AdminScreen() {
   const [deletingOrg, setDeletingOrg] = useState(false);
 
   const [inviteModal, setInviteModal] = useState(false);
+  const [inviteStep, setInviteStep] = useState<1 | 2 | 3>(1);
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteEmailError, setInviteEmailError] = useState('');
   const [inviteRole, setInviteRole] = useState<UserRole>('observateur');
@@ -301,7 +302,15 @@ export default function AdminScreen() {
   }, [user, isAdmin]);
 
   if (user && !isAdmin) {
-    return null;
+    return (
+      <View style={[styles.container, styles.center]}>
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={styles.accessDenied}>{t('adminScreen.accessDenied')}</Text>
+        <TouchableOpacity style={styles.backLink} onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)}>
+          <Text style={styles.backLinkTxt}>{t('common.back')}</Text>
+        </TouchableOpacity>
+      </View>
+    );
   }
 
   async function handleSendInvite() {
@@ -349,6 +358,7 @@ export default function AdminScreen() {
     setInviteCompanyId('');
     setInviteToken(null);
     setTokenCopied(false);
+    setInviteStep(1);
   }
 
   function handleCopyToken() {
@@ -658,12 +668,14 @@ export default function AdminScreen() {
 
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
         <View style={styles.headerRow}>
-          <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)} style={styles.backBtn} hitSlop={8}>
-            <Ionicons name="chevron-back" size={22} color={C.text} />
-          </TouchableOpacity>
+          {user?.role !== 'admin' ? (
+            <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)} style={styles.backBtn} hitSlop={8}>
+              <Ionicons name="chevron-back" size={22} color={C.text} />
+            </TouchableOpacity>
+          ) : null}
           <View style={{ flex: 1 }}>
             <Text style={styles.title}>{t('adminScreen.headerTitle')}</Text>
-            <Text style={styles.subtitle}>{t('adminScreen.headerSubtitle')}</Text>
+            <Text style={styles.subtitle}>{t('adminScreen.headerSubtitle', { org: organization?.name ?? t('subscriptionContext.defaultOrganizationName') })}</Text>
           </View>
           {(() => {
             const roleInfo = ROLE_INFO[user?.role ?? 'admin'];
@@ -846,6 +858,60 @@ export default function AdminScreen() {
             </View>
           )}
 
+          {pendingInvitations.length > 0 && (
+            <>
+              <Text style={styles.subSectionTitle}>{t('adminScreen.pendingFirst')} · {pendingInvitations.length}</Text>
+              {pendingInvitations.map(inv => {
+                const roleInfo = translatedRoles.find(r => r.value === inv.role) ?? translatedRoles[3];
+                const expiresIn = Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
+                const inviterName = getInviterName(inv.invitedBy);
+                const isExpired = expiresIn <= 0;
+                const inviteCompany = inv.companyId
+                  ? (viewCompanies.find(c => c.id === inv.companyId) ?? companies.find(c => c.id === inv.companyId))
+                  : null;
+                return (
+                  <View key={inv.id} style={[styles.inviteCard, isExpired && styles.inviteCardExpired]}>
+                    <View style={[styles.inviteIconWrap, isExpired && { backgroundColor: '#FEF2F2' }]}>
+                      <Ionicons name="mail-outline" size={20} color={isExpired ? '#EF4444' : C.primary} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.inviteEmail}>{inv.email}</Text>
+                      <View style={styles.inviteBadgesRow}>
+                        <View style={[styles.inviteRoleBadge, { backgroundColor: roleInfo.bg }]}>
+                          <Text style={[styles.inviteRoleTxt, { color: roleInfo.color }]}>{roleInfo.label}</Text>
+                        </View>
+                        {inviteCompany && (
+                          <View style={styles.inviteCompanyPill}>
+                            <Ionicons name="business-outline" size={10} color={inviteCompany.color || C.textMuted} />
+                            <Text style={styles.inviteCompanyPillText} numberOfLines={1}>{inviteCompany.name}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.inviteExpiry, isExpired && { color: '#EF4444' }]}>
+                        {isExpired
+                          ? t('adminScreen.invitationExpired')
+                          : t('adminScreen.invitedByExpires', { name: inviterName, days: expiresIn })}
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                      {!isExpired && (
+                        <TouchableOpacity style={styles.iconBtnLabelled} onPress={() => handleResendInvitation(inv)} disabled={resendingInvId === inv.id}>
+                          {resendingInvId === inv.id ? <ActivityIndicator size="small" color={C.primary} /> : <Ionicons name="paper-plane-outline" size={14} color={C.primary} />}
+                          <Text style={styles.iconBtnLabelText}>{t('adminScreen.resend')}</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]} onPress={() => handleCancelInvitation(inv.id, inv.email)}>
+                        <Ionicons name="close" size={14} color={C.open} />
+                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{isExpired ? t('adminScreen.deleteExpired') : t('common.cancel')}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                );
+              })}
+              <View style={styles.sectionSep} />
+            </>
+          )}
+
           {filteredUsers.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name={orgUsers.length === 0 ? 'people-outline' : 'search-outline'} size={36} color={C.textMuted} />
@@ -920,80 +986,6 @@ export default function AdminScreen() {
                 </View>
               );
             })
-          )}
-
-          {pendingInvitations.length > 0 && (
-            <>
-              <View style={styles.sectionSep} />
-              <Text style={styles.subSectionTitle}>{t('adminScreen.pendingInvitations', { count: pendingInvitations.length })}</Text>
-              {pendingInvitations.map(inv => {
-                const roleInfo = translatedRoles.find(r => r.value === inv.role) ?? translatedRoles[3];
-                const expiresIn = Math.ceil((new Date(inv.expiresAt).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-                const inviterName = getInviterName(inv.invitedBy);
-                const isExpired = expiresIn <= 0;
-                const inviteCompany = inv.companyId
-                  ? (viewCompanies.find(c => c.id === inv.companyId) ?? companies.find(c => c.id === inv.companyId))
-                  : null;
-                return (
-                  <View key={inv.id} style={[styles.inviteCard, isExpired && styles.inviteCardExpired]}>
-                    <View style={[styles.inviteIconWrap, isExpired && { backgroundColor: '#FEF2F2' }]}>
-                      <Ionicons name="mail-outline" size={20} color={isExpired ? '#EF4444' : C.primary} />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.inviteEmail}>{inv.email}</Text>
-                      <View style={styles.inviteBadgesRow}>
-                        <View style={[styles.inviteRoleBadge, { backgroundColor: roleInfo.bg }]}>
-                          <Text style={[styles.inviteRoleTxt, { color: roleInfo.color }]}>{roleInfo.label}</Text>
-                        </View>
-                        {inviteCompany && (
-                          <View style={styles.inviteCompanyPill}>
-                            <Ionicons name="business-outline" size={10} color={inviteCompany.color || C.textMuted} />
-                            <Text style={styles.inviteCompanyPillText} numberOfLines={1}>
-                              {inviteCompany.name}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[styles.inviteExpiry, isExpired && { color: '#EF4444' }]}>
-                        {isExpired
-                          ? t('adminScreen.invitationExpired')
-                          : t('adminScreen.invitedByExpires', { name: inviterName, days: expiresIn })}
-                      </Text>
-                      {!isExpired && (inv.resendCount ?? 0) > 0 && (
-                        <Text style={[styles.inviteExpiry, { color: (inv.resendCount ?? 0) >= 3 ? '#EF4444' : C.textMuted, marginTop: 2 }]}>
-                          {t('adminScreen.resentCount', { count: inv.resendCount })} {inv.lastResentAt ? `· ${t('adminScreen.lastSent', { date: formatDate(inv.lastResentAt) })}` : ''}
-                        </Text>
-                      )}
-                    </View>
-                    <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-                      {!isExpired && (
-                        <TouchableOpacity
-                          style={styles.iconBtnLabelled}
-                          onPress={() => handleResendInvitation(inv)}
-                          disabled={resendingInvId === inv.id}
-                          accessibilityLabel={t('adminScreen.resendInviteA11y')}
-                        >
-                          {resendingInvId === inv.id ? (
-                            <ActivityIndicator size="small" color={C.primary} />
-                          ) : (
-                            <Ionicons name="paper-plane-outline" size={14} color={C.primary} />
-                          )}
-                          <Text style={styles.iconBtnLabelText}>{t('adminScreen.resend')}</Text>
-                        </TouchableOpacity>
-                      )}
-                      <TouchableOpacity
-                        style={[styles.iconBtnLabelled, styles.iconBtnLabelledDanger]}
-                        onPress={() => handleCancelInvitation(inv.id, inv.email)}
-                        accessibilityLabel={isExpired ? t('adminScreen.deleteExpiredInviteA11y') : t('adminScreen.cancelInviteA11y')}
-                      >
-                        <Ionicons name="close" size={14} color={C.open} />
-                        <Text style={[styles.iconBtnLabelText, { color: C.open }]}>{isExpired ? t('adminScreen.deleteExpired') : t('common.cancel')}</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                );
-              })}
-            </>
           )}
 
           {orgUsers.length === 0 && (
@@ -1611,7 +1603,9 @@ export default function AdminScreen() {
                   <>
                     <Text style={styles.sheetTitle}>{t('adminScreen.inviteModal.title')}</Text>
                     <Text style={styles.sheetSubtitle}>
-                      {seatMax === -1 ? t('adminScreen.inviteModal.unlimitedSeats') : t('adminScreen.inviteModal.seatsUsed', { used: seatUsed, max: seatMax })}
+                      {inviteStep === 1 ? t('adminScreen.inviteStepEmail') : inviteStep === 2 ? t('adminScreen.inviteStepRole') : t('adminScreen.inviteStepCompany')}
+                      {' · '}
+                      {seatMax === -1 ? t('adminScreen.seatsUnlimited') : t('adminScreen.seatsShort', { used: seatUsed, max: seatMax })}
                     </Text>
 
                     {isSeatFull && (
@@ -1623,7 +1617,7 @@ export default function AdminScreen() {
                       </View>
                     )}
 
-                    <View style={styles.field}>
+                    {inviteStep === 2 && <View style={styles.field}>
                       <Text style={styles.fieldLabel}>{t('adminUserEdit.role')}</Text>
                       {translatedRoles.map(r => {
                         const isFree = FREE_ROLES.includes(r.value);
@@ -1660,9 +1654,9 @@ export default function AdminScreen() {
                           </TouchableOpacity>
                         );
                       })}
-                    </View>
+                    </View>}
 
-                    {inviteRole !== 'admin' && viewCompanies.length > 0 && (
+                    {inviteStep === 3 && inviteRole !== 'admin' && viewCompanies.length > 0 && (
                       <View style={styles.field}>
                         <Text style={styles.fieldLabel}>
                           {t('adminScreen.inviteModal.linkedCompany')}{' '}
@@ -1718,7 +1712,7 @@ export default function AdminScreen() {
                       </View>
                     )}
 
-                    <View style={styles.field}>
+                    {inviteStep === 1 && <View style={styles.field}>
                       <Text style={styles.fieldLabel}>{t('adminScreen.inviteModal.emailLabel')}</Text>
                       <TextInput
                         style={[styles.fieldInput, inviteEmailError ? { borderColor: '#EF4444' } : {}]}
@@ -1731,22 +1725,46 @@ export default function AdminScreen() {
                         autoCorrect={false}
                       />
                       {inviteEmailError ? <Text style={styles.fieldError}>{inviteEmailError}</Text> : null}
-                    </View>
+                    </View>}
 
                     {inviteSending ? (
                       <ActivityIndicator size="large" color={C.primary} style={{ marginVertical: 20 }} />
+                    ) : inviteStep < 3 ? (
+                      <TouchableOpacity
+                        style={[styles.saveBtn, inviteStep === 1 && !inviteEmail.trim() && { opacity: 0.4 }]}
+                        onPress={() => {
+                          if (inviteStep === 1) {
+                            if (!inviteEmail.trim() || !isValidEmail(inviteEmail.trim())) {
+                              setInviteEmailError(t('adminScreen.inviteModal.invalidEmail'));
+                              return;
+                            }
+                            setInviteStep(2);
+                            return;
+                          }
+                          setInviteStep(inviteRole === 'admin' || viewCompanies.length === 0 ? 3 : 3);
+                        }}
+                        disabled={inviteStep === 1 && !inviteEmail.trim()}
+                      >
+                        <Text style={styles.saveBtnText}>{t('adminScreen.inviteNext')}</Text>
+                      </TouchableOpacity>
                     ) : (
                       <TouchableOpacity
-                        style={[styles.saveBtn, (!inviteEmail.trim() || sendDisabled) && { opacity: 0.4 }]}
+                        style={[styles.saveBtn, sendDisabled && { opacity: 0.4 }]}
                         onPress={handleSendInvite}
-                        disabled={!inviteEmail.trim() || sendDisabled}
+                        disabled={sendDisabled}
                       >
                         <Text style={styles.saveBtnText}>{t('adminScreen.inviteModal.sendInvitation')}</Text>
                       </TouchableOpacity>
                     )}
-                    <TouchableOpacity style={styles.cancelBtn} onPress={handleCloseInviteModal}>
-                      <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
-                    </TouchableOpacity>
+                    {inviteStep > 1 ? (
+                      <TouchableOpacity style={styles.cancelBtn} onPress={() => setInviteStep(inviteStep === 3 ? 2 : 1)}>
+                        <Text style={styles.cancelBtnText}>{t('adminScreen.inviteBack')}</Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <TouchableOpacity style={styles.cancelBtn} onPress={handleCloseInviteModal}>
+                        <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
+                      </TouchableOpacity>
+                    )}
                   </>
                 )}
               </ScrollView>
@@ -1833,6 +1851,10 @@ export default function AdminScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
+  center: { alignItems: 'center', justifyContent: 'center', padding: 32, gap: 12 },
+  accessDenied: { color: C.text, fontFamily: 'Inter_600SemiBold', fontSize: 16, textAlign: 'center' },
+  backLink: { paddingVertical: 10 },
+  backLinkTxt: { color: C.primary, fontFamily: 'Inter_600SemiBold', fontSize: 14 },
 
   toast: {
     position: 'absolute', alignSelf: 'center', zIndex: 999,

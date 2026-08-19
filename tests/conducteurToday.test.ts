@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canConducteurRestoreTab, isConducteurRole } from '../lib/roleNavigation';
+import { canAdminRestoreTab, canConducteurRestoreTab, isConducteurRole, isOrgAdminRole } from '../lib/roleNavigation';
 import { ROLE_PERMISSIONS } from '../lib/permissions';
 import { buildConducteurTodayQueue, isSameCalendarDay } from '../lib/conducteurToday';
 
@@ -9,6 +9,13 @@ describe('conducteur shell', () => {
     expect(ROLE_PERMISSIONS.conducteur.canManageInventoryProducts).toBe(false);
     expect(ROLE_PERMISSIONS.magasinier.canAdjustInventory).toBe(false);
     expect(ROLE_PERMISSIONS.conducteur.canEditChantier).toBe(true);
+  });
+
+  it('treats org admin as a site manager plus a Pilotage home', () => {
+    expect(isOrgAdminRole('admin')).toBe(true);
+    expect(isOrgAdminRole('super_admin')).toBe(false);
+    expect(canAdminRestoreTab('/(tabs)/admin')).toBe(true);
+    expect(canAdminRestoreTab('/(tabs)/messages')).toBe(false);
   });
 
   it('restores only operational tabs for the site manager', () => {

@@ -140,16 +140,16 @@ export default function MoreScreen() {
     ];
     result.push({ title: t('moreScreen.sections.documents'), items: outilsItems });
 
+    const adminItems: MenuItem[] = [
+      { icon: 'briefcase', label: t('tabs.pilotage'), subtitle: t('moreScreen.items.administration.1'), route: '/(tabs)/admin', color: '#EF4444' },
+      { icon: 'settings', label: t('moreScreen.items.settings.0'), subtitle: t('moreScreen.items.settings.1'), route: '/settings', color: C.textSub },
+      { icon: 'git-network', label: t('moreScreen.items.integrations.0'), subtitle: t('moreScreen.items.integrations.1'), route: '/integrations', color: '#6366F1' },
+    ];
+    if (user?.role === 'super_admin') {
+      adminItems.push({ icon: 'globe', label: t('moreScreen.items.superAdmin.0'), subtitle: t('moreScreen.items.superAdmin.1'), route: '/superadmin', color: '#7C3AED' });
+    }
     if (isAdmin) {
-      const adminItems: MenuItem[] = [
-        { icon: 'shield-checkmark', label: t('moreScreen.items.administration.0'), subtitle: t('moreScreen.items.administration.1'), route: '/(tabs)/admin', color: '#EF4444' },
-        { icon: 'settings', label: t('moreScreen.items.settings.0'), subtitle: t('moreScreen.items.settings.1'), route: '/settings', color: C.textSub },
-        { icon: 'git-network', label: t('moreScreen.items.integrations.0'), subtitle: t('moreScreen.items.integrations.1'), route: '/integrations', color: '#6366F1' },
-      ];
-      if (user?.role === 'super_admin') {
-        adminItems.push({ icon: 'globe', label: t('moreScreen.items.superAdmin.0'), subtitle: t('moreScreen.items.superAdmin.1'), route: '/superadmin', color: '#7C3AED' });
-      }
-      result.push({ title: t('moreScreen.sections.administration'), items: adminItems });
+      result.unshift({ title: t('moreScreen.sections.administration'), items: adminItems });
     } else {
       result.push({ title: t('moreScreen.sections.account'), items: [
         { icon: 'settings', label: t('moreScreen.items.settings.0'), subtitle: t('moreScreen.items.settings.1'), route: '/settings', color: C.textSub },

@@ -6,7 +6,7 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useBottomNavigationInset } from '@/hooks/useBottomNavigationInset';
-import { isConducteurRole } from '@/lib/roleNavigation';
+import { isConducteurRole, isOrgAdminRole } from '@/lib/roleNavigation';
 
 const TABS = [
   { key: 'dashboard', icon: 'sunny', iconOff: 'sunny-outline', route: '/(tabs)/' },
@@ -26,7 +26,15 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
   const router = useRouter();
   const { unreadCount } = useApp();
   const { user } = useAuth();
-  const tabs = isConducteurRole(user?.role) ? TABS.filter(tab => tab.key !== 'messages') : TABS;
+  const tabs = isOrgAdminRole(user?.role)
+    ? [
+        { key: 'pilotage' as const, labelKey: 'tabs.pilotage', icon: 'briefcase' as const, iconOff: 'briefcase-outline' as const, route: '/(tabs)/admin' },
+        { key: 'dashboard' as const, labelKey: 'tabs.dashboard', icon: 'sunny' as const, iconOff: 'sunny-outline' as const, route: '/(tabs)/' },
+        { key: 'plans' as const, icon: 'map' as const, iconOff: 'map-outline' as const, route: '/(tabs)/plans' },
+        { key: 'reserves' as const, icon: 'warning' as const, iconOff: 'warning-outline' as const, route: '/(tabs)/reserves' },
+        { key: 'more' as const, icon: 'hammer' as const, iconOff: 'hammer-outline' as const, route: '/(tabs)/more' },
+      ]
+    : isConducteurRole(user?.role) ? TABS.filter(tab => tab.key !== 'messages') : TABS;
 
   const bottomPad = Platform.OS === 'web' ? 34 : bottomInset + 12;
   const barHeight = Platform.OS === 'web' ? 90 : 72 + bottomInset;
@@ -46,8 +54,8 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel={hasBadge
-              ? `${t(`tabs.${tab.key}`)} — ${t('notifications.unread', { count: unreadCount })}`
-              : t(`tabs.${tab.key}`)}
+              ? `${t(('labelKey' in tab ? tab.labelKey : `tabs.${tab.key}`) as any)} — ${t('notifications.unread', { count: unreadCount })}`
+              : t(('labelKey' in tab ? tab.labelKey : `tabs.${tab.key}`) as any)}
           >
             <View style={styles.iconWrap}>
               <Ionicons
@@ -61,7 +69,7 @@ export default function BottomNavBar({ activeTab = 'more' }: Props) {
                 </View>
               ) : null}
             </View>
-            <Text style={[styles.label, isActive && styles.labelActive]}>{t(`tabs.${tab.key}`)}</Text>
+            <Text style={[styles.label, isActive && styles.labelActive]}>{t(('labelKey' in tab ? tab.labelKey : `tabs.${tab.key}`) as any)}</Text>
           </TouchableOpacity>
         );
       })}

@@ -10,7 +10,7 @@ import { useIncidents } from '@/context/IncidentsContext';
 import { TABLET_SIDEBAR_W } from '@/lib/useTablet';
 import { useBottomNavigationInset } from '@/hooks/useBottomNavigationInset';
 import { useAuth } from '@/context/AuthContext';
-import { isConducteurRole } from '@/lib/roleNavigation';
+import { isConducteurRole, isOrgAdminRole } from '@/lib/roleNavigation';
 
 const TAB_ITEMS = [
   { name: 'index',    titleKey: 'tabs.dashboard', icon: 'sunny',         iconOutline: 'sunny-outline',       path: '/(tabs)/' },
@@ -36,6 +36,12 @@ function TabIcon({ name, color, size, badge }: { name: any; color: string; size:
 }
 
 function visibleTabItems(role?: string | null) {
+  if (isOrgAdminRole(role)) {
+    return [
+      { name: 'admin', titleKey: 'tabs.pilotage', icon: 'briefcase', iconOutline: 'briefcase-outline', path: '/(tabs)/admin' },
+      ...TAB_ITEMS.filter(tab => tab.name !== 'messages' && tab.name !== 'admin'),
+    ];
+  }
   return isConducteurRole(role) ? TAB_ITEMS.filter(tab => tab.name !== 'messages') : TAB_ITEMS;
 }
 
@@ -51,6 +57,7 @@ function TabletSidebar() {
 
   function getActiveTab(): string {
     const p = pathname;
+    if (p === '/admin' || p.startsWith('/admin/') || p === '/(tabs)/admin' || p.startsWith('/(tabs)/admin/')) return 'admin';
     if (p === '/' || p === '' || p === '/index' || p === '/(tabs)' || p === '/(tabs)/') return 'index';
     for (const tab of TAB_ITEMS) {
       if (tab.name === 'index') continue;
@@ -123,7 +130,8 @@ function TabsNavigator() {
   const { t } = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
-  const hideMessagesTab = isConducteurRole(user?.role);
+  const hideMessagesTab = isConducteurRole(user?.role) || isOrgAdminRole(user?.role);
+  const showAdminTab = isOrgAdminRole(user?.role);
   const { openReserveCount, unreadMessagesCount } = useAppTabBadges();
   const { incidents } = useIncidents();
   const openIncidentsCount = incidents.filter(i => i.status !== 'resolved').length;
@@ -189,6 +197,15 @@ function TabsNavigator() {
       }}
     >
       <Tabs.Screen
+        name="admin"
+        options={{
+          title: t('tabs.pilotage'),
+          href: showAdminTab ? undefined : null,
+          tabBarItemStyle: showAdminTab ? undefined : { display: 'none' },
+          tabBarIcon: ({ color, focused }) => <TabIcon name={focused ? 'briefcase' : 'briefcase-outline'} color={color} size={26} />,
+        }}
+      />
+      <Tabs.Screen
         name="index"
         options={{
           title: t('tabs.dashboard'),
@@ -229,7 +246,6 @@ function TabsNavigator() {
       />
       <Tabs.Screen name="incidents" options={{ tabBarItemStyle: { display: 'none' } }} />
       <Tabs.Screen name="equipes"   options={{ tabBarItemStyle: { display: 'none' } }} />
-      <Tabs.Screen name="admin"     options={{ tabBarItemStyle: { display: 'none' } }} />
     </Tabs>
   );
 }
