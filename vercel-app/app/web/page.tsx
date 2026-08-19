@@ -16616,7 +16616,7 @@ function PilotageSelect({
   const current = options.find(option => option.value === value)?.label || placeholder || '—';
   useEffect(() => {
     if (!open) return;
-    const close = (event: MouseEvent) => {
+    const close = (event: Event) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener('mousedown', close);
