@@ -16611,11 +16611,18 @@ function PilotageSelect({
   placeholder?: string;
   onChange: (value: string) => void;
 }) {
+  const { t } = useWebI18n();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
   const current = options.find(option => option.value === value)?.label || placeholder || '—';
+  const needle = query.trim().toLowerCase();
+  const visible = options.filter(option => !needle || option.label.toLowerCase().includes(needle));
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setQuery('');
+      return;
+    }
     const close = (event: Event) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
@@ -16629,15 +16636,24 @@ function PilotageSelect({
         <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 6.2 8 10l4-3.8" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>
       </button>
       {open ? (
-        <ul>
-          {options.map(option => (
-            <li key={option.value || 'empty'}>
-              <button type="button" data-active={option.value === value ? 'true' : 'false'} onClick={event => { event.stopPropagation(); onChange(option.value); setOpen(false); }}>
-                {option.label}
-              </button>
-            </li>
-          ))}
-        </ul>
+        <div className={styles.pilotageSelectMenu} onClick={event => event.stopPropagation()}>
+          <input
+            autoFocus
+            value={query}
+            onChange={event => setQuery(event.target.value)}
+            placeholder={t('common.search')}
+          />
+          <ul>
+            {visible.map(option => (
+              <li key={option.value || 'empty'}>
+                <button type="button" data-active={option.value === value ? 'true' : 'false'} onClick={() => { onChange(option.value); setOpen(false); }}>
+                  {option.label}
+                </button>
+              </li>
+            ))}
+            {!visible.length ? <li className={styles.pilotageSelectEmpty}>{t('pilotage.noMember')}</li> : null}
+          </ul>
+        </div>
       ) : null}
     </div>
   );

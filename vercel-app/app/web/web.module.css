@@ -11530,22 +11530,38 @@
 .pilotageSelect > button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pilotageSelect[data-open='true'] > button { border-color: #003082; background: #fff; box-shadow: 0 0 0 3px #00308222; }
 .pilotageSelect[data-disabled='true'] > button { opacity: 0.55; cursor: default; background: #f1f5f9; }
-.pilotageSelect ul {
+.pilotageSelectMenu {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  right: 0;
+  min-width: 100%;
+  width: max(100%, 240px);
   z-index: 12;
-  margin: 0;
-  padding: 6px;
-  list-style: none;
+  padding: 8px;
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 16px;
   box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
-  max-height: 240px;
+}
+.pilotageSelectMenu input {
+  width: 100%;
+  min-height: 36px;
+  margin-bottom: 6px;
+  border: 1px solid #d7e0ea;
+  border-radius: 10px;
+  padding: 0 10px;
+  font: inherit;
+  font-size: 13px;
+  background: #f8fafc;
+}
+.pilotageSelect ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
   overflow: auto;
 }
+.pilotageSelectEmpty { padding: 10px; color: #94a3b8; font-size: 12px; font-weight: 700; }
 .pilotageSelect li button {
   width: 100%;
   min-height: 36px;
