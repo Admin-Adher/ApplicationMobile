@@ -69,7 +69,7 @@ interface SubscriptionContextValue {
   allOrganizations: Organization[];
   allPlans: Plan[];
   orgSummaries: OrgSummary[];
-  inviteUser: (email: string, role: UserRole, companyId?: string) => Promise<{ success: boolean; error?: string; token?: string; emailError?: string }>;
+  inviteUser: (email: string, role: UserRole, companyId?: string, organizationId?: string) => Promise<{ success: boolean; error?: string; token?: string; emailError?: string }>;
   cancelInvitation: (id: string) => Promise<void>;
   resendInvitation: (id: string) => Promise<{ success: boolean; error?: string }>;
   refreshSubscription: () => void;
@@ -313,7 +313,8 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   async function inviteUser(
     email: string,
     role: UserRole,
-    companyId?: string
+    companyId?: string,
+    organizationId?: string,
   ): Promise<{ success: boolean; error?: string; token?: string; emailError?: string }> {
     if (!user) return { success: false, error: i18n.t('subscriptionContext.notConnected') };
     const isFreeRole = FREE_ROLES.includes(role);
@@ -342,12 +343,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return { success: false, error: i18n.t('subscriptionContext.alreadyMember') };
     }
 
-    if (!user.organizationId && user.role !== 'super_admin') {
+    const targetOrgId = organizationId || user.organizationId;
+    if (!targetOrgId && user.role !== 'super_admin') {
+      return { success: false, error: i18n.t('subscriptionContext.noOrganization') };
+    }
+    if (user.role === 'super_admin' && !targetOrgId) {
       return { success: false, error: i18n.t('subscriptionContext.noOrganization') };
     }
 
     if (!isSupabaseConfigured) {
-      const orgId = user.organizationId ?? 'demo-org';
+      const orgId = targetOrgId ?? 'demo-org';
       const mockToken = Math.random().toString(36).substring(2, 18);
       const mockInv: Invitation = {
         id: 'inv-' + Date.now(),
@@ -382,7 +387,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         : 'admin_create_invitation';
       const rpcArgs = user.role === 'super_admin'
         ? {
-            p_organization_id: user.organizationId,
+            p_organization_id: targetOrgId,
             p_email: emailLower,
             p_role: role,
             p_company_id: companyId ?? null,

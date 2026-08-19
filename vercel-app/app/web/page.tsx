@@ -446,7 +446,7 @@ function useWebI18n() {
 }
 
 const TAB_LABEL_FALLBACK: Partial<Record<string, string>> = {
-  admin: 'Pilotage',
+  admin: 'Clients',
   inventory: 'Stock',
   chantiers: 'Chantiers',
   journal: 'Journal',
@@ -2756,6 +2756,7 @@ async function fetchScopedTable<T = any>(
     ascending?: boolean;
     limit?: number;
     scoped?: boolean;
+    orgId?: string | null;
     onError?: (table: string, message: string) => void;
   } = {},
 ): Promise<T[]> {
@@ -2765,8 +2766,13 @@ async function fetchScopedTable<T = any>(
     const pageSize = options.limit ? Math.min(options.limit, SUPABASE_PAGE_SIZE) : SUPABASE_PAGE_SIZE;
     for (let from = 0; ; from += pageSize) {
       let query = supabaseBrowser.from(table).select('*');
-      if (options.scoped !== false && profile.role !== 'super_admin' && profile.organization_id) {
-        query = query.eq('organization_id', profile.organization_id);
+      if (options.scoped !== false) {
+        if (profile.role === 'super_admin') {
+          if (!options.orgId) return [];
+          query = query.eq('organization_id', options.orgId);
+        } else if (profile.organization_id) {
+          query = query.eq('organization_id', profile.organization_id);
+        }
       }
       if (table === 'chantiers' || table === 'site_plans' || table === 'photos') {
         query = query.is('deleted_at', null);
@@ -3030,8 +3036,11 @@ export default function BuildTrackWebPage() {
   const { t } = i18n;
   const isWarehouseWebUser = profile?.role === 'magasinier';
   const isOrgAdminWebUser = profile?.role === 'admin';
+  const isPlatformAdminWebUser = profile?.role === 'super_admin';
   const visibleNavigationGroups: { label: string; items: TabId[] }[] = isWarehouseWebUser
     ? [{ label: 'Navigation', items: ['inventory', 'settings'] }]
+    : isPlatformAdminWebUser
+      ? [{ label: 'Navigation', items: ['admin'] }]
     : isOrgAdminWebUser
       ? [{ label: 'Navigation', items: ['admin', 'dashboard', 'plans', 'reserves', 'terrain'] }]
       : NAV_GROUPS.map(group => ({
@@ -3054,6 +3063,12 @@ export default function BuildTrackWebPage() {
       setMobileNavOpen(false);
     }
   }, [isOrgAdminWebUser]);
+
+  useEffect(() => {
+    if (!isPlatformAdminWebUser) return;
+    setActiveTab('admin');
+    setMobileNavOpen(false);
+  }, [isPlatformAdminWebUser]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -16121,6 +16136,65 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
   );
 }
 
+function OperatorCockpit({ data }: { data: WebState }) {
+  const [query, setQuery] = useState('');
+  const [name, setName] = useState('');
+  const [adminEmail, setAdminEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const orgs = (data.organizations ?? []).filter(org => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    return String(org.name ?? '').toLowerCase().includes(needle) || String(org.slug ?? '').toLowerCase().includes(needle);
+  });
+  return (
+    <div className={styles.stack}>
+      <section className={styles.panel}>
+        <div className={styles.panelHeaderCompact}>
+          <div>
+            <h2>Clients BuildTrack</h2>
+            <p>Cockpit plateforme. Les données chantier ne sont plus mélangées ici.</p>
+          </div>
+          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Rechercher un client..." />
+        </div>
+        <form
+          className={styles.formGrid}
+          onSubmit={async event => {
+            event.preventDefault();
+            if (!name.trim()) return;
+            setBusy(true);
+            setNotice('');
+            const { error } = await supabaseBrowser.rpc('platform_create_organization', {
+              p_name: name.trim(),
+              p_admin_email: adminEmail.trim() || null,
+            });
+            setBusy(false);
+            if (error) return setNotice(error.message);
+            setName('');
+            setAdminEmail('');
+            setNotice('Organisation créée.');
+          }}
+        >
+          <label>Nouveau client<input value={name} onChange={event => setName(event.target.value)} required /></label>
+          <label>Admin (email)<input value={adminEmail} onChange={event => setAdminEmail(event.target.value)} type="email" placeholder="optionnel" /></label>
+          <button type="submit" disabled={busy}>{busy ? 'Création…' : 'Créer'}</button>
+        </form>
+        {notice ? <p className={styles.empty}>{notice}</p> : null}
+        <div className={styles.dataTable} style={{ marginTop: 16 }}>
+          <div className={styles.tableHead}><span>Client</span><span>Slug</span></div>
+          {orgs.map(org => (
+            <div key={org.id} className={styles.tableRow}>
+              <strong>{org.name}</strong>
+              <span>{org.slug}</span>
+            </div>
+          ))}
+          {orgs.length === 0 ? <p className={styles.empty}>Aucun client.</p> : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile: Profile | null; onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void }) {
   const [query, setQuery] = useState('');
   const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
@@ -16141,6 +16215,9 @@ function AdminView({ data, profile, onUpdateProfile }: { data: WebState; profile
     })));
   }, []);
   useEffect(() => { void loadInvites(); }, [loadInvites]);
+  if (profile?.role === 'super_admin') {
+    return <OperatorCockpit data={data} />;
+  }
   if (!isAdmin(profile)) {
     return <section className={styles.panel}><p className={styles.empty}>Accès réservé aux administrateurs.</p></section>;
   }

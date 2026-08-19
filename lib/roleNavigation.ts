@@ -14,6 +14,12 @@ export function isOrgAdminRole(role?: UserRole | string | null): boolean {
   return role === 'admin';
 }
 
+export function isPlatformAdminRole(role?: UserRole | string | null): boolean {
+  return role === 'super_admin';
+}
+
+export const SUPERADMIN_HOME_ROUTE = '/superadmin' as const;
+
 export const ADMIN_HOME_ROUTE = '/(tabs)/admin' as const;
 
 export function canAdminRestoreTab(tab?: string | null): boolean {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canAdminRestoreTab, canConducteurRestoreTab, isConducteurRole, isOrgAdminRole } from '../lib/roleNavigation';
+import { canAdminRestoreTab, canConducteurRestoreTab, isConducteurRole, isOrgAdminRole, isPlatformAdminRole, SUPERADMIN_HOME_ROUTE } from '../lib/roleNavigation';
 import { ROLE_PERMISSIONS } from '../lib/permissions';
 import { buildConducteurTodayQueue, isSameCalendarDay } from '../lib/conducteurToday';
 
@@ -9,6 +9,13 @@ describe('conducteur shell', () => {
     expect(ROLE_PERMISSIONS.conducteur.canManageInventoryProducts).toBe(false);
     expect(ROLE_PERMISSIONS.magasinier.canAdjustInventory).toBe(false);
     expect(ROLE_PERMISSIONS.conducteur.canEditChantier).toBe(true);
+  });
+
+  it('sends the platform operator to a dedicated cockpit, not a tenant shell', () => {
+    expect(isPlatformAdminRole('super_admin')).toBe(true);
+    expect(isPlatformAdminRole('admin')).toBe(false);
+    expect(isOrgAdminRole('super_admin')).toBe(false);
+    expect(SUPERADMIN_HOME_ROUTE).toBe('/superadmin');
   });
 
   it('treats org admin as a site manager plus a Pilotage home', () => {

@@ -1007,7 +1007,7 @@ export default function SettingsScreen() {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.navLabel, { color: '#8B5CF6' }]}>{t('settings.superAdmin.title')}</Text>
-                  <Text style={styles.navSubPlain}>{t('settings.superAdmin.subtitle')}</Text>
+                  <Text style={styles.navSubPlain}>{t('settings.superAdmin.subtitle', { defaultValue: 'Cockpit clients BuildTrack' })}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={16} color="#8B5CF6" />
               </TouchableOpacity>

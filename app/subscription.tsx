@@ -186,7 +186,7 @@ export default function SubscriptionScreen() {
         </View>
 
         {/* ── Filiales du Groupe (super_admin uniquement) ── */}
-        {isSuperAdmin && (
+        {false && isSuperAdmin && (
           <>
             <View style={styles.groupHeader}>
               <Text style={styles.sectionTitle}>

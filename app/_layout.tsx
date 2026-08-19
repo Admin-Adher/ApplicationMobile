@@ -17,7 +17,7 @@ import '@/lib/i18n';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { queryClient } from '@/lib/queryClient';
 import { asyncStoragePersister } from '@/lib/queryPersister';
-import { ADMIN_HOME_ROUTE, canAdminRestoreTab, canConducteurRestoreTab, canWarehouseRoleAccessRootSegment, isConducteurRole, isOrgAdminRole, isWarehouseRole, WAREHOUSE_HOME_ROUTE } from '@/lib/roleNavigation';
+import { ADMIN_HOME_ROUTE, canAdminRestoreTab, canConducteurRestoreTab, canWarehouseRoleAccessRootSegment, isConducteurRole, isOrgAdminRole, isPlatformAdminRole, isWarehouseRole, SUPERADMIN_HOME_ROUTE, WAREHOUSE_HOME_ROUTE } from '@/lib/roleNavigation';
 import { AppProvider, useApp } from '@/context/AppContext';
 import { AppAlertHost } from '@/lib/appAlert';
 import { AuthProvider, useAuth } from '@/context/AuthContext';
@@ -26,6 +26,7 @@ import { IncidentsProvider } from '@/context/IncidentsContext';
 import { PointageProvider } from '@/context/PointageContext';
 import { ReglementaireProvider } from '@/context/ReglementaireContext';
 import { SubscriptionProvider } from '@/context/SubscriptionContext';
+import { SupportSessionProvider, useSupportSession } from '@/context/SupportSessionContext';
 import { NetworkProvider } from '@/context/NetworkContext';
 import { NotificationsProvider } from '@/context/NotificationsContext';
 import { NotificationPreferencesProvider } from '@/context/NotificationPreferencesContext';
@@ -109,6 +110,7 @@ const APP_LOADING_OVERLAY_MAX_MS = 2500;
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading: authLoading, user } = useAuth();
   const { isLoading: appLoading } = useApp();
+  const { session: supportSession, ready: supportReady, exit: exitSupport } = useSupportSession();
   const segments = useSegments();
   const router = useRouter();
   const hasRestoredTab = useRef(false);
@@ -187,10 +189,15 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }, [segments, isAuthenticated, routeBlocking, user?.role]);
 
   useEffect(() => {
-    if (routeBlocking || !isAuthenticated || hasRestoredTab.current) return;
+    if (routeBlocking || !isAuthenticated || hasRestoredTab.current || !supportReady) return;
     hasRestoredTab.current = true;
     if (isWarehouseRole(user?.role)) return;
     AsyncStorage.getItem(LAST_TAB_KEY).then((savedTab) => {
+      if (isPlatformAdminRole(user?.role)) {
+        if (supportSession) return;
+        router.replace(SUPERADMIN_HOME_ROUTE as any);
+        return;
+      }
       if (isOrgAdminRole(user?.role)) {
         if (savedTab && canAdminRestoreTab(savedTab) && savedTab !== ADMIN_HOME_ROUTE) {
           router.replace(savedTab as any);
@@ -204,7 +211,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
         router.replace(savedTab as any);
       }
     }).catch(() => {});
-  }, [routeBlocking, isAuthenticated, user?.role]);
+  }, [routeBlocking, isAuthenticated, user?.role, supportReady, supportSession]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -229,10 +236,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
       !canWarehouseRoleAccessRootSegment(seg0)
     ) {
       router.replace(WAREHOUSE_HOME_ROUTE);
+    } else if (isAuthenticated && isPlatformAdminRole(user?.role) && supportReady && seg0 === '(tabs)' && !supportSession) {
+      router.replace(SUPERADMIN_HOME_ROUTE);
     } else if (isAuthenticated && seg0 === 'login') {
-      router.replace('/(tabs)');
+      router.replace(isPlatformAdminRole(user?.role) ? SUPERADMIN_HOME_ROUTE : '/(tabs)');
     } else if (isAuthenticated && seg0 === 'pending-invite' && user?.organizationId) {
-      router.replace('/(tabs)');
+      router.replace(isPlatformAdminRole(user?.role) ? SUPERADMIN_HOME_ROUTE : '/(tabs)');
     }
   }, [isAuthenticated, authLoading, segments, user?.organizationId, user?.role]);
 
@@ -243,7 +252,26 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 
   return (
     <View style={agStyles.root}>
-      {!authLoading && children}
+      {!authLoading && (
+        <View style={{ flex: 1 }}>
+          {isPlatformAdminRole(user?.role) && supportSession ? (
+            <View style={supportBannerStyles.bar}>
+              <Ionicons name="shield" size={14} color="#fff" />
+              <Text style={supportBannerStyles.txt} numberOfLines={1}>
+                Support · {supportSession.orgName}
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  void exitSupport().then(() => router.replace(SUPERADMIN_HOME_ROUTE as any));
+                }}
+              >
+                <Text style={supportBannerStyles.exit}>Sortir</Text>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+          {children}
+        </View>
+      )}
       {shouldRenderOverlay && (
         <Animated.View
           style={[
@@ -261,6 +289,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 const agStyles = StyleSheet.create({
   root: { flex: 1 },
   overlay: { ...StyleSheet.absoluteFillObject, zIndex: 999 },
+});
+
+const supportBannerStyles = StyleSheet.create({
+  bar: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#5B21B6', paddingHorizontal: 12, paddingVertical: 8 },
+  txt: { flex: 1, color: '#fff', fontFamily: 'Inter_600SemiBold', fontSize: 12 },
+  exit: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 12, textDecorationLine: 'underline' },
 });
 
 export default function RootLayout() {
@@ -311,6 +345,7 @@ export default function RootLayout() {
       <AuthProvider>
         <LanguageProvider>
         <SubscriptionProvider>
+        <SupportSessionProvider>
         <NetworkProvider>
         <NotificationPreferencesProvider>
         <AppProvider>
@@ -399,6 +434,7 @@ export default function RootLayout() {
         </AppProvider>
         </NotificationPreferencesProvider>
         </NetworkProvider>
+        </SupportSessionProvider>
         </SubscriptionProvider>
         </LanguageProvider>
       </AuthProvider>

@@ -1334,7 +1334,7 @@ export default function AdminScreen() {
 
           {/* Zone dangereuse : suppression de l'organisation (super_admin uniquement,
               deleteOrganization est refusé côté contexte pour tout autre rôle) */}
-          {isSuperAdmin && selectedOrg && (
+          {false && isSuperAdmin && selectedOrg && (
             <View style={styles.dangerZone}>
               <View style={styles.dangerZoneHeader}>
                 <Ionicons name="warning-outline" size={16} color="#DC2626" />

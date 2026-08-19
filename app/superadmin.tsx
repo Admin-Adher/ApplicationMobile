@@ -12,6 +12,7 @@ import { useState, useMemo } from 'react';
 import { C } from '@/constants/colors';
 import { useSubscription, OrgSummary, generateOrgSlug } from '@/context/SubscriptionContext';
 import { useAuth } from '@/context/AuthContext';
+import { useSupportSession } from '@/context/SupportSessionContext';
 
 const STATUS_CONFIG = {
   trial:     { labelKey: 'trial', color: '#F59E0B', bg: '#FFFBEB' },
@@ -31,9 +32,10 @@ export default function SuperAdminScreen() {
 
   const { user, users } = useAuth();
   const {
-    orgSummaries, isLoading,
-    updateOrgStatus, updateOrganization, createOrganization, deleteOrganization,
+    orgSummaries, isLoading, allPlans, inviteUser,
+    updateOrgStatus, updateOrganization, createOrganization, updateOrgPlan,
   } = useSubscription();
+  const { enter: enterSupport } = useSupportSession();
 
   const [activeTab, setActiveTab] = useState<'orgs' | 'dashboard'>('orgs');
   const [statusModal, setStatusModal] = useState<OrgSummary | null>(null);
@@ -45,9 +47,11 @@ export default function SuperAdminScreen() {
   const [newOrgName, setNewOrgName] = useState('');
   const [newAdminEmail, setNewAdminEmail] = useState('');
   const [creating, setCreating] = useState(false);
-  const [deleteModal, setDeleteModal] = useState<OrgSummary | null>(null);
-  const [deleteConfirmName, setDeleteConfirmName] = useState('');
-  const [deleting, setDeleting] = useState(false);
+  const [query, setQuery] = useState('');
+  const [inviteOrg, setInviteOrg] = useState<OrgSummary | null>(null);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteSending, setInviteSending] = useState(false);
+  const [planOrg, setPlanOrg] = useState<OrgSummary | null>(null);
 
   const editSlugPreview = useMemo(() => {
     const trimmed = editOrgName.trim();
@@ -142,33 +146,42 @@ export default function SuperAdminScreen() {
     }
   }
 
-  async function handleDeleteOrg() {
-    if (!deleteModal) return;
-    if (deleteConfirmName.trim() !== deleteModal.org.name) {
-      showAlert(t('superAdminScreen.wrongNameTitle'), t('superAdminScreen.wrongNameText'));
+  const visibleOrgs = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return orgSummaries;
+    return orgSummaries.filter(summary =>
+      summary.org.name.toLowerCase().includes(needle)
+      || summary.org.slug.toLowerCase().includes(needle)
+      || summary.planName.toLowerCase().includes(needle)
+      || summary.status.toLowerCase().includes(needle),
+    );
+  }, [orgSummaries, query]);
+
+  async function handleInviteAdmin() {
+    if (!inviteOrg) return;
+    const email = inviteEmail.trim();
+    if (!email.includes('@')) {
+      showAlert(t('superAdminScreen.invalidEmailTitle'), t('superAdminScreen.invalidEmailText'));
       return;
     }
-    setDeleting(true);
-    const result = await deleteOrganization(deleteModal.org.id);
-    setDeleting(false);
+    setInviteSending(true);
+    const result = await inviteUser(email, 'admin', undefined, inviteOrg.org.id);
+    setInviteSending(false);
     if (result.success) {
-      setDeleteModal(null);
-      setDeleteConfirmName('');
-      showAlert(t('superAdminScreen.orgDeletedTitle'), t('superAdminScreen.orgDeletedText', { name: deleteModal.org.name }));
+      setInviteOrg(null);
+      setInviteEmail('');
+      showAlert(t('superAdminScreen.orgCreatedTitle'), t('superAdminScreen.orgCreatedWithInvite', { name: inviteOrg.org.name, email }));
     } else {
-      showAlert(t('common.error'), result.error ?? t('superAdminScreen.deleteOrgError'));
+      showAlert(t('common.error'), result.error ?? t('superAdminScreen.createOrgError'));
     }
   }
 
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: topPad + 12 }]}>
-        <TouchableOpacity onPress={() => router.canGoBack() ? router.back() : router.navigate('/(tabs)/' as any)} style={styles.backBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-          <Ionicons name="arrow-back" size={22} color={C.text} />
-        </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{t('superAdminScreen.title')}</Text>
-          <Text style={styles.subtitle}>{t('superAdminScreen.subtitle')}</Text>
+          <Text style={styles.subtitle}>{t('superAdminScreen.platformSubtitle', { defaultValue: 'BuildTrack · Clients' })}</Text>
         </View>
         <TouchableOpacity style={styles.newOrgBtn} onPress={() => setCreateModal(true)}>
           <Ionicons name="add" size={16} color="#fff" />
@@ -214,7 +227,7 @@ export default function SuperAdminScreen() {
             {[
               { label: t('superAdminScreen.stats.organizations'), value: totalOrgs,  icon: 'business-outline',        color: C.primary },
               { label: t('superAdminScreen.stats.trial'),         value: trialOrgs,  icon: 'time-outline',             color: '#F59E0B' },
-              { label: t('superAdminScreen.stats.active'),        value: activeOrgs, icon: 'checkmark-circle-outline', color: '#10B981' },
+              { label: t('superAdminScreen.stats.suspendedFem', { defaultValue: 'Suspendus' }), value: suspendedOrgs, icon: 'warning-outline', color: '#EF4444' },
             ].map((s, i) => (
               <View key={i} style={styles.statCard}>
                 <Ionicons name={s.icon as any} size={20} color={s.color} />
@@ -226,14 +239,25 @@ export default function SuperAdminScreen() {
 
           {isLoading ? (
             <ActivityIndicator size="large" color={C.primary} style={{ marginTop: 40 }} />
-          ) : orgSummaries.length === 0 ? (
+          ) : visibleOrgs.length === 0 ? (
             <View style={styles.empty}>
               <Ionicons name="business-outline" size={40} color={C.textMuted} />
               <Text style={styles.emptyTxt}>{t('superAdminScreen.emptyOrgsTitle')}</Text>
               <Text style={styles.emptyHint}>{t('superAdminScreen.emptyOrgsHint')}</Text>
             </View>
           ) : (
-            orgSummaries.map((summary, i) => {
+            <>
+            <View style={styles.searchWrap}>
+              <Ionicons name="search-outline" size={15} color={C.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                value={query}
+                onChangeText={setQuery}
+                placeholder={t('superAdminScreen.searchClients', { defaultValue: 'Rechercher un client' })}
+                placeholderTextColor={C.textMuted}
+              />
+            </View>
+            {visibleOrgs.map((summary, i) => {
               const { org, status } = summary;
               const col = ORG_COLORS[i % ORG_COLORS.length];
               const initials = org.name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -279,11 +303,25 @@ export default function SuperAdminScreen() {
 
                     {/* Pied de carte : plan fixe + boutons Éditer / Supprimer */}
                     <View style={styles.orgFooter}>
-                      <View style={styles.enterpriseTag}>
-                        <Ionicons name="infinite-outline" size={12} color="#8B5CF6" />
-                        <Text style={styles.enterpriseTagTxt}>{t('superAdminScreen.enterpriseUnlimited')}</Text>
-                      </View>
+                      <TouchableOpacity style={styles.enterpriseTag} onPress={() => setPlanOrg(summary)}>
+                        <Ionicons name="diamond-outline" size={12} color="#8B5CF6" />
+                        <Text style={styles.enterpriseTagTxt}>{summary.planName || t('superAdminScreen.enterpriseUnlimited')}</Text>
+                      </TouchableOpacity>
                       <View style={styles.orgActions}>
+                        <TouchableOpacity
+                          style={styles.editOrgBtn}
+                          onPress={() => void enterSupport(summary.org.id, summary.org.name).then(() => router.replace('/(tabs)' as any))}
+                        >
+                          <Ionicons name="enter-outline" size={13} color={C.primary} />
+                          <Text style={styles.editOrgBtnTxt}>{t('superAdminScreen.openSupport', { defaultValue: 'Support' })}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.editOrgBtn}
+                          onPress={() => { setInviteOrg(summary); setInviteEmail(''); }}
+                        >
+                          <Ionicons name="person-add-outline" size={13} color={C.primary} />
+                          <Text style={styles.editOrgBtnTxt}>{t('superAdminScreen.inviteAdminShort', { defaultValue: 'Admin' })}</Text>
+                        </TouchableOpacity>
                         <TouchableOpacity
                           style={styles.editOrgBtn}
                           onPress={() => openEditModal(summary)}
@@ -291,19 +329,13 @@ export default function SuperAdminScreen() {
                           <Ionicons name="pencil-outline" size={13} color={C.primary} />
                           <Text style={styles.editOrgBtnTxt}>{t('common.edit')}</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.deleteOrgBtn}
-                          onPress={() => { setDeleteModal(summary); setDeleteConfirmName(''); }}
-                        >
-                          <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                          <Text style={styles.deleteOrgBtnTxt}>{t('common.delete')}</Text>
-                        </TouchableOpacity>
                       </View>
                     </View>
                   </View>
                 </View>
               );
-            })
+            })}
+            </>
           )}
         </ScrollView>
       )}
@@ -553,86 +585,59 @@ export default function SuperAdminScreen() {
         </View>
       </Modal>
 
-      {/* ── Modal : Supprimer organisation ── */}
-      <Modal
-        visible={!!deleteModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => !deleting && (setDeleteModal(null), setDeleteConfirmName(''))}
-      >
+      <Modal visible={!!inviteOrg} transparent animationType="slide" onRequestClose={() => !inviteSending && setInviteOrg(null)}>
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView behavior="padding" keyboardVerticalOffset={0} style={styles.modalKav}>
+          <KeyboardAvoidingView behavior="padding" style={styles.modalKav}>
             <View style={styles.modalSheet}>
-              <View style={styles.modalHeaderRow}>
-                <View style={[styles.modalIconWrap, { backgroundColor: '#FEF2F2' }]}>
-                  <Ionicons name="trash" size={18} color="#EF4444" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.modalTitle}>{t('superAdminScreen.deleteModalTitle')}</Text>
-                  <Text style={styles.modalSub} numberOfLines={1}>{deleteModal?.org.name}</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => { if (!deleting) { setDeleteModal(null); setDeleteConfirmName(''); } }}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close" size={20} color={C.textMuted} />
-                </TouchableOpacity>
-              </View>
-
-              <View style={styles.deleteWarningBox}>
-                <Ionicons name="warning-outline" size={18} color="#EF4444" />
-                <Text style={styles.deleteWarningTxt}>
-                  {t('superAdminScreen.deleteWarningBefore')}
-                  <Text style={{ fontFamily: 'Inter_700Bold' }}>{t('superAdminScreen.irreversible')}</Text>
-                  {t('superAdminScreen.deleteWarningAfter')}
-                </Text>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>
-                  {t('superAdminScreen.typePrefix')}
-                  <Text style={{ fontFamily: 'Inter_700Bold', color: C.text }}>{deleteModal?.org.name}</Text>
-                  {t('superAdminScreen.typeSuffix')}
-                </Text>
-                <TextInput
-                  style={[styles.textInput, { borderColor: deleteConfirmName && deleteConfirmName !== deleteModal?.org.name ? '#EF4444' : C.border }]}
-                  placeholder={deleteModal?.org.name ?? ''}
-                  placeholderTextColor={C.textMuted}
-                  value={deleteConfirmName}
-                  onChangeText={setDeleteConfirmName}
-                  autoCapitalize="none"
-                  editable={!deleting}
-                />
-              </View>
-
+              <Text style={styles.modalTitle}>{t('superAdminScreen.inviteAdminShort', { defaultValue: 'Inviter un admin' })}</Text>
+              <Text style={styles.modalSub}>{inviteOrg?.org.name}</Text>
+              <TextInput
+                style={styles.textInput}
+                value={inviteEmail}
+                onChangeText={setInviteEmail}
+                placeholder="admin@client.fr"
+                placeholderTextColor={C.textMuted}
+                keyboardType="email-address"
+                autoCapitalize="none"
+              />
               <View style={styles.editBtnRow}>
-                <TouchableOpacity
-                  style={styles.cancelBtn}
-                  onPress={() => { setDeleteModal(null); setDeleteConfirmName(''); }}
-                  disabled={deleting}
-                >
+                <TouchableOpacity style={styles.cancelBtn} onPress={() => setInviteOrg(null)}>
                   <Text style={styles.cancelBtnTxt}>{t('common.cancel')}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.deleteConfirmBtn,
-                    (deleteConfirmName !== deleteModal?.org.name || deleting) && styles.submitBtnDisabled,
-                  ]}
-                  onPress={handleDeleteOrg}
-                  disabled={deleteConfirmName !== deleteModal?.org.name || deleting}
-                >
-                  {deleting ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="trash-outline" size={18} color="#fff" />
-                      <Text style={styles.submitBtnTxt}>{t('superAdminScreen.deleteForever')}</Text>
-                    </>
-                  )}
+                <TouchableOpacity style={styles.submitBtn} onPress={() => void handleInviteAdmin()} disabled={inviteSending}>
+                  {inviteSending ? <ActivityIndicator color="#fff" /> : <Text style={styles.submitBtnTxt}>{t('adminScreen.invite')}</Text>}
                 </TouchableOpacity>
               </View>
             </View>
           </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      <Modal visible={!!planOrg} transparent animationType="slide" onRequestClose={() => setPlanOrg(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, styles.modalKav]}>
+            <Text style={styles.modalTitle}>{planOrg?.org.name}</Text>
+            <Text style={styles.modalSub}>{t('superAdminScreen.changePlan', { defaultValue: 'Changer la formule' })}</Text>
+            {(allPlans.length ? allPlans : [{ id: planOrg?.planId || 'plan-entreprise', name: planOrg?.planName || 'Entreprise' }]).map(plan => (
+              <TouchableOpacity
+                key={plan.id}
+                style={styles.statusOption}
+                onPress={() => {
+                  if (!planOrg) return;
+                  void updateOrgPlan(planOrg.org.id, plan.id).then(result => {
+                    if (result.success) setPlanOrg(null);
+                    else showAlert(t('common.error'), result.error ?? t('superAdminScreen.updateOrgError'));
+                  });
+                }}
+              >
+                <Text style={styles.statusOptionTxt}>{plan.name}</Text>
+                {planOrg?.planId === plan.id ? <Ionicons name="checkmark-circle" size={18} color={C.primary} /> : null}
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setPlanOrg(null)}>
+              <Text style={styles.cancelBtnTxt}>{t('common.close')}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
@@ -752,7 +757,9 @@ const styles = StyleSheet.create({
   orgMeta: { flexDirection: 'row', gap: 16 },
   orgMetaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   orgMetaTxt: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textMuted },
-  orgFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  orgFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 },
+  searchWrap: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: C.surface, borderWidth: 1, borderColor: C.border, borderRadius: 12, paddingHorizontal: 12, minHeight: 44 },
+  searchInput: { flex: 1, color: C.text, fontFamily: 'Inter_400Regular', fontSize: 14 },
 
   enterpriseTag: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
