@@ -433,6 +433,7 @@ export interface Company {
   lots?: string[];
   email?: string;
   organizationId?: string;
+  logoUrl?: string;
 }
 
 export type InventoryMovementType = 'in' | 'out';

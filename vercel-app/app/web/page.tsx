@@ -4669,7 +4669,7 @@ export default function BuildTrackWebPage() {
     if (companyError) setError(companyError.message);
   }
 
-  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string }) {
+  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string; logo_url?: string }) {
     if (!isAdmin(profile) || !payload.name.trim()) return null;
     const row = {
       id: crypto.randomUUID(),
@@ -4682,6 +4682,7 @@ export default function BuildTrackWebPage() {
       insurance: payload.insurance?.trim() || null,
       lots: payload.lots ?? [],
       color: payload.color || '#003082',
+      logo_url: payload.logo_url || null,
       planned_workers: 0,
       actual_workers: 0,
       hours_worked: 0,
@@ -16599,7 +16600,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   profile: Profile | null;
   onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void;
   onEnterSupport?: (org: { id: string; name: string }) => void;
-  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string }) => Promise<any>;
+  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string; logo_url?: string }) => Promise<any>;
   onUpdateCompany?: (companyId: string, payload: Record<string, any>) => Promise<void> | void;
   onDeleteCompany?: (companyId: string) => Promise<void> | void;
   onRemoveUser?: (userId: string) => Promise<void> | void;
@@ -16615,7 +16616,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   const [inviteBusy, setInviteBusy] = useState(false);
   const [inviteNotice, setInviteNotice] = useState('');
   const [inviteLink, setInviteLink] = useState('');
-  const emptyCompanyDraft = { name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] as string[], color: '#003082' };
+  const emptyCompanyDraft = { name: '', short_name: '', email: '', contact: '', siret: '', insurance: '', lots: [] as string[], color: '#003082', logo_url: '', logoFile: null as File | null, logoPreview: '' };
   const [companyDraft, setCompanyDraft] = useState(emptyCompanyDraft);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [companySheetOpen, setCompanySheetOpen] = useState(false);
@@ -17025,7 +17026,9 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                 .filter(Boolean);
               return (
                 <article key={company.id} className={styles.pilotageCompanyCard}>
-                  <div className={styles.pilotageCompanyMark} style={{ background: company.color || '#003082' }}>{(company.short_name || company.name || '?').slice(0, 3).toUpperCase()}</div>
+                  <div className={styles.pilotageCompanyMark} style={{ background: company.color || '#003082' }}>
+                    {company.logo_url ? <img src={assetUrl({ uri: company.logo_url }, 'photos')} alt="" /> : (company.short_name || company.name || '?').slice(0, 3).toUpperCase()}
+                  </div>
                   <div>
                     <strong>{company.name}</strong>
                     <span>{[company.email, company.contact].filter(Boolean).join(' · ') || 'Pas encore de contact'}</span>
@@ -17044,6 +17047,9 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                         insurance: company.insurance ?? '',
                         lots: Array.isArray(company.lots) ? company.lots.map(String) : [],
                         color: company.color || '#003082',
+                        logo_url: company.logo_url || '',
+                        logoFile: null,
+                        logoPreview: company.logo_url ? assetUrl({ uri: company.logo_url }, 'photos') : '',
                       });
                       setCompanySheetOpen(true);
                     }}>Modifier</button>
@@ -17064,10 +17070,20 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
           <form className={styles.pilotageCompanySheet} onSubmit={async event => {
             event.preventDefault();
             if (!companyDraft.name.trim()) return;
+            let logoUrl = companyDraft.logo_url || '';
+            if (companyDraft.logoFile) {
+              logoUrl = await uploadWebFile('photos', companyDraft.logoFile, `company_logo_${editingCompanyId ?? 'new'}`) || logoUrl;
+            }
             const payload = {
-              ...companyDraft,
               name: companyDraft.name.trim(),
               short_name: companyDraft.short_name.trim() || companyDraft.name.trim().slice(0, 3).toUpperCase(),
+              email: companyDraft.email,
+              contact: companyDraft.contact,
+              siret: companyDraft.siret,
+              insurance: companyDraft.insurance,
+              lots: companyDraft.lots,
+              color: companyDraft.color,
+              logo_url: logoUrl || null,
             };
             if (editingCompanyId) await onUpdateCompany?.(editingCompanyId, payload);
             else await onCreateCompany?.(payload);
@@ -17085,7 +17101,17 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
             <div className={styles.pilotageCompanyLayout}>
               <aside className={styles.pilotageCompanyPreview}>
                 <div className={styles.pilotageCompanyPreviewCard} style={{ '--company-color': companyDraft.color } as any}>
-                  <div className={styles.pilotageCompanyMark} style={{ background: companyDraft.color }}>{(companyDraft.short_name || companyDraft.name || '…').slice(0, 3).toUpperCase()}</div>
+                  <label className={styles.pilotageLogoUpload}>
+                    <div className={styles.pilotageCompanyMark} style={{ background: companyDraft.color }}>
+                      {companyDraft.logoPreview ? <img src={companyDraft.logoPreview} alt="" /> : (companyDraft.short_name || companyDraft.name || '…').slice(0, 3).toUpperCase()}
+                    </div>
+                    <input type="file" accept="image/*" hidden onChange={event => {
+                      const file = event.target.files?.[0];
+                      if (!file) return;
+                      setCompanyDraft(prev => ({ ...prev, logoFile: file, logoPreview: URL.createObjectURL(file) }));
+                    }} />
+                    <span>Ajouter un logo</span>
+                  </label>
                   <strong>{companyDraft.name.trim() || 'Nom de l’entreprise'}</strong>
                   <span>{companyDraft.email || companyDraft.contact || 'Contact à renseigner'}</span>
                   {companyDraft.lots.length ? <em>{companyDraft.lots.length} lot{companyDraft.lots.length > 1 ? 's' : ''}</em> : <em>Aucun lot</em>}

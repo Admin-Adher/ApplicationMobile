@@ -123,6 +123,7 @@ export function toCompany(row: any): Company {
     insurance: row.insurance ?? undefined,
     qualifications: row.qualifications ?? undefined,
     organizationId: row.organization_id ?? undefined,
+    logoUrl: row.logo_url ?? undefined,
   };
 }
 

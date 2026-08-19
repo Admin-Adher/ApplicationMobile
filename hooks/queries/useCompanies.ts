@@ -104,6 +104,7 @@ export function useCompanies() {
       hours_worked: c.hoursWorked ?? 0, zone: c.zone ?? '', contact: c.phone ?? '',
       email: c.email ?? null, lots: c.lots ?? null, siret: c.siret ?? null,
       insurance: c.insurance ?? null, qualifications: c.qualifications ?? null,
+      logo_url: c.logoUrl ?? null,
       organization_id: orgId,
     };
     if (!isOnlineRef.current && isSupabaseConfigured) {
@@ -134,6 +135,7 @@ export function useCompanies() {
       hours_worked: c.hoursWorked ?? 0, zone: c.zone ?? '', contact: c.phone ?? '',
       email: c.email ?? null, lots: c.lots ?? null, siret: c.siret ?? null,
       insurance: c.insurance ?? null, qualifications: c.qualifications ?? null,
+      logo_url: c.logoUrl ?? null,
     };
     if (!isOnlineRef.current && isSupabaseConfigured) {
       enqueueOperation({ table: 'companies', op: 'update', filter: { column: 'id', value: c.id }, data: payload });
