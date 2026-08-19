@@ -12793,37 +12793,72 @@ function OprView({ oprs, reserves, onOpenReserve }: {
   reserves: any[];
   onOpenReserve: (id: string) => void;
 }) {
-  const oprReserves = reserves.filter((reserve: any) => reserve.type === 'observation' || reserve.visit_type === 'opr' || reserve.source === 'opr');
+  const [filter, setFilter] = useState<'all' | 'draft' | 'in_progress' | 'signed'>('all');
+  const [openId, setOpenId] = useState<string | null>(null);
+  const sorted = [...oprs].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')));
+  const visible = filter === 'all' ? sorted : sorted.filter(opr => opr.status === filter);
+  const openOpr = sorted.find(opr => opr.status !== 'signed');
+  const linkedIds = new Set(oprs.flatMap((opr: any) => (opr.items ?? []).map((item: any) => item.reserveId ?? item.reserve_id).filter(Boolean)));
+  const oprReserves = reserves.filter((reserve: any) => linkedIds.has(reserve.id) || reserve.type === 'observation' || reserve.source === 'opr');
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
-        <Kpi title="OPR" value={oprs.length} hint="Contrôles OPR" />
-        <Kpi title="Réserves liées" value={oprReserves.length} hint="Issues des OPR" tone="amber" />
-        <Kpi title="Ouvertes" value={oprReserves.filter((reserve: any) => reserve.status !== 'closed' && !isReserveArchived(reserve)).length} hint="À suivre" tone="red" />
-        <Kpi title="Clôturées" value={oprReserves.filter((reserve: any) => reserve.status === 'closed').length} hint="Terminées" tone="green" />
+        <Kpi title="OPR" value={oprs.length} hint="Contrôles du chantier" />
+        <Kpi title="Brouillons" value={oprs.filter((opr: any) => opr.status === 'draft').length} hint="À poursuivre" tone="amber" />
+        <Kpi title="Signés" value={oprs.filter((opr: any) => opr.status === 'signed').length} hint="PV clos" tone="green" />
+        <Kpi title="Réserves liées" value={oprReserves.filter((reserve: any) => reserve.status !== 'closed' && !isReserveArchived(reserve)).length} hint="Encore ouvertes" tone="red" />
       </div>
+      {openOpr ? (
+        <section className={styles.panel}>
+          <div className={styles.panelHeaderCompact}>
+            <div>
+              <h2>Continuer l’OPR</h2>
+              <p>{openOpr.title} · {openOpr.date}</p>
+            </div>
+            <button type="button" onClick={() => setOpenId(openOpr.id)}>Ouvrir</button>
+          </div>
+        </section>
+      ) : null}
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div>
             <h2>OPR chantier</h2>
-            <p>Contrôles OPR et réserves associées au périmètre sélectionné.</p>
+            <p>PV, lots contrôlés et réserves rattachées.</p>
+          </div>
+          <div className={styles.inlineActions}>
+            {(['all', 'draft', 'in_progress', 'signed'] as const).map(value => (
+              <button key={value} type="button" onClick={() => setFilter(value)}>{value === 'all' ? 'Tous' : value === 'draft' ? 'Brouillon' : value === 'in_progress' ? 'En cours' : 'Signé'}</button>
+            ))}
           </div>
         </div>
-        <div className={styles.threeCols}>
-          <SimpleColumn title="Contrôles" rows={oprs} primary="title" secondary="status" />
-          <div>
-            <h3>Réserves OPR</h3>
-            <div className={styles.compactList}>
-              {oprReserves.slice(0, 12).map((reserve: any) => (
-                <button key={reserve.id} type="button" onClick={() => onOpenReserve(reserve.id)}>
-                  <span>{STATUS_LABELS[reserve.status] ?? reserve.status ?? 'Réserve'} · {reserve.building ?? reserve.batiment ?? 'Plan'}</span>
-                  <strong>{reserve.title ?? reserve.name ?? reserve.id}</strong>
+        <div className={styles.compactList}>
+          {visible.map((opr: any) => {
+            const items = Array.isArray(opr.items) ? opr.items : [];
+            const reservesCount = items.filter((item: any) => item.status === 'reserve').length;
+            const okCount = items.filter((item: any) => item.status === 'ok').length;
+            const open = openId === opr.id;
+            return (
+              <article key={opr.id} className={styles.timelineCard}>
+                <button type="button" onClick={() => setOpenId(open ? null : opr.id)}>
+                  <span>{opr.status ?? 'draft'} · {opr.date} · {okCount} OK · {reservesCount} réserves</span>
+                  <strong>{opr.title ?? opr.id}</strong>
                 </button>
-              ))}
-              {!oprReserves.length && <small>Aucune réserve OPR.</small>}
-            </div>
-          </div>
-          <SimpleColumn title="À réceptionner" rows={oprReserves.filter((reserve: any) => reserve.status !== 'closed')} primary="title" secondary="deadline" />
+                {open ? (
+                  <div>
+                    {items.map((item: any) => (
+                      <p key={item.id}>
+                        {item.status === 'ok' ? '✓' : item.status === 'reserve' ? '⚠' : '–'} {item.lotName ?? item.lot_name} {item.reserveId || item.reserve_id ? (
+                          <button type="button" onClick={() => onOpenReserve(item.reserveId ?? item.reserve_id)}>Voir réserve</button>
+                        ) : null}
+                      </p>
+                    ))}
+                    {!items.length ? <p className={styles.empty}>Aucun lot.</p> : null}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+          {!visible.length ? <p className={styles.empty}>Aucun OPR sur ce chantier.</p> : null}
         </div>
       </section>
     </div>

@@ -37,6 +37,7 @@ import PageContainer from '@/components/PageContainer';
 import { showAlert } from '@/lib/appAlert';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { visitDateValue } from '@/lib/conducteurToday';
 import { formatDate } from '@/lib/reserveUtils';
 import { getExportTranslator } from '@/lib/exportLanguage';
 import LocationPicker from '@/components/LocationPicker';
@@ -722,19 +723,7 @@ export default function OprScreen() {
 
   const [editingVisitOprId, setEditingVisitOprId] = useState<string | null>(null);
   const [editingVisitDate, setEditingVisitDate] = useState('');
-
-  if (user?.role === 'sous_traitant') {
-    return (
-      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-        <Header title="OPR" />
-        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
-        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' }}>{t('oprScreen.unauthorized')}</Text>
-        <Text style={{ marginTop: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center' }}>
-          {t('oprScreen.subcontractorDenied')}
-        </Text>
-      </View>
-    );
-  }
+  const [statusFilter, setStatusFilter] = useState<'all' | OprStatus>('all');
 
   function addSignatory() {
     if (!inviteModal || !inviteName.trim()) return;
@@ -761,7 +750,7 @@ export default function OprScreen() {
 
   const chantierOprs = useMemo(
     () => oprs.filter(o => !activeChantierId || o.chantierId === activeChantierId)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+      .sort((a, b) => visitDateValue(b.date) - visitDateValue(a.date) || String(b.createdAt ?? '').localeCompare(String(a.createdAt ?? ''))),
     [oprs, activeChantierId]
   );
 
@@ -831,6 +820,7 @@ export default function OprScreen() {
   }
 
   function createOpr() {
+    if (!activeChantierId) { showAlert(t('oprScreen.requiredField'), t('dashboard.chooseSite', { defaultValue: 'Choisissez un chantier.' })); return; }
     if (!title.trim()) { showAlert(t('oprScreen.requiredField'), t('oprScreen.titleRequired')); return; }
     const validLots = formLots.filter(l => l.name.trim());
     if (validLots.length === 0) { showAlert(t('oprScreen.lotsRequired'), t('oprScreen.addAtLeastOneLot')); return; }
@@ -843,7 +833,7 @@ export default function OprScreen() {
     }));
     const opr: Opr = {
       id: 'OPR-' + genId().slice(0, 8).toUpperCase(),
-      chantierId: activeChantierId ?? 'chan1',
+      chantierId: activeChantierId,
       title: title.trim(),
       date,
       building,
@@ -1000,6 +990,25 @@ export default function OprScreen() {
     in_progress: { label: t('oprScreen.status.inProgress'), color: C.inProgress },
     signed: { label: t('oprScreen.status.signed'), color: C.closed },
   };
+
+  const visibleOprs = useMemo(
+    () => statusFilter === 'all' ? chantierOprs : chantierOprs.filter(opr => opr.status === statusFilter),
+    [chantierOprs, statusFilter],
+  );
+  const openOpr = chantierOprs.find(opr => opr.status !== 'signed');
+
+  if (user?.role === 'sous_traitant') {
+    return (
+      <View style={{ flex: 1, backgroundColor: C.bg, alignItems: 'center', justifyContent: 'center', padding: 32 }}>
+        <Header title="OPR" />
+        <Ionicons name="lock-closed-outline" size={48} color={C.textMuted} />
+        <Text style={{ marginTop: 16, fontSize: 16, fontFamily: 'Inter_600SemiBold', color: C.text, textAlign: 'center' }}>{t('oprScreen.unauthorized')}</Text>
+        <Text style={{ marginTop: 8, fontSize: 14, fontFamily: 'Inter_400Regular', color: C.textSub, textAlign: 'center' }}>
+          {t('oprScreen.subcontractorDenied')}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -1162,6 +1171,29 @@ export default function OprScreen() {
           </View>
         )}
 
+        {!showNew && openOpr ? (
+          <TouchableOpacity style={styles.continueCta} onPress={() => setStatusFilter(openOpr.status)}>
+            <Ionicons name="play-circle" size={20} color="#fff" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.continueCtaTitle}>{t('oprScreen.continueOpr', { defaultValue: 'Continuer l’OPR' })}</Text>
+              <Text style={styles.continueCtaSub} numberOfLines={1}>{openOpr.title}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#fff" />
+          </TouchableOpacity>
+        ) : null}
+
+        {!showNew && chantierOprs.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+            {(['all', 'draft', 'in_progress', 'signed'] as const).map(value => (
+              <TouchableOpacity key={value} style={[styles.filterChip, statusFilter === value && styles.filterChipActive]} onPress={() => setStatusFilter(value)}>
+                <Text style={[styles.filterChipText, statusFilter === value && styles.filterChipTextActive]}>
+                  {value === 'all' ? t('visits.statusFilter.all') : STATUS_CFG[value].label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        ) : null}
+
         {chantierOprs.length === 0 && !showNew ? (
           <View style={styles.empty}>
             <Ionicons name="document-text-outline" size={40} color={C.textMuted} />
@@ -1179,7 +1211,7 @@ export default function OprScreen() {
             )}
           </View>
         ) : (
-          chantierOprs.map(opr => {
+          visibleOprs.map(opr => {
             const cfg = STATUS_CFG[opr.status];
             const countOk = opr.items.filter(i => i.status === 'ok').length;
             const countRes = opr.items.filter(i => i.status === 'reserve').length;
@@ -2124,6 +2156,14 @@ export default function OprScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: C.bg },
   content: { padding: 16, paddingBottom: 100 },
+  continueCta: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.primary, borderRadius: 14, padding: 14, marginBottom: 12 },
+  continueCtaTitle: { color: '#fff', fontFamily: 'Inter_700Bold', fontSize: 14 },
+  continueCtaSub: { color: 'rgba(255,255,255,0.85)', fontFamily: 'Inter_400Regular', fontSize: 12, marginTop: 2 },
+  filterRow: { gap: 8, paddingBottom: 12 },
+  filterChip: { minHeight: 36, paddingHorizontal: 12, borderRadius: 18, borderWidth: 1, borderColor: C.border, backgroundColor: C.surface, justifyContent: 'center' },
+  filterChipActive: { borderColor: C.primary, backgroundColor: C.primaryBg },
+  filterChipText: { color: C.textSub, fontFamily: 'Inter_600SemiBold', fontSize: 12 },
+  filterChipTextActive: { color: C.primary },
 
   formCard: {
     backgroundColor: C.surface, borderRadius: 14, padding: 16,
