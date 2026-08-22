@@ -7,6 +7,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import * as Application from 'expo-application';
+import * as Clipboard from 'expo-clipboard';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { C } from '@/constants/colors';
 import Header from '@/components/Header';
@@ -29,6 +30,8 @@ import {
   inventoryOutcomeTranslationKey,
   type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
+import { buildSyncDiagnosticReport, formatSyncDiagnosticReport } from '@/lib/syncDiagnosticExport';
+import { currentApplicationVersion, currentBuildNumber } from '@/lib/clientVersion';
 import type { QueuedOperation } from '@/context/NetworkContext';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
@@ -144,6 +147,9 @@ export default function SettingsScreen() {
     queue,
     queueCount,
     rejectedCount,
+    lastSyncAttemptAt,
+    lastSyncSuccessAt,
+    nextSyncAttemptAt,
     isOnline,
     syncStatus,
     syncProgress,
@@ -170,6 +176,35 @@ export default function SettingsScreen() {
       || e.includes('row-level security')
       || e.includes('401');
   });
+  // Export destine au support. Le rapport est construit par liste blanche dans
+  // lib/syncDiagnosticExport : ni jeton, ni cle, ni photo, ni payload metier.
+  const handleExportDiagnostic = async () => {
+    try {
+      const report = buildSyncDiagnosticReport(queue, {
+        appVersion: currentApplicationVersion(),
+        buildNumber: currentBuildNumber(),
+        platform: Platform.OS,
+        generatedAt: new Date().toISOString(),
+        isOnline,
+        syncStatus,
+        syncAuthBlocked,
+        lastAttemptAt: lastSyncAttemptAt,
+        lastSuccessAt: lastSyncSuccessAt,
+        nextAttemptAt: nextSyncAttemptAt,
+      });
+      await Clipboard.setStringAsync(formatSyncDiagnosticReport(report));
+      showAlert(
+        t('settings.diagnostic.exportCopiedTitle'),
+        t('settings.diagnostic.exportCopiedText', { count: report.operations.length }),
+      );
+    } catch (error: any) {
+      showAlert(
+        t('settings.diagnostic.exportFailedTitle'),
+        error?.message ?? t('settings.diagnostic.exportFailedText'),
+      );
+    }
+  };
+
   const queueErrorText = (operation: QueuedOperation) => {
     const fallback = operation.terminalOutcome?.message ?? operation.lastError ?? '';
     const key = inventoryOutcomeTranslationKey(operation);
@@ -1270,6 +1305,15 @@ export default function SettingsScreen() {
                           </TouchableOpacity>
                         )}
                         <View style={styles.queueActionsRow}>
+                          <TouchableOpacity
+                            style={styles.queueExportBtn}
+                            onPress={() => { void handleExportDiagnostic(); }}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('settings.diagnostic.exportAction')}
+                          >
+                            <Ionicons name="clipboard-outline" size={16} color={C.textSub} />
+                            <Text style={styles.queueExportTxt}>{t('settings.diagnostic.exportAction')}</Text>
+                          </TouchableOpacity>
                           {queueCount > 0 && (
                             <TouchableOpacity
                               style={[styles.queueRetryBtn, (!isOnline || syncStatus === 'syncing') && styles.queueBtnDisabled]}
@@ -2078,7 +2122,13 @@ const styles = StyleSheet.create({
   queueItemError: { fontSize: 12, fontFamily: 'Inter_500Medium', color: '#991B1B', marginTop: 6, lineHeight: 17, backgroundColor: '#FEF2F2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 6 },
   queueServerStock: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: '#065F46', marginTop: 6 },
   queueMore: { fontSize: 11, fontFamily: 'Inter_500Medium', color: '#78350F', textAlign: 'center', paddingVertical: 6 },
-  queueActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  queueActionsRow: { flexDirection: 'row', gap: 8, marginTop: 10, flexWrap: 'wrap' },
+  queueExportBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingVertical: 8, paddingHorizontal: 12,
+    borderRadius: 8, borderWidth: 1, borderColor: '#D1D5DB', backgroundColor: '#F9FAFB',
+  },
+  queueExportTxt: { fontSize: 13, fontWeight: '600', color: C.textSub },
   queueRetryBtn: { minHeight: 48, flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingHorizontal: 8, paddingVertical: 10, borderRadius: 8, borderWidth: 1, borderColor: '#6EE7B7', backgroundColor: '#ECFDF5' },
   queueRetryTxt: { fontSize: 12, fontFamily: 'Inter_700Bold', color: '#047857', textAlign: 'center' },
   queueBtnDisabled: { backgroundColor: '#F3F4F6', borderColor: '#E5E7EB' },

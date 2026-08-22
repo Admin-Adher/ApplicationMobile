@@ -50,4 +50,26 @@ describe('settings terminal-rejection copy', () => {
     // L'erreur serveur brute reste exposee pour le support.
     expect(translations[language].translation.settings.syncQueue.technicalError).toBeTruthy();
   });
+
+  it.each(['fr', 'en', 'es'])('offers a diagnostic export and states what it excludes in %s', language => {
+    const diagnostic = translations[language].translation.settings.diagnostic;
+
+    for (const key of [
+      'exportAction',
+      'exportCopiedTitle',
+      'exportCopiedText_one',
+      'exportCopiedText_other',
+      'exportFailedTitle',
+      'exportFailedText',
+    ]) {
+      expect(diagnostic[key], `${language}.${key}`).toBeTruthy();
+    }
+
+    // L'utilisateur doit savoir ce qu'il transmet : la confirmation enonce
+    // explicitement ce que l'export ne contient pas.
+    for (const key of ['exportCopiedText_one', 'exportCopiedText_other']) {
+      expect(diagnostic[key]).toContain('{{count}}');
+      expect(diagnostic[key].length).toBeGreaterThan(60);
+    }
+  });
 });
