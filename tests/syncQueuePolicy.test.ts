@@ -1,10 +1,19 @@
 import { describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
+  SYNC_INFRA_CIRCUIT_THRESHOLD,
+  SYNC_PERMANENT_FAILURE_ATTEMPTS,
   getSyncQueueCounts,
   getSyncQueueOperationDomain,
   hasReplayableQueuedOperations,
   inventoryOutcomeTranslationKey,
+  isAuthenticationSyncFailure,
+  isInfrastructureSyncFailure,
   isInventoryQueuedOperation,
+  isPermanentSyncFailure,
+  shouldAbandonPassAfterInfrastructureFailure,
+  shouldTerminatePermanentFailure,
 } from '../lib/syncQueuePolicy';
 
 describe('sync queue policy', () => {
@@ -85,5 +94,90 @@ describe('sync queue policy', () => {
       stuck: 1,
       attention: 2,
     });
+  });
+});
+
+describe('sync failure classification', () => {
+  it('treats deterministic server refusals as permanent', () => {
+    for (const error of [
+      { code: 'PGRST202', message: 'Could not find the function public.record_inventory_movement' },
+      { code: '42501', message: 'permission denied for function record_inventory_movement' },
+      { code: '22P02', message: 'invalid input syntax for type numeric' },
+      { code: '23514', message: 'new row violates check constraint' },
+      { code: 'MISSING_FILTER', message: 'filtre manquant' },
+      { status: 400, message: 'HTTP 400' },
+      { status: 404, message: 'HTTP 404' },
+    ]) {
+      expect(isPermanentSyncFailure(error)).toBe(true);
+    }
+  });
+
+  it('never requalifies auth, infrastructure or ambiguous failures as permanent', () => {
+    // Une session à rafraîchir, un serveur indisponible ou un conflit d'écriture
+    // peuvent aboutir au réessai suivant : les requalifier détruirait la saisie.
+    for (const error of [
+      { status: 401, message: 'HTTP 401' },
+      { code: 'PGRST301', message: 'JWT expired' },
+      { code: 'REST_TIMEOUT', message: 'timeout' },
+      { status: 429, message: 'HTTP 429' },
+      { status: 503, message: 'HTTP 503' },
+      { status: 409, message: 'HTTP 409' },
+      { code: '23505', message: 'duplicate key value violates unique constraint' },
+      { message: 'Network request failed' },
+      { message: 'timeout after 150000ms' },
+    ]) {
+      expect(isPermanentSyncFailure(error)).toBe(false);
+    }
+
+    expect(isAuthenticationSyncFailure({ status: 401 })).toBe(true);
+    expect(isInfrastructureSyncFailure({ code: 'REST_TIMEOUT' })).toBe(true);
+  });
+
+  it('requires repeated identical refusals before dropping an operation', () => {
+    const permanent = { code: '42501', message: 'permission denied' };
+
+    for (let attempt = 1; attempt < SYNC_PERMANENT_FAILURE_ATTEMPTS; attempt += 1) {
+      expect(shouldTerminatePermanentFailure(permanent, attempt)).toBe(false);
+    }
+    expect(shouldTerminatePermanentFailure(permanent, SYNC_PERMANENT_FAILURE_ATTEMPTS)).toBe(true);
+    // Un échec transitoire ne devient jamais terminal, quel que soit le nombre
+    // de tentatives : la file continue de le rejouer.
+    expect(shouldTerminatePermanentFailure({ status: 503 }, 42)).toBe(false);
+  });
+});
+
+describe('unstable-network replay policy', () => {
+  it('keeps replaying the pass while a single operation fails on infrastructure', () => {
+    // Un timeout isolé ne condamne pas la passe : les opérations suivantes
+    // doivent être tentées, sinon une seule avance par passe et la file
+    // n'arrive jamais à se vider sur une connexion de chantier.
+    for (let failures = 1; failures < SYNC_INFRA_CIRCUIT_THRESHOLD; failures += 1) {
+      expect(shouldAbandonPassAfterInfrastructureFailure(failures)).toBe(false);
+    }
+    expect(shouldAbandonPassAfterInfrastructureFailure(SYNC_INFRA_CIRCUIT_THRESHOLD)).toBe(true);
+    expect(SYNC_INFRA_CIRCUIT_THRESHOLD).toBeGreaterThan(1);
+  });
+
+  it('resets the consecutive and exponential counters as soon as one operation lands', () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, '..', 'context/NetworkContext.tsx'),
+      'utf8',
+    ).replace(/\r\n/g, '\n');
+
+    // Le compteur consécutif est borné par la passe, le compteur exponentiel
+    // par un succès : sans cette remise à zéro le backoff restait épinglé à
+    // son maximum de 5 min pendant des heures.
+    expect(source).toContain('const failedOpsBefore = failedOps.length;');
+    expect(source).toContain('if (failedOps.length === failedOpsBefore) {');
+    expect(source).toContain('consecutiveInfraFailures = 0;');
+    expect(source).toContain('shouldAbandonPassAfterInfrastructureFailure(consecutiveInfraFailures)');
+
+    // La branche web doit rejouer la file comme le ping natif.
+    const webBranch = source.slice(
+      source.indexOf("if (Platform.OS === 'web') {"),
+      source.indexOf("const check = async () => {"),
+    );
+    expect(webBranch).toContain('hasReplayableQueuedOperations(queueRef.current)');
+    expect(webBranch).toContain('processSyncQueueRef.current()');
   });
 });

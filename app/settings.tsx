@@ -1228,6 +1228,11 @@ export default function SettingsScreen() {
                                       {t('settings.syncQueue.technicalStatus')}: {op.terminalStatus ?? syncStatus}
                                       {op.attemptCount ? ` · ${t('settings.syncQueue.failures', { count: op.attemptCount })}` : ''}
                                     </Text>
+                                    {!!op.lastError && (
+                                      <Text style={styles.operationTechnicalText} selectable>
+                                        {t('settings.syncQueue.technicalError')}: {op.lastError}
+                                      </Text>
+                                    )}
                                     <Text style={styles.operationTechnicalText} selectable>
                                       {t('settings.syncQueue.technicalId')}: {op.id}
                                     </Text>

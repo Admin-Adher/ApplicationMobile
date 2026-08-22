@@ -64,6 +64,135 @@ const INVENTORY_OUTCOME_TRANSLATION_KEYS: Record<string, string> = {
   server_rejected: 'networkQueue.inventoryOutcome.server_rejected',
 };
 
+/**
+ * Nombre d'échecs déterministes consécutifs avant de requalifier une opération
+ * en refus définitif. Un seul 400/404 peut venir d'un proxy qui hoquette : on
+ * ne détruit jamais une écriture utilisateur sur un unique verdict. Trois
+ * échecs identiques (≈ une minute de réessais) ne peuvent plus être un aléa.
+ */
+export const SYNC_PERMANENT_FAILURE_ATTEMPTS = 3;
+
+/**
+ * Erreurs dont le verdict ne dépend ni du réseau ni de l'instant : rejouer
+ * l'opération telle quelle produit exactement la même erreur, indéfiniment.
+ */
+const PERMANENT_SYNC_ERROR_CODES = new Set([
+  'MISSING_FILTER', // garde-fou client : opération non rejouable en l'état
+  'PGRST202',       // fonction absente du cache de schéma (migration non appliquée)
+  'PGRST203',       // surcharge de fonction ambiguë
+  'PGRST204',       // colonne inconnue dans le payload
+  '42501',          // permission refusée (grant / RLS)
+  '42883',          // fonction inexistante
+  '42703',          // colonne inexistante
+  '42P01',          // table inexistante
+  '42804',          // types incompatibles
+  '22P02',          // syntaxe d'entrée invalide (uuid, numeric, enum…)
+  '22003',          // dépassement de capacité numérique
+  '22007',          // format de date/heure invalide
+  '22008',          // date/heure hors plage
+  '23502',          // contrainte NOT NULL violée
+  '23503',          // clé étrangère violée
+  '23514',          // contrainte CHECK violée
+]);
+
+/**
+ * 401 (auth) et 409/429/5xx sont volontairement absents : les premiers ont leur
+ * propre circuit de reconnexion, les seconds peuvent réussir au réessai — ou
+ * l'écriture a peut-être abouti côté serveur, auquel cas annuler l'optimisme
+ * local corromprait les stocks.
+ */
+const PERMANENT_SYNC_HTTP_STATUSES = new Set([400, 403, 404, 405, 413, 422]);
+
+export function syncErrorStatus(error: any): number {
+  const message = String(error?.message ?? error ?? '').toLowerCase();
+  const explicitStatus = Number(error?.status);
+  const messageStatus = Number(message.match(/\bhttp\s+(\d{3})/)?.[1]);
+  return Number.isFinite(explicitStatus) && explicitStatus > 0
+    ? explicitStatus
+    : messageStatus;
+}
+
+export function isAuthenticationSyncFailure(error: any): boolean {
+  const message = String(error?.message ?? error ?? '').toLowerCase();
+  const code = String(error?.code ?? '').toUpperCase();
+  return (
+    syncErrorStatus(error) === 401
+    || code === 'PGRST301'
+    || /jwt.*(?:expired|invalid)/.test(message)
+    || /invalid.*jwt/.test(message)
+  );
+}
+
+export function isInfrastructureSyncFailure(error: any): boolean {
+  const message = String(error?.message ?? error ?? '').toLowerCase();
+  const code = String(error?.code ?? '').toUpperCase();
+  const status = syncErrorStatus(error);
+
+  return (
+    code === 'REST_TIMEOUT'
+    || status === 429
+    || status === 544
+    || status === 502
+    || status === 503
+    || status === 504
+    || status === 520
+    || status === 522
+    || status === 524
+    || status === 530
+    || /database.*tim(?:ed|e)\s*out/.test(message)
+    || /statement timeout/.test(message)
+    || /connection.*timeout/.test(message)
+    || /connection terminated/.test(message)
+  );
+}
+
+/**
+ * Refus déterministe du serveur (droit manquant, fonction absente, payload
+ * invalide…). Sans cette classification, un tel échec est ré-enfilé « en
+ * attente, réessai automatique » à vie : la file grossit à chaque saisie et ne
+ * se vide jamais, tout en promettant à l'utilisateur qu'elle va se résorber.
+ */
+export function isPermanentSyncFailure(error: any): boolean {
+  // Un échec d'authentification ou d'infrastructure est transitoire par nature :
+  // il possède son propre circuit (reconnexion, backoff exponentiel) et ne doit
+  // jamais être requalifié en refus définitif.
+  if (isAuthenticationSyncFailure(error) || isInfrastructureSyncFailure(error)) return false;
+  const code = String(error?.code ?? '').toUpperCase();
+  if (PERMANENT_SYNC_ERROR_CODES.has(code)) return true;
+  return PERMANENT_SYNC_HTTP_STATUSES.has(syncErrorStatus(error));
+}
+
+/**
+ * Vrai lorsqu'une opération a assez insisté sur la même erreur déterministe
+ * pour être sortie du lot « en attente » et présentée comme refusée.
+ */
+export function shouldTerminatePermanentFailure(error: any, nextAttemptCount: number): boolean {
+  return isPermanentSyncFailure(error) && nextAttemptCount >= SYNC_PERMANENT_FAILURE_ATTEMPTS;
+}
+
+/**
+ * Nombre d'échecs d'infrastructure CONSÉCUTIFS (timeout, 5xx, 429) avant
+ * d'abandonner la passe de synchronisation en cours.
+ *
+ * Pourquoi ce n'est pas 1 : sur une connexion de chantier instable, une
+ * opération peut expirer alors que la suivante passe très bien. Abandonner la
+ * passe dès le premier timeout ne rejouait qu'UNE opération par passe, puis
+ * attendait le backoff (jusqu'à 5 min) — une file de trente mouvements de stock
+ * ne pouvait alors plus se vider, et chaque nouvelle saisie la faisait grossir
+ * plus vite qu'elle ne se drainait. Plusieurs échecs d'affilée restent en
+ * revanche une preuve raisonnable que le lien est inutilisable : inutile de
+ * marteler le serveur avec les opérations restantes.
+ */
+export const SYNC_INFRA_CIRCUIT_THRESHOLD = 3;
+
+/**
+ * Le compteur passé ici est CONSÉCUTIF : toute opération réussie dans la même
+ * passe le remet à zéro, puisqu'elle prouve que le réseau fonctionne.
+ */
+export function shouldAbandonPassAfterInfrastructureFailure(consecutiveFailures: number): boolean {
+  return consecutiveFailures >= SYNC_INFRA_CIRCUIT_THRESHOLD;
+}
+
 export function isReplayableQueuedOperation(operation: SyncQueueOperationLike): boolean {
   return operation.terminal !== true;
 }

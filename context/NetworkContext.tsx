@@ -35,7 +35,12 @@ import {
   getSyncQueueCounts,
   hasReplayableQueuedOperations,
   inventoryOutcomeTranslationKey,
+  isAuthenticationSyncFailure,
+  isInfrastructureSyncFailure,
+  isInventoryQueuedOperation,
   isReplayableQueuedOperation,
+  shouldAbandonPassAfterInfrastructureFailure,
+  shouldTerminatePermanentFailure,
   type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
 import {
@@ -66,6 +71,12 @@ const SYNC_AUTH_RETRY_DELAY_MS = 5_000;
 const SYNC_INFRA_BACKOFF_BASE_MS = 30_000;
 const SYNC_INFRA_BACKOFF_MAX_MS = 5 * 60_000;
 
+// Relance après une passe dont certaines opérations ont échoué sans ouvrir le
+// disjoncteur (timeout d'upload, refus ponctuel…). Sans cette relance explicite,
+// la file n'est reprise que par le ping natif de 10 s — jamais sur le web, où
+// l'intervalle ne déclenche aucune passe.
+const SYNC_FAILURE_RETRY_DELAY_MS = 30_000;
+
 // Borne pour le rafraîchissement du token et le refetch post-sync, afin qu'un
 // appel réseau bloqué en fin de passe ne laisse pas la file verrouillée.
 const TOKEN_REFRESH_TIMEOUT_MS = 20_000;
@@ -78,49 +89,6 @@ const REFETCH_TIMEOUT_MS = 30_000;
 // jours, bouton de sync gelé sur « 0/1 »). Largement supérieur à la durée d'une
 // passe légitime, donc jamais déclenché en fonctionnement normal.
 const SYNC_STUCK_RECOVERY_MS = 10 * 60 * 1000;
-
-function syncErrorStatus(error: any): number {
-  const message = String(error?.message ?? error ?? '').toLowerCase();
-  const explicitStatus = Number(error?.status);
-  const messageStatus = Number(message.match(/\bhttp\s+(\d{3})/)?.[1]);
-  return Number.isFinite(explicitStatus) && explicitStatus > 0
-    ? explicitStatus
-    : messageStatus;
-}
-
-function isAuthenticationSyncFailure(error: any): boolean {
-  const message = String(error?.message ?? error ?? '').toLowerCase();
-  const code = String(error?.code ?? '').toUpperCase();
-  return (
-    syncErrorStatus(error) === 401
-    || code === 'PGRST301'
-    || /jwt.*(?:expired|invalid)/.test(message)
-    || /invalid.*jwt/.test(message)
-  );
-}
-
-function isInfrastructureSyncFailure(error: any): boolean {
-  const message = String(error?.message ?? error ?? '').toLowerCase();
-  const code = String(error?.code ?? '').toUpperCase();
-  const status = syncErrorStatus(error);
-
-  return (
-    code === 'REST_TIMEOUT'
-    || status === 429
-    || status === 544
-    || status === 502
-    || status === 503
-    || status === 504
-    || status === 520
-    || status === 522
-    || status === 524
-    || status === 530
-    || /database.*tim(?:ed|e)\s*out/.test(message)
-    || /statement timeout/.test(message)
-    || /connection.*timeout/.test(message)
-    || /connection terminated/.test(message)
-  );
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Types
@@ -970,7 +938,21 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (Platform.OS === 'web') {
       const refresh = async () => {
         const current = typeof navigator !== 'undefined' ? navigator.onLine : true;
-        setIsOnline(await checkAppOnline(current));
+        const online = await checkAppOnline(current);
+        setIsOnline(online);
+
+        // Même filet que le natif ci-dessous. Sans lui, la branche web ne
+        // déclenchait AUCUNE passe : une relance perdue pendant une coupure
+        // (le kick est ignoré quand isOnline est faux) laissait la file figée
+        // jusqu'au rechargement de la page.
+        if (
+          online &&
+          isSupabaseConfigured &&
+          hasReplayableQueuedOperations(queueRef.current) &&
+          Date.now() - lastSyncAttemptRef.current > 20_000
+        ) {
+          processSyncQueueRef.current();
+        }
       };
       const up = () => { refresh(); };
       const dn = () => setIsOnline(false);
@@ -1250,8 +1232,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
     const pendingConflicts: StatusConflict[] = [];
     const failedOps: QueuedOperation[] = [];
+    // Rejets définitifs détectés pendant la passe : la réconciliation de cache
+    // est asynchrone alors que `fail` est synchrone, on la rejoue après boucle.
+    const terminalReconciliations: { op: QueuedOperation; outcome: SyncQueueTerminalOutcome }[] = [];
     let circuitOpened = false;
     let circuitDelayMs = 0;
+    // Échecs d'infrastructure d'affilée. Remis à zéro par chaque opération qui
+    // aboutit : sur un lien instable, un timeout isolé ne dit rien de la
+    // suivante, et abandonner la passe trop tôt gelait toute la file.
+    let consecutiveInfraFailures = 0;
     // Snapshot the queue from the ref (always current, not a stale closure)
     const currentQueue = queueRef.current.filter(isReplayableQueuedOperation).sort((a, b) => {
       const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
@@ -1280,13 +1269,37 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         try { msg = JSON.stringify(err); } catch { msg = String(err); }
       }
       console.warn(`[queue] ${op.op} ${op.table} failed:`, msg);
+      const attemptCount = (op.attemptCount ?? 0) + 1;
+
+      // Un refus déterministe du serveur (droit manquant, fonction absente,
+      // payload invalide…) ne guérira jamais par un réessai. Sans cette
+      // requalification l'opération est ré-enfilée « en attente, réessai
+      // automatique » indéfiniment : la file grossit à chaque saisie, ne se
+      // vide jamais, et l'utilisateur voit des dizaines d'opérations promises
+      // à un réessai qui ne peut pas aboutir. On l'annonce donc comme refusée,
+      // avec le message technique conservé dans `lastError`.
+      let resolvedOutcome = options?.terminalOutcome;
+      let resolvedStatus = options?.terminalOutcome?.status ?? options?.terminalStatus;
+      if (!resolvedStatus && shouldTerminatePermanentFailure(err, attemptCount)) {
+        resolvedStatus = 'server_rejected';
+        if (isInventoryQueuedOperation(op)) {
+          // Le stock optimiste doit être annulé comme pour tout refus métier :
+          // le mouvement n'a jamais atteint le serveur.
+          resolvedOutcome = normalizeInventoryMovementOutcome(
+            { status: resolvedStatus, message: msg },
+            inventoryOutcomeContextFromQueuedOperation(op),
+          );
+          terminalReconciliations.push({ op, outcome: resolvedOutcome });
+        }
+      }
+
       failedOps.push({
         ...op,
         lastError: msg,
-        attemptCount: (op.attemptCount ?? 0) + 1,
-        terminal: Boolean(options?.terminalStatus || options?.terminalOutcome) || op.terminal,
-        terminalStatus: options?.terminalOutcome?.status ?? options?.terminalStatus ?? op.terminalStatus,
-        terminalOutcome: options?.terminalOutcome ?? op.terminalOutcome,
+        attemptCount,
+        terminal: Boolean(resolvedStatus || resolvedOutcome) || op.terminal,
+        terminalStatus: resolvedStatus ?? op.terminalStatus,
+        terminalOutcome: resolvedOutcome ?? op.terminalOutcome,
       });
 
       if (!circuitOpened && isAuthenticationSyncFailure(err)) {
@@ -1298,28 +1311,36 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
         setSyncAuthBlocked(isSessionExpired());
       } else if (!circuitOpened && isInfrastructureSyncFailure(err)) {
-        circuitOpened = true;
-        const failures = syncInfrastructureFailureCountRef.current + 1;
-        syncInfrastructureFailureCountRef.current = failures;
-        const exponential = Math.min(
-          SYNC_INFRA_BACKOFF_MAX_MS,
-          SYNC_INFRA_BACKOFF_BASE_MS * (2 ** Math.min(failures - 1, 4)),
-        );
-        circuitDelayMs = Math.round(exponential * (0.8 + Math.random() * 0.4));
-        syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+        consecutiveInfraFailures += 1;
+        // On ne condamne la passe qu'après plusieurs échecs d'affilée : c'est
+        // la différence entre « le serveur est injoignable » et « la 4G du
+        // chantier a hoqueté sur cette opération-là ».
+        if (shouldAbandonPassAfterInfrastructureFailure(consecutiveInfraFailures)) {
+          circuitOpened = true;
+          const failures = syncInfrastructureFailureCountRef.current + 1;
+          syncInfrastructureFailureCountRef.current = failures;
+          const exponential = Math.min(
+            SYNC_INFRA_BACKOFF_MAX_MS,
+            SYNC_INFRA_BACKOFF_BASE_MS * (2 ** Math.min(failures - 1, 4)),
+          );
+          circuitDelayMs = Math.round(exponential * (0.8 + Math.random() * 0.4));
+          syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+        }
       }
     };
 
     let processed = 0;
     for (const op of currentQueue) {
-      // A project-wide timeout means all remaining operations would fail for
-      // the same reason. Leave them untouched for the delayed retry.
+      // Le disjoncteur ne s'ouvre qu'après plusieurs échecs d'infrastructure
+      // consécutifs : à ce stade les opérations restantes échoueraient pour la
+      // même raison. On les laisse intactes pour le réessai différé.
       if (circuitOpened) break;
       // Si une passe plus récente nous a préemptés (nous étions gelés puis
       // réveillés), on cesse immédiatement tout travail : la passe courante
       // possède la file et a déjà rejoué (ou est en train de rejouer) ces ops.
       if (!isCurrentGeneration()) break;
       let retryOpForCatch: QueuedOperation = op;
+      const failedOpsBefore = failedOps.length;
       try {
         // ── Status-change conflict detection ───────────────────────────────
         if (op.op === 'rpc') {
@@ -2078,6 +2099,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         fail(retryOpForCatch, e);
       } finally {
         processed += 1;
+        if (failedOps.length === failedOpsBefore) {
+          // Aller-retour serveur réussi : le lien est utilisable ici et
+          // maintenant. On repart d'un backoff neuf, sinon le compteur
+          // exponentiel ne redescendait qu'après une passe 100 % propre et
+          // restait épinglé à 5 min pendant des heures sur un réseau instable.
+          consecutiveInfraFailures = 0;
+          syncInfrastructureFailureCountRef.current = 0;
+        }
         // Marque le progrès : tant qu'une opération est traitée régulièrement,
         // la passe n'est jamais considérée comme gelée par le garde-fou.
         syncProgressAtRef.current = Date.now();
@@ -2090,6 +2119,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // désormais propriétaire de la file. Écraser l'état ici ferait revivre des
     // opérations déjà rejouées ou supprimerait celles enfilées entre-temps.
     if (!isCurrentGeneration()) return;
+
+    // Annulation du stock optimiste des mouvements requalifiés en refus
+    // définitif pendant cette passe. Séquentiel : deux mouvements du même
+    // produit doivent se retirer l'un après l'autre du même instantané.
+    for (const entry of terminalReconciliations) {
+      await reconcileTerminalInventoryOperationCache(entry.op, entry.outcome, userId).catch(error => {
+        console.warn('[inventory] terminal cache reconciliation failed:', (error as any)?.message ?? error);
+      });
+    }
 
     // Keep only unresolved items in the queue
     const remaining = [
@@ -2135,6 +2173,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     } else if (failedOps.length > 0) {
       setSyncStatus('error');
       reloadHandlerRef.current?.();
+      // Les échecs non terminaux restent rejouables : on programme la relance
+      // au lieu de dépendre du seul ping natif (inexistant sur le web).
+      if (hasReplayableQueuedOperations(leftover)) scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);
     } else if (hasReplayableQueuedOperations(leftover)) {
       // Tout l'instantané est passé, mais des opérations enfilées pendant la
       // passe restent à synchroniser : on n'affiche pas « terminé », une
