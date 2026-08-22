@@ -74,6 +74,11 @@ export interface RetryQueueOperationLike {
   op?: string;
   rpc?: { fn?: string; args?: Record<string, unknown> };
   filter?: { column?: string; value?: unknown };
+  /**
+   * Necessaire pour rattacher une ecriture generique a son entite : une photo
+   * enfilee hors ligne porte son `reserve_id` ici, pas dans un filtre.
+   */
+  data?: Record<string, unknown>;
 }
 
 /** Metadonnees de transport. La PR d'integration les fournira reellement. */
@@ -131,9 +136,27 @@ const NETWORK_ERROR_CODES = new Set([
   'EPIPE',
 ]);
 
-/** SQLSTATE Postgres (5 caracteres) ou code PostgREST : seul un serveur en emet. */
+/**
+ * Classes SQLSTATE reellement definies par PostgreSQL.
+ *
+ * Accepter toute chaine alphanumerique de cinq caracteres reconnaissait aussi
+ * des codes systeme locaux — EPERM, EBUSY, EINTR, ENXIO… — comme preuve qu'un
+ * serveur avait repondu. Une erreur de fichier local aurait alors pu remettre a
+ * zero le circuit reseau alors que le backend n'avait jamais ete contacte.
+ */
+const POSTGRES_SQLSTATE_CLASSES = new Set([
+  '00', '01', '02', '03', '08', '09',
+  '0A', '0B', '0F', '0L', '0P', '0Z',
+  '20', '21', '22', '23', '24', '25',
+  '26', '27', '28', '2B', '2D', '2F',
+  '34', '38', '39', '3B', '3D', '3F',
+  '40', '42', '44', '53', '54', '55',
+  '57', '58', '72', 'F0', 'HV', 'P0', 'XX',
+]);
+
 function isServerIssuedCode(code: string): boolean {
-  return /^PGRST\d{3}$/.test(code) || /^[0-9A-Z]{5}$/.test(code);
+  if (/^PGRST\d{3}$/.test(code)) return true;
+  return /^[0-9A-Z]{5}$/.test(code) && POSTGRES_SQLSTATE_CLASSES.has(code.slice(0, 2));
 }
 
 /**
@@ -218,39 +241,50 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
   // laissait un HTTP 500 tomber en `unknown`.
   if (status >= 500 && status <= 599) return 'server_unavailable';
 
-  // 5. Depassement de delai. Le code structure prime sur le texte.
-  if (TIMEOUT_ERROR_CODES.has(code)) return 'timeout';
+  // 5. Depassement de delai RENDU PAR LE SERVEUR. Ces motifs restent valables
+  // meme avec une reponse HTTP : c'est le serveur lui-meme qui declare avoir
+  // depasse son propre delai.
   if (status === 408) return 'timeout';
-  if (
-    /^timeout after \d+ms$/.test(message)
-    || /statement timeout/.test(message)
-    || /database.*tim(?:ed|e)\s*out/.test(message)
-    || /connection.*timeout/.test(message)
-    || /\betimedout\b/.test(message)
-  ) {
+  if (code === '57014' || /statement timeout/.test(message) || /database.*tim(?:ed|e)\s*out/.test(message)) {
     return 'timeout';
   }
 
-  // 6. Coupure de transport.
-  if (NETWORK_ERROR_CODES.has(code)) return 'network';
-  if (
-    /network request failed/.test(message)
-    || /failed to fetch/.test(message)
-    || /fetch failed/.test(message)
-    || /network error/.test(message)
-    || /socket hang up/.test(message)
-    || /connection refused/.test(message)
-    || /connection terminated/.test(message)
-    || /\beconnreset\b/.test(message)
-    || /\beconnaborted\b/.test(message)
-    || /\benetunreach\b/.test(message)
-    || /\behostunreach\b/.test(message)
-    || /\beai_again\b/.test(message)
-    // « aborted » seul ne vaut coupure que si RIEN n'a repondu : un refus
-    // serveur dont le message contient ce mot ne doit pas etre requalifie.
-    || (!hasServerVerdict && /aborted/.test(message))
-  ) {
-    return 'network';
+  // 6. Depassement de delai et coupure STRICTEMENT CLIENTS. Ces heuristiques ne
+  // valent que si personne n'a repondu.
+  //
+  // Le probleme decouvert sur « aborted » n'etait pas propre a ce mot : c'est un
+  // conflit general entre preuve structuree et heuristique textuelle. Un refus
+  // `42501/403` dont le message contient « network error » etait requalifie en
+  // coupure reseau, et aurait alimente le circuit au lieu d'etre traite comme un
+  // refus deterministe.
+  if (!hasServerVerdict) {
+    if (TIMEOUT_ERROR_CODES.has(code)) return 'timeout';
+    if (
+      /^timeout after \d+ms$/.test(message)
+      || /connection.*timeout/.test(message)
+      || /\betimedout\b/.test(message)
+    ) {
+      return 'timeout';
+    }
+
+    if (NETWORK_ERROR_CODES.has(code)) return 'network';
+    if (
+      /network request failed/.test(message)
+      || /failed to fetch/.test(message)
+      || /fetch failed/.test(message)
+      || /network error/.test(message)
+      || /socket hang up/.test(message)
+      || /connection refused/.test(message)
+      || /connection terminated/.test(message)
+      || /\beconnreset\b/.test(message)
+      || /\beconnaborted\b/.test(message)
+      || /\benetunreach\b/.test(message)
+      || /\behostunreach\b/.test(message)
+      || /\beai_again\b/.test(message)
+      || /aborted/.test(message)
+    ) {
+      return 'network';
+    }
   }
 
   // 7. Conflit metier.
@@ -347,6 +381,16 @@ export interface RetryDecisionInput {
   retryOrdinal?: number;
 }
 
+/** Derniere barriere : aucune entree externe ne doit pouvoir faire lever ce module. */
+function toIsoOrNull(ms: number): string | null {
+  if (!Number.isFinite(ms) || Math.abs(ms) > MAX_REPRESENTABLE_DATE_MS) return null;
+  try {
+    return new Date(ms).toISOString();
+  } catch {
+    return null;
+  }
+}
+
 function clampJitter(value: number | undefined): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return 0.5;
   return Math.min(0.999_999, Math.max(0, value));
@@ -408,9 +452,15 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
   const clientAttemptAtMs = nowMs + clientDelayMs;
 
   // Jitter serveur uniquement POSITIF : on n'avance jamais une echeance imposee.
-  const serverAttemptAtMs = retryAfter.delayMs !== null
-    ? nowMs + Math.round(retryAfter.delayMs * (1 + 0.1 * jitter))
-    : null;
+  // `parseRetryAfter` a valide l'echeance BRUTE ; le jitter peut la pousser
+  // hors plage. Dans ce cas on conserve exactement l'echeance serveur — le
+  // jitter est un confort, pas une exigence, et `toISOString()` leverait.
+  const serverBaseAtMs = retryAfter.delayMs !== null ? nowMs + retryAfter.delayMs : null;
+  let serverAttemptAtMs: number | null = null;
+  if (serverBaseAtMs !== null && retryAfter.delayMs !== null) {
+    const jittered = serverBaseAtMs + Math.round(retryAfter.delayMs * 0.1 * jitter);
+    serverAttemptAtMs = Math.abs(jittered) <= MAX_REPRESENTABLE_DATE_MS ? jittered : serverBaseAtMs;
+  }
 
   // Le delai serveur ne remplace pas aveuglement le backoff : on retient le
   // plus tardif des deux, sinon une consigne serveur courte annulerait un
@@ -438,7 +488,7 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
     contributesToCircuit: failureClass === 'timeout'
       || failureClass === 'network'
       || (failureClass === 'server_unavailable' && serverAttemptAtMs === null),
-    nextAttemptAt: new Date(nextAttemptAtMs).toISOString(),
+    nextAttemptAt: toIsoOrNull(nextAttemptAtMs),
     retrySource: serverAttemptAtMs !== null && serverAttemptAtMs >= clientAttemptAtMs
       ? 'retry_after'
       : failureClass === 'authentication' ? 'authentication' : 'policy',
@@ -494,11 +544,49 @@ export function syncOrderingKey(operation: RetryQueueOperationLike): string {
   }
 
   const table = operation.table ?? 'inconnu';
-  if (operation.filter?.column === 'id' && operation.filter.value !== undefined) {
-    return `${table}:${String(operation.filter.value)}`;
+  const ownId = operation.filter?.column === 'id' && operation.filter.value !== undefined
+    ? operation.filter.value
+    : operation.data?.id;
+
+  // Les chemins generiques doivent produire la MEME cle que les RPC de la meme
+  // entite. Sinon `create_reserve_with_photos(R7)` donnait `reserve:R7` tandis
+  // qu'un `update reserves id=R7` donnait `reserves:R7` : deux groupes
+  // distincts, et une ecriture pouvait depasser la creation dont elle depend.
+  if (table === 'reserves' && ownId !== undefined) return `reserve:${String(ownId)}`;
+  if (table === 'inventory_products' && ownId !== undefined) return `inventory:${String(ownId)}`;
+  if (table === 'inventory_movements' && ownId !== undefined) return `inventory:${String(ownId)}`;
+  if (table === 'site_plans' && ownId !== undefined) return `plan:${String(ownId)}`;
+
+  // Une photo hors ligne transporte son rattachement dans `data`, pas dans un
+  // filtre : sans cela elle formait son propre groupe et pouvait etre inseree
+  // avant que sa reserve existe.
+  if (table === 'photos') {
+    const reserveId = operation.data?.reserve_id ?? operation.data?.reserveId;
+    if (reserveId !== undefined && reserveId !== null) return `reserve:${String(reserveId)}`;
   }
+
+  if (ownId !== undefined) return `${table}:${String(ownId)}`;
   // Repli conservateur : toute la table partage une file d'ordre.
   return `table:${table}`;
+}
+
+/**
+ * Age dans la file. La comparaison lexicographique des chaines ne tient que si
+ * toutes proviennent de `toISOString()` : un offset different, une migration
+ * ancienne ou une date corrompue elisaient la mauvaise tete de groupe, donc un
+ * depassement d'ordre. A donnee illisible, l'ordre persiste du tableau reste
+ * autoritaire.
+ */
+function compareQueueAge(
+  a: RetryQueueOperationLike,
+  aIndex: number,
+  b: RetryQueueOperationLike,
+  bIndex: number,
+): number {
+  const aMs = Date.parse(a.queuedAt ?? '');
+  const bMs = Date.parse(b.queuedAt ?? '');
+  if (Number.isFinite(aMs) && Number.isFinite(bMs) && aMs !== bMs) return aMs - bMs;
+  return aIndex - bIndex;
 }
 
 function dueAtMs(operation: RetryQueueOperationLike): number {
@@ -537,9 +625,7 @@ export function selectEligibleOperationHeads<T extends RetryQueueOperationLike>(
       return;
     }
     // La tete est la plus ancienne mise en file ; a egalite, l'ordre d'origine.
-    const currentQueuedAt = current.operation.queuedAt ?? '';
-    const candidateQueuedAt = operation.queuedAt ?? '';
-    if (candidateQueuedAt < currentQueuedAt) {
+    if (compareQueueAge(operation, index, current.operation, current.index) < 0) {
       headByKey.set(key, { operation, index });
     }
   });
@@ -549,9 +635,7 @@ export function selectEligibleOperationHeads<T extends RetryQueueOperationLike>(
     .sort((a, b) => {
       const priorityDiff = priorityOf(a.operation) - priorityOf(b.operation);
       if (priorityDiff !== 0) return priorityDiff;
-      const queuedDiff = (a.operation.queuedAt ?? '').localeCompare(b.operation.queuedAt ?? '');
-      if (queuedDiff !== 0) return queuedDiff;
-      return a.index - b.index;
+      return compareQueueAge(a.operation, a.index, b.operation, b.index);
     })
     .map(entry => entry.operation);
 }
@@ -574,21 +658,24 @@ export function computeNextWakeAt<T extends RetryQueueOperationLike>(
   const { operations, nowMs } = input;
   const keyOf = input.orderingKey ?? syncOrderingKey;
 
-  const headByKey = new Map<string, T>();
-  for (const operation of operations) {
-    if (operation.terminal) continue;
+  // Meme comparateur que la selection des tetes : deux definitions de « la plus
+  // ancienne » auraient pu armer le reveil sur une operation differente de celle
+  // effectivement traitee.
+  const headByKey = new Map<string, { operation: T; index: number }>();
+  operations.forEach((operation, index) => {
+    if (operation.terminal) return;
     const key = keyOf(operation);
     const current = headByKey.get(key);
-    if (!current || (operation.queuedAt ?? '') < (current.queuedAt ?? '')) {
-      headByKey.set(key, operation);
+    if (!current || compareQueueAge(operation, index, current.operation, current.index) < 0) {
+      headByKey.set(key, { operation, index });
     }
-  }
+  });
 
   if (headByKey.size === 0) return null;
 
   let earliest = Number.POSITIVE_INFINITY;
-  for (const operation of headByKey.values()) {
-    earliest = Math.min(earliest, Math.max(nowMs, dueAtMs(operation)));
+  for (const entry of headByKey.values()) {
+    earliest = Math.min(earliest, Math.max(nowMs, dueAtMs(entry.operation)));
   }
   if (!Number.isFinite(earliest)) return null;
 

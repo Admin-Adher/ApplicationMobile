@@ -263,13 +263,39 @@ describe('ordering keys', () => {
     })).toBe('plan:PL3');
   });
 
+  it('gives one entity a single key across RPC and generic paths', () => {
+    // Trois ecritures de la meme reserve. Des cles differentes auraient forme
+    // des groupes distincts, et une ecriture aurait pu depasser la creation
+    // dont elle depend.
+    const creation = syncOrderingKey({
+      rpc: { fn: 'create_reserve_with_photos', args: { p_reserve: { id: 'R7' } } },
+    });
+    const update = syncOrderingKey({
+      table: 'reserves', op: 'update', filter: { column: 'id', value: 'R7' },
+    });
+    const photo = syncOrderingKey({
+      table: 'photos', op: 'insert', data: { id: 'PH1', reserve_id: 'R7' },
+    });
+
+    expect(creation).toBe('reserve:R7');
+    expect(update).toBe('reserve:R7');
+    // Une photo hors ligne porte son rattachement dans `data`, pas dans un filtre.
+    expect(photo).toBe('reserve:R7');
+    expect(new Set([creation, update, photo]).size).toBe(1);
+  });
+
+  it('unifies the other entity tables too', () => {
+    expect(syncOrderingKey({ table: 'inventory_products', op: 'update', filter: { column: 'id', value: 'P1' } }))
+      .toBe('inventory:P1');
+    expect(syncOrderingKey({ table: 'site_plans', op: 'update', filter: { column: 'id', value: 'PL1' } }))
+      .toBe('plan:PL1');
+    // Un insert generique rattache par son propre identifiant.
+    expect(syncOrderingKey({ table: 'reserves', op: 'insert', data: { id: 'R9' } })).toBe('reserve:R9');
+  });
+
   it('falls back conservatively rather than risk an order violation', () => {
-    // Une cle par ligne quand l'ID est connu…
-    expect(syncOrderingKey({ table: 'reserves', op: 'update', filter: { column: 'id', value: 'R1' } }))
-      .toBe('reserves:R1');
-    // …sinon toute la table partage une file d'ordre : debit reduit, mais aucun
-    // depassement possible.
     expect(syncOrderingKey({ table: 'reserves', op: 'insert' })).toBe('table:reserves');
+    expect(syncOrderingKey({ table: 'photos', op: 'insert', data: { reserve_id: null } })).toBe('table:photos');
     expect(syncOrderingKey({})).toBe('table:inconnu');
   });
 });
@@ -502,5 +528,91 @@ describe('hardened contracts', () => {
     expect(syncOrderingKey({
       rpc: { fn: 'replace_site_plan_file_safely', args: { p_plan_id: 'PL1' } },
     })).toBe('plan:PL1');
+  });
+});
+
+describe('structured evidence outranks textual heuristics', () => {
+  it('never lets network wording override a deterministic refusal', () => {
+    // Le probleme trouve sur « aborted » n etait pas propre a ce mot : c est un
+    // conflit general entre preuve structuree et heuristique textuelle.
+    for (const message of [
+      'network error while operation was rejected by policy',
+      'connection terminated after refusal',
+      'socket hang up',
+      'failed to fetch',
+      'aborted',
+    ]) {
+      expect(classifySyncFailure({ error: { code: '42501', status: 403, message } }), message)
+        .toBe('permanent_candidate');
+    }
+  });
+
+  it('still honours a timeout the server itself declared', () => {
+    // 57014 et « statement timeout » viennent du serveur : ils restent valables
+    // malgre une reponse HTTP.
+    expect(classifySyncFailure({ error: { code: '57014', status: 400, message: 'statement timeout' } }))
+      .toBe('timeout');
+    expect(classifySyncFailure({ error: { status: 400, message: 'database timed out' } })).toBe('timeout');
+    expect(classifySyncFailure({ error: { status: 408 } })).toBe('timeout');
+  });
+
+  it('keeps transport heuristics when nothing answered', () => {
+    expect(classifySyncFailure({ error: { message: 'Network request failed' } })).toBe('network');
+    expect(classifySyncFailure({ error: { code: 'ECONNRESET', message: 'socket closed' } })).toBe('network');
+    expect(classifySyncFailure({ error: { message: 'timeout after 150000ms' } })).toBe('timeout');
+  });
+
+  it('does not mistake a local system code for a server reply', () => {
+    // Accepter toute chaine de cinq caracteres alphanumeriques reconnaissait
+    // EPERM, EBUSY, EINTR… comme preuve qu un serveur avait repondu : une erreur
+    // de fichier local aurait pu remettre a zero le circuit reseau.
+    for (const code of ['EPERM', 'EBUSY', 'EROFS', 'ELOOP', 'ENXIO', 'EINTR']) {
+      expect(failureReachedServer({ code }), code).toBe(false);
+    }
+    for (const code of ['42501', '23505', 'XX000', '57014', 'PGRST202']) {
+      expect(failureReachedServer({ code }), code).toBe(true);
+    }
+  });
+});
+
+describe('temporal robustness', () => {
+  it('keeps the exact server deadline when jitter would overflow the date range', () => {
+    // parseRetryAfter valide l echeance BRUTE ; le jitter pouvait la pousser
+    // hors plage et faire lever toISOString().
+    const nearLimit = 8.64e15 - 1000;
+    const decision = computeRetryDecision({
+      failure: { error: { status: 429 }, meta: { retryAfter: String(Math.floor(nearLimit / 1000)) } },
+      nowMs: 0,
+      jitter: 0.999,
+    });
+
+    expect(decision.nextAttemptAt).not.toBeNull();
+    expect(() => new Date(decision.nextAttemptAt!).toISOString()).not.toThrow();
+  });
+
+  it('elects the head by real time, not by string comparison', () => {
+    // Deux instants identiques ecrits avec des offsets differents : la
+    // comparaison lexicographique elisait la mauvaise tete, donc un
+    // depassement d ordre.
+    const heads = selectEligibleOperationHeads({
+      operations: [
+        { id: 'plus-recente', table: 'photos', queuedAt: '2026-08-22T09:00:00.000Z' },
+        { id: 'plus-ancienne', table: 'photos', queuedAt: '2026-08-22T11:00:00.000+03:00' },
+      ],
+      nowMs: NOW,
+    });
+    // 11:00+03:00 vaut 08:00Z : c est bien la plus ancienne.
+    expect(heads.map(o => o.id)).toEqual(['plus-ancienne']);
+  });
+
+  it('falls back to persisted order when a queue date is unreadable', () => {
+    const heads = selectEligibleOperationHeads({
+      operations: [
+        { id: 'premiere', table: 'photos', queuedAt: 'corrompue' },
+        { id: 'seconde', table: 'photos', queuedAt: 'aussi-corrompue' },
+      ],
+      nowMs: NOW,
+    });
+    expect(heads.map(o => o.id)).toEqual(['premiere']);
   });
 });
