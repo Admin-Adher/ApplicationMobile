@@ -257,8 +257,14 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
   // `42501/403` dont le message contient « network error » etait requalifie en
   // coupure reseau, et aurait alimente le circuit au lieu d'etre traite comme un
   // refus deterministe.
+  // Les codes structures sont autoritaires : depuis que la lecture du corps est
+  // bornee, un `REST_TIMEOUT` peut arriver AVEC `status: 200` — les headers sont
+  // passes, la lecture non. Le laisser derriere la garde le faisait tomber en
+  // `unknown` alors que c'est bien un timeout.
+  if (TIMEOUT_ERROR_CODES.has(code)) return 'timeout';
+  if (NETWORK_ERROR_CODES.has(code)) return 'network';
+
   if (!hasServerVerdict) {
-    if (TIMEOUT_ERROR_CODES.has(code)) return 'timeout';
     if (
       /^timeout after \d+ms$/.test(message)
       || /connection.*timeout/.test(message)
@@ -267,7 +273,6 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
       return 'timeout';
     }
 
-    if (NETWORK_ERROR_CODES.has(code)) return 'network';
     if (
       /network request failed/.test(message)
       || /failed to fetch/.test(message)
@@ -483,11 +488,16 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
     reachedServer,
     scope,
     blocksCurrentPass: scope === 'backend' || scope === 'authentication',
-    // Seule une absence de verdict serveur temoigne d'un probleme de lien. Un
-    // 429 ou un 400 prouvent au contraire que le backend repond.
-    contributesToCircuit: failureClass === 'timeout'
-      || failureClass === 'network'
-      || (failureClass === 'server_unavailable' && serverAttemptAtMs === null),
+    // Seule une absence de verdict serveur temoigne d'un probleme de LIEN. Un
+    // timeout survenu pendant la lecture du corps, un `408` ou un `57014`
+    // prouvent au contraire que le backend repond : les compter ouvrirait un
+    // circuit reseau sur un serveur parfaitement joignable.
+    //
+    // `server_unavailable` fait exception et reste comptabilise : un backend
+    // qui repond `503` a tout est injoignable en pratique, meme s'il repond.
+    contributesToCircuit: failureClass === 'server_unavailable'
+      ? serverAttemptAtMs === null
+      : (failureClass === 'timeout' || failureClass === 'network') && !reachedServer,
     nextAttemptAt: toIsoOrNull(nextAttemptAtMs),
     retrySource: serverAttemptAtMs !== null && serverAttemptAtMs >= clientAttemptAtMs
       ? 'retry_after'

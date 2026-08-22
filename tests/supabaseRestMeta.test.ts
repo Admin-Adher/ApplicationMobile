@@ -364,3 +364,47 @@ describe('the local deadline actually fires', () => {
     }
   });
 });
+
+describe('an empty 2xx body is not a verdict', () => {
+  it('refuses an empty body when a result is required', async () => {
+    // Ni erreur de lecture, ni JSON invalide : une reponse recue au corps vide.
+    // Sur un mouvement de stock, l absence de ligne se normalise en
+    // `server_rejected`, donc refus terminal, donc rollback d un mouvement que
+    // le serveur a peut-etre accepte.
+    fetchMock.mockResolvedValue(responseWithBody(200, async () => ''));
+
+    const result = await supabaseRestRpc('record_inventory_movement', {});
+
+    expect(result.data).toBeNull();
+    expect(result.error.code).toBe('REST_BODY_EMPTY');
+    expect(result.error.status).toBe(200);
+    expect(result.meta).toEqual({ status: 200, reachedServer: true, retryAfter: null });
+  });
+
+  it('accepts an empty body where none is expected', async () => {
+    // `insert` part avec `Prefer: return=minimal`.
+    fetchMock.mockResolvedValue(responseWithBody(204, async () => ''));
+
+    const result = await supabaseRestMutation('reserves', 'insert', { id: 'R1' });
+
+    expect(result.error).toBeNull();
+    expect(result.meta.status).toBe(204);
+  });
+
+  it('accepts an empty array, which is a real result', async () => {
+    fetchMock.mockResolvedValue(responseWithBody(200, async () => '[]'));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.error).toBeNull();
+    expect(result.data).toEqual([]);
+  });
+
+  it('leaves an RPC whose result nobody reads alone', async () => {
+    fetchMock.mockResolvedValue(responseWithBody(200, async () => ''));
+
+    const result = await supabaseRestRpc('link_reserves_to_visite', {});
+
+    expect(result.error).toBeNull();
+  });
+});
