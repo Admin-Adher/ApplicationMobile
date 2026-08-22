@@ -30,7 +30,29 @@ export interface DiagnosticQueuedOperation extends SyncQueueOperationLike {
   sameFailureCount?: number;
 }
 
-export interface DiagnosticEnvironment {
+/**
+ * Identite du bundle JavaScript reellement en cours d'execution.
+ *
+ * `version` et `build` ne suffisent pas : plusieurs OTA se succedent sur le
+ * meme `runtimeVersion`, avec des numeros identiques. Un rapport terrain ne
+ * pouvait donc pas designer le bundle qu'il mesurait.
+ */
+export interface DiagnosticBundleIdentity {
+  /** `null` sur un bundle embarque ou hors EAS Update. */
+  updateId?: string | null;
+  /** Date de publication de la mise a jour chargee. */
+  updateCreatedAt?: string | null;
+  channel?: string | null;
+  runtimeVersion?: string | null;
+  /**
+   * `true` quand l'application tourne le bundle livre avec l'APK, donc
+   * AUCUNE mise a jour appliquee. Repond directement a « l'OTA est-elle
+   * active ? », au lieu de le deduire de la presence d'un bouton.
+   */
+  embeddedLaunch?: boolean | null;
+}
+
+export interface DiagnosticEnvironment extends DiagnosticBundleIdentity {
   appVersion: string;
   buildNumber: number | null;
   platform: string;
@@ -68,7 +90,16 @@ export interface DiagnosticOperationLine {
 
 export interface SyncDiagnosticReport {
   generatedAt: string;
-  app: { version: string; build: number | null; platform: string };
+  app: {
+    version: string;
+    build: number | null;
+    platform: string;
+    updateId: string | null;
+    updateCreatedAt: string | null;
+    channel: string | null;
+    runtimeVersion: string | null;
+    embeddedLaunch: boolean | null;
+  };
   connectivity: {
     online: boolean;
     backendReachable: boolean | null;
@@ -225,6 +256,15 @@ export function buildSyncDiagnosticReport(
       version: environment.appVersion,
       build: environment.buildNumber,
       platform: environment.platform,
+      // Bornes de longueur : ces valeurs viennent d'un module natif, on ne leur
+      // fait pas plus confiance qu'aux champs d'une operation.
+      updateId: safeToken(environment.updateId, ID_PATTERN, MAX_ID_LENGTH) ?? null,
+      updateCreatedAt: safeIsoDate(environment.updateCreatedAt) ?? null,
+      channel: safeToken(environment.channel, NAME_PATTERN, MAX_NAME_LENGTH) ?? null,
+      runtimeVersion: safeToken(environment.runtimeVersion, ID_PATTERN, MAX_ID_LENGTH) ?? null,
+      embeddedLaunch: typeof environment.embeddedLaunch === 'boolean'
+        ? environment.embeddedLaunch
+        : null,
     },
     connectivity: {
       online: environment.isOnline,
@@ -264,6 +304,12 @@ export function formatSyncDiagnosticReport(report: SyncDiagnosticReport): string
     'BuildTrack — diagnostic de synchronisation',
     `Genere le            : ${report.generatedAt}`,
     `Application          : ${report.app.version} (build ${report.app.build ?? 'n/a'}) — ${report.app.platform}`,
+    `Bundle               : ${report.app.embeddedLaunch === null
+      ? 'inconnu'
+      : report.app.embeddedLaunch ? 'embarque dans l APK (aucune OTA appliquee)' : 'mise a jour OTA'}`,
+    `Mise a jour          : ${report.app.updateId ?? 'n/a'}`
+      + (report.app.updateCreatedAt ? ` publiee le ${report.app.updateCreatedAt}` : ''),
+    `Canal / runtime      : ${report.app.channel ?? 'n/a'} / ${report.app.runtimeVersion ?? 'n/a'}`,
     `Connectivite         : ${report.connectivity.online ? 'en ligne' : 'hors connexion'} | backend ${backend}`,
     `Etat sync            : ${report.connectivity.syncStatus}`
       + (report.connectivity.authBlocked ? ' (authentification bloquee)' : ''),

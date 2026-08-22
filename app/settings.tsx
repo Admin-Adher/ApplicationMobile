@@ -32,6 +32,7 @@ import {
 } from '@/lib/syncQueuePolicy';
 import { buildSyncDiagnosticReport, formatSyncDiagnosticReport } from '@/lib/syncDiagnosticExport';
 import { currentApplicationVersion, currentBuildNumber } from '@/lib/clientVersion';
+import { currentBundleIdentity } from '@/lib/bundleIdentity';
 import type { QueuedOperation } from '@/context/NetworkContext';
 
 function groupByDate(records: AttendanceRecord[]): Record<string, AttendanceRecord[]> {
@@ -204,6 +205,9 @@ export default function SettingsScreen() {
         appVersion: currentApplicationVersion(),
         buildNumber: currentBuildNumber(),
         platform: Platform.OS,
+        // Identifie le bundle exact mesure : plusieurs OTA partagent la meme
+        // version applicative, un rapport terrain doit pouvoir les distinguer.
+        ...currentBundleIdentity(),
         generatedAt: new Date().toISOString(),
         isOnline,
         backendReachable,

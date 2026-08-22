@@ -200,7 +200,7 @@ describe('sync diagnostic export', () => {
   it('keeps exactly what the support needs to act', () => {
     const report = buildSyncDiagnosticReport([sensitiveOperation], environment);
 
-    expect(report.app).toEqual({ version: '1.2.4', build: 1047, platform: 'android' });
+    expect(report.app).toMatchObject({ version: '1.2.4', build: 1047, platform: 'android' });
     expect(report.connectivity).toEqual({
       online: true,
       backendReachable: false,
@@ -241,5 +241,63 @@ describe('sync diagnostic export', () => {
     expect(text).toContain('backend injoignable');
     expect(text).toContain('1 en attente');
     expect(text).toContain('record_inventory_movement');
+  });
+});
+
+describe('bundle identity', () => {
+  it('names the exact bundle being measured', () => {
+    // `version` et `build` sont identiques sur toutes les OTA d un meme
+    // runtime : un rapport terrain ne pouvait pas designer ce qu il mesurait.
+    const report = buildSyncDiagnosticReport([], {
+      ...environment,
+      updateId: 'a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d',
+      updateCreatedAt: '2026-08-22T21:37:00.000Z',
+      channel: 'production',
+      runtimeVersion: '1.2.4',
+      embeddedLaunch: false,
+    });
+
+    expect(report.app.updateId).toBe('a1b2c3d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d');
+    expect(report.app.channel).toBe('production');
+    expect(report.app.embeddedLaunch).toBe(false);
+
+    const text = formatSyncDiagnosticReport(report);
+    expect(text).toContain('mise a jour OTA');
+    expect(text).toContain('production / 1.2.4');
+  });
+
+  it('says plainly when no update has been applied', () => {
+    // Repond a « l OTA est-elle active ? » sans le deduire de la presence
+    // d un bouton dans l interface.
+    const text = formatSyncDiagnosticReport(buildSyncDiagnosticReport([], {
+      ...environment,
+      embeddedLaunch: true,
+      updateId: null,
+    }));
+
+    expect(text).toContain('embarque dans l APK (aucune OTA appliquee)');
+  });
+
+  it('degrades to unknown rather than failing', () => {
+    // Le module natif est absent en test et peut lever sur un build de dev.
+    const report = buildSyncDiagnosticReport([], environment);
+
+    expect(report.app.updateId).toBeNull();
+    expect(report.app.embeddedLaunch).toBeNull();
+    expect(formatSyncDiagnosticReport(report)).toContain('Bundle               : inconnu');
+  });
+
+  it('trusts the native module no more than a queue field', () => {
+    const report = buildSyncDiagnosticReport([], {
+      ...environment,
+      updateId: 'jean.dupont@example.com',
+      channel: 'canal avec espaces et accents é',
+      updateCreatedAt: 'pas-une-date',
+    });
+
+    expect(report.app.updateId).toBeNull();
+    expect(report.app.channel).toBeNull();
+    expect(report.app.updateCreatedAt).toBeNull();
+    expect(JSON.stringify(report)).not.toContain('jean.dupont');
   });
 });
