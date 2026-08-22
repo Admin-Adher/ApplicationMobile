@@ -437,6 +437,19 @@ export default function SettingsScreen() {
   }
   const diagnosticProblemCount = diagIssues.length + (totalQueueCount > 0 ? 1 : 0);
   const diagOk = diag && !diag.loading && !diag.error && diagnosticProblemCount === 0;
+  // Le résumé doit annoncer le nombre d'OPÉRATIONS concernées, pas le nombre de
+  // catégories d'incident : « 1 problème détecté » au-dessus d'une file de 29
+  // opérations se lit comme un compteur faux, et masque l'ampleur réelle.
+  const diagnosticSummary = totalQueueCount > 0
+    ? (diagIssues.length > 0
+      ? t('settings.diagnostic.accountAndQueueSummary', {
+        problems: diagIssues.length,
+        count: totalQueueCount,
+      })
+      : t('settings.diagnostic.queueSummary', { count: totalQueueCount }))
+    : diagIssues.length > 0
+      ? t('settings.diagnostic.problemCount', { count: diagIssues.length })
+      : null;
   type NotificationBooleanKey = NonNullable<{
     [K in keyof NotificationPreferences]: NotificationPreferences[K] extends boolean ? K : never
   }[keyof NotificationPreferences]>;
@@ -1034,7 +1047,7 @@ export default function SettingsScreen() {
                   {diag?.loading ? t('settings.diagnostic.checking')
                     : diagOk ? t('settings.diagnostic.allSynced')
                     : diag?.error ? diag.error
-                    : diag && diagnosticProblemCount > 0 ? t('settings.diagnostic.problemCount', { count: diagnosticProblemCount })
+                    : diag && diagnosticSummary ? diagnosticSummary
                     : t('settings.diagnostic.checkConsistency')}
                 </Text>
               </View>

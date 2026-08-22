@@ -39,8 +39,9 @@ import {
   isInfrastructureSyncFailure,
   isInventoryQueuedOperation,
   isReplayableQueuedOperation,
+  assessPermanentFailure,
   shouldAbandonPassAfterInfrastructureFailure,
-  shouldTerminatePermanentFailure,
+  syncFailureReachedServer,
   type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
 import {
@@ -183,6 +184,10 @@ export interface QueuedOperation {
   lastError?: string;
   /** Number of failed sync attempts. */
   attemptCount?: number;
+  /** Empreinte du dernier échec : seuls des refus IDENTIQUES répétés comptent. */
+  lastFailureFingerprint?: string;
+  /** Refus déterministes consécutifs de même empreinte. */
+  sameFailureCount?: number;
   /** Server row version observed when the user made this mutation. */
   baseVersion?: number | null;
   /** Terminal failures stay visible but are not replayed automatically. */
@@ -380,10 +385,26 @@ function withTimeoutMs<T>(p: Promise<T>, ms: number): Promise<T> {
   });
 }
 
+/**
+ * `fetch` borné ET réellement interrompu. Sans le contrôleur, une sonde partie
+ * sur un lien mort restait pendante bien après son délai : les sondes se
+ * cumulaient toutes les 10 s, chacune tenant une socket sur une connexion déjà
+ * saturée — exactement ce qu'on cherche à mesurer.
+ */
+async function fetchWithAbort(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function checkInternetReachable(): Promise<boolean> {
   for (const url of PING_URLS) {
     try {
-      const res = await withTimeoutMs(fetch(url, { method: 'GET', cache: 'no-cache' }), 8000);
+      const res = await fetchWithAbort(url, { method: 'GET', cache: 'no-cache' }, 8000);
       if (res.ok || res.status === 204 || res.status === 404) return true;
     } catch {}
   }
@@ -393,13 +414,17 @@ async function checkInternetReachable(): Promise<boolean> {
 async function checkSupabaseReachable(): Promise<boolean> {
   if (!isSupabaseConfigured || !SUPABASE_URL || !SUPABASE_KEY) return true;
   try {
-    const res = await withTimeoutMs(fetch(`${SUPABASE_URL}/auth/v1/health`, {
-      method: 'GET',
-      cache: 'no-cache',
-      headers: {
-        apikey: SUPABASE_KEY,
+    const res = await fetchWithAbort(
+      `${SUPABASE_URL}/auth/v1/health`,
+      {
+        method: 'GET',
+        cache: 'no-cache',
+        headers: {
+          apikey: SUPABASE_KEY,
+        },
       },
-    }), 12000);
+      12000,
+    );
     return res.ok;
   } catch {
     return false;
@@ -706,6 +731,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // Horodatage du dernier progrès (incrément d'opération traitée). Sert à
   // détecter une passe gelée sans pénaliser une passe lente mais qui avance.
   const syncProgressAtRef = useRef(0);
+  // Contrôleur de la passe en cours. Abandonner une passe ne suffisait pas à
+  // arrêter ses transferts : un upload préempté continuait à consommer le lien
+  // que la passe suivante allait réclamer, et pouvait aboutir après son réessai.
+  const passAbortRef = useRef<AbortController | null>(null);
+  const abortCurrentPass = useCallback((reason: string) => {
+    const controller = passAbortRef.current;
+    if (!controller || controller.signal.aborted) return;
+    console.warn(`[queue] annulation des transferts de la passe en cours (${reason})`);
+    controller.abort();
+  }, []);
   const reloadHandlerRef = useRef<(() => void) | null>(null);
   const lastLoadedKeyRef = useRef<string | null>(null);
   const wakeInFlightRef = useRef(false);
@@ -773,7 +808,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => () => {
     if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
-  }, []);
+    // Démontage du provider : plus personne n'exploitera le résultat, on coupe
+    // les transferts au lieu de les laisser courir en tâche de fond.
+    abortCurrentPass('démontage du provider');
+  }, [abortCurrentPass]);
 
   // ── Queue persistence ──────────────────────────────────────────────────────
 
@@ -896,6 +934,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Une passe lancée pour le compte précédent ne doit jamais repeupler l'état
     // React du compte suivant lorsqu'un upload réseau se termine en retard.
     syncGenerationRef.current += 1;
+    // Un transfert lancé pour le compte précédent ne doit pas survivre au
+    // changement d'utilisateur.
+    abortCurrentPass('changement de compte');
     syncingRef.current = false;
     queueHydrationGenerationRef.current += 1;
     queueLoadedRef.current = false;
@@ -1165,10 +1206,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       const sinceProgress = Date.now() - syncProgressAtRef.current;
       if (sinceProgress < SYNC_STUCK_RECOVERY_MS) return;
       console.warn(`[queue] passe de sync gelée depuis ${Math.round(sinceProgress / 1000)}s — préemption forcée`);
+      // La passe gelée l'est presque toujours sur un transfert : le couper est
+      // la seule façon de libérer vraiment le lien pour la nouvelle passe.
+      abortCurrentPass('préemption passe gelée');
     }
 
     const myGeneration = ++syncGenerationRef.current;
     const isCurrentGeneration = () => syncGenerationRef.current === myGeneration;
+    const passAbort = new AbortController();
+    passAbortRef.current = passAbort;
+    const passSignal = passAbort.signal;
     syncingRef.current = true;
     syncProgressAtRef.current = Date.now();
     lastSyncAttemptRef.current = Date.now();
@@ -1278,9 +1325,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // vide jamais, et l'utilisateur voit des dizaines d'opérations promises
       // à un réessai qui ne peut pas aboutir. On l'annonce donc comme refusée,
       // avec le message technique conservé dans `lastError`.
+      //
+      // L'évaluation se fait sur l'EMPREINTE de l'erreur, pas sur le nombre
+      // total de tentatives : une séquence timeout → 503 → 404 ne doit pas
+      // rendre le 404 terminal du premier coup.
+      const assessment = assessPermanentFailure(op, err);
       let resolvedOutcome = options?.terminalOutcome;
       let resolvedStatus = options?.terminalOutcome?.status ?? options?.terminalStatus;
-      if (!resolvedStatus && shouldTerminatePermanentFailure(err, attemptCount)) {
+      if (!resolvedStatus && assessment.terminal) {
         resolvedStatus = 'server_rejected';
         if (isInventoryQueuedOperation(op)) {
           // Le stock optimiste doit être annulé comme pour tout refus métier :
@@ -1297,25 +1349,29 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         ...op,
         lastError: msg,
         attemptCount,
+        lastFailureFingerprint: assessment.fingerprint ?? undefined,
+        sameFailureCount: assessment.sameFailureCount,
         terminal: Boolean(resolvedStatus || resolvedOutcome) || op.terminal,
         terminalStatus: resolvedStatus ?? op.terminalStatus,
         terminalOutcome: resolvedOutcome ?? op.terminalOutcome,
       });
 
-      if (!circuitOpened && isAuthenticationSyncFailure(err)) {
+      if (isAuthenticationSyncFailure(err)) {
         // Stop after the first rejected authenticated request. Replaying every
         // queued operation with the same unusable JWT only burns retries and
         // can trigger one refresh attempt per row.
-        circuitOpened = true;
-        circuitDelayMs = SYNC_AUTH_RETRY_DELAY_MS;
-        syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
-        setSyncAuthBlocked(isSessionExpired());
-      } else if (!circuitOpened && isInfrastructureSyncFailure(err)) {
+        if (!circuitOpened) {
+          circuitOpened = true;
+          circuitDelayMs = SYNC_AUTH_RETRY_DELAY_MS;
+          syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+          setSyncAuthBlocked(isSessionExpired());
+        }
+      } else if (isInfrastructureSyncFailure(err)) {
         consecutiveInfraFailures += 1;
         // On ne condamne la passe qu'après plusieurs échecs d'affilée : c'est
         // la différence entre « le serveur est injoignable » et « la 4G du
         // chantier a hoqueté sur cette opération-là ».
-        if (shouldAbandonPassAfterInfrastructureFailure(consecutiveInfraFailures)) {
+        if (!circuitOpened && shouldAbandonPassAfterInfrastructureFailure(consecutiveInfraFailures)) {
           circuitOpened = true;
           const failures = syncInfrastructureFailureCountRef.current + 1;
           syncInfrastructureFailureCountRef.current = failures;
@@ -1326,6 +1382,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           circuitDelayMs = Math.round(exponential * (0.8 + Math.random() * 0.4));
           syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
         }
+      } else if (syncFailureReachedServer(err)) {
+        // Refus rendu PAR le serveur (400, 422, 42501…) : le lien fonctionne.
+        // La série d'échecs réseau est donc rompue, même si l'opération échoue.
+        // Sans cette branche, une alternance timeout → 400 → timeout → 422
+        // faisait croire à trois timeouts « consécutifs ».
+        consecutiveInfraFailures = 0;
+        syncInfrastructureFailureCountRef.current = 0;
       }
     };
 
@@ -1367,6 +1430,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             }
             const prep = await withTimeoutMs(
               uploadLocalPhotosInPayload('reserves', rawReserve, {
+                signal: passSignal,
                 onProgress: async (partialReserve) => {
                   if (!isCurrentGeneration()) return;
                   const progressOp: QueuedOperation = {
@@ -1454,7 +1518,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               continue;
             }
             const prep = await withTimeoutMs(
-              uploadLocalPhotosInPayload('inventory_products', rawProduct),
+              uploadLocalPhotosInPayload('inventory_products', rawProduct, { signal: passSignal }),
               uploadStepTimeoutMs(rawProduct),
             );
             if (!prep.allOk) {
@@ -1476,7 +1540,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               continue;
             }
             const prep = await withTimeoutMs(
-              uploadLocalPhotosInPayload('inventory_products', rawPatch),
+              uploadLocalPhotosInPayload('inventory_products', rawPatch, { signal: passSignal }),
               uploadStepTimeoutMs(rawPatch),
             );
             if (!prep.allOk) {
@@ -1499,7 +1563,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               continue;
             }
             const prep = await withTimeoutMs(
-              uploadLocalPhotosInPayload('site_plans', rawPlan),
+              uploadLocalPhotosInPayload('site_plans', rawPlan, { signal: passSignal }),
               UPLOAD_STEP_TIMEOUT_MS,
             );
             if (!prep.allOk) {
