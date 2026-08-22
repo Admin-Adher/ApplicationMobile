@@ -125,13 +125,15 @@ jobs:
             echo "workflow_changed=${workflow}"
           } >> "$GITHUB_OUTPUT"
 
-          echo "### Classification" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Categorie | Modifie |" >> "$GITHUB_STEP_SUMMARY"
-          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Bundle JS (OTA) | ${ota} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Runtime natif | ${native} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Serveur / SQL | ${server} |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Workflows | ${workflow} |" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Classification"
+            echo "| Categorie | Modifie |"
+            echo "|---|---|"
+            echo "| Bundle JS (OTA) | ${ota} |"
+            echo "| Runtime natif | ${native} |"
+            echo "| Serveur / SQL | ${server} |"
+            echo "| Workflows | ${workflow} |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # ─── Job 1 : OTA update (JS bundle uniquement) ───────────────────────────
   # Publie le bundle JS via EAS Update (expo-updates).
