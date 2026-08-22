@@ -12,7 +12,10 @@ function source(relative: string) {
 const migrationPath = 'supabase/migrations/20260814102326_harden_inventory_operation_idempotency.sql';
 const migration = source(migrationPath);
 const sqlMatrix = source('supabase/tests/inventory_operation_idempotency.sql');
-const workflow = source('.github/workflows/security-gates.yml');
+// Les controles ont ete extraits dans le workflow reutilisable, qui est
+// desormais la definition canonique appelee par les PR ET par la chaine de
+// release. `security-gates.yml` n'en est plus qu'un appelant mince.
+const workflow = source('.github/workflows/reusable-quality-gates.yml');
 const networkContext = source('context/NetworkContext.tsx');
 const inventoryHook = source('hooks/queries/useInventory.ts');
 
