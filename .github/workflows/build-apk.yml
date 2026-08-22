@@ -1,10 +1,28 @@
 name: Build APK (Android)
 
 on:
+  # Les PR n'executaient rien de ce fichier : un changement de workflow n'etait
+  # jamais valide avant d'atterrir sur main. Le portail qualite tourne donc
+  # desormais sur PR, sans jamais declencher de publication (voir les `if:`).
+  pull_request:
   push:
     branches:
       - main
+  # Sans garde, `workflow_dispatch` permettait de publier sur le canal
+  # production depuis n'importe quelle branche. La publication est maintenant
+  # limitee a main ET demandee explicitement.
   workflow_dispatch:
+    inputs:
+      publish_ota:
+        description: "Publier une mise a jour OTA en production"
+        required: true
+        type: boolean
+        default: false
+      build_apk:
+        description: "Construire et publier un APK signe"
+        required: true
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -13,8 +31,10 @@ env:
   EXPO_PUBLIC_APP_URL: ${{ secrets.EXPO_PUBLIC_APP_URL || 'https://buildtrack-mobile.vercel.app' }}
   EXPO_PUBLIC_API_URL: ${{ secrets.BUILDTRACK_API_URL || secrets.EXPO_PUBLIC_APP_URL || 'https://buildtrack-mobile.vercel.app' }}
 
+# Moindre privilege : seul le job qui publie une GitHub Release a besoin
+# d'ecrire. Les tests et l'OTA n'en ont aucun usage.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   # ─── Job 0 : portail qualite ─────────────────────────────────────────────
@@ -52,6 +72,15 @@ jobs:
     name: Publish OTA Update (EAS)
     runs-on: ubuntu-latest
     needs: quality-gates
+    # Une PR ne doit jamais livrer aux utilisateurs, et un dispatch depuis une
+    # branche non fusionnee non plus.
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (
+        github.event_name == 'push' ||
+        (github.event_name == 'workflow_dispatch' && inputs.publish_ota)
+      )
+    environment: mobile-release
     # Publie automatiquement quand EXPO_TOKEN est configuré. Sans secret, le
     # job reste vert et l'APK natif continue d'être produit.
     env:
@@ -84,6 +113,16 @@ jobs:
     name: Build APK
     runs-on: ubuntu-latest
     needs: quality-gates
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      (
+        github.event_name == 'push' ||
+        (github.event_name == 'workflow_dispatch' && inputs.build_apk)
+      )
+    environment: mobile-release
+    # Publication de la GitHub Release : seul endroit qui exige l'ecriture.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout repository
@@ -187,17 +226,32 @@ jobs:
             exit 1
           fi
 
-      - name: Decode release keystore
+      - name: Decode and verify release keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         run: |
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "${RUNNER_TEMP}/buildtrack-release.jks"
-          # Verification minimale : un secret tronque produirait un echec Gradle
-          # opaque une demi-heure plus tard.
-          if [ ! -s "${RUNNER_TEMP}/buildtrack-release.jks" ]; then
+          keystore="${RUNNER_TEMP}/buildtrack-release.jks"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "${keystore}"
+          if [ ! -s "${keystore}" ]; then
             echo "::error::Keystore vide apres decodage base64 — le secret ANDROID_KEYSTORE_BASE64 est invalide."
             exit 1
           fi
+          # Ouvrir reellement le keystore avec le mot de passe ET l'alias : sans
+          # cela, un mot de passe errone, un alias inexistant ou un base64
+          # tronque ne se manifestaient qu'en echec Gradle opaque, une demi-heure
+          # de build plus tard.
+          if ! keytool -list -keystore "${keystore}" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" > /dev/null 2>&1; then
+            echo "::error::Keystore illisible : mot de passe incorrect, alias '${ANDROID_KEY_ALIAS}' absent, ou fichier corrompu."
+            echo "::error::Verifier avec : keytool -list -keystore <fichier> -alias <alias>"
+            exit 1
+          fi
+          # Empreinte du certificat : trace permettant de confirmer que toutes
+          # les releases sont bien signees avec la MEME cle.
+          echo "Empreinte du certificat de signature :"
+          keytool -list -v -keystore "${keystore}" -storepass "$ANDROID_KEYSTORE_PASSWORD" -alias "$ANDROID_KEY_ALIAS" \
+            | grep -E 'SHA256:|Valid from' || true
 
       - name: Configure release signing
         working-directory: android

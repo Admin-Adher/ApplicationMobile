@@ -11,6 +11,20 @@ permissions:
   contents: read
 
 jobs:
+  # Les tests applicatifs ne valident ni la syntaxe des workflows, ni les
+  # expressions `if:`, ni les references `needs:`. Une garde de publication mal
+  # ecrite passerait donc inapercue jusqu'a produire l'inverse de son intention.
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate GitHub Actions workflows
+        # Epingle par SHA : un tag peut etre redeplace vers un autre commit.
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+
   application-contracts:
     name: Application security contracts
     runs-on: ubuntu-latest
