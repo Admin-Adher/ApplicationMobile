@@ -1,9 +1,36 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { canAdminRestoreTab, canConducteurRestoreTab, isConducteurRole, isOrgAdminRole, isPlatformAdminRole, SUPERADMIN_HOME_ROUTE } from '../lib/roleNavigation';
 import { ROLE_PERMISSIONS } from '../lib/permissions';
 import { buildConducteurTodayQueue, isSameCalendarDay, pickTodayNowItems } from '../lib/conducteurToday';
 
+/**
+ * Horloge figee juste apres minuit, en heure LOCALE.
+ *
+ * Le test construisait la date du jour avec `toISOString().slice(0, 10)`, qui
+ * renvoie la date UTC, alors que `isSameCalendarDay` compare des composantes
+ * calendaires locales. Entre 00:00 et 02:00 en CEST, UTC est encore la veille :
+ * le test echouait chez un developpeur travaillant tard, et jamais en CI, ou
+ * les runners tournent en UTC.
+ *
+ * On fige donc l'instant le plus defavorable et on ecrit les dates en clair,
+ * plutot que de forcer `TZ=UTC` — ce qui masquerait le defaut au lieu de le
+ * corriger, et ferait passer le test sans jamais verifier le comportement local
+ * reellement attendu par un conducteur sur le terrain.
+ */
+const LOCAL_MIDNIGHT_PLUS_ONE = new Date(2026, 7, 23, 0, 1, 0);
+const TODAY_LOCAL = '2026-08-23';
+const YESTERDAY_LOCAL = '2026-08-22';
+
 describe('conducteur shell', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(LOCAL_MIDNIGHT_PLUS_ONE);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('does not give the site manager more stock power than the storekeeper', () => {
     expect(ROLE_PERMISSIONS.conducteur.canAdjustInventory).toBe(false);
     expect(ROLE_PERMISSIONS.conducteur.canManageInventoryProducts).toBe(false);
@@ -39,16 +66,26 @@ describe('conducteur shell', () => {
       { id: 'o1', title: 'Late', status: 'open', priority: 'high', deadline: '01/01/2020' },
       { id: 'x1', title: 'Done', status: 'closed', priority: 'critical' },
     ], [
-      { id: 'visit', title: 'Tour', date: new Date().toISOString().slice(0, 10), status: 'planned' },
+      { id: 'visit', title: 'Tour', date: TODAY_LOCAL, status: 'planned' },
     ]);
     expect(queue.verification.map(item => item.id)).toEqual(['v1']);
     expect(queue.critical.map(item => item.id)).toEqual(['c1']);
     expect(queue.overdue.map(item => item.id)).toEqual(['o1']);
     expect(queue.todayVisits).toHaveLength(1);
     expect(buildConducteurTodayQueue([], [
-      { id: 'done', title: 'Done', date: new Date().toISOString().slice(0, 10), status: 'completed' },
+      { id: 'done', title: 'Done', date: TODAY_LOCAL, status: 'completed' },
     ]).todayVisits).toHaveLength(0);
-    expect(isSameCalendarDay(new Date().toISOString().slice(0, 10))).toBe(true);
+  });
+
+  it('reads the calendar day locally, as the site manager does', () => {
+    // A 00:01 heure locale, UTC est encore la veille. La journee de travail
+    // suit le fuseau du conducteur, pas celui du serveur.
+    expect(isSameCalendarDay(TODAY_LOCAL)).toBe(true);
+    expect(isSameCalendarDay(YESTERDAY_LOCAL)).toBe(false);
+    expect(isSameCalendarDay('2026-08-24')).toBe(false);
+    // Volontairement AUCUNE assertion sur `toISOString()` : elle ne tiendrait
+    // que dans un fuseau positif et echouerait sur un runner UTC — le miroir
+    // exact du defaut corrige ici.
   });
 
   it('keeps the morning brief to a handful of next actions', () => {
