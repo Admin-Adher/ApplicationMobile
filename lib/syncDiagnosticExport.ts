@@ -7,14 +7,20 @@ import {
 /**
  * Export de diagnostic destine au support.
  *
- * Regle de conception : LISTE BLANCHE stricte. Rien n'est serialise qui ne soit
- * explicitement choisi champ par champ. Une liste noire aurait laisse fuiter le
- * premier champ ajoute plus tard a une operation — or ces operations portent des
- * payloads metier complets, des URI de photos et parfois des identifiants
- * personnels. Le cout de l'oubli est une fuite, pas une donnee manquante.
+ * Regle de conception : LISTE BLANCHE stricte, doublee d'une NORMALISATION de
+ * chaque valeur retenue. Choisir les champs ne suffit pas — un champ autorise
+ * peut lui-meme transporter de la donnee sensible. C'est exactement ce qui
+ * s'est produit avec l'empreinte d'erreur : derivee du message serveur, elle
+ * conservait nom de produit, nom de chantier et adresse e-mail.
  */
 
-/** Operation telle qu'on accepte de la decrire dans un export. */
+/** Detail maximal embarque. Au-dela, seuls les compteurs globaux comptent. */
+export const MAX_EXPORTED_OPERATIONS = 100;
+
+const MAX_ID_LENGTH = 64;
+const MAX_NAME_LENGTH = 64;
+const MAX_STATUS_LENGTH = 48;
+
 export interface DiagnosticQueuedOperation extends SyncQueueOperationLike {
   id?: string;
   op?: string;
@@ -28,15 +34,17 @@ export interface DiagnosticEnvironment {
   appVersion: string;
   buildNumber: number | null;
   platform: string;
-  /** Horodatage de generation, injecte pour rester testable. */
   generatedAt: string;
   isOnline: boolean;
-  /** `null` quand l'etat du backend n'est pas connu separement d'Internet. */
+  /** `null` tant qu'aucune sonde backend n'a abouti. */
   backendReachable?: boolean | null;
   syncStatus?: string;
   syncAuthBlocked?: boolean;
   lastAttemptAt?: string | null;
-  lastSuccessAt?: string | null;
+  /** Derniere operation individuellement acceptee par le serveur. */
+  lastOperationSuccessAt?: string | null;
+  /** Derniere fois que la file s'est videe entierement. */
+  lastQueueDrainedAt?: string | null;
   nextAttemptAt?: string | null;
 }
 
@@ -49,7 +57,12 @@ export interface DiagnosticOperationLine {
   attemptCount: number;
   sameFailureCount?: number;
   failureClass?: string;
-  failureFingerprint?: string;
+  /**
+   * Alias LOCAL au rapport (E1, E2…) regroupant les operations qui echouent de
+   * la meme facon. Remplace l'empreinte brute, qui portait le message serveur
+   * et donc potentiellement des donnees metier ou personnelles.
+   */
+  failureGroup?: string;
   terminalStatus?: string;
 }
 
@@ -67,24 +80,59 @@ export interface SyncDiagnosticReport {
     rejected: number;
     stuck: number;
     attention: number;
-    oldestQueuedAt: string | null;
-    oldestAgeMinutes: number | null;
+    oldestPendingQueuedAt: string | null;
+    oldestPendingAgeMinutes: number | null;
+    oldestRejectedQueuedAt: string | null;
     lastAttemptAt: string | null;
-    lastSuccessAt: string | null;
+    lastOperationSuccessAt: string | null;
+    lastQueueDrainedAt: string | null;
     nextAttemptAt: string | null;
   };
   operations: DiagnosticOperationLine[];
+  /** Operations non detaillees a cause du plafond ; les compteurs les incluent. */
+  omittedOperations: number;
 }
 
 /**
- * Fragments d'un message d'erreur susceptibles de porter une donnee metier ou
- * un secret. On ne conserve QUE la nature de l'echec, jamais son contenu.
+ * Une file corrompue, migree ou manipulee peut contenir n'importe quoi dans un
+ * champ pourtant sur en fonctionnement nominal. On ne fait donc confiance a
+ * aucune valeur : format impose, longueur bornee, repli explicite.
+ */
+function safeToken(value: unknown, allowed: RegExp, maxLength: number): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || !allowed.test(trimmed)) return undefined;
+  return trimmed.slice(0, maxLength);
+}
+
+const ID_PATTERN = /^[A-Za-z0-9_.:-]+$/;
+const NAME_PATTERN = /^[A-Za-z0-9_.]+$/;
+const STATUS_PATTERN = /^[A-Za-z0-9_]+$/;
+
+function safeIsoDate(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  return Number.isFinite(Date.parse(value)) ? value : undefined;
+}
+
+function safeCount(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.min(Math.floor(parsed), 1_000_000);
+}
+
+/**
+ * Ne conserve que la NATURE de l'echec. Le message brut n'est jamais retenu :
+ * il porte le texte renvoye par le serveur, donc potentiellement un libelle
+ * produit, un nom de chantier ou une adresse e-mail.
  */
 function failureClassOf(operation: DiagnosticQueuedOperation): string | undefined {
-  const status = operation.terminalOutcome?.status ?? operation.terminalStatus;
+  const status = safeToken(
+    operation.terminalOutcome?.status ?? operation.terminalStatus,
+    STATUS_PATTERN,
+    MAX_STATUS_LENGTH,
+  );
   if (status) return status;
   if (!operation.lastError) return undefined;
-  // Un code entre crochets est prefixe par le moteur : `[42501] permission…`.
   const code = operation.lastError.match(/^\[([A-Za-z0-9_]{1,32})\]/)?.[1];
   return code ?? 'unclassified';
 }
@@ -96,36 +144,80 @@ function ageInMinutes(from: string, to: string): number | null {
   return Math.max(0, Math.round((end - start) / 60_000));
 }
 
+/** Plus ancienne date de mise en file parmi un sous-ensemble. */
+function oldestQueuedAt(operations: readonly DiagnosticQueuedOperation[]): string | null {
+  const dates = operations
+    .map(operation => safeIsoDate(operation.queuedAt))
+    .filter((value): value is string => value !== undefined)
+    .sort();
+  return dates[0] ?? null;
+}
+
+/**
+ * Les operations les plus utiles au support d'abord : refus definitifs, puis
+ * celles qui insistent le plus, puis les plus anciennes. Le plafond ne doit pas
+ * amputer le rapport de ce qui explique la panne.
+ */
+function byDiagnosticInterest(
+  a: DiagnosticQueuedOperation,
+  b: DiagnosticQueuedOperation,
+): number {
+  const terminalDiff = Number(Boolean(b.terminal)) - Number(Boolean(a.terminal));
+  if (terminalDiff !== 0) return terminalDiff;
+  const attemptDiff = safeCount(b.attemptCount) - safeCount(a.attemptCount);
+  if (attemptDiff !== 0) return attemptDiff;
+  return (a.queuedAt ?? '').localeCompare(b.queuedAt ?? '');
+}
+
 export function buildSyncDiagnosticReport(
   queue: readonly DiagnosticQueuedOperation[],
   environment: DiagnosticEnvironment,
 ): SyncDiagnosticReport {
   const counts = getSyncQueueCounts(queue as SyncQueueOperationLike[]);
 
-  const queuedTimestamps = queue
-    .map(operation => operation.queuedAt)
-    .filter((value): value is string => typeof value === 'string' && Number.isFinite(Date.parse(value)))
-    .sort();
-  const oldestQueuedAt = queuedTimestamps[0] ?? null;
+  const pendingOperations = queue.filter(operation => !operation.terminal);
+  const rejectedOperations = queue.filter(operation => Boolean(operation.terminal));
 
-  const operations: DiagnosticOperationLine[] = queue.map(operation => ({
-    id: String(operation.id ?? 'inconnu'),
-    domain: getSyncQueueOperationDomain(operation),
-    // Le nom de la RPC ou de la table decrit la nature de l'ecriture sans en
-    // reveler le contenu.
-    operation: operation.rpc?.fn ?? operation.table ?? String(operation.op ?? 'inconnu'),
-    state: operation.terminal ? 'rejected' : 'pending',
-    ...(operation.queuedAt ? { queuedAt: operation.queuedAt } : {}),
-    attemptCount: operation.attemptCount ?? 0,
-    ...(operation.sameFailureCount !== undefined
-      ? { sameFailureCount: operation.sameFailureCount }
-      : {}),
-    ...(failureClassOf(operation) ? { failureClass: failureClassOf(operation) } : {}),
-    ...(operation.lastFailureFingerprint
-      ? { failureFingerprint: operation.lastFailureFingerprint }
-      : {}),
-    ...(operation.terminalStatus ? { terminalStatus: operation.terminalStatus } : {}),
-  }));
+  const selected = [...queue].sort(byDiagnosticInterest).slice(0, MAX_EXPORTED_OPERATIONS);
+
+  // Alias LOCAL au rapport. Deux operations qui echouent identiquement portent
+  // le meme groupe, ce qui suffit au support ; la valeur source ne sort jamais.
+  const groupByFingerprint = new Map<string, string>();
+  const failureGroupOf = (operation: DiagnosticQueuedOperation): string | undefined => {
+    const fingerprint = operation.lastFailureFingerprint;
+    if (typeof fingerprint !== 'string' || !fingerprint) return undefined;
+    const existing = groupByFingerprint.get(fingerprint);
+    if (existing) return existing;
+    const alias = `E${groupByFingerprint.size + 1}`;
+    groupByFingerprint.set(fingerprint, alias);
+    return alias;
+  };
+
+  const operations: DiagnosticOperationLine[] = selected.map(operation => {
+    const failureClass = failureClassOf(operation);
+    const failureGroup = failureGroupOf(operation);
+    const queuedAt = safeIsoDate(operation.queuedAt);
+    const terminalStatus = safeToken(operation.terminalStatus, STATUS_PATTERN, MAX_STATUS_LENGTH);
+    const sameFailureCount = operation.sameFailureCount;
+
+    return {
+      id: safeToken(operation.id, ID_PATTERN, MAX_ID_LENGTH) ?? 'inconnu',
+      domain: getSyncQueueOperationDomain(operation),
+      operation: safeToken(operation.rpc?.fn, NAME_PATTERN, MAX_NAME_LENGTH)
+        ?? safeToken(operation.table, NAME_PATTERN, MAX_NAME_LENGTH)
+        ?? safeToken(operation.op, NAME_PATTERN, MAX_NAME_LENGTH)
+        ?? 'inconnu',
+      state: operation.terminal ? 'rejected' : 'pending',
+      ...(queuedAt ? { queuedAt } : {}),
+      attemptCount: safeCount(operation.attemptCount),
+      ...(sameFailureCount !== undefined ? { sameFailureCount: safeCount(sameFailureCount) } : {}),
+      ...(failureClass ? { failureClass } : {}),
+      ...(failureGroup ? { failureGroup } : {}),
+      ...(terminalStatus ? { terminalStatus } : {}),
+    };
+  });
+
+  const oldestPending = oldestQueuedAt(pendingOperations);
 
   return {
     generatedAt: environment.generatedAt,
@@ -145,36 +237,46 @@ export function buildSyncDiagnosticReport(
       rejected: counts.rejected,
       stuck: counts.stuck,
       attention: counts.attention,
-      oldestQueuedAt,
-      oldestAgeMinutes: oldestQueuedAt
-        ? ageInMinutes(oldestQueuedAt, environment.generatedAt)
+      // Une vieille operation deja refusee masquait l'age reel de la plus
+      // ancienne operation encore rejouable : les deux sont desormais distincts.
+      oldestPendingQueuedAt: oldestPending,
+      oldestPendingAgeMinutes: oldestPending
+        ? ageInMinutes(oldestPending, environment.generatedAt)
         : null,
+      oldestRejectedQueuedAt: oldestQueuedAt(rejectedOperations),
       lastAttemptAt: environment.lastAttemptAt ?? null,
-      lastSuccessAt: environment.lastSuccessAt ?? null,
+      lastOperationSuccessAt: environment.lastOperationSuccessAt ?? null,
+      lastQueueDrainedAt: environment.lastQueueDrainedAt ?? null,
       nextAttemptAt: environment.nextAttemptAt ?? null,
     },
     operations,
+    omittedOperations: Math.max(0, queue.length - operations.length),
   };
 }
 
-/** Rendu texte copiable/partageable, sans dependance de plateforme. */
+/** Rendu texte copiable, sans dependance de plateforme. */
 export function formatSyncDiagnosticReport(report: SyncDiagnosticReport): string {
+  const backend = report.connectivity.backendReachable === null
+    ? 'inconnu'
+    : report.connectivity.backendReachable ? 'joignable' : 'injoignable';
+
   const lines: string[] = [
     'BuildTrack — diagnostic de synchronisation',
-    `Genere le        : ${report.generatedAt}`,
-    `Application      : ${report.app.version} (build ${report.app.build ?? 'n/a'}) — ${report.app.platform}`,
-    `Connectivite     : ${report.connectivity.online ? 'en ligne' : 'hors connexion'}`
-      + ` | backend ${report.connectivity.backendReachable === null ? 'inconnu' : report.connectivity.backendReachable ? 'joignable' : 'injoignable'}`,
-    `Etat sync        : ${report.connectivity.syncStatus}`
+    `Genere le            : ${report.generatedAt}`,
+    `Application          : ${report.app.version} (build ${report.app.build ?? 'n/a'}) — ${report.app.platform}`,
+    `Connectivite         : ${report.connectivity.online ? 'en ligne' : 'hors connexion'} | backend ${backend}`,
+    `Etat sync            : ${report.connectivity.syncStatus}`
       + (report.connectivity.authBlocked ? ' (authentification bloquee)' : ''),
     '',
-    `File             : ${report.queue.pending} en attente, ${report.queue.rejected} refusees,`
+    `File                 : ${report.queue.pending} en attente, ${report.queue.rejected} refusees,`
       + ` ${report.queue.stuck} bloquees`,
-    `Plus ancienne    : ${report.queue.oldestQueuedAt ?? 'n/a'}`
-      + (report.queue.oldestAgeMinutes !== null ? ` (${report.queue.oldestAgeMinutes} min)` : ''),
-    `Derniere tentative: ${report.queue.lastAttemptAt ?? 'n/a'}`,
-    `Dernier succes   : ${report.queue.lastSuccessAt ?? 'n/a'}`,
-    `Prochaine tentative: ${report.queue.nextAttemptAt ?? 'n/a'}`,
+    `Plus ancienne attente: ${report.queue.oldestPendingQueuedAt ?? 'n/a'}`
+      + (report.queue.oldestPendingAgeMinutes !== null ? ` (${report.queue.oldestPendingAgeMinutes} min)` : ''),
+    `Plus ancien refus    : ${report.queue.oldestRejectedQueuedAt ?? 'n/a'}`,
+    `Derniere tentative   : ${report.queue.lastAttemptAt ?? 'n/a'}`,
+    `Derniere op reussie  : ${report.queue.lastOperationSuccessAt ?? 'n/a'}`,
+    `File videe le        : ${report.queue.lastQueueDrainedAt ?? 'n/a'}`,
+    `Prochaine tentative  : ${report.queue.nextAttemptAt ?? 'n/a'}`,
     '',
     'Operations :',
   ];
@@ -188,9 +290,13 @@ export function formatSyncDiagnosticReport(report: SyncDiagnosticReport): string
         + ` | tentatives ${operation.attemptCount}`
         + (operation.sameFailureCount !== undefined ? ` | meme echec x${operation.sameFailureCount}` : '')
         + (operation.failureClass ? ` | ${operation.failureClass}` : '')
-        + (operation.failureFingerprint ? ` | ${operation.failureFingerprint}` : ''),
+        + (operation.failureGroup ? ` | groupe ${operation.failureGroup}` : ''),
       );
     }
+  }
+
+  if (report.omittedOperations > 0) {
+    lines.push(`  … ${report.omittedOperations} operation(s) non detaillee(s), incluses dans les compteurs.`);
   }
 
   return lines.join('\n');

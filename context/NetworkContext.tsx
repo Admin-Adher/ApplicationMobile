@@ -318,7 +318,12 @@ interface NetworkContextValue {
   syncAuthBlocked: boolean;
   /** Horodatages ISO exposes pour le diagnostic support. `null` si jamais survenu. */
   lastSyncAttemptAt: string | null;
-  lastSyncSuccessAt: string | null;
+  /** Derniere operation individuellement acceptee par le serveur. */
+  lastOperationSuccessAt: string | null;
+  /** Derniere fois que la file s'est videe entierement. */
+  lastQueueDrainedAt: string | null;
+  /** `null` tant qu'aucune sonde n'a distingue Internet du backend. */
+  backendReachable: boolean | null;
   /** Prochaine passe planifiee, quand un backoff est actif. */
   nextSyncAttemptAt: string | null;
   conflicts: StatusConflict[];
@@ -343,7 +348,9 @@ const NetworkContext = createContext<NetworkContextValue>({
   syncProgress: { done: 0, total: 0 },
   syncAuthBlocked: false,
   lastSyncAttemptAt: null,
-  lastSyncSuccessAt: null,
+  lastOperationSuccessAt: null,
+  lastQueueDrainedAt: null,
+  backendReachable: null,
   nextSyncAttemptAt: null,
   conflicts: [],
   enqueueOperation: () => {},
@@ -439,20 +446,31 @@ async function checkSupabaseReachable(): Promise<boolean> {
   }
 }
 
-async function checkAppOnline(navigatorOnline = true): Promise<boolean> {
-  if (!navigatorOnline) return false;
+/**
+ * « En ligne » et « backend joignable » sont deux choses differentes : Internet
+ * peut fonctionner alors que Supabase est indisponible. Les fusionner en un
+ * booleen unique privait le diagnostic de cette distinction, et le rapport
+ * affichait un backend systematiquement « inconnu ».
+ */
+interface ConnectivityReading {
+  online: boolean;
+  backendReachable: boolean | null;
+}
+
+async function checkAppOnline(navigatorOnline = true): Promise<ConnectivityReading> {
+  if (!navigatorOnline) return { online: false, backendReachable: null };
   if (isSupabaseConfigured) {
-    if (await checkSupabaseReachable()) return true;
-    if (await checkInternetReachable()) return true;
+    if (await checkSupabaseReachable()) return { online: true, backendReachable: true };
+    if (await checkInternetReachable()) return { online: true, backendReachable: false };
     // A cached Supabase JWT keeps the user authenticated offline, but it is
     // not a connectivity signal. Returning false here lets the UI communicate
     // "hors connexion" while AuthContext continues to serve the cached session.
-    return false;
+    return { online: false, backendReachable: false };
   }
   if (Platform.OS !== 'web') {
-    return checkInternetReachable();
+    return { online: await checkInternetReachable(), backendReachable: null };
   }
-  return true;
+  return { online: true, backendReachable: null };
 }
 
 async function healSupabaseSessionAfterWake(longSleep: boolean): Promise<boolean> {
@@ -740,7 +758,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // détecter une passe gelée sans pénaliser une passe lente mais qui avance.
   const syncProgressAtRef = useRef(0);
   const [lastSyncAttemptAt, setLastSyncAttemptAt] = useState<string | null>(null);
-  const [lastSyncSuccessAt, setLastSyncSuccessAt] = useState<string | null>(null);
+  const [lastOperationSuccessAt, setLastOperationSuccessAt] = useState<string | null>(null);
+  const [lastQueueDrainedAt, setLastQueueDrainedAt] = useState<string | null>(null);
+  const [backendReachable, setBackendReachable] = useState<boolean | null>(null);
   const [nextSyncAttemptAt, setNextSyncAttemptAt] = useState<string | null>(null);
   // Contrôleur de la passe en cours. Abandonner une passe ne suffisait pas à
   // arrêter ses transferts : un upload préempté continuait à consommer le lien
@@ -991,8 +1011,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (Platform.OS === 'web') {
       const refresh = async () => {
         const current = typeof navigator !== 'undefined' ? navigator.onLine : true;
-        const online = await checkAppOnline(current);
+        const reading = await checkAppOnline(current);
+        const online = reading.online;
         setIsOnline(online);
+        setBackendReachable(reading.backendReachable);
 
         // Même filet que le natif ci-dessous. Sans lui, la branche web ne
         // déclenchait AUCUNE passe : une relance perdue pendant une coupure
@@ -1021,7 +1043,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
 
     const check = async () => {
-      const online = applyOnlineReading(await checkAppOnline());
+      const reading = await checkAppOnline();
+      setBackendReachable(reading.backendReachable);
+      const online = applyOnlineReading(reading.online);
 
       // Safety-net: if we are online with pending ops, trigger a sync attempt —
       // but no more than once every 20 seconds. This covers the case where the
@@ -1128,7 +1152,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // We can't rely on the stale isOnline state: if the network was already
       // active before sleep, isOnline is still true and the change-based effect
       // won't fire. We ping explicitly and act on the result.
-      const online = applyOnlineReading(await checkAppOnline());
+      const wakeReading = await checkAppOnline();
+      setBackendReachable(wakeReading.backendReachable);
+      const online = applyOnlineReading(wakeReading.online);
 
       // ── 4. Refresh active screens immediately ────────────────────────────
       // invalidateQueries alone can be lazy. Refetch active queries now so
@@ -2178,6 +2204,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       } finally {
         processed += 1;
         if (failedOps.length === failedOpsBefore) {
+          setLastOperationSuccessAt(new Date().toISOString());
           // Aller-retour serveur réussi : le lien est utilisable ici et
           // maintenant. On repart d'un backoff neuf, sinon le compteur
           // exponentiel ne redescendait qu'après une passe 100 % propre et
@@ -2267,7 +2294,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       setSyncStatus('error');
       reloadHandlerRef.current?.();
     } else {
-      setLastSyncSuccessAt(new Date().toISOString());
+      setLastQueueDrainedAt(new Date().toISOString());
       setSyncStatus('done');
       reloadHandlerRef.current?.();
       setTimeout(() => { if (isCurrentGeneration()) setSyncStatus('idle'); }, 4000);
@@ -2496,7 +2523,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       syncProgress,
       syncAuthBlocked,
       lastSyncAttemptAt,
-      lastSyncSuccessAt,
+      lastOperationSuccessAt,
+      lastQueueDrainedAt,
+      backendReachable,
       nextSyncAttemptAt,
       conflicts,
       enqueueOperation,
