@@ -122,13 +122,83 @@ describe('transport metadata', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('reports no response when the fetch is aborted mid-flight', async () => {
+  it('reports a caller cancellation during an active fetch', async () => {
+    // Le test precedent ne transmettait AUCUN signal externe : `cancelledByCaller`
+    // etait donc faux et l erreur ressortait en REST_TIMEOUT. Il n assertait que
+    // `meta`, donc il passait sans jamais exercer le chemin qu il pretendait
+    // couvrir.
+    const external = new AbortController();
+
+    fetchMock.mockImplementation((_url: string, init: RequestInit) => new Promise((_resolve, reject) => {
+      init.signal?.addEventListener(
+        'abort',
+        () => reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })),
+        { once: true },
+      );
+    }));
+
+    const pending = supabaseRestSelect('reserves', '*', undefined, 1, { signal: external.signal });
+    await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalledTimes(1); });
+    external.abort();
+
+    const result = await pending;
+
+    expect(result.error.code).toBe('REST_ABORTED');
+    expect(result.meta).toEqual({ status: null, reachedServer: false, retryAfter: null });
+  });
+
+  it('distinguishes the local deadline from a caller cancellation', async () => {
+    // Meme AbortError, mais sans signal externe : c est la borne de temps.
     fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
 
     const result = await supabaseRestSelect('reserves');
 
-    expect(result.meta.reachedServer).toBe(false);
-    expect(result.meta.status).toBeNull();
+    expect(result.error.code).toBe('REST_TIMEOUT');
+    expect(result.meta).toEqual({ status: null, reachedServer: false, retryAfter: null });
+  });
+
+  it('does not turn an interrupted body read into a success', async () => {
+    // Absorber l echec de lecture rendait `null` avec `response.ok` vrai. Sur un
+    // mouvement de stock, une reponse vide est normalisee en `server_rejected` :
+    // la coupure produisait un refus terminal et un rollback du stock, alors que
+    // le serveur avait bien enregistre le mouvement.
+    fetchMock.mockResolvedValue({
+      status: 200,
+      ok: true,
+      headers: { get: () => null },
+      text: async () => { throw new Error('connection reset while reading body'); },
+    } as unknown as Response);
+
+    const result = await supabaseRestRpc('record_inventory_movement', {});
+
+    expect(result.data).toBeNull();
+    expect(result.error.code).toBe('REST_BODY_READ_FAILED');
+    expect(result.error.status).toBe(200);
+    // Le serveur a bien repondu : ce n est pas une absence de backend.
+    expect(result.meta).toEqual({ status: 200, reachedServer: true, retryAfter: null });
+  });
+
+  it('keeps the negative status when the body of an error cannot be read', async () => {
+    fetchMock.mockResolvedValue({
+      status: 400,
+      ok: false,
+      headers: { get: () => null },
+      text: async () => { throw new Error('connection reset'); },
+    } as unknown as Response);
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.error.code).toBe('REST_BODY_READ_FAILED');
+    expect(result.meta).toEqual({ status: 400, reachedServer: true, retryAfter: null });
+  });
+
+  it('drops an absurdly long Retry-After rather than forwarding it', async () => {
+    fetchMock.mockResolvedValue(httpResponse(429, null, { 'Retry-After': 'x'.repeat(5000) }));
+
+    const result = await supabaseRestRpc('x', {});
+
+    expect(result.meta.retryAfter).toBeNull();
+    expect(result.meta.status).toBe(429);
   });
 
   it('still returns complete metadata on a purely local refusal', async () => {
