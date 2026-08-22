@@ -16,12 +16,36 @@ type RestRequestInit = {
  * l'absence de ligne se normalise en `server_rejected`, donc en refus terminal,
  * donc en rollback d'un mouvement que le serveur a peut-etre accepte.
  */
-export type RestBodyExpectation = 'none' | 'optional-json' | 'required-json';
+export type RestBodyExpectation = 'none' | 'optional-json' | 'required-json' | 'required-row';
+
+/**
+ * Une ligne de resultat exploitable existe-t-elle ?
+ *
+ * `required-json` ne garantissait que « il y a du JSON ». `[]`, `{}`, `[{}]`
+ * ou `true` passaient donc pour des succes, et sur un mouvement de stock
+ * l'absence de premiere ligne se normalise en `server_rejected` — soit un refus
+ * terminal et un rollback, sur la foi d'une reponse qui ne dit rien.
+ */
+function hasResultRow(body: unknown): boolean {
+  if (Array.isArray(body)) {
+    const first = body[0];
+    return body.length > 0 && first !== null && typeof first === 'object' && !Array.isArray(first);
+  }
+  return body !== null && typeof body === 'object' && !Array.isArray(body);
+}
 
 /** Annulation externe : préemption d'une passe, changement de compte, démontage. */
 export type RestRequestOptions = {
   signal?: AbortSignal | null;
-  bodyExpectation?: RestBodyExpectation;
+};
+
+/**
+ * L'attente de corps est decidee ICI, jamais par l'appelant : la placer dans
+ * les options publiques permettait de desactiver la protection centralisee en
+ * passant `bodyExpectation: 'none'`.
+ */
+type InternalRestRequestOptions = RestRequestOptions & {
+  bodyExpectation: RestBodyExpectation;
 };
 
 /**
@@ -272,7 +296,7 @@ async function restRequest<T = any>(
   url: string,
   init: RestRequestInit,
   timeoutMs = REST_TIMEOUT_MS,
-  options?: RestRequestOptions,
+  options?: InternalRestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
   if (!isSupabaseConfigured || !SUPABASE_KEY) {
     return { data: null, error: { message: 'Supabase non configure' }, meta: { ...NO_RESPONSE_META } };
@@ -363,12 +387,25 @@ async function restRequest<T = any>(
       return { data: null, error: normalizeRestError(body, response.status), meta };
     }
 
-    if (body === null && options?.bodyExpectation === 'required-json') {
+    const expectation = options?.bodyExpectation;
+    if (body === null && (expectation === 'required-json' || expectation === 'required-row')) {
       return {
         data: null,
         error: {
           code: 'REST_BODY_EMPTY',
           message: 'La reponse REST ne contient aucun resultat',
+          status: response.status,
+        },
+        meta,
+      };
+    }
+
+    if (expectation === 'required-row' && !hasResultRow(body)) {
+      return {
+        data: null,
+        error: {
+          code: 'REST_RESULT_EMPTY',
+          message: 'La reponse REST ne contient aucune ligne de resultat',
           status: response.status,
         },
         meta,
@@ -417,7 +454,7 @@ export async function supabaseRestSelect<T = any>(
     tableUrl(table, params),
     { method: 'GET' },
     REST_TIMEOUT_MS,
-    { bodyExpectation: 'required-json', ...options },
+    { ...options, bodyExpectation: 'required-json' },
   );
 }
 
@@ -450,7 +487,7 @@ export async function supabaseRestMutation<T = any>(
       },
       REST_TIMEOUT_MS,
       // `return=minimal` : un corps vide est le comportement attendu.
-      { bodyExpectation: 'none', ...options },
+      { ...options, bodyExpectation: 'none' },
     );
   }
 
@@ -463,7 +500,7 @@ export async function supabaseRestMutation<T = any>(
         body: JSON.stringify(data ?? {}),
       },
       REST_TIMEOUT_MS,
-      { bodyExpectation: 'required-json', ...options },
+      { ...options, bodyExpectation: 'required-json' },
     );
   }
 
@@ -476,7 +513,7 @@ export async function supabaseRestMutation<T = any>(
         body: JSON.stringify(data ?? {}),
       },
       REST_TIMEOUT_MS,
-      { bodyExpectation: 'required-json', ...options },
+      { ...options, bodyExpectation: 'required-json' },
     );
   }
 
@@ -487,7 +524,7 @@ export async function supabaseRestMutation<T = any>(
       headers: { Prefer: 'return=representation' },
     },
     REST_TIMEOUT_MS,
-    { bodyExpectation: 'required-json', ...options },
+    { ...options, bodyExpectation: 'required-json' },
   );
 }
 
@@ -506,8 +543,9 @@ export async function supabaseRestRpc<T = any>(
     },
     REST_TIMEOUT_MS,
     {
-      bodyExpectation: RPC_REQUIRING_RESULT.has(fn) ? 'required-json' : 'optional-json',
       ...options,
+      // Un verdict metier exige une LIGNE, pas seulement du JSON.
+      bodyExpectation: RPC_REQUIRING_RESULT.has(fn) ? 'required-row' : 'optional-json',
     },
   );
 }

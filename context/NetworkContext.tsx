@@ -54,6 +54,7 @@ import {
   inventoryProductsCacheKey,
   isTerminalInventoryMovementOutcome,
   normalizeInventoryMovementOutcome,
+  parseInventoryMovementOutcome,
   reconcileTerminalInventoryMovementCache,
   type InventoryMovementOutcome,
 } from '@/lib/inventoryMovementOutcome';
@@ -1698,10 +1699,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             triggerReserveCreatedPush(reserveId);
           }
           else if (op.rpc.fn === 'record_inventory_movement' || op.rpc.fn === 'update_inventory_product') {
-            const terminalOutcome = normalizeInventoryMovementOutcome(
+            // Lecture STRICTE : une reponse sans verdict exploitable n'est ni un
+            // succes ni un refus. La traiter comme un refus annulerait un
+            // mouvement que le serveur a peut-etre enregistre.
+            const parsed = parseInventoryMovementOutcome(
               rpcData,
               inventoryOutcomeContextFromQueuedOperation(retryRpcOp),
             );
+            if (!parsed.ok) {
+              fail(retryRpcOp, { code: parsed.error.code, message: parsed.error.message });
+              continue;
+            }
+            const terminalOutcome = parsed.outcome;
             if (isTerminalInventoryMovementOutcome(terminalOutcome)) {
               const fallbackMessage = terminalOutcome.message ?? terminalOutcome.status ?? 'Opération de stock refusée.';
               const translationKey = inventoryOutcomeTranslationKey({

@@ -14,6 +14,7 @@ import {
   inventoryProductsCacheKey,
   isTerminalInventoryMovementOutcome,
   normalizeInventoryMovementOutcome,
+  parseInventoryMovementOutcome,
   reconcileInventoryMovementCache,
   reconcileTerminalInventoryMovementCache,
   shouldBlockInventoryMovementForInsufficientStock,
@@ -570,7 +571,14 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       queueRpc(preparedProduct);
       return { product: optimisticProduct, movement: optimisticMovement, queued: true };
     }
-    const outcome = normalizeInventoryMovementOutcome(data, outcomeContext);
+    // Une reponse illisible ne prouve rien : on la remet en file avec le meme
+    // operation_id plutot que de reconcilier un refus imaginaire.
+    const parsed = parseInventoryMovementOutcome(data, outcomeContext);
+    if (!parsed.ok) {
+      queueRpc(preparedProduct);
+      return { product: optimisticProduct, movement: optimisticMovement, queued: true };
+    }
+    const outcome = parsed.outcome;
     const reconciled = reconcileInventoryMovementCache({
       currentProducts: queryClient.getQueryData<InventoryProduct[]>(productsKey) ?? [],
       currentMovements: queryClient.getQueryData<InventoryMovement[]>(movementsKey) ?? [],

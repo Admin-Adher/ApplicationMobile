@@ -149,6 +149,67 @@ export function inventoryOutcomeContextFromQueuedOperation(
   };
 }
 
+/**
+ * Verdicts que les RPC d'inventaire emettent reellement, plus la sentinelle
+ * cliente `server_rejected`. Tout autre contenu est une reponse illisible.
+ */
+const RECOGNISED_INVENTORY_STATUSES = new Set([
+  'ok',
+  'insufficient_stock',
+  'forbidden',
+  'invalid_payload',
+  'not_found',
+  'product_not_found',
+  'duplicate_product',
+  'duplicate_operation_mismatch',
+  'server_rejected',
+]);
+
+export type InventoryOutcomeParseResult =
+  | { ok: true; outcome: InventoryMovementOutcome }
+  | { ok: false; error: { code: 'REST_RESULT_INVALID'; message: string } };
+
+/**
+ * Lecture STRICTE du verdict serveur.
+ *
+ * `normalizeInventoryMovementOutcome` retombe sur `server_rejected` en
+ * l'absence de statut, ce qui transforme une ABSENCE DE PREUVE en PREUVE DE
+ * REFUS : une reponse `[{}]` ou `{}` declenchait un refus terminal et le
+ * rollback d'un mouvement que le serveur avait peut-etre accepte.
+ *
+ * Regle de surete : un rollback optimiste n'est autorise que sur un refus
+ * serveur explicite et correctement structure, jamais sur un resultat absent
+ * ou malforme.
+ */
+export function parseInventoryMovementOutcome(
+  data: unknown,
+  context: InventoryMovementOutcomeContext = {},
+): InventoryOutcomeParseResult {
+  const row = firstOutcomeRow(data);
+  if (!row) {
+    return {
+      ok: false,
+      error: { code: 'REST_RESULT_INVALID', message: 'Reponse de stock sans ligne de resultat.' },
+    };
+  }
+
+  const status = optionalString(row.status);
+  if (!status) {
+    return {
+      ok: false,
+      error: { code: 'REST_RESULT_INVALID', message: 'Reponse de stock sans verdict.' },
+    };
+  }
+  if (!RECOGNISED_INVENTORY_STATUSES.has(status)) {
+    return {
+      ok: false,
+      error: { code: 'REST_RESULT_INVALID', message: `Verdict de stock inconnu : ${status}` },
+    };
+  }
+
+  return { ok: true, outcome: normalizeInventoryMovementOutcome(data, context) };
+}
+
 export function isSuccessfulInventoryMovementOutcome(outcome: InventoryMovementOutcome): boolean {
   return outcome.status === 'ok';
 }
