@@ -95,8 +95,8 @@ export interface SyncFailureContext {
 /** Au-dela, un delai serveur est signale comme prolonge plutot que tronque. */
 export const RETRY_AFTER_LONG_THRESHOLD_MS = 24 * 60 * 60 * 1000;
 
-/** Garde-fou contre une valeur techniquement impossible (30 jours). */
-const RETRY_AFTER_ABSURD_MS = 30 * 24 * 60 * 60 * 1000;
+/** Plage maximale d'une Date JavaScript. */
+const MAX_REPRESENTABLE_DATE_MS = 8.64e15;
 
 const BACKOFF_LADDERS: Record<SyncFailureClass, number[]> = {
   cancelled: [],
@@ -110,10 +110,48 @@ const BACKOFF_LADDERS: Record<SyncFailureClass, number[]> = {
   unknown: [30_000, 60_000, 120_000, 300_000],
 };
 
-const SERVER_UNAVAILABLE_STATUSES = new Set([502, 503, 504, 520, 522, 524, 530, 544]);
-
 /** Codes fabriques par le client : leur presence ne prouve aucune reponse. */
 const CLIENT_SIDE_CODES = new Set(['REST_ABORTED', 'REST_TIMEOUT', 'MISSING_FILTER']);
+
+/**
+ * Codes systeme structures. Une erreur peut porter `code: 'ECONNRESET'` avec un
+ * message quelconque (« socket closed ») : chercher uniquement dans le texte la
+ * laissait tomber en `unknown`. Le code structure prime sur le texte.
+ */
+const TIMEOUT_ERROR_CODES = new Set(['REST_TIMEOUT', 'ETIMEDOUT', 'ESOCKETTIMEDOUT']);
+
+const NETWORK_ERROR_CODES = new Set([
+  'ECONNRESET',
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'EAI_AGAIN',
+  'ENOTFOUND',
+  'EPIPE',
+]);
+
+/** SQLSTATE Postgres (5 caracteres) ou code PostgREST : seul un serveur en emet. */
+function isServerIssuedCode(code: string): boolean {
+  return /^PGRST\d{3}$/.test(code) || /^[0-9A-Z]{5}$/.test(code);
+}
+
+/**
+ * Unique definition de « le serveur a repondu ».
+ *
+ * Deux calculs divergents cohabitaient : la classification et la decision
+ * pouvaient conclure l'inverse l'une de l'autre sur la meme erreur. Un statut
+ * HTTP est la preuve la plus forte et prime sur un booleen contradictoire.
+ */
+export function failureReachedServer(error: unknown, meta?: SyncFailureTransportMeta): boolean {
+  if (errorStatus(error, meta) > 0) return true;
+  if (typeof meta?.reachedServer === 'boolean') return meta.reachedServer;
+  const code = errorCode(error);
+  if (!code || CLIENT_SIDE_CODES.has(code) || NETWORK_ERROR_CODES.has(code) || TIMEOUT_ERROR_CODES.has(code)) {
+    return false;
+  }
+  return isServerIssuedCode(code);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Normalisation defensive
@@ -162,9 +200,7 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
   const code = errorCode(error);
   const message = errorMessage(error);
   const status = errorStatus(error, meta);
-  // Un statut HTTP ou un code Postgres ne peut venir que d'une reponse. Sans
-  // eux, aucun verdict serveur n'a ete rendu.
-  const hasServerVerdict = status > 0 || (code !== '' && !CLIENT_SIDE_CODES.has(code));
+  const hasServerVerdict = failureReachedServer(error, meta);
 
   // 1. Annulation demandee par l'appelant.
   if (code === 'REST_ABORTED') return 'cancelled';
@@ -178,11 +214,13 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
   // 3. Limitation de debit — le serveur a repondu, ce n'est pas une panne reseau.
   if (status === 429) return 'rate_limited';
 
-  // 4. Indisponibilite serveur.
-  if (SERVER_UNAVAILABLE_STATUSES.has(status)) return 'server_unavailable';
+  // 4. Indisponibilite serveur — toute la plage 5xx, pas une liste fermee qui
+  // laissait un HTTP 500 tomber en `unknown`.
+  if (status >= 500 && status <= 599) return 'server_unavailable';
 
-  // 5. Depassement de delai.
-  if (code === 'REST_TIMEOUT') return 'timeout';
+  // 5. Depassement de delai. Le code structure prime sur le texte.
+  if (TIMEOUT_ERROR_CODES.has(code)) return 'timeout';
+  if (status === 408) return 'timeout';
   if (
     /^timeout after \d+ms$/.test(message)
     || /statement timeout/.test(message)
@@ -194,6 +232,7 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
   }
 
   // 6. Coupure de transport.
+  if (NETWORK_ERROR_CODES.has(code)) return 'network';
   if (
     /network request failed/.test(message)
     || /failed to fetch/.test(message)
@@ -221,7 +260,9 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
   // Signature brute : l'ordre ci-dessus a deja ecarte auth, debit, panne
   // serveur, timeout et coupure. La version gardee de syncQueuePolicy
   // renverrait false ici, a cause de sa propre reconnaissance de « aborted ».
-  if (hasDeterministicRefusalSignature(error)) return 'permanent_candidate';
+  // Le statut normalise est reinjecte : le helper ne lit que l'objet erreur et
+  // ne verrait pas un `meta.status` fourni par la couche transport.
+  if (hasDeterministicRefusalSignature({ code, status })) return 'permanent_candidate';
 
   return 'unknown';
 }
@@ -259,8 +300,15 @@ export function parseRetryAfter(value: string | null | undefined, nowMs: number)
   if (delayMs === null || !Number.isFinite(delayMs)) return { delayMs: null, long: false };
   // Zero ou date deja passee : rien a attendre.
   if (delayMs <= 0) return { delayMs: null, long: false };
-  // Valeur techniquement impossible : on ne la suit pas.
-  if (delayMs > RETRY_AFTER_ABSURD_MS) return { delayMs: null, long: false };
+  // Seule une echeance non representable est rejetee. Un plafond arbitraire
+  // etait pire que le mal : ignorer une consigne de 45 jours faisait retomber
+  // sur le petit backoff client et reinterrogeait le serveur en une minute.
+  // La borne reelle est la plage d'une Date JavaScript (±8.64e15 ms) : au-dela,
+  // `new Date(...)` produirait une Invalid Date et `toISOString()` leverait.
+  const targetMs = nowMs + delayMs;
+  if (!Number.isFinite(targetMs) || Math.abs(targetMs) > MAX_REPRESENTABLE_DATE_MS) {
+    return { delayMs: null, long: false };
+  }
 
   return { delayMs, long: delayMs > RETRY_AFTER_LONG_THRESHOLD_MS };
 }
@@ -290,6 +338,13 @@ export interface RetryDecisionInput {
    * 0.5 signifie « pas de decalage » pour le jitter client symetrique.
    */
   jitter?: number;
+  /**
+   * Compteur propre a la PORTEE de la politique. Sans lui, la duree d'un
+   * blocage global — authentification, limitation de debit — dependrait du
+   * nombre de tentatives de l'operation qui se trouve par hasard en tete de
+   * file : deux pannes identiques donneraient des delais differents.
+   */
+  retryOrdinal?: number;
 }
 
 function clampJitter(value: number | undefined): number {
@@ -304,8 +359,9 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
   const status = errorStatus(failure.error, failure.meta);
   const retryAfter = parseRetryAfter(failure.meta?.retryAfter, nowMs);
 
-  const reachedServer = failure.meta?.reachedServer
-    ?? (status > 0 && failureClass !== 'cancelled');
+  const reachedServer = failureClass === 'cancelled'
+    ? false
+    : failureReachedServer(failure.error, failure.meta);
 
   // Une annulation volontaire n'est pas un echec : elle ne compte pas, ne
   // planifie rien, et laisse l'operation intacte pour la generation suivante.
@@ -342,7 +398,7 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
 
   const ladder = BACKOFF_LADDERS[failureClass];
   const attemptIndex = Math.min(
-    normalizeAttemptCount(operation?.attemptCount),
+    normalizeAttemptCount(input.retryOrdinal ?? operation?.attemptCount),
     Math.max(0, ladder.length - 1),
   );
   const baseDelayMs = ladder.length > 0 ? ladder[attemptIndex] : 0;
@@ -424,9 +480,17 @@ export function syncOrderingKey(operation: RetryQueueOperationLike): string {
       ?? (args.p_event as Record<string, unknown> | undefined)?.reserve_id;
     if (reserveId) return `reserve:${String(reserveId)}`;
   }
-  if (rpcFn === 'replace_site_plan_file_safely' || rpcFn === 'create_site_plan_revision_with_reserve_migration') {
+  if (rpcFn === 'replace_site_plan_file_safely') {
     const planId = args.p_plan_id;
     if (planId) return `plan:${String(planId)}`;
+  }
+  // Une revision touche DEUX identites : le plan parent (`p_parent_plan_id`) et
+  // le nouveau plan (`p_new_plan.id`). Une cle unique n'en couvrirait qu'une, et
+  // une operation ciblant le nouveau plan pourrait depasser la creation de sa
+  // propre revision. Tant que la selection ne gere qu'une cle par operation, on
+  // serialise volontairement toute la table : debit reduit, ordre garanti.
+  if (rpcFn === 'create_site_plan_revision_with_reserve_migration') {
+    return 'table:site_plans';
   }
 
   const table = operation.table ?? 'inconnu';
