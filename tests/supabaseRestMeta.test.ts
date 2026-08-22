@@ -37,6 +37,28 @@ function httpResponse(status: number, body: unknown, headers: Record<string, str
   } as unknown as Response;
 }
 
+
+/** Reponse dont la lecture du corps est pilotee par le test. */
+function responseWithBody(status: number, readBody: () => Promise<string>) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: () => null },
+    text: readBody,
+  } as unknown as Response;
+}
+
+/** `fetch` qui reste en vol jusqu'a ce que son signal soit annule. */
+function pendingFetch() {
+  return (_url: string, init: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    init.signal?.addEventListener(
+      'abort',
+      () => reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })),
+      { once: true },
+    );
+  });
+}
+
 const fetchMock = vi.fn();
 
 beforeEach(() => {
@@ -258,5 +280,87 @@ describe('metadata after the internal 401 replay', () => {
 
     expect(result.meta.status).toBe(401);
     expect(result.meta.reachedServer).toBe(true);
+  });
+});
+
+describe('body reading is never mistaken for a verdict', () => {
+  it('refuses a 2xx whose body is not JSON', async () => {
+    // « <html>proxy error</html> » n est pas un resultat exploitable. Le
+    // laisser passer le ferait normaliser en `server_rejected` sur un mouvement
+    // de stock, donc annuler un stock peut-etre accepte par le serveur.
+    fetchMock.mockResolvedValue(responseWithBody(200, async () => '<html>proxy error</html>'));
+
+    const result = await supabaseRestRpc('record_inventory_movement', {});
+
+    expect(result.data).toBeNull();
+    expect(result.error.code).toBe('REST_BODY_PARSE_FAILED');
+    expect(result.meta).toEqual({ status: 200, reachedServer: true, retryAfter: null });
+  });
+
+  it('keeps a plain-text error body as-is', async () => {
+    // Une page d erreur de proxy sur un 502 reste classable en indisponibilite.
+    fetchMock.mockResolvedValue(responseWithBody(502, async () => 'Bad Gateway'));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.error.code).toBeUndefined();
+    expect(result.error.message).toBe('Bad Gateway');
+    expect(result.meta).toEqual({ status: 502, reachedServer: true, retryAfter: null });
+  });
+
+  it('classifies a caller cancellation that lands during the body read', async () => {
+    // Une preemption peut survenir APRES les headers. La compter comme un echec
+    // de lecture ferait subir un backoff a une annulation volontaire.
+    const external = new AbortController();
+    fetchMock.mockResolvedValue(responseWithBody(200, () => {
+      external.abort();
+      return Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    }));
+
+    const result = await supabaseRestSelect('reserves', '*', undefined, 1, { signal: external.signal });
+
+    expect(result.error.code).toBe('REST_ABORTED');
+    expect(result.meta.status).toBe(200);
+  });
+
+  it('classifies a local deadline that lands during the body read', async () => {
+    fetchMock.mockResolvedValue(responseWithBody(200, () => Promise.reject(
+      Object.assign(new Error('aborted'), { name: 'AbortError' }),
+    )));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.error.code).toBe('REST_TIMEOUT');
+  });
+
+  it('classifies a spontaneous cut during the body read', async () => {
+    fetchMock.mockResolvedValue(responseWithBody(200, () => Promise.reject(new Error('connection reset'))));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.error.code).toBe('REST_BODY_READ_FAILED');
+  });
+});
+
+describe('the local deadline actually fires', () => {
+  it('aborts an in-flight fetch when the 25s bound expires', async () => {
+    // Le test precedent injectait un AbortError tout fait : il ne demontrait ni
+    // que le temps s ecoule, ni que le controleur interne coupe reellement le
+    // fetch en vol.
+    vi.useFakeTimers();
+    try {
+      fetchMock.mockImplementation(pendingFetch());
+
+      const pending = supabaseRestSelect('reserves');
+      await vi.waitFor(() => { expect(fetchMock).toHaveBeenCalledTimes(1); });
+      await vi.advanceTimersByTimeAsync(25_000);
+
+      const result = await pending;
+
+      expect(result.error.code).toBe('REST_TIMEOUT');
+      expect(result.meta).toEqual({ status: null, reachedServer: false, retryAfter: null });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

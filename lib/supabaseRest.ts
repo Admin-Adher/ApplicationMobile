@@ -157,7 +157,22 @@ function normalizeRestError(error: any, status?: number): any {
 async function readBody(response: Response): Promise<any> {
   const text = await response.text();
   if (!text) return null;
-  try { return JSON.parse(text); } catch { return text; }
+  try {
+    return JSON.parse(text);
+  } catch (cause) {
+    // Une reponse d'erreur peut legitimement etre du texte brut, typiquement
+    // une page produite par un proxy en amont : on la conserve telle quelle.
+    if (!response.ok) return text;
+    // Sur un 2xx en revanche, PostgREST renvoie du JSON. Un corps arbitraire
+    // — « <html>proxy error</html> » — n'est pas un resultat exploitable, et
+    // le laisser passer le ferait normaliser en `server_rejected` sur un
+    // mouvement de stock, donc annuler un stock peut-etre accepte.
+    throw Object.assign(new Error('La reponse REST contient un corps JSON invalide'), {
+      name: 'RestBodyParseError',
+      code: 'REST_BODY_PARSE_FAILED',
+      cause,
+    });
+  }
 }
 
 export async function getSupabaseRestAccessToken(): Promise<string> {
@@ -292,12 +307,26 @@ async function restRequest<T = any>(
     try {
       body = await readBody(response);
     } catch (readError: any) {
+      // Une preemption peut survenir APRES reception des headers, pendant la
+      // lecture du corps. La classer en echec de lecture ferait compter une
+      // annulation volontaire comme une tentative ratee, avec backoff.
+      const abortedWhileReading = readError?.name === 'AbortError';
+      const cancelledWhileReading = abortedWhileReading && Boolean(options?.signal?.aborted);
+      const code = cancelledWhileReading
+        ? 'REST_ABORTED'
+        : abortedWhileReading
+          ? 'REST_TIMEOUT'
+          : readError?.code === 'REST_BODY_PARSE_FAILED'
+            ? 'REST_BODY_PARSE_FAILED'
+            : 'REST_BODY_READ_FAILED';
+
       // Le serveur a repondu, mais le resultat n'a pas pu etre lu de facon
-      // fiable : ni une reussite, ni une absence de backend.
+      // fiable : ni une reussite, ni une absence de backend. Le statut recu est
+      // conserve puisque les headers sont bien arrives.
       return {
         data: null,
         error: {
-          code: 'REST_BODY_READ_FAILED',
+          code,
           message: readError?.message ?? 'Lecture de la reponse interrompue',
           status: response.status,
         },
