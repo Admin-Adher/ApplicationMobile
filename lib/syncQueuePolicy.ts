@@ -171,14 +171,25 @@ export function isInfrastructureSyncFailure(error: any): boolean {
  * attente, réessai automatique » à vie : la file grossit à chaque saisie et ne
  * se vide jamais, tout en promettant à l'utilisateur qu'elle va se résorber.
  */
+/**
+ * Signature brute d'un refus déterministe, SANS garde auth/infrastructure.
+ *
+ * Réservée aux appelants qui ont déjà établi leur propre ordre de
+ * classification. `isPermanentSyncFailure` reste la porte d'entrée sûre pour
+ * tous les autres.
+ */
+export function hasDeterministicRefusalSignature(error: any): boolean {
+  const code = String(error?.code ?? '').toUpperCase();
+  if (PERMANENT_SYNC_ERROR_CODES.has(code)) return true;
+  return PERMANENT_SYNC_HTTP_STATUSES.has(syncErrorStatus(error));
+}
+
 export function isPermanentSyncFailure(error: any): boolean {
   // Un échec d'authentification ou d'infrastructure est transitoire par nature :
   // il possède son propre circuit (reconnexion, backoff exponentiel) et ne doit
   // jamais être requalifié en refus définitif.
   if (isAuthenticationSyncFailure(error) || isInfrastructureSyncFailure(error)) return false;
-  const code = String(error?.code ?? '').toUpperCase();
-  if (PERMANENT_SYNC_ERROR_CODES.has(code)) return true;
-  return PERMANENT_SYNC_HTTP_STATUSES.has(syncErrorStatus(error));
+  return hasDeterministicRefusalSignature(error);
 }
 
 /** Codes fabriqués côté client : leur présence ne prouve aucune réponse serveur. */

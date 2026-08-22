@@ -1,0 +1,393 @@
+import { describe, expect, it } from 'vitest';
+import {
+  RETRY_AFTER_LONG_THRESHOLD_MS,
+  classifySyncFailure,
+  computeNextWakeAt,
+  computeRetryDecision,
+  isOperationDue,
+  normalizeSameFailureCount,
+  parseRetryAfter,
+  selectEligibleOperationHeads,
+  syncOrderingKey,
+  type RetryQueueOperationLike,
+} from '../lib/syncRetryPolicy';
+
+/** Heure injectee : le module ne doit jamais lire l'horloge lui-meme. */
+const NOW = Date.UTC(2026, 7, 22, 12, 0, 0);
+const iso = (ms: number) => new Date(ms).toISOString();
+
+describe('failure classification', () => {
+  it('classifies a caller cancellation before any textual match', () => {
+    // Le message d'une annulation contient « aborted ». Sans priorite explicite,
+    // une preemption volontaire retomberait dans la classe reseau et
+    // declencherait un backoff qu'elle ne merite pas.
+    expect(classifySyncFailure({
+      error: { code: 'REST_ABORTED', message: 'Requete aborted par l appelant' },
+    })).toBe('cancelled');
+  });
+
+  it('does not let the word "aborted" override a real server verdict', () => {
+    expect(classifySyncFailure({
+      error: { code: '42501', status: 403, message: 'operation aborted by policy' },
+    })).toBe('permanent_candidate');
+    expect(classifySyncFailure({
+      error: { status: 401, message: 'aborted' },
+    })).toBe('authentication');
+  });
+
+  it('separates rate limiting from an infrastructure outage', () => {
+    // Un 429 prouve que le backend repond : ce n'est pas une panne reseau.
+    expect(classifySyncFailure({ error: { status: 429, message: 'HTTP 429' } })).toBe('rate_limited');
+    expect(classifySyncFailure({ error: { status: 503, message: 'HTTP 503' } })).toBe('server_unavailable');
+  });
+
+  it('separates timeouts from transport cuts', () => {
+    expect(classifySyncFailure({ error: { code: 'REST_TIMEOUT' } })).toBe('timeout');
+    expect(classifySyncFailure({ error: { message: 'timeout after 150000ms' } })).toBe('timeout');
+    expect(classifySyncFailure({ error: { message: 'Network request failed' } })).toBe('network');
+    expect(classifySyncFailure({ error: { message: 'getaddrinfo EAI_AGAIN supabase.co' } })).toBe('network');
+  });
+
+  it('recognises auth, conflict, permanent and unknown', () => {
+    expect(classifySyncFailure({ error: { code: 'PGRST301' } })).toBe('authentication');
+    expect(classifySyncFailure({ error: { status: 409 } })).toBe('conflict');
+    expect(classifySyncFailure({ error: { code: '23505' } })).toBe('conflict');
+    expect(classifySyncFailure({ error: { code: 'PGRST202' } })).toBe('permanent_candidate');
+    expect(classifySyncFailure({ error: { message: 'quelque chose d inattendu' } })).toBe('unknown');
+  });
+
+  it('reads the status from transport metadata when the error carries none', () => {
+    expect(classifySyncFailure({ error: { message: 'slow down' }, meta: { status: 429 } })).toBe('rate_limited');
+  });
+});
+
+describe('Retry-After parsing', () => {
+  it('accepts a delay in seconds', () => {
+    expect(parseRetryAfter('120', NOW)).toEqual({ delayMs: 120_000, long: false });
+  });
+
+  it('accepts an HTTP date', () => {
+    const target = NOW + 90_000;
+    expect(parseRetryAfter(new Date(target).toUTCString(), NOW).delayMs).toBe(90_000);
+  });
+
+  it('tolerates surrounding whitespace', () => {
+    expect(parseRetryAfter('  45  ', NOW).delayMs).toBe(45_000);
+  });
+
+  it('ignores values that cannot be honoured', () => {
+    for (const value of ['', '   ', 'plus tard', '-30', null, undefined]) {
+      expect(parseRetryAfter(value as any, NOW).delayMs, String(value)).toBeNull();
+    }
+    // Zero et date deja passee : rien a attendre.
+    expect(parseRetryAfter('0', NOW).delayMs).toBeNull();
+    expect(parseRetryAfter(new Date(NOW - 60_000).toUTCString(), NOW).delayMs).toBeNull();
+  });
+
+  it('flags a long server delay instead of silently shortening it', () => {
+    // 48 h : retenter apres 24 h reviendrait a ignorer la consigne du serveur.
+    const result = parseRetryAfter(String(48 * 3600), NOW);
+    expect(result.delayMs).toBe(48 * 3600 * 1000);
+    expect(result.delayMs!).toBeGreaterThan(RETRY_AFTER_LONG_THRESHOLD_MS);
+    expect(result.long).toBe(true);
+  });
+
+  it('rejects a technically impossible value', () => {
+    expect(parseRetryAfter(String(90 * 24 * 3600), NOW).delayMs).toBeNull();
+  });
+});
+
+describe('retry decision', () => {
+  const decide = (error: any, extra: Partial<Parameters<typeof computeRetryDecision>[0]> = {}) =>
+    computeRetryDecision({ failure: { error, meta: extra.failure?.meta }, nowMs: NOW, jitter: 0.5, ...extra });
+
+  it('treats a cancellation as a non-event', () => {
+    const decision = decide({ code: 'REST_ABORTED', message: 'aborted' });
+
+    expect(decision.failureClass).toBe('cancelled');
+    expect(decision.incrementAttempt).toBe(false);
+    expect(decision.nextAttemptAt).toBeNull();
+    expect(decision.contributesToCircuit).toBe(false);
+    expect(decision.blocksCurrentPass).toBe(false);
+    expect(decision.scope).toBe('none');
+  });
+
+  it('defers only the failing operation on an isolated timeout', () => {
+    const decision = decide({ code: 'REST_TIMEOUT' });
+
+    expect(decision.scope).toBe('operation');
+    expect(decision.blocksCurrentPass).toBe(false);
+    expect(decision.contributesToCircuit).toBe(true);
+    expect(decision.nextAttemptAt).toBe(iso(NOW + 10_000));
+  });
+
+  it('stops the whole pass on a rate limit', () => {
+    // Ne differer que l'operation courante enverrait les suivantes et
+    // recolterait autant de 429 supplementaires.
+    const decision = computeRetryDecision({
+      failure: { error: { status: 429 }, meta: { status: 429, retryAfter: '120' } },
+      nowMs: NOW,
+      jitter: 0,
+    });
+
+    expect(decision.scope).toBe('backend');
+    expect(decision.blocksCurrentPass).toBe(true);
+    expect(decision.contributesToCircuit).toBe(false);
+    expect(decision.reachedServer).toBe(true);
+    expect(decision.retrySource).toBe('retry_after');
+    expect(Date.parse(decision.nextAttemptAt!)).toBe(NOW + 120_000);
+  });
+
+  it('never brings a server deadline forward, and never applies negative jitter', () => {
+    for (const jitter of [0, 0.25, 0.5, 0.75, 0.999]) {
+      const decision = computeRetryDecision({
+        failure: { error: { status: 429 }, meta: { retryAfter: '100' } },
+        nowMs: NOW,
+        jitter,
+      });
+      expect(Date.parse(decision.nextAttemptAt!)).toBeGreaterThanOrEqual(NOW + 100_000);
+    }
+  });
+
+  it('keeps the later of the client backoff and the server deadline', () => {
+    // Une consigne serveur courte ne doit pas annuler un backoff client devenu
+    // long apres plusieurs echecs.
+    const longClientBackoff = computeRetryDecision({
+      failure: { error: { status: 503 }, meta: { retryAfter: '5' } },
+      operation: { attemptCount: 4 },
+      nowMs: NOW,
+      jitter: 0.5,
+    });
+    expect(Date.parse(longClientBackoff.nextAttemptAt!)).toBe(NOW + 300_000);
+
+    const longServerDeadline = computeRetryDecision({
+      failure: { error: { status: 503 }, meta: { retryAfter: '600' } },
+      operation: { attemptCount: 0 },
+      nowMs: NOW,
+      jitter: 0,
+    });
+    expect(Date.parse(longServerDeadline.nextAttemptAt!)).toBe(NOW + 600_000);
+  });
+
+  it('escalates the client backoff with the attempt count and caps it', () => {
+    const delays = [0, 1, 2, 3, 4, 9].map(attemptCount => Date.parse(
+      computeRetryDecision({
+        failure: { error: { code: 'REST_TIMEOUT' } },
+        operation: { attemptCount },
+        nowMs: NOW,
+        jitter: 0.5,
+      }).nextAttemptAt!,
+    ) - NOW);
+
+    expect(delays).toEqual([10_000, 30_000, 60_000, 120_000, 300_000, 300_000]);
+  });
+
+  it('applies a deterministic symmetric jitter to client delays', () => {
+    const at = (jitter: number) => Date.parse(computeRetryDecision({
+      failure: { error: { code: 'REST_TIMEOUT' } },
+      operation: { attemptCount: 1 },
+      nowMs: NOW,
+      jitter,
+    }).nextAttemptAt!) - NOW;
+
+    expect(at(0)).toBe(24_000);
+    expect(at(0.5)).toBe(30_000);
+    expect(at(1)).toBeCloseTo(35_999, -2);
+  });
+
+  it('marks a server verdict as reaching the server without feeding the circuit', () => {
+    const decision = computeRetryDecision({
+      failure: { error: { status: 400, message: 'HTTP 400' }, meta: { status: 400 } },
+      nowMs: NOW,
+      jitter: 0.5,
+    });
+
+    expect(decision.reachedServer).toBe(true);
+    expect(decision.contributesToCircuit).toBe(false);
+  });
+
+  it('leaves conflict resolution to the existing business path', () => {
+    const decision = decide({ status: 409 });
+
+    expect(decision.failureClass).toBe('conflict');
+    expect(decision.nextAttemptAt).toBeNull();
+    expect(decision.contributesToCircuit).toBe(false);
+  });
+
+  it('blocks the pass on an authentication failure', () => {
+    const decision = decide({ status: 401 });
+
+    expect(decision.scope).toBe('authentication');
+    expect(decision.blocksCurrentPass).toBe(true);
+    expect(decision.retrySource).toBe('authentication');
+  });
+
+  it('reports a long server delay without truncating it', () => {
+    const decision = computeRetryDecision({
+      failure: { error: { status: 429 }, meta: { retryAfter: String(48 * 3600) } },
+      nowMs: NOW,
+      jitter: 0,
+    });
+
+    expect(decision.retryAfterLong).toBe(true);
+    expect(Date.parse(decision.nextAttemptAt!)).toBe(NOW + 48 * 3600 * 1000);
+  });
+});
+
+describe('ordering keys', () => {
+  it('binds every write of one entity to a single key', () => {
+    expect(syncOrderingKey({
+      rpc: { fn: 'record_inventory_movement', args: { p_movement: { product_id: 'P1' } } },
+    })).toBe('inventory:P1');
+    expect(syncOrderingKey({
+      rpc: { fn: 'update_inventory_product', args: { p_product_id: 'P1' } },
+    })).toBe('inventory:P1');
+    expect(syncOrderingKey({
+      rpc: { fn: 'create_reserve_with_photos', args: { p_reserve: { id: 'R7' } } },
+    })).toBe('reserve:R7');
+    expect(syncOrderingKey({
+      rpc: { fn: 'apply_reserve_patch', args: { p_reserve_id: 'R7' } },
+    })).toBe('reserve:R7');
+    expect(syncOrderingKey({
+      rpc: { fn: 'replace_site_plan_file_safely', args: { p_plan_id: 'PL3' } },
+    })).toBe('plan:PL3');
+  });
+
+  it('falls back conservatively rather than risk an order violation', () => {
+    // Une cle par ligne quand l'ID est connu…
+    expect(syncOrderingKey({ table: 'reserves', op: 'update', filter: { column: 'id', value: 'R1' } }))
+      .toBe('reserves:R1');
+    // …sinon toute la table partage une file d'ordre : debit reduit, mais aucun
+    // depassement possible.
+    expect(syncOrderingKey({ table: 'reserves', op: 'insert' })).toBe('table:reserves');
+    expect(syncOrderingKey({})).toBe('table:inconnu');
+  });
+});
+
+describe('eligible head selection', () => {
+  const base: RetryQueueOperationLike[] = [
+    { id: 'a1', queuedAt: '2026-08-22T10:00:00.000Z', nextAttemptAt: iso(NOW + 120_000), rpc: { fn: 'record_inventory_movement', args: { p_movement: { product_id: 'A' } } } },
+    { id: 'a2', queuedAt: '2026-08-22T10:05:00.000Z', rpc: { fn: 'record_inventory_movement', args: { p_movement: { product_id: 'A' } } } },
+    { id: 'b1', queuedAt: '2026-08-22T10:10:00.000Z', rpc: { fn: 'record_inventory_movement', args: { p_movement: { product_id: 'B' } } } },
+  ];
+
+  it('lets an independent entity through while another one waits', () => {
+    const heads = selectEligibleOperationHeads({ operations: base, nowMs: NOW });
+    expect(heads.map(o => o.id)).toEqual(['b1']);
+  });
+
+  it('never lets a newer write overtake its deferred head', () => {
+    // a2 est exigible, mais a1 — plus ancienne sur le meme produit — ne l'est
+    // pas : la laisser passer corromprait le solde.
+    const heads = selectEligibleOperationHeads({ operations: base, nowMs: NOW });
+    expect(heads.map(o => o.id)).not.toContain('a2');
+  });
+
+  it('releases the whole group once the head becomes due', () => {
+    const heads = selectEligibleOperationHeads({ operations: base, nowMs: NOW + 130_000 });
+    expect(heads.map(o => o.id)).toEqual(['a1', 'b1']);
+  });
+
+  it('excludes terminal operations and treats invalid dates as due', () => {
+    const heads = selectEligibleOperationHeads({
+      operations: [
+        { id: 'refusee', queuedAt: '2026-08-22T09:00:00.000Z', terminal: true, table: 'x' },
+        { id: 'date-cassee', queuedAt: '2026-08-22T09:30:00.000Z', nextAttemptAt: 'pas-une-date', table: 'y' },
+      ],
+      nowMs: NOW,
+    });
+    expect(heads.map(o => o.id)).toEqual(['date-cassee']);
+  });
+
+  it('does not mutate the input and keeps a stable order', () => {
+    const operations = [...base];
+    const snapshot = operations.map(o => o.id);
+    selectEligibleOperationHeads({ operations, nowMs: NOW + 200_000 });
+    expect(operations.map(o => o.id)).toEqual(snapshot);
+
+    const priority = (op: RetryQueueOperationLike) => (op.id === 'b1' ? 0 : 0);
+    const heads = selectEligibleOperationHeads({ operations, nowMs: NOW + 200_000, priority });
+    expect(heads.map(o => o.id)).toEqual(['a1', 'b1']);
+  });
+
+  it('honours an explicit priority before the queue date', () => {
+    const heads = selectEligibleOperationHeads({
+      operations: base,
+      nowMs: NOW + 200_000,
+      priority: op => (op.id === 'b1' ? 1 : 2),
+    });
+    expect(heads.map(o => o.id)).toEqual(['b1', 'a1']);
+  });
+
+  it('returns nothing for an empty queue', () => {
+    expect(selectEligibleOperationHeads({ operations: [], nowMs: NOW })).toEqual([]);
+  });
+});
+
+describe('next wake computation', () => {
+  it('arms on the earliest useful deadline', () => {
+    const wake = computeNextWakeAt({
+      operations: [
+        { id: 'a', table: 'x', nextAttemptAt: iso(NOW + 300_000) },
+        { id: 'b', table: 'y', nextAttemptAt: iso(NOW + 45_000) },
+      ],
+      nowMs: NOW,
+    });
+    expect(wake).toBe(NOW + 45_000);
+  });
+
+  it('never schedules earlier than a global backend block', () => {
+    const wake = computeNextWakeAt({
+      operations: [{ id: 'a', table: 'x' }],
+      nowMs: NOW,
+      globalBlockUntilMs: NOW + 90_000,
+    });
+    expect(wake).toBe(NOW + 90_000);
+  });
+
+  it('wakes immediately when something is already due', () => {
+    expect(computeNextWakeAt({
+      operations: [{ id: 'a', table: 'x', nextAttemptAt: iso(NOW - 60_000) }],
+      nowMs: NOW,
+    })).toBe(NOW);
+  });
+
+  it('arms nothing when no replayable operation remains', () => {
+    expect(computeNextWakeAt({ operations: [], nowMs: NOW })).toBeNull();
+    expect(computeNextWakeAt({
+      operations: [{ id: 'a', terminal: true, table: 'x' }],
+      nowMs: NOW,
+    })).toBeNull();
+  });
+
+  it('handles a queue where everything is in the future without busy-looping', () => {
+    const wake = computeNextWakeAt({
+      operations: [
+        { id: 'a', table: 'x', nextAttemptAt: iso(NOW + 3_600_000) },
+        { id: 'b', table: 'y', nextAttemptAt: iso(NOW + 7_200_000) },
+      ],
+      nowMs: NOW,
+    });
+    expect(wake).toBe(NOW + 3_600_000);
+    expect(wake).toBeGreaterThan(NOW);
+  });
+});
+
+describe('defensive normalisation', () => {
+  it('clamps a corrupted same-failure counter', () => {
+    expect(normalizeSameFailureCount(3)).toBe(3);
+    expect(normalizeSameFailureCount(-1)).toBe(0);
+    expect(normalizeSameFailureCount(1e9)).toBe(999);
+    expect(normalizeSameFailureCount('trois')).toBe(0);
+    expect(normalizeSameFailureCount(undefined)).toBe(0);
+    expect(normalizeSameFailureCount(2.5)).toBe(0);
+  });
+
+  it('treats a missing or unreadable deadline as immediately due', () => {
+    // Une donnee illisible ne doit jamais retarder indefiniment une ecriture.
+    expect(isOperationDue({ table: 'x' }, NOW)).toBe(true);
+    expect(isOperationDue({ table: 'x', nextAttemptAt: 'n importe quoi' }, NOW)).toBe(true);
+    expect(isOperationDue({ table: 'x', nextAttemptAt: iso(NOW + 1) }, NOW)).toBe(false);
+    expect(isOperationDue({ table: 'x', terminal: true }, NOW)).toBe(false);
+  });
+});
