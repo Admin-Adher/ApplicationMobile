@@ -28,6 +28,11 @@ on:
         required: false
         type: boolean
         default: false
+      allow_native_without_bump:
+        description: "Autoriser un changement natif sans montee de expo.version (exceptionnel)"
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -62,6 +67,7 @@ jobs:
       native_changed: ${{ steps.classify.outputs.native_changed }}
       server_changed: ${{ steps.classify.outputs.server_changed }}
       workflow_changed: ${{ steps.classify.outputs.workflow_changed }}
+      base_sha: ${{ steps.classify.outputs.base_sha }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -108,6 +114,15 @@ jobs:
             native=true
           fi
 
+          # Ces trois images sont referencees par app.json (icon, adaptiveIcon,
+          # splash) et embarquees dans l'APK : les remplacer produit un bundle
+          # different, mais l'icone installee ne changerait pas tant qu'un
+          # nouveau binaire n'est pas distribue. Elles restent `ota=true` — un
+          # native_changed a true bloquera l'OTA automatique de toute facon.
+          if match '^assets/images/(icon|adaptive-icon|splash-icon)\.(png|jpg|jpeg|webp)$'; then
+            native=true
+          fi
+
           server=false
           if match '^(vercel-app|supabase|cloudflare|server)/'; then
             server=true
@@ -123,6 +138,7 @@ jobs:
             echo "native_changed=${native}"
             echo "server_changed=${server}"
             echo "workflow_changed=${workflow}"
+            echo "base_sha=${base}"
           } >> "$GITHUB_OUTPUT"
 
           {
@@ -134,6 +150,45 @@ jobs:
             echo "| Serveur / SQL | ${server} |"
             echo "| Workflows | ${workflow} |"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      # Contrat de runtime Expo. `runtimeVersion.policy = appVersion` signifie
+      # que le runtime EAS est derive de `expo.version`. Si un changement natif
+      # est publie sans monter cette version, l'ancien et le nouveau binaire
+      # partagent le MEME runtime : une OTA destinee au nouveau module natif
+      # serait alors proposee a l'ancien APK, qui ne le possede pas — crash au
+      # demarrage sur les appareils non encore mis a jour.
+      - name: Enforce runtime version bump on native changes
+        if: steps.classify.outputs.native_changed == 'true'
+        env:
+          BASE_SHA: ${{ steps.classify.outputs.base_sha }}
+          ALLOW_WITHOUT_BUMP: ${{ inputs.allow_native_without_bump }}
+        run: |
+          head_version="$(node -p "require('./app.json').expo.version")"
+          base_file="${RUNNER_TEMP}/app.base.json"
+          git show "${BASE_SHA}:app.json" > "${base_file}" 2>/dev/null || true
+          if [ -s "${base_file}" ]; then
+            base_version="$(node -p "require('${base_file}').expo.version")"
+          else
+            base_version=""
+          fi
+
+          echo "expo.version : ${base_version:-<absent>} -> ${head_version}"
+
+          if [ -z "${base_version}" ] || [ "${base_version}" != "${head_version}" ]; then
+            echo "Montee de version detectee ou base indisponible : contrat respecte."
+            exit 0
+          fi
+
+          if [ "${ALLOW_WITHOUT_BUMP}" = "true" ]; then
+            echo "::warning::Changement natif publie SANS montee de expo.version (${head_version}), exception demandee explicitement."
+            exit 0
+          fi
+
+          echo "::error::Changement natif detecte alors que expo.version reste ${head_version}."
+          echo "::error::runtimeVersion suit appVersion : l ancien et le nouveau binaire partageraient le meme runtime EAS,"
+          echo "::error::et une OTA destinee au nouveau code natif pourrait etre servie a un APK qui ne le contient pas."
+          echo "::error::Monter expo.version dans app.json, ou relancer en dispatch avec allow_native_without_bump."
+          exit 1
 
   # ─── Job 1 : OTA update (JS bundle uniquement) ───────────────────────────
   # Publie le bundle JS via EAS Update (expo-updates).

@@ -74,6 +74,40 @@ describe('release pipeline policy', () => {
     expect(releaseChain).toContain('permissions:\n  contents: read');
   });
 
+  it('treats binary-baked assets as native, not OTA-deliverable', () => {
+    const start = releaseChain.indexOf('  detect-changes:');
+    const block = releaseChain.slice(start, releaseChain.indexOf('  publish-ota:'));
+
+    // icon.png, adaptive-icon.png et splash-icon.png sont references par
+    // app.json et cuits dans l'APK. Les remplacer change le bundle, mais
+    // l'icone installee ne bougerait pas sans nouveau binaire.
+    expect(block).toContain('assets/images/(icon|adaptive-icon|splash-icon)');
+  });
+
+  it('refuses a native change that keeps the same expo.version', () => {
+    const start = releaseChain.indexOf('  detect-changes:');
+    const block = releaseChain.slice(start, releaseChain.indexOf('  publish-ota:'));
+
+    // runtimeVersion suit appVersion : sans montee de version, l'ancien et le
+    // nouveau binaire partagent le meme runtime EAS, et une OTA destinee au
+    // nouveau code natif peut etre servie a un APK qui ne le contient pas.
+    expect(block).toContain('Enforce runtime version bump on native changes');
+    expect(block).toContain("steps.classify.outputs.native_changed == 'true'");
+    expect(block).toContain("require('./app.json').expo.version");
+    // L'exception reste possible mais doit etre demandee explicitement.
+    expect(block).toContain('allow_native_without_bump');
+    expect(releaseChain).toContain('allow_native_without_bump:');
+  });
+
+  it('keeps the runtime policy this enforcement depends on', () => {
+    const appJson = JSON.parse(
+      readFileSync(resolve(repositoryRoot, 'app.json'), 'utf8'),
+    );
+    // Le controle ci-dessus n'a de sens que sous cette politique.
+    expect(appJson.expo.runtimeVersion).toEqual({ policy: 'appVersion' });
+    expect(appJson.expo.version).toBeTruthy();
+  });
+
   it('classifies dependency and config changes as native, not OTA-safe', () => {
     const start = releaseChain.indexOf('  detect-changes:');
     const block = releaseChain.slice(start, releaseChain.indexOf('  publish-ota:'));
