@@ -316,6 +316,11 @@ interface NetworkContextValue {
    * so the queue is held intact until the user logs in again.
    */
   syncAuthBlocked: boolean;
+  /** Horodatages ISO exposes pour le diagnostic support. `null` si jamais survenu. */
+  lastSyncAttemptAt: string | null;
+  lastSyncSuccessAt: string | null;
+  /** Prochaine passe planifiee, quand un backoff est actif. */
+  nextSyncAttemptAt: string | null;
   conflicts: StatusConflict[];
   enqueueOperation: (op: Omit<QueuedOperation, 'id' | 'queuedAt'>) => void;
   resolveConflict: (conflictId: string, chosenStatus: string) => Promise<void>;
@@ -337,6 +342,9 @@ const NetworkContext = createContext<NetworkContextValue>({
   syncStatus: 'idle',
   syncProgress: { done: 0, total: 0 },
   syncAuthBlocked: false,
+  lastSyncAttemptAt: null,
+  lastSyncSuccessAt: null,
+  nextSyncAttemptAt: null,
   conflicts: [],
   enqueueOperation: () => {},
   resolveConflict: async () => {},
@@ -731,6 +739,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // Horodatage du dernier progrès (incrément d'opération traitée). Sert à
   // détecter une passe gelée sans pénaliser une passe lente mais qui avance.
   const syncProgressAtRef = useRef(0);
+  const [lastSyncAttemptAt, setLastSyncAttemptAt] = useState<string | null>(null);
+  const [lastSyncSuccessAt, setLastSyncSuccessAt] = useState<string | null>(null);
+  const [nextSyncAttemptAt, setNextSyncAttemptAt] = useState<string | null>(null);
   // Contrôleur de la passe en cours. Abandonner une passe ne suffisait pas à
   // arrêter ses transferts : un upload préempté continuait à consommer le lien
   // que la passe suivante allait réclamer, et pouvait aboutir après son réessai.
@@ -794,6 +805,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const scheduleSync = useCallback((delayMs = SYNC_KICK_DELAY_MS) => {
     if (!isSupabaseConfigured) return;
     if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
+    setNextSyncAttemptAt(new Date(Date.now() + delayMs).toISOString());
     syncKickTimerRef.current = setTimeout(() => {
       syncKickTimerRef.current = null;
       if (
@@ -1219,6 +1231,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     syncingRef.current = true;
     syncProgressAtRef.current = Date.now();
     lastSyncAttemptRef.current = Date.now();
+    setLastSyncAttemptAt(new Date().toISOString());
+    setNextSyncAttemptAt(null);
     setSyncStatus('syncing');
 
     // Tout le corps est encapsulé dans un try/finally : le verrou (`syncingRef`)
@@ -2253,6 +2267,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       setSyncStatus('error');
       reloadHandlerRef.current?.();
     } else {
+      setLastSyncSuccessAt(new Date().toISOString());
       setSyncStatus('done');
       reloadHandlerRef.current?.();
       setTimeout(() => { if (isCurrentGeneration()) setSyncStatus('idle'); }, 4000);
@@ -2480,6 +2495,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       syncStatus,
       syncProgress,
       syncAuthBlocked,
+      lastSyncAttemptAt,
+      lastSyncSuccessAt,
+      nextSyncAttemptAt,
       conflicts,
       enqueueOperation,
       resolveConflict,
