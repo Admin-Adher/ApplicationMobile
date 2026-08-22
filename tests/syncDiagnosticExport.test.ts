@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_EXPORTED_OPERATIONS,
   buildSyncDiagnosticReport,
   formatSyncDiagnosticReport,
   type DiagnosticEnvironment,
   type DiagnosticQueuedOperation,
 } from '../lib/syncDiagnosticExport';
+import { syncFailureFingerprint } from '../lib/syncQueuePolicy';
 
 const environment: DiagnosticEnvironment = {
   appVersion: '1.2.4',
@@ -16,11 +18,11 @@ const environment: DiagnosticEnvironment = {
   syncStatus: 'error',
   syncAuthBlocked: false,
   lastAttemptAt: '2026-08-22T18:29:30.000Z',
-  lastSuccessAt: '2026-08-22T17:05:00.000Z',
+  lastOperationSuccessAt: '2026-08-22T18:10:00.000Z',
+  lastQueueDrainedAt: '2026-08-22T17:05:00.000Z',
   nextAttemptAt: '2026-08-22T18:30:30.000Z',
 };
 
-/** Operation realiste : payload metier complet, photo locale, donnees nominatives. */
 const sensitiveOperation: DiagnosticQueuedOperation = {
   id: 'op-1',
   op: 'rpc',
@@ -56,7 +58,6 @@ describe('sync diagnostic export', () => {
     const report = buildSyncDiagnosticReport([sensitiveOperation], environment);
     const serialised = `${JSON.stringify(report)}\n${formatSyncDiagnosticReport(report)}`;
 
-    // La liste blanche doit tenir meme si l'operation grossit plus tard.
     for (const secret of [
       'eyJhbGciOiJIUzI1NiJ9',
       'super-secret-token',
@@ -71,9 +72,129 @@ describe('sync diagnostic export', () => {
       expect(serialised, secret).not.toContain(secret);
     }
 
-    // Le message d'erreur brut lui-meme peut contenir des valeurs metier : seule
-    // sa nature est conservee.
     expect(serialised).not.toContain('permission denied for function');
+  });
+
+  it('never exports the raw failure fingerprint, which carries the server message', () => {
+    // L'empreinte est derivee du message serveur et sa normalisation ne retire
+    // que UUID, horodatages et chiffres. Un libelle produit, un nom de chantier
+    // ou une adresse e-mail y survivent donc integralement.
+    const realFingerprint = syncFailureFingerprint({
+      code: 'PGRST204',
+      status: 400,
+      message: 'Produit Cable HTA chantier Opera invalide pour jean.dupont@example.com',
+    });
+
+    // Verrou sur la premisse : si l'empreinte cessait de porter ces valeurs, ce
+    // test deviendrait vide sans que personne ne le remarque.
+    expect(realFingerprint).toContain('jean.dupont@example.com');
+    expect(realFingerprint).toContain('chantier opera');
+
+    const report = buildSyncDiagnosticReport(
+      [{ id: 'op-9', table: 'inventory_movements', lastFailureFingerprint: realFingerprint }],
+      environment,
+    );
+    const serialised = `${JSON.stringify(report)}\n${formatSyncDiagnosticReport(report)}`;
+
+    expect(serialised).not.toContain('jean.dupont@example.com');
+    expect(serialised).not.toContain('chantier opera');
+    expect(serialised).not.toContain('Cable HTA');
+    expect(serialised).not.toContain(realFingerprint);
+    // Seul un alias local subsiste.
+    expect(report.operations[0].failureGroup).toBe('E1');
+  });
+
+  it('groups identical failures behind one local alias', () => {
+    const shared = 'PGRST204|400|meme cause';
+    const report = buildSyncDiagnosticReport(
+      [
+        { id: 'a', lastFailureFingerprint: shared },
+        { id: 'b', lastFailureFingerprint: shared },
+        { id: 'c', lastFailureFingerprint: 'AUTRE|500|autre cause' },
+        { id: 'd' },
+      ],
+      environment,
+    );
+
+    const groups = Object.fromEntries(report.operations.map(o => [o.id, o.failureGroup]));
+    expect(groups.a).toBe(groups.b);
+    expect(groups.c).not.toBe(groups.a);
+    // Sans empreinte, aucun groupe : on n'invente pas de regroupement.
+    expect(groups.d).toBeUndefined();
+  });
+
+  it('refuses arbitrary strings in fields that are normally safe', () => {
+    // Une file corrompue, migree ou manipulee peut porter n'importe quoi.
+    const report = buildSyncDiagnosticReport(
+      [{
+        id: 'Jean Dupont <jean@example.com>',
+        table: 'commentaire: code portail 4821',
+        rpc: { fn: 'DROP TABLE inventory; --' },
+        terminalStatus: 'refuse car Trampa de botella',
+        attemptCount: -5,
+      } as DiagnosticQueuedOperation],
+      environment,
+    );
+    const serialised = `${JSON.stringify(report)}\n${formatSyncDiagnosticReport(report)}`;
+
+    for (const injected of ['Jean Dupont', 'jean@example.com', 'code portail', 'DROP TABLE', 'Trampa']) {
+      expect(serialised, injected).not.toContain(injected);
+    }
+    expect(report.operations[0].id).toBe('inconnu');
+    expect(report.operations[0].operation).toBe('inconnu');
+    expect(report.operations[0].attemptCount).toBe(0);
+  });
+
+  it('caps the detail and says how much it left out', () => {
+    const queue: DiagnosticQueuedOperation[] = Array.from({ length: 250 }, (_, index) => ({
+      id: `op-${index}`,
+      table: 'reserves',
+      queuedAt: new Date(Date.UTC(2026, 7, 22, 10, index)).toISOString(),
+      attemptCount: index % 7,
+    }));
+
+    const report = buildSyncDiagnosticReport(queue, environment);
+
+    expect(report.operations).toHaveLength(MAX_EXPORTED_OPERATIONS);
+    expect(report.omittedOperations).toBe(250 - MAX_EXPORTED_OPERATIONS);
+    // Les compteurs portent toujours sur la file entiere.
+    expect(report.queue.pending).toBe(250);
+    expect(formatSyncDiagnosticReport(report)).toContain('150 operation(s) non detaillee(s)');
+  });
+
+  it('details rejected and most-retried operations first when capping', () => {
+    const queue: DiagnosticQueuedOperation[] = [
+      ...Array.from({ length: MAX_EXPORTED_OPERATIONS }, (_, i) => ({
+        id: `filler-${i}`, table: 'reserves', attemptCount: 0,
+      })),
+      { id: 'rejete', table: 'reserves', terminal: true, terminalStatus: 'forbidden' },
+      { id: 'insistante', table: 'reserves', attemptCount: 42 },
+    ];
+
+    const report = buildSyncDiagnosticReport(queue, environment);
+    const ids = report.operations.map(o => o.id);
+
+    // Le plafond ne doit pas amputer le rapport de ce qui explique la panne.
+    expect(ids).toContain('rejete');
+    expect(ids).toContain('insistante');
+    expect(ids[0]).toBe('rejete');
+  });
+
+  it('separates pending age from rejected age, and both success timestamps', () => {
+    const queue: DiagnosticQueuedOperation[] = [
+      { id: 'a', queuedAt: '2026-08-22T18:00:00.000Z', attemptCount: 4 },
+      { id: 'b', queuedAt: '2026-08-22T17:30:00.000Z', attemptCount: 0 },
+      // Refus ancien : ne doit plus masquer l'age reel des operations en attente.
+      { id: 'c', queuedAt: '2026-08-20T09:00:00.000Z', terminal: true, terminalStatus: 'insufficient_stock' },
+    ];
+
+    const report = buildSyncDiagnosticReport(queue, environment);
+
+    expect(report.queue.oldestPendingQueuedAt).toBe('2026-08-22T17:30:00.000Z');
+    expect(report.queue.oldestPendingAgeMinutes).toBe(60);
+    expect(report.queue.oldestRejectedQueuedAt).toBe('2026-08-20T09:00:00.000Z');
+    expect(report.queue.lastOperationSuccessAt).toBe('2026-08-22T18:10:00.000Z');
+    expect(report.queue.lastQueueDrainedAt).toBe('2026-08-22T17:05:00.000Z');
   });
 
   it('keeps exactly what the support needs to act', () => {
@@ -90,44 +211,22 @@ describe('sync diagnostic export', () => {
     const [operation] = report.operations;
     expect(operation.id).toBe('op-1');
     expect(operation.domain).toBe('inventory');
-    // Le nom de la RPC decrit la nature de l'ecriture sans son contenu.
     expect(operation.operation).toBe('record_inventory_movement');
     expect(operation.attemptCount).toBe(4);
     expect(operation.sameFailureCount).toBe(2);
     expect(operation.failureClass).toBe('42501');
-    expect(operation.failureFingerprint).toBe('42501|403|permission denied');
     expect(operation.state).toBe('pending');
-  });
-
-  it('reports queue depth and the age of the oldest operation', () => {
-    const queue: DiagnosticQueuedOperation[] = [
-      { id: 'a', queuedAt: '2026-08-22T18:00:00.000Z', attemptCount: 4 },
-      { id: 'b', queuedAt: '2026-08-22T16:30:00.000Z', attemptCount: 0 },
-      { id: 'c', queuedAt: '2026-08-22T17:00:00.000Z', terminal: true, terminalStatus: 'insufficient_stock' },
-    ];
-
-    const report = buildSyncDiagnosticReport(queue, environment);
-
-    expect(report.queue.pending).toBe(2);
-    expect(report.queue.rejected).toBe(1);
-    expect(report.queue.stuck).toBe(1);
-    expect(report.queue.oldestQueuedAt).toBe('2026-08-22T16:30:00.000Z');
-    expect(report.queue.oldestAgeMinutes).toBe(120);
-    expect(report.operations.find(o => o.id === 'c')?.state).toBe('rejected');
   });
 
   it('degrades gracefully on an empty or malformed queue', () => {
     const empty = buildSyncDiagnosticReport([], environment);
     expect(empty.queue.pending).toBe(0);
-    expect(empty.queue.oldestQueuedAt).toBeNull();
-    expect(empty.queue.oldestAgeMinutes).toBeNull();
+    expect(empty.queue.oldestPendingQueuedAt).toBeNull();
+    expect(empty.omittedOperations).toBe(0);
     expect(formatSyncDiagnosticReport(empty)).toContain('(aucune)');
 
-    const malformed = buildSyncDiagnosticReport(
-      [{ queuedAt: 'pas-une-date' }, {}],
-      environment,
-    );
-    expect(malformed.queue.oldestQueuedAt).toBeNull();
+    const malformed = buildSyncDiagnosticReport([{ queuedAt: 'pas-une-date' }, {}], environment);
+    expect(malformed.queue.oldestPendingQueuedAt).toBeNull();
     expect(malformed.operations).toHaveLength(2);
     expect(malformed.operations[0].id).toBe('inconnu');
   });

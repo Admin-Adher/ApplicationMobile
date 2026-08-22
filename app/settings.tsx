@@ -148,8 +148,10 @@ export default function SettingsScreen() {
     queueCount,
     rejectedCount,
     lastSyncAttemptAt,
-    lastSyncSuccessAt,
+    lastOperationSuccessAt,
+    lastQueueDrainedAt,
     nextSyncAttemptAt,
+    backendReachable,
     isOnline,
     syncStatus,
     syncProgress,
@@ -178,7 +180,25 @@ export default function SettingsScreen() {
   });
   // Export destine au support. Le rapport est construit par liste blanche dans
   // lib/syncDiagnosticExport : ni jeton, ni cle, ni photo, ni payload metier.
-  const handleExportDiagnostic = async () => {
+  //
+  // La confirmation precede la copie : l'utilisateur doit savoir ce qu'il
+  // s'apprete a coller dans un fil de support AVANT que le contenu entre dans
+  // le presse-papiers, pas apres.
+  const handleExportDiagnostic = () => {
+    showAlert(
+      t('settings.diagnostic.exportConfirmTitle'),
+      t('settings.diagnostic.exportConfirmText', { count: totalQueueCount }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        {
+          text: t('settings.diagnostic.exportConfirmAction'),
+          onPress: () => { void copyDiagnosticToClipboard(); },
+        },
+      ],
+    );
+  };
+
+  const copyDiagnosticToClipboard = async () => {
     try {
       const report = buildSyncDiagnosticReport(queue, {
         appVersion: currentApplicationVersion(),
@@ -186,10 +206,12 @@ export default function SettingsScreen() {
         platform: Platform.OS,
         generatedAt: new Date().toISOString(),
         isOnline,
+        backendReachable,
         syncStatus,
         syncAuthBlocked,
         lastAttemptAt: lastSyncAttemptAt,
-        lastSuccessAt: lastSyncSuccessAt,
+        lastOperationSuccessAt,
+        lastQueueDrainedAt,
         nextAttemptAt: nextSyncAttemptAt,
       });
       await Clipboard.setStringAsync(formatSyncDiagnosticReport(report));

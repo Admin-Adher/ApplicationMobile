@@ -72,4 +72,24 @@ describe('settings terminal-rejection copy', () => {
       expect(diagnostic[key].length).toBeGreaterThan(60);
     }
   });
+
+  it.each(['fr', 'en', 'es'])('asks before copying, not after, in %s', language => {
+    const diagnostic = translations[language].translation.settings.diagnostic;
+
+    // L'utilisateur doit savoir ce qu'il transmet AVANT que le contenu entre
+    // dans le presse-papiers.
+    for (const key of [
+      'exportConfirmTitle',
+      'exportConfirmText_one',
+      'exportConfirmText_other',
+      'exportConfirmAction',
+    ]) {
+      expect(diagnostic[key], `${language}.${key}`).toBeTruthy();
+    }
+    for (const key of ['exportConfirmText_one', 'exportConfirmText_other']) {
+      expect(diagnostic[key]).toContain('{{count}}');
+      // La confirmation enonce ce qui est inclus ET ce qui est exclu.
+      expect(diagnostic[key].length).toBeGreaterThan(120);
+    }
+  });
 });
