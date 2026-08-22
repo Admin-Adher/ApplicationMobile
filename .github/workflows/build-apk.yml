@@ -23,6 +23,11 @@ on:
         required: true
         type: boolean
         default: false
+      force_ota:
+        description: "Forcer l'OTA malgre un changement natif detecte (exceptionnel)"
+        required: false
+        type: boolean
+        default: false
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -37,32 +42,96 @@ permissions:
   contents: read
 
 jobs:
-  # ─── Job 0 : portail qualite ─────────────────────────────────────────────
-  # Rien ne part vers les utilisateurs avant ce job. Auparavant `publish-ota`
-  # et `build` demarraient en parallele sans aucun `needs:` : un OTA pouvait
-  # atteindre le canal production alors que les tests echouaient dans le job
-  # d'a cote, et rien cote GitHub ne s'y opposait.
-  quality-gates:
-    name: Quality gates
+  # Portail qualite CANONIQUE, partage avec Security gates. Le portail local
+  # precedent ne rejouait ni le serveur Next.js, ni la matrice PostgreSQL : un
+  # commit pouvait donc etre publie apres avoir satisfait le contrat le plus
+  # faible des deux. Saute sur pull_request, ou Security gates les execute deja.
+  gates:
+    name: Gates
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/reusable-quality-gates.yml
+
+  # Le pipeline garantissait qu'une OTA etait VALIDEE avant publication, pas
+  # qu'elle etait NECESSAIRE : le merge d'une PR ne touchant que des workflows
+  # republiait un bundle identique sur le canal production.
+  detect-changes:
+    name: Detect changes
     runs-on: ubuntu-latest
+    outputs:
+      ota_changed: ${{ steps.classify.outputs.ota_changed }}
+      native_changed: ${{ steps.classify.outputs.native_changed }}
+      server_changed: ${{ steps.classify.outputs.server_changed }}
+      workflow_changed: ${{ steps.classify.outputs.workflow_changed }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
         with:
-          node-version: 22
-          cache: npm
+          fetch-depth: 0
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base="$PR_BASE_SHA"
+          else
+            base="$PUSH_BEFORE_SHA"
+          fi
+          # Premier push sur une branche, force-push ou dispatch : pas de base
+          # exploitable. On retombe sur le parent, jamais sur « rien change ».
+          if [ -z "$base" ]             || [ "$base" = "0000000000000000000000000000000000000000" ]             || ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+            base="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+          fi
+          changed="$(git diff --name-only "$base" HEAD)"
+          echo "Base de comparaison : ${base}"
+          echo "--- fichiers modifies ---"
+          echo "$changed"
+          echo "-------------------------"
 
-      - name: Run unit tests
-        run: npm test
+          match() { echo "$changed" | grep -qE "$1"; }
 
-      - name: Type-check application
-        run: npx tsc --noEmit
+          # Embarque dans le bundle JS : une OTA suffit a le livrer.
+          ota=false
+          if match '^(app|components|context|hooks|lib|constants|design-system|assets)/'; then
+            ota=true
+          fi
+
+          # Peut exiger un nouveau runtime natif. Politique volontairement
+          # conservatrice : une dependance ajoutee dans package.json peut
+          # embarquer du code natif, et publier une OTA qui en depend rendrait
+          # l'application incompatible avec le binaire deja installe.
+          native=false
+          if match '^(android|ios|plugins)/'             || match '^(app\.json|app\.config\.[a-z]+|eas\.json|package\.json|package-lock\.json|babel\.config\.[a-z]+|metro\.config\.[a-z]+)$'; then
+            native=true
+          fi
+
+          server=false
+          if match '^(vercel-app|supabase|cloudflare|server)/'; then
+            server=true
+          fi
+
+          workflow=false
+          if match '^\.github/'; then
+            workflow=true
+          fi
+
+          {
+            echo "ota_changed=${ota}"
+            echo "native_changed=${native}"
+            echo "server_changed=${server}"
+            echo "workflow_changed=${workflow}"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "### Classification" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Categorie | Modifie |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Bundle JS (OTA) | ${ota} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Runtime natif | ${native} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Serveur / SQL | ${server} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Workflows | ${workflow} |" >> "$GITHUB_STEP_SUMMARY"
 
   # ─── Job 1 : OTA update (JS bundle uniquement) ───────────────────────────
   # Publie le bundle JS via EAS Update (expo-updates).
@@ -71,14 +140,27 @@ jobs:
   publish-ota:
     name: Publish OTA Update (EAS)
     runs-on: ubuntu-latest
-    needs: quality-gates
-    # Une PR ne doit jamais livrer aux utilisateurs, et un dispatch depuis une
-    # branche non fusionnee non plus.
+    needs: [gates, detect-changes]
+    # Une PR ne livre jamais aux utilisateurs, un dispatch depuis une branche
+    # non fusionnee non plus, et un commit sans changement de bundle ne
+    # republie plus a l'identique.
+    #
+    # `native_changed` bloque l'OTA automatique : livrer un bundle qui depend
+    # d'un module natif absent du binaire installe casserait l'application sur
+    # les appareils. `force_ota` permet de passer outre en connaissance de cause.
     if: >-
       github.ref == 'refs/heads/main' &&
       (
-        github.event_name == 'push' ||
-        (github.event_name == 'workflow_dispatch' && inputs.publish_ota)
+        (
+          github.event_name == 'push' &&
+          needs.detect-changes.outputs.ota_changed == 'true' &&
+          needs.detect-changes.outputs.native_changed != 'true'
+        ) ||
+        (
+          github.event_name == 'workflow_dispatch' &&
+          inputs.publish_ota &&
+          (needs.detect-changes.outputs.native_changed != 'true' || inputs.force_ota)
+        )
       )
     environment: mobile-release
     # Publie automatiquement quand EXPO_TOKEN est configuré. Sans secret, le
@@ -112,11 +194,16 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
-    needs: quality-gates
+    needs: [gates, detect-changes]
+    # Un commit de documentation ou de workflow ne declenche plus un build de
+    # 28 minutes qui echouerait de toute facon sur les secrets de signature.
     if: >-
       github.ref == 'refs/heads/main' &&
       (
-        github.event_name == 'push' ||
+        (
+          github.event_name == 'push' &&
+          needs.detect-changes.outputs.native_changed == 'true'
+        ) ||
         (github.event_name == 'workflow_dispatch' && inputs.build_apk)
       )
     environment: mobile-release
