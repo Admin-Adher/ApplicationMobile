@@ -56,12 +56,43 @@ const NO_RESPONSE_META: SupabaseRestMeta = {
   retryAfter: null,
 };
 
+/**
+ * Seule valeur d'en-tete qui traverse la couche. Bornee : un proxy defaillant
+ * ou hostile ne doit pas faire circuler une chaine arbitrairement longue
+ * jusqu'a la politique, ni jusqu'a la file persistee.
+ */
+function retryAfterFromResponse(response: Response): string | null {
+  const value = response.headers.get('Retry-After')?.trim();
+  if (!value || value.length > 128) return null;
+  return value;
+}
+
 function metaFromResponse(response: Response): SupabaseRestMeta {
   return {
     status: response.status,
     reachedServer: true,
-    retryAfter: response.headers.get('Retry-After'),
+    retryAfter: retryAfterFromResponse(response),
   };
+}
+
+/**
+ * Resultat unique quand Supabase n'est pas configure.
+ *
+ * Le garde-fou vivait dans `restRequest`, mais les entrees publiques
+ * construisent l'URL AVANT de l'appeler : `tableUrl()` et `rpcUrl()` levent
+ * « Supabase URL missing » et le garde-fou n'etait jamais atteint. Or c'est
+ * precisement l'absence d'URL qui rend `isSupabaseConfigured` faux.
+ */
+function unconfiguredResult<T>(): SupabaseRestResult<T> {
+  return {
+    data: null,
+    error: { code: 'SUPABASE_NOT_CONFIGURED', message: 'Supabase non configure' },
+    meta: { status: null, reachedServer: false, retryAfter: null },
+  };
+}
+
+function isRestUsable(): boolean {
+  return Boolean(isSupabaseConfigured && SUPABASE_URL && SUPABASE_KEY);
 }
 
 const REST_TIMEOUT_MS = 25_000;
@@ -114,8 +145,17 @@ function normalizeRestError(error: any, status?: number): any {
   };
 }
 
+/**
+ * Ne masque plus l'echec de lecture.
+ *
+ * Absorber l'exception rendait `null`, et `response.ok` restant vrai, la
+ * requete passait pour une reussite vide. Sur un mouvement de stock, une
+ * reponse vide est normalisee en `server_rejected` : une coupure pendant la
+ * lecture du corps produisait donc un refus terminal et un rollback du stock
+ * optimiste, alors que le serveur avait bien enregistre le mouvement.
+ */
 async function readBody(response: Response): Promise<any> {
-  const text = await response.text().catch(() => '');
+  const text = await response.text();
   if (!text) return null;
   try { return JSON.parse(text); } catch { return text; }
 }
@@ -247,7 +287,24 @@ async function restRequest<T = any>(
     // jeton rafraichi, c'est le second verdict qui compte pour l'appelant : le
     // 401 intermediaire a deja ete traite ici meme.
     const meta = metaFromResponse(response);
-    const body = await readBody(response);
+
+    let body: any;
+    try {
+      body = await readBody(response);
+    } catch (readError: any) {
+      // Le serveur a repondu, mais le resultat n'a pas pu etre lu de facon
+      // fiable : ni une reussite, ni une absence de backend.
+      return {
+        data: null,
+        error: {
+          code: 'REST_BODY_READ_FAILED',
+          message: readError?.message ?? 'Lecture de la reponse interrompue',
+          status: response.status,
+        },
+        meta,
+      };
+    }
+
     if (!response.ok) {
       return { data: null, error: normalizeRestError(body, response.status), meta };
     }
@@ -285,6 +342,8 @@ export async function supabaseRestSelect<T = any>(
   limit = 1,
   options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
+  // Verifie AVANT la construction de l'URL, qui leverait sans URL configuree.
+  if (!isRestUsable()) return unconfiguredResult<T>();
   const params: Array<[string, string]> = [['select', select], ...filterParams(filter)];
   if (limit > 0) params.push(['limit', String(limit)]);
   return restRequest<T>(
@@ -302,6 +361,7 @@ export async function supabaseRestMutation<T = any>(
   filter?: TableFilter,
   options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
+  if (!isRestUsable()) return unconfiguredResult<T>();
   if ((op === 'update' || op === 'delete') && !filter) {
     return {
       data: null,
@@ -368,6 +428,7 @@ export async function supabaseRestRpc<T = any>(
   args?: Record<string, any>,
   options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
+  if (!isRestUsable()) return unconfiguredResult<T>();
   return restRequest<T>(
     rpcUrl(fn),
     {
