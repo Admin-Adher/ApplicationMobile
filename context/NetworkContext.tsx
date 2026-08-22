@@ -1705,6 +1705,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             const parsed = parseInventoryMovementOutcome(
               rpcData,
               inventoryOutcomeContextFromQueuedOperation(retryRpcOp),
+              op.rpc.fn,
             );
             if (!parsed.ok) {
               fail(retryRpcOp, { code: parsed.error.code, message: parsed.error.message });

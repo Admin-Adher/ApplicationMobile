@@ -322,6 +322,66 @@ describe('strict verdict parsing', () => {
     if (!parsed.ok) expect(parsed.error.code).toBe('REST_RESULT_INVALID');
   });
 
+  it('refuses the client sentinel coming from a server response', () => {
+    // `server_rejected` est fabrique par le moteur apres trois refus
+    // deterministes identiques, jamais emis par les RPC. L accepter laisserait
+    // une reponse artificielle autoriser un rollback hors contrat SQL.
+    const parsed = parseInventoryMovementOutcome([{ status: 'server_rejected' }], context);
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error.code).toBe('REST_RESULT_INVALID');
+  });
+
+  it.each([
+    ['product_id', { status: 'ok', movement_id: 'M1', stock_before: 1, stock_after: 2 }],
+    ['movement_id', { status: 'ok', product_id: 'P1', stock_before: 1, stock_after: 2 }],
+    ['stock_before', { status: 'ok', product_id: 'P1', movement_id: 'M1', stock_after: 2 }],
+    ['stock_after', { status: 'ok', product_id: 'P1', movement_id: 'M1', stock_before: 1 }],
+  ])('refuses a movement success missing %s', (_field, row) => {
+    // Un `ok` incomplet ferait reconcilier le cache avec des identifiants et
+    // des stocks absents.
+    const parsed = parseInventoryMovementOutcome([row], context, 'record_inventory_movement');
+
+    expect(parsed.ok).toBe(false);
+  });
+
+  it('accepts a complete movement success', () => {
+    const parsed = parseInventoryMovementOutcome(
+      [{ status: 'ok', product_id: 'P1', movement_id: 'M1', stock_before: 1, stock_after: 2 }],
+      context,
+      'record_inventory_movement',
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.outcome.movementId).toBe('M1');
+      expect(parsed.outcome.stockAfter).toBe(2);
+    }
+  });
+
+  it('asks less of a product update, which returns less', () => {
+    // `update_inventory_product` ne renvoie que status, message et product_id.
+    const parsed = parseInventoryMovementOutcome(
+      [{ status: 'ok', product_id: 'P1' }],
+      context,
+      'update_inventory_product',
+    );
+
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('never demands success fields from a refusal', () => {
+    // Un refus n a pas a porter movement_id ni stocks.
+    const parsed = parseInventoryMovementOutcome(
+      [{ status: 'forbidden', message: 'Droit manquant.' }],
+      context,
+      'record_inventory_movement',
+    );
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(isTerminalInventoryMovementOutcome(parsed.outcome)).toBe(true);
+  });
+
   it.each([
     'ok',
     'insufficient_stock',
@@ -332,6 +392,7 @@ describe('strict verdict parsing', () => {
     'duplicate_product',
     'duplicate_operation_mismatch',
   ])('accepts the real server verdict %s', status => {
+    // Sans `kind`, seul `product_id` est exige sur un succes.
     const parsed = parseInventoryMovementOutcome([{ status, product_id: 'P1' }], context);
 
     expect(parsed.ok).toBe(true);
@@ -349,7 +410,7 @@ describe('strict verdict parsing', () => {
       expect(refused.outcome.stockBefore).toBe(5);
     }
 
-    const accepted = parseInventoryMovementOutcome([{ status: 'ok', stock_after: 12 }], context);
+    const accepted = parseInventoryMovementOutcome([{ status: 'ok', product_id: 'P1', stock_after: 12 }], context);
     expect(accepted.ok).toBe(true);
     if (accepted.ok) expect(isTerminalInventoryMovementOutcome(accepted.outcome)).toBe(false);
   });

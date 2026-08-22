@@ -150,8 +150,12 @@ export function inventoryOutcomeContextFromQueuedOperation(
 }
 
 /**
- * Verdicts que les RPC d'inventaire emettent reellement, plus la sentinelle
- * cliente `server_rejected`. Tout autre contenu est une reponse illisible.
+ * Verdicts que les RPC d'inventaire emettent REELLEMENT, recenses depuis la
+ * migration. `server_rejected` en est volontairement absent : c'est une
+ * sentinelle CLIENTE, fabriquee par le moteur apres trois refus deterministes
+ * identiques. L'accepter depuis une reponse serveur laisserait un
+ * `{"status":"server_rejected"}` artificiel autoriser un rollback sans
+ * appartenir au contrat SQL.
  */
 const RECOGNISED_INVENTORY_STATUSES = new Set([
   'ok',
@@ -162,8 +166,26 @@ const RECOGNISED_INVENTORY_STATUSES = new Set([
   'product_not_found',
   'duplicate_product',
   'duplicate_operation_mismatch',
-  'server_rejected',
 ]);
+
+/** RPC dont le verdict de succes a une forme connue et verifiable. */
+export type InventoryRpcKind = 'record_inventory_movement' | 'update_inventory_product';
+
+/**
+ * Un `ok` doit porter ce que la RPC promet de renvoyer, sinon il n'est pas
+ * exploitable : le moteur reconcilierait le cache avec des identifiants et des
+ * stocks absents.
+ */
+function missingSuccessField(row: Record<string, any>, kind?: InventoryRpcKind): string | null {
+  const productId = optionalString(row.product_id ?? row.productId);
+  if (!productId) return 'product_id';
+  if (kind !== 'record_inventory_movement') return null;
+
+  if (!optionalString(row.movement_id ?? row.movementId)) return 'movement_id';
+  if (optionalNumber(row.stock_before ?? row.stockBefore) === undefined) return 'stock_before';
+  if (optionalNumber(row.stock_after ?? row.stockAfter) === undefined) return 'stock_after';
+  return null;
+}
 
 export type InventoryOutcomeParseResult =
   | { ok: true; outcome: InventoryMovementOutcome }
@@ -184,6 +206,7 @@ export type InventoryOutcomeParseResult =
 export function parseInventoryMovementOutcome(
   data: unknown,
   context: InventoryMovementOutcomeContext = {},
+  kind?: InventoryRpcKind,
 ): InventoryOutcomeParseResult {
   const row = firstOutcomeRow(data);
   if (!row) {
@@ -205,6 +228,19 @@ export function parseInventoryMovementOutcome(
       ok: false,
       error: { code: 'REST_RESULT_INVALID', message: `Verdict de stock inconnu : ${status}` },
     };
+  }
+
+  if (status === 'ok') {
+    const missing = missingSuccessField(row, kind);
+    if (missing) {
+      return {
+        ok: false,
+        error: {
+          code: 'REST_RESULT_INVALID',
+          message: `Succes de stock incomplet : ${missing} manquant.`,
+        },
+      };
+    }
   }
 
   return { ok: true, outcome: normalizeInventoryMovementOutcome(data, context) };

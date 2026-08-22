@@ -573,7 +573,7 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     }
     // Une reponse illisible ne prouve rien : on la remet en file avec le meme
     // operation_id plutot que de reconcilier un refus imaginaire.
-    const parsed = parseInventoryMovementOutcome(data, outcomeContext);
+    const parsed = parseInventoryMovementOutcome(data, outcomeContext, 'record_inventory_movement');
     if (!parsed.ok) {
       queueRpc(preparedProduct);
       return { product: optimisticProduct, movement: optimisticMovement, queued: true };
