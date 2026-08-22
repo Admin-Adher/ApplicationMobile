@@ -17,6 +17,33 @@ permissions:
   contents: write
 
 jobs:
+  # ─── Job 0 : portail qualite ─────────────────────────────────────────────
+  # Rien ne part vers les utilisateurs avant ce job. Auparavant `publish-ota`
+  # et `build` demarraient en parallele sans aucun `needs:` : un OTA pouvait
+  # atteindre le canal production alors que les tests echouaient dans le job
+  # d'a cote, et rien cote GitHub ne s'y opposait.
+  quality-gates:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test
+
+      - name: Type-check application
+        run: npx tsc --noEmit
+
   # ─── Job 1 : OTA update (JS bundle uniquement) ───────────────────────────
   # Publie le bundle JS via EAS Update (expo-updates).
   # Ne nécessite PAS de build natif → s'exécute en ~2-3 min.
@@ -24,6 +51,7 @@ jobs:
   publish-ota:
     name: Publish OTA Update (EAS)
     runs-on: ubuntu-latest
+    needs: quality-gates
     # Publie automatiquement quand EXPO_TOKEN est configuré. Sans secret, le
     # job reste vert et l'APK natif continue d'être produit.
     env:
@@ -39,11 +67,11 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
+        run: npm ci
 
       - name: Publish OTA update
         if: env.EXPO_TOKEN != ''
-        run: npx eas-cli@latest update --channel production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
+        run: npx eas-cli@22.2.0 update --channel production --message "OTA auto — build ${{ github.run_number }} (${{ github.sha }})" --non-interactive
 
       - name: Report unavailable OTA credentials
         if: env.EXPO_TOKEN == ''
@@ -55,6 +83,7 @@ jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    needs: quality-gates
 
     steps:
       - name: Checkout repository
@@ -96,13 +125,7 @@ jobs:
         run: yes | sdkmanager --licenses || true
 
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Run unit tests
-        run: npm test
-
-      - name: Type-check application
-        run: npx tsc --noEmit
+        run: npm ci
 
       - name: Configure Android push services
         env:
@@ -139,12 +162,68 @@ jobs:
           systemProp.org.gradle.internal.http.socketTimeout=120000
           EOF
 
-      - name: Configure release signing with debug key
-        working-directory: android
+      # L'APK release etait signe avec la cle debug d'Android, publiquement
+      # connue : n'importe qui pouvait produire une mise a jour acceptee par les
+      # appareils. Un keystore release est desormais exige.
+      - name: Verify release signing secrets
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
+          missing=""
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "$(printenv "$name")" ]; then
+              missing="${missing} ${name}"
+            fi
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::Secret(s) de signature release absent(s) :${missing}"
+            echo "::error::Creer un keystore release puis l'enregistrer dans les secrets du depot."
+            echo "::error::  keytool -genkeypair -v -keystore buildtrack-release.jks -keyalg RSA -keysize 4096 -validity 10000 -alias buildtrack"
+            echo "::error::  base64 -w0 buildtrack-release.jks   # -> ANDROID_KEYSTORE_BASE64"
+            echo "::error::Le build est volontairement bloque : publier un APK signe avec la cle debug n'est pas acceptable."
+            exit 1
+          fi
+
+      - name: Decode release keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "${RUNNER_TEMP}/buildtrack-release.jks"
+          # Verification minimale : un secret tronque produirait un echec Gradle
+          # opaque une demi-heure plus tard.
+          if [ ! -s "${RUNNER_TEMP}/buildtrack-release.jks" ]; then
+            echo "::error::Keystore vide apres decodage base64 — le secret ANDROID_KEYSTORE_BASE64 est invalide."
+            exit 1
+          fi
+
+      - name: Configure release signing
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          # Les identifiants transitent par gradle.properties (non versionne,
+          # detruit avec le runner) plutot que par le build.gradle genere.
+          cat >> gradle.properties <<EOF
+
+          BUILDTRACK_RELEASE_STORE_FILE=${RUNNER_TEMP}/buildtrack-release.jks
+          BUILDTRACK_RELEASE_STORE_PASSWORD=${ANDROID_KEYSTORE_PASSWORD}
+          BUILDTRACK_RELEASE_KEY_ALIAS=${ANDROID_KEY_ALIAS}
+          BUILDTRACK_RELEASE_KEY_PASSWORD=${ANDROID_KEY_PASSWORD}
+          EOF
           cat >> app/build.gradle << 'EOF'
 
-          android.buildTypes.release.signingConfig = android.signingConfigs.debug
+          android.signingConfigs.create("buildtrackRelease") {
+              storeFile file(project.property("BUILDTRACK_RELEASE_STORE_FILE"))
+              storePassword project.property("BUILDTRACK_RELEASE_STORE_PASSWORD")
+              keyAlias project.property("BUILDTRACK_RELEASE_KEY_ALIAS")
+              keyPassword project.property("BUILDTRACK_RELEASE_KEY_PASSWORD")
+          }
+          android.buildTypes.release.signingConfig = android.signingConfigs.buildtrackRelease
           EOF
 
       - name: Build APK
