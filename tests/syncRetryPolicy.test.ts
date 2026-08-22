@@ -3,6 +3,7 @@ import {
   RETRY_AFTER_LONG_THRESHOLD_MS,
   classifySyncFailure,
   computeNextWakeAt,
+  failureReachedServer,
   computeRetryDecision,
   isOperationDue,
   normalizeSameFailureCount,
@@ -92,8 +93,17 @@ describe('Retry-After parsing', () => {
     expect(result.long).toBe(true);
   });
 
-  it('rejects a technically impossible value', () => {
-    expect(parseRetryAfter(String(90 * 24 * 3600), NOW).delayMs).toBeNull();
+  it('honours an extreme delay rather than falling back to the client backoff', () => {
+    // Ignorer une consigne de 45 jours faisait retomber sur le petit backoff
+    // client : le serveur etait alors reinterroge au bout d une minute, soit
+    // l inverse exact de ce qu il demandait.
+    const result = parseRetryAfter(String(45 * 24 * 3600), NOW);
+    expect(result.delayMs).toBe(45 * 24 * 3600 * 1000);
+    expect(result.long).toBe(true);
+  });
+
+  it('rejects only a deadline that cannot be represented', () => {
+    expect(parseRetryAfter(String(Number.MAX_SAFE_INTEGER), NOW).delayMs).toBeNull();
   });
 });
 
@@ -389,5 +399,108 @@ describe('defensive normalisation', () => {
     expect(isOperationDue({ table: 'x', nextAttemptAt: 'n importe quoi' }, NOW)).toBe(true);
     expect(isOperationDue({ table: 'x', nextAttemptAt: iso(NOW + 1) }, NOW)).toBe(false);
     expect(isOperationDue({ table: 'x', terminal: true }, NOW)).toBe(false);
+  });
+});
+
+describe('hardened contracts', () => {
+  it('answers "did the server reply" with one definition everywhere', () => {
+    // Deux calculs divergents cohabitaient : la classification et la decision
+    // pouvaient conclure l inverse l une de l autre sur la meme erreur.
+
+    // Un statut HTTP prime sur un booleen contradictoire.
+    expect(failureReachedServer({ status: 403 }, { reachedServer: false })).toBe(true);
+    // Un code Postgres sans statut prouve quand meme une reponse.
+    expect(failureReachedServer({ code: '42501' })).toBe(true);
+    expect(failureReachedServer({ code: 'PGRST202' })).toBe(true);
+    // Coupures et codes fabriques cote client : aucune reponse.
+    expect(failureReachedServer({ code: 'ECONNRESET' })).toBe(false);
+    expect(failureReachedServer({ code: 'REST_TIMEOUT' })).toBe(false);
+    expect(failureReachedServer({ code: 'REST_ABORTED' })).toBe(false);
+    expect(failureReachedServer({ message: 'Network request failed' })).toBe(false);
+    // Le booleen de transport tranche quand rien d autre ne le fait.
+    expect(failureReachedServer({ message: 'bizarre' }, { reachedServer: true })).toBe(true);
+  });
+
+  it('keeps classification and reachedServer consistent', () => {
+    const cases: Array<[any, any, string, boolean]> = [
+      [{ code: '42501' }, undefined, 'permanent_candidate', true],
+      [{ code: 'ECONNRESET' }, undefined, 'network', false],
+      [{ status: 403 }, { reachedServer: false }, 'permanent_candidate', true],
+      [{ message: 'aborted' }, { reachedServer: true }, 'unknown', true],
+    ];
+    for (const [error, meta, expectedClass, expectedReached] of cases) {
+      expect(classifySyncFailure({ error, meta }), JSON.stringify(error)).toBe(expectedClass);
+      const decision = computeRetryDecision({ failure: { error, meta }, nowMs: NOW, jitter: 0.5 });
+      expect(decision.reachedServer, JSON.stringify(error)).toBe(expectedReached);
+    }
+  });
+
+  it('recognises system codes carried in error.code, not only in the message', () => {
+    // { code: 'ECONNRESET', message: 'socket closed' } tombait en `unknown`.
+    expect(classifySyncFailure({ error: { code: 'ECONNRESET', message: 'socket closed' } })).toBe('network');
+    expect(classifySyncFailure({ error: { code: 'ENOTFOUND', message: '' } })).toBe('network');
+    expect(classifySyncFailure({ error: { code: 'ESOCKETTIMEDOUT' } })).toBe('timeout');
+  });
+
+  it('covers the whole 5xx range and treats 408 as a timeout', () => {
+    // Un HTTP 500 tombait en `unknown` faute de figurer dans une liste fermee.
+    for (const status of [500, 501, 502, 503, 504, 520, 522, 524, 530, 544, 599]) {
+      expect(classifySyncFailure({ error: { status } }), String(status)).toBe('server_unavailable');
+    }
+    expect(classifySyncFailure({ error: { status: 408 } })).toBe('timeout');
+  });
+
+  it('sees a status supplied only through transport metadata', () => {
+    expect(classifySyncFailure({ error: { message: 'refuse' }, meta: { status: 400 } }))
+      .toBe('permanent_candidate');
+  });
+
+  it('scales a global backoff on its own ordinal, not on the head operation', () => {
+    // Deux pannes d authentification identiques doivent durer pareil, quelle
+    // que soit l operation qui se trouve en tete de file.
+    const withBusyOperation = computeRetryDecision({
+      failure: { error: { status: 401 } },
+      operation: { attemptCount: 8 },
+      retryOrdinal: 0,
+      nowMs: NOW,
+      jitter: 0.5,
+    });
+    const withFreshOperation = computeRetryDecision({
+      failure: { error: { status: 401 } },
+      operation: { attemptCount: 0 },
+      retryOrdinal: 0,
+      nowMs: NOW,
+      jitter: 0.5,
+    });
+
+    expect(withBusyOperation.nextAttemptAt).toBe(withFreshOperation.nextAttemptAt);
+    expect(Date.parse(withBusyOperation.nextAttemptAt!) - NOW).toBe(5_000);
+
+    // L ordinal de portee fait bien progresser le palier.
+    const second = computeRetryDecision({
+      failure: { error: { status: 401 } },
+      retryOrdinal: 1,
+      nowMs: NOW,
+      jitter: 0.5,
+    });
+    expect(Date.parse(second.nextAttemptAt!) - NOW).toBe(15_000);
+  });
+
+  it('serialises plan revisions conservatively because they touch two identities', () => {
+    // Le moteur passe p_parent_plan_id et p_new_plan.id, pas p_plan_id : une
+    // cle unique n en couvrirait qu une, et une operation ciblant le nouveau
+    // plan pourrait depasser la creation de sa propre revision.
+    expect(syncOrderingKey({
+      table: 'site_plans',
+      rpc: {
+        fn: 'create_site_plan_revision_with_reserve_migration',
+        args: { p_parent_plan_id: 'PL1', p_new_plan: { id: 'PL2' } },
+      },
+    })).toBe('table:site_plans');
+
+    // Le remplacement de fichier, lui, ne concerne qu un plan.
+    expect(syncOrderingKey({
+      rpc: { fn: 'replace_site_plan_file_safely', args: { p_plan_id: 'PL1' } },
+    })).toBe('plan:PL1');
   });
 });
