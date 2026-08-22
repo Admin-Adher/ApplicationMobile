@@ -8,6 +8,25 @@ type RestRequestInit = {
   body?: string;
 };
 
+/** Annulation externe : préemption d'une passe, changement de compte, démontage. */
+export type RestRequestOptions = { signal?: AbortSignal | null };
+
+/**
+ * Relaie une annulation externe vers le contrôleur interne (celui qui porte
+ * déjà la borne de temps). `AbortSignal.any` n'est pas garanti sur Hermes, on
+ * chaîne donc les signaux à la main.
+ */
+function linkAbortSignal(controller: AbortController, external?: AbortSignal | null): () => void {
+  if (!external) return () => {};
+  if (external.aborted) {
+    controller.abort();
+    return () => {};
+  }
+  const onAbort = () => controller.abort();
+  external.addEventListener('abort', onAbort);
+  return () => external.removeEventListener('abort', onAbort);
+}
+
 export type SupabaseRestResult<T = any> = {
   data: T[] | null;
   error: any | null;
@@ -141,14 +160,20 @@ async function restRequest<T = any>(
   url: string,
   init: RestRequestInit,
   timeoutMs = REST_TIMEOUT_MS,
+  options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
   if (!isSupabaseConfigured || !SUPABASE_KEY) {
     return { data: null, error: { message: 'Supabase non configure' } };
   }
 
+  if (options?.signal?.aborted) {
+    return { data: null, error: { code: 'REST_ABORTED', message: 'Requete aborted avant envoi' } };
+  }
+
   const token = await getSupabaseRestAccessToken();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const unlink = linkAbortSignal(controller, options?.signal);
 
   try {
     const send = (accessToken: string) => fetch(url, {
@@ -189,17 +214,24 @@ async function restRequest<T = any>(
     return { data: Array.isArray(body) ? body : body ? [body] : null, error: null };
   } catch (error: any) {
     const aborted = error?.name === 'AbortError';
+    // Distinguer « la borne de temps a coupé » d'une annulation demandée par
+    // l'appelant : la seconde n'est pas un symptôme de réseau lent, elle ne doit
+    // donc pas alimenter le backoff comme un timeout.
+    const cancelledByCaller = aborted && Boolean(options?.signal?.aborted);
     return {
       data: null,
       error: {
-        message: aborted
-          ? `Timeout Supabase REST apres ${Math.round(timeoutMs / 1000)}s`
-          : (error?.message ?? String(error)),
-        code: aborted ? 'REST_TIMEOUT' : error?.code,
+        message: cancelledByCaller
+          ? 'Requete aborted par l appelant'
+          : aborted
+            ? `Timeout Supabase REST apres ${Math.round(timeoutMs / 1000)}s`
+            : (error?.message ?? String(error)),
+        code: cancelledByCaller ? 'REST_ABORTED' : aborted ? 'REST_TIMEOUT' : error?.code,
       },
     };
   } finally {
     clearTimeout(timer);
+    unlink();
   }
 }
 
@@ -208,12 +240,15 @@ export async function supabaseRestSelect<T = any>(
   select = '*',
   filter?: TableFilter,
   limit = 1,
+  options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
   const params: Array<[string, string]> = [['select', select], ...filterParams(filter)];
   if (limit > 0) params.push(['limit', String(limit)]);
   return restRequest<T>(
     tableUrl(table, params),
     { method: 'GET' },
+    REST_TIMEOUT_MS,
+    options,
   );
 }
 
@@ -222,6 +257,7 @@ export async function supabaseRestMutation<T = any>(
   op: 'insert' | 'update' | 'upsert' | 'delete',
   data?: Record<string, any>,
   filter?: TableFilter,
+  options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
   if ((op === 'update' || op === 'delete') && !filter) {
     return {
@@ -241,6 +277,8 @@ export async function supabaseRestMutation<T = any>(
         headers: { Prefer: 'return=minimal' },
         body: JSON.stringify(data ?? {}),
       },
+      REST_TIMEOUT_MS,
+      options,
     );
   }
 
@@ -252,6 +290,8 @@ export async function supabaseRestMutation<T = any>(
         headers: { Prefer: 'resolution=merge-duplicates,return=representation' },
         body: JSON.stringify(data ?? {}),
       },
+      REST_TIMEOUT_MS,
+      options,
     );
   }
 
@@ -263,6 +303,8 @@ export async function supabaseRestMutation<T = any>(
         headers: { Prefer: 'return=representation' },
         body: JSON.stringify(data ?? {}),
       },
+      REST_TIMEOUT_MS,
+      options,
     );
   }
 
@@ -272,12 +314,15 @@ export async function supabaseRestMutation<T = any>(
       method: 'DELETE',
       headers: { Prefer: 'return=representation' },
     },
+    REST_TIMEOUT_MS,
+    options,
   );
 }
 
 export async function supabaseRestRpc<T = any>(
   fn: string,
   args?: Record<string, any>,
+  options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
   return restRequest<T>(
     rpcUrl(fn),
@@ -286,5 +331,7 @@ export async function supabaseRestRpc<T = any>(
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify(args ?? {}),
     },
+    REST_TIMEOUT_MS,
+    options,
   );
 }

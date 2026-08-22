@@ -143,6 +143,25 @@ export function isInfrastructureSyncFailure(error: any): boolean {
     || /statement timeout/.test(message)
     || /connection.*timeout/.test(message)
     || /connection terminated/.test(message)
+    // Coupures de transport : l'appel n'a jamais obtenu de réponse. Sans elles,
+    // une 4G qui tombe produisait des erreurs « inconnues » n'alimentant aucun
+    // circuit, et confondables avec un refus serveur.
+    || /network request failed/.test(message)
+    || /failed to fetch/.test(message)
+    || /fetch failed/.test(message)
+    || /network error/.test(message)
+    || /socket hang up/.test(message)
+    || /connection refused/.test(message)
+    || /econnreset/.test(message)
+    || /econnaborted/.test(message)
+    || /enetunreach/.test(message)
+    || /ehostunreach/.test(message)
+    || /etimedout/.test(message)
+    || /eai_again/.test(message)
+    // Borne locale atteinte (withTimeoutMs / AbortController) : le lien est
+    // trop lent pour cette opération, c'est un signal réseau, pas un refus.
+    || /^timeout after \d+ms$/.test(message)
+    || /aborted/.test(message)
   );
 }
 
@@ -162,12 +181,87 @@ export function isPermanentSyncFailure(error: any): boolean {
   return PERMANENT_SYNC_HTTP_STATUSES.has(syncErrorStatus(error));
 }
 
+/** Codes fabriqués côté client : leur présence ne prouve aucune réponse serveur. */
+const CLIENT_SIDE_FAILURE_CODES = new Set(['REST_TIMEOUT', 'REST_ABORTED', 'MISSING_FILTER']);
+
 /**
- * Vrai lorsqu'une opération a assez insisté sur la même erreur déterministe
- * pour être sortie du lot « en attente » et présentée comme refusée.
+ * Le serveur a-t-il rendu un verdict ? Un statut HTTP ou un code PostgREST /
+ * Postgres ne peut provenir que d'une réponse ; une coupure de transport n'en
+ * porte aucun. C'est ce qui distingue « le backend est injoignable » d'un refus
+ * métier : un 400 prouve que le lien fonctionne, même si l'opération échoue.
  */
-export function shouldTerminatePermanentFailure(error: any, nextAttemptCount: number): boolean {
-  return isPermanentSyncFailure(error) && nextAttemptCount >= SYNC_PERMANENT_FAILURE_ATTEMPTS;
+export function syncFailureReachedServer(error: any): boolean {
+  if (syncErrorStatus(error) > 0) return true;
+  const code = String(error?.code ?? '').toUpperCase();
+  if (!code) return false;
+  return !CLIENT_SIDE_FAILURE_CODES.has(code);
+}
+
+/**
+ * Fragments d'un message qui changent d'un essai à l'autre sans changer la
+ * nature du refus. Les neutraliser rend l'empreinte stable entre deux passes.
+ */
+const VOLATILE_FAILURE_MESSAGE_PATTERNS: [RegExp, string][] = [
+  [/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g, '<uuid>'],
+  [/\d{4}-\d{2}-\d{2}t[\d:.]+z?/g, '<timestamp>'],
+  [/\d+/g, '<n>'],
+];
+
+/**
+ * Identité stable d'un échec, pour ne compter comme « répétés » que des refus
+ * réellement identiques. Sans empreinte, une séquence timeout → 503 → 404
+ * rendait le 404 terminal du premier coup, puisque seul le nombre total de
+ * tentatives était consulté.
+ */
+export function syncFailureFingerprint(error: any): string {
+  const code = String(error?.code ?? '').toUpperCase().trim();
+  const status = syncErrorStatus(error);
+  let message = String(error?.message ?? error ?? '').toLowerCase().trim();
+  for (const [pattern, token] of VOLATILE_FAILURE_MESSAGE_PATTERNS) {
+    message = message.replace(pattern, token);
+  }
+  message = message.replace(/\s+/g, ' ').slice(0, 200);
+  return [code, status > 0 ? String(status) : '', message].join('|');
+}
+
+/** Suivi persisté permettant de reconnaître un refus déjà rencontré. */
+export interface SyncFailureTrackingLike {
+  lastFailureFingerprint?: string;
+  sameFailureCount?: number;
+}
+
+export interface PermanentFailureAssessment {
+  /** Empreinte à persister, ou null quand la série est cassée. */
+  fingerprint: string | null;
+  /** Refus déterministes consécutifs de MÊME empreinte, celui-ci inclus. */
+  sameFailureCount: number;
+  terminal: boolean;
+}
+
+/**
+ * Décide si une opération a assez insisté sur le MÊME refus déterministe pour
+ * quitter le lot « en attente ». Toute erreur d'une autre nature (timeout, 5xx,
+ * empreinte différente) casse la série : une écriture utilisateur ne doit jamais
+ * être requalifiée en refus sur la foi d'échecs hétérogènes.
+ */
+export function assessPermanentFailure(
+  operation: SyncFailureTrackingLike,
+  error: any,
+): PermanentFailureAssessment {
+  if (!isPermanentSyncFailure(error)) {
+    return { fingerprint: null, sameFailureCount: 0, terminal: false };
+  }
+
+  const fingerprint = syncFailureFingerprint(error);
+  const sameFailureCount = operation.lastFailureFingerprint === fingerprint
+    ? (operation.sameFailureCount ?? 0) + 1
+    : 1;
+
+  return {
+    fingerprint,
+    sameFailureCount,
+    terminal: sameFailureCount >= SYNC_PERMANENT_FAILURE_ATTEMPTS,
+  };
 }
 
 /**

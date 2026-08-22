@@ -12,8 +12,10 @@ import {
   isInfrastructureSyncFailure,
   isInventoryQueuedOperation,
   isPermanentSyncFailure,
+  assessPermanentFailure,
   shouldAbandonPassAfterInfrastructureFailure,
-  shouldTerminatePermanentFailure,
+  syncFailureFingerprint,
+  syncFailureReachedServer,
 } from '../lib/syncQueuePolicy';
 
 describe('sync queue policy', () => {
@@ -133,16 +135,112 @@ describe('sync failure classification', () => {
     expect(isInfrastructureSyncFailure({ code: 'REST_TIMEOUT' })).toBe(true);
   });
 
-  it('requires repeated identical refusals before dropping an operation', () => {
-    const permanent = { code: '42501', message: 'permission denied' };
+  /** Rejoue une séquence d'erreurs comme le ferait le moteur, opération par opération. */
+  function replayFailureSequence(errors: any[]) {
+    let tracking: { lastFailureFingerprint?: string; sameFailureCount?: number } = {};
+    return errors.map(error => {
+      const assessment = assessPermanentFailure(tracking, error);
+      tracking = {
+        lastFailureFingerprint: assessment.fingerprint ?? undefined,
+        sameFailureCount: assessment.sameFailureCount,
+      };
+      return assessment;
+    });
+  }
 
-    for (let attempt = 1; attempt < SYNC_PERMANENT_FAILURE_ATTEMPTS; attempt += 1) {
-      expect(shouldTerminatePermanentFailure(permanent, attempt)).toBe(false);
+  it('drops an operation only after repeated refusals with the SAME fingerprint', () => {
+    const notFound = { status: 404, message: 'HTTP 404' };
+    const verdicts = replayFailureSequence([notFound, notFound, notFound]);
+
+    expect(verdicts.map(v => v.sameFailureCount)).toEqual([1, 2, 3]);
+    expect(verdicts.map(v => v.terminal)).toEqual([false, false, true]);
+    expect(SYNC_PERMANENT_FAILURE_ATTEMPTS).toBe(3);
+  });
+
+  it('never lets a heterogeneous sequence terminate an operation', () => {
+    // Le scenario qui condamnait une saisie a tort : deux echecs transitoires
+    // suffisaient a faire du premier 404 la troisieme tentative, donc terminale.
+    const verdicts = replayFailureSequence([
+      { code: 'REST_TIMEOUT', message: 'timeout' },
+      { status: 503, message: 'HTTP 503' },
+      { status: 404, message: 'HTTP 404' },
+    ]);
+
+    expect(verdicts[0]).toMatchObject({ sameFailureCount: 0, terminal: false });
+    expect(verdicts[1]).toMatchObject({ sameFailureCount: 0, terminal: false });
+    // Le 404 demarre sa propre serie a 1, il n'herite pas des timeouts.
+    expect(verdicts[2]).toMatchObject({ sameFailureCount: 1, terminal: false });
+  });
+
+  it('restarts the streak when a different deterministic refusal appears', () => {
+    const verdicts = replayFailureSequence([
+      { status: 404, message: 'HTTP 404' },
+      { status: 404, message: 'HTTP 404' },
+      { code: '42501', message: 'permission denied' },
+      { code: '42501', message: 'permission denied' },
+    ]);
+
+    expect(verdicts.map(v => v.sameFailureCount)).toEqual([1, 2, 1, 2]);
+    expect(verdicts.every(v => !v.terminal)).toBe(true);
+  });
+
+  it('breaks the streak when a transient failure interrupts identical refusals', () => {
+    const notFound = { status: 404, message: 'HTTP 404' };
+    const verdicts = replayFailureSequence([
+      notFound,
+      notFound,
+      { code: 'REST_TIMEOUT', message: 'timeout' },
+      notFound,
+    ]);
+
+    expect(verdicts.map(v => v.sameFailureCount)).toEqual([1, 2, 0, 1]);
+    expect(verdicts.every(v => !v.terminal)).toBe(true);
+  });
+
+  it('keeps fingerprints stable across volatile message fragments', () => {
+    // Identifiants et durees changent a chaque essai sans changer la nature du
+    // refus : ils ne doivent pas casser la serie.
+    const first = syncFailureFingerprint({
+      status: 404,
+      message: 'reserve 3f2a1b4c-1111-2222-3333-444455556666 not found after 120ms',
+    });
+    const second = syncFailureFingerprint({
+      status: 404,
+      message: 'reserve 99887766-aaaa-bbbb-cccc-ddddeeeeffff not found after 4500ms',
+    });
+
+    expect(first).toBe(second);
+    expect(syncFailureFingerprint({ status: 404, message: 'HTTP 404' })).not.toBe(first);
+  });
+
+  it('recognizes which failures prove the server answered', () => {
+    // Un verdict serveur, meme negatif, prouve que le lien fonctionne.
+    expect(syncFailureReachedServer({ status: 400, message: 'HTTP 400' })).toBe(true);
+    expect(syncFailureReachedServer({ code: '42501', message: 'permission denied' })).toBe(true);
+    expect(syncFailureReachedServer({ status: 503, message: 'HTTP 503' })).toBe(true);
+    // Codes fabriques cote client et coupures de transport : aucune reponse.
+    expect(syncFailureReachedServer({ code: 'REST_TIMEOUT', message: 'timeout' })).toBe(false);
+    expect(syncFailureReachedServer({ code: 'MISSING_FILTER' })).toBe(false);
+    expect(syncFailureReachedServer({ message: 'Network request failed' })).toBe(false);
+    expect(syncFailureReachedServer({ message: 'timeout after 150000ms' })).toBe(false);
+  });
+
+  it('routes generic transport failures to the infrastructure class', () => {
+    // Elles doivent alimenter le circuit reseau, jamais devenir des refus.
+    for (const message of [
+      'Network request failed',
+      'Failed to fetch',
+      'fetch failed',
+      'socket hang up',
+      'connect ECONNRESET 10.0.0.1:443',
+      'getaddrinfo EAI_AGAIN supabase.co',
+      'ENETUNREACH',
+      'timeout after 150000ms',
+      'The operation was aborted',
+    ]) {
+      expect(isInfrastructureSyncFailure({ message })).toBe(true);
+      expect(isPermanentSyncFailure({ message })).toBe(false);
     }
-    expect(shouldTerminatePermanentFailure(permanent, SYNC_PERMANENT_FAILURE_ATTEMPTS)).toBe(true);
-    // Un échec transitoire ne devient jamais terminal, quel que soit le nombre
-    // de tentatives : la file continue de le rejouer.
-    expect(shouldTerminatePermanentFailure({ status: 503 }, 42)).toBe(false);
   });
 });
 

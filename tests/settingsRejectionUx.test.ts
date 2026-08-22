@@ -29,4 +29,25 @@ describe('settings terminal-rejection copy', () => {
     const inventoryOutcome = translations[language].translation.networkQueue.inventoryOutcome;
     expect(inventoryOutcome.duplicate_operation_mismatch).toBeTruthy();
   });
+
+  it.each(['fr', 'en', 'es'])('reports the operation count, not a category count, in %s', language => {
+    const diagnostic = translations[language].translation.settings.diagnostic;
+
+    // Le resume du diagnostic doit parler d'operations : « 1 probleme detecte »
+    // au-dessus d'une file de 29 operations se lit comme un compteur faux.
+    for (const key of [
+      'queueSummary_one',
+      'queueSummary_other',
+      'accountAndQueueSummary_one',
+      'accountAndQueueSummary_other',
+    ]) {
+      expect(diagnostic[key], `${language}.${key}`).toBeTruthy();
+      expect(diagnostic[key]).toContain('{{count}}');
+    }
+    for (const key of ['accountAndQueueSummary_one', 'accountAndQueueSummary_other']) {
+      expect(diagnostic[key]).toContain('{{problems}}');
+    }
+    // L'erreur serveur brute reste exposee pour le support.
+    expect(translations[language].translation.settings.syncQueue.technicalError).toBeTruthy();
+  });
 });

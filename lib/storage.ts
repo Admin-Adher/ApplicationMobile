@@ -76,6 +76,87 @@ function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   });
 }
 
+/** Relaie une annulation externe vers le contrôleur qui porte la borne de temps. */
+function linkAbortSignal(controller: AbortController, external?: AbortSignal | null): () => void {
+  if (!external) return () => {};
+  if (external.aborted) {
+    controller.abort();
+    return () => {};
+  }
+  const onAbort = () => controller.abort();
+  external.addEventListener('abort', onAbort);
+  return () => external.removeEventListener('abort', onAbort);
+}
+
+/**
+ * Upload natif réellement interruptible.
+ *
+ * `FileSystem.uploadAsync` ne peut pas être annulé : borner sa promesse avec
+ * `withTimeout` faisait échouer l'opération côté moteur, mais le transfert
+ * continuait en arrière-plan. Sur un lien de chantier déjà saturé, cela brûlait
+ * la bande passante que le réessai allait réclamer, et l'écriture pouvait
+ * aboutir APRÈS le démarrage de ce réessai. `createUploadTask` expose
+ * `cancelAsync`, qui coupe réellement la requête.
+ */
+async function uploadFileCancellable(
+  url: string,
+  fileUri: string,
+  options: FileSystem.FileSystemUploadOptions,
+  timeoutMs: number,
+  label: string,
+  signal?: AbortSignal | null,
+): Promise<FileSystem.FileSystemUploadResult> {
+  const task = FileSystem.createUploadTask(url, fileUri, options);
+  let settled = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  let onAbort: (() => void) | null = null;
+
+  try {
+    return await new Promise<FileSystem.FileSystemUploadResult>((resolve, reject) => {
+      const abandon = (message: string) => {
+        if (settled) return;
+        settled = true;
+        // Couper le transfert avant de rendre la main : c'est tout l'intérêt.
+        void task.cancelAsync().catch(() => {});
+        reject(new Error(message));
+      };
+
+      if (signal?.aborted) {
+        abandon(`${label} annulé avant envoi`);
+        return;
+      }
+
+      timer = setTimeout(
+        () => abandon(`Délai dépassé (${label} > ${Math.round(timeoutMs / 1000)}s)`),
+        timeoutMs,
+      );
+      onAbort = () => abandon(`${label} annulé`);
+      signal?.addEventListener('abort', onAbort);
+
+      task.uploadAsync().then(
+        result => {
+          if (settled) return;
+          settled = true;
+          // Une tâche annulée résout sur null/undefined : ce n'est pas un succès.
+          if (!result) {
+            reject(new Error(`${label} annulé`));
+            return;
+          }
+          resolve(result);
+        },
+        error => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        },
+      );
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+    if (onAbort) signal?.removeEventListener('abort', onAbort);
+  }
+}
+
 /**
  * Sentinel returned by uploadPhoto / uploadDocumentDetailed when the local
  * source file no longer exists on disk (OS-level cleanup, app data wipe, etc.).
@@ -119,6 +200,7 @@ async function requestPresignedUpload(
   contentType: string,
   size: number,
   tag: string,
+  signal?: AbortSignal | null,
 ): Promise<PresignedUpload | null> {
   try {
     const base = storageApiBaseUrl();
@@ -130,6 +212,7 @@ async function requestPresignedUpload(
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), PRESIGN_TIMEOUT_MS);
+    const unlink = linkAbortSignal(controller, signal);
     let response: Response;
     try {
       response = await fetch(url, {
@@ -144,6 +227,7 @@ async function requestPresignedUpload(
       });
     } finally {
       clearTimeout(timer);
+      unlink();
     }
     if (!response.ok) {
       const body = await response.text().catch(() => '');
@@ -175,18 +259,22 @@ async function putFileToR2(
   contentType: string,
   timeoutMs: number,
   tag: string,
+  signal?: AbortSignal | null,
 ): Promise<boolean> {
   try {
     if (!presigned.uploadUrl) return false;
     if (Platform.OS !== 'web') {
-      const result = await withTimeout(
-        FileSystem.uploadAsync(presigned.uploadUrl, uri, {
+      const result = await uploadFileCancellable(
+        presigned.uploadUrl,
+        uri,
+        {
           httpMethod: 'PUT',
           uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
           headers: { 'Content-Type': contentType },
-        }),
+        },
         timeoutMs,
         'upload R2 natif',
+        signal,
       );
       if (result.status < 200 || result.status >= 300) {
         console.warn(`${tag} PUT R2 natif HTTP ${result.status}: ${(result.body ?? '').slice(0, 160)}`);
@@ -197,6 +285,7 @@ async function putFileToR2(
     const { data: blob } = await readFileAsBlob(uri);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const unlink = linkAbortSignal(controller, signal);
     let response: Response;
     try {
       response = await fetch(presigned.uploadUrl, {
@@ -207,6 +296,7 @@ async function putFileToR2(
       });
     } finally {
       clearTimeout(timer);
+      unlink();
     }
     if (!response.ok) {
       console.warn(`${tag} PUT R2 web HTTP ${response.status}`);
@@ -235,27 +325,27 @@ async function putFileToSupabase(
   contentType: string,
   timeoutMs: number,
   tag: string,
+  signal?: AbortSignal | null,
 ): Promise<boolean> {
   if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
     const accessToken = await resolveStorageAccessToken(tag);
     if (!accessToken || accessToken === SUPABASE_KEY) return false;
     const encodedKey = reservation.objectKey.split('/').map(encodeURIComponent).join('/');
-    const result = await withTimeout(
-      FileSystem.uploadAsync(
-        `${SUPABASE_URL}/storage/v1/object/${reservation.bucket}/${encodedKey}`,
-        uri,
-        {
-          httpMethod: 'POST',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            apikey: SUPABASE_KEY,
-            'Content-Type': contentType,
-          },
+    const result = await uploadFileCancellable(
+      `${SUPABASE_URL}/storage/v1/object/${reservation.bucket}/${encodedKey}`,
+      uri,
+      {
+        httpMethod: 'POST',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          apikey: SUPABASE_KEY,
+          'Content-Type': contentType,
         },
-      ),
+      },
       timeoutMs,
       'upload Supabase privé',
+      signal,
     );
     return result.status >= 200 && result.status < 300;
   }
@@ -272,19 +362,35 @@ async function putFileToSupabase(
   return !result.error;
 }
 
-async function completeRegisteredUpload(reservation: PresignedUpload, tag: string): Promise<boolean> {
+async function completeRegisteredUpload(
+  reservation: PresignedUpload,
+  tag: string,
+  signal?: AbortSignal | null,
+): Promise<boolean> {
   const base = storageApiBaseUrl();
   const accessToken = await resolveStorageAccessToken(tag);
   if (!accessToken || accessToken === SUPABASE_KEY) return false;
-  const response = await fetch(base ? `${base}/api/storage/complete` : '/api/storage/complete', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-      ...privateMediaClientHeaders(),
-    },
-    body: JSON.stringify({ assetId: reservation.assetId }),
-  });
+  // Cet appel n'avait AUCUNE borne : un serveur qui ne répond jamais gelait
+  // l'étape d'upload jusqu'au plafond de la passe, sans possibilité d'annuler.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), PRESIGN_TIMEOUT_MS);
+  const unlink = linkAbortSignal(controller, signal);
+  let response: Response;
+  try {
+    response = await fetch(base ? `${base}/api/storage/complete` : '/api/storage/complete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        ...privateMediaClientHeaders(),
+      },
+      body: JSON.stringify({ assetId: reservation.assetId }),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+    unlink();
+  }
   return response.ok;
 }
 
@@ -295,17 +401,18 @@ async function uploadRegisteredMedia(
   contentType: string,
   timeoutMs: number,
   tag: string,
+  signal?: AbortSignal | null,
 ): Promise<{ url: string | null; error: string | null }> {
   try {
     const size = await fileSize(uri);
     if (!Number.isFinite(size) || size <= 0) return { url: null, error: 'Taille de fichier invalide' };
-    const reservation = await requestPresignedUpload(kind, filename, contentType, size, tag);
+    const reservation = await requestPresignedUpload(kind, filename, contentType, size, tag, signal);
     if (!reservation) return { url: null, error: 'Réservation média indisponible' };
     const uploaded = reservation.provider === 'r2'
-      ? await putFileToR2(reservation, uri, contentType, timeoutMs, tag)
-      : await putFileToSupabase(reservation, uri, contentType, timeoutMs, tag);
+      ? await putFileToR2(reservation, uri, contentType, timeoutMs, tag, signal)
+      : await putFileToSupabase(reservation, uri, contentType, timeoutMs, tag, signal);
     if (!uploaded) return { url: null, error: 'Upload privé impossible' };
-    if (!await completeRegisteredUpload(reservation, tag)) {
+    if (!await completeRegisteredUpload(reservation, tag, signal)) {
       return { url: null, error: 'Validation serveur du média impossible' };
     }
     return { url: reservation.mediaRef, error: null };
@@ -370,21 +477,26 @@ async function resolveStorageAccessToken(tag: string): Promise<string> {
  * Internal helper: upload a photo and return both the URL and the error message.
  * This allows callers to surface the actual failure reason instead of a generic message.
  *
- * ── Why FileSystem.uploadAsync instead of supabase.storage.upload ─────────────
+ * ── Why a native FileSystem upload instead of supabase.storage.upload ─────────
  * The Supabase JS SDK uploads files via fetch() + Blob body. On Android/React
  * Native (Hermes engine), Blob bodies in fetch() consistently fail with the
  * opaque error "Network request failed" — even when Supabase API calls and
  * realtime connections work perfectly. This is a long-standing React Native
  * limitation: the native network layer does not support Blob request bodies.
  *
- * FileSystem.uploadAsync() bypasses JS fetch entirely. It reads the file
+ * The native FileSystem upload bypasses JS fetch entirely. It reads the file
  * natively from disk and sends it through the platform's HTTP stack, which
  * correctly handles file:// URIs and binary payloads on both iOS and Android.
+ *
+ * We go through `uploadFileCancellable` (createUploadTask + cancelAsync) rather
+ * than the one-shot helper: the one-shot variant cannot be interrupted, so a
+ * transfer kept running after the engine had already given up on it.
  */
 async function _uploadPhotoWithError(
   uri: string,
   filename: string,
   timeoutMs: number = PHOTO_UPLOAD_TIMEOUT_MS,
+  signal?: AbortSignal | null,
 ): Promise<{ url: string | null; error: string | null }> {
   if (!isSupabaseConfigured) return { url: null, error: 'Supabase non configuré' };
   const startedAt = Date.now();
@@ -403,7 +515,7 @@ async function _uploadPhotoWithError(
     const remaining = remainingBudgetMs();
     if (remaining <= 0) return { url: null, error: timeoutMessage() };
     return await uploadRegisteredMedia(
-      'photo', uri, filename, contentType, remaining, '[uploadPhoto]',
+      'photo', uri, filename, contentType, remaining, '[uploadPhoto]', signal,
     );
 
   } catch (e) {
@@ -588,11 +700,16 @@ export async function uploadLocalPhotosInPayload(
   payload: Record<string, any> | null | undefined,
   options?: {
     onProgress?: (data: Record<string, any>) => void | Promise<void>;
+    /** Coupe les transferts en cours quand la passe est préemptée ou abandonnée. */
+    signal?: AbortSignal | null;
   },
 ): Promise<{ data: Record<string, any> | null | undefined; allOk: boolean; hadLocal: boolean; uploadErrors: string[] }> {
   if (!payload || !isSupabaseConfigured) {
     return { data: payload, allOk: true, hadLocal: false, uploadErrors: [] };
   }
+  // Tous les envois de cette charge utile partagent le signal d'annulation.
+  const uploadPhotoWithSignal = (uri: string, filename: string) =>
+    _uploadPhotoWithError(uri, filename, undefined, options?.signal);
   const data = { ...payload };
   let allOk = true;
   let hadLocal = false;
@@ -610,7 +727,7 @@ export async function uploadLocalPhotosInPayload(
     const uploadReservePhotoOnce = async (uri: string, filename: string) => {
       const cached = uploadedLocalUris.get(uri);
       if (cached) return cached;
-      const result = await _uploadPhotoWithError(uri, filename);
+      const result = await uploadPhotoWithSignal(uri, filename);
       uploadedLocalUris.set(uri, result);
       return result;
     };
@@ -653,7 +770,7 @@ export async function uploadLocalPhotosInPayload(
   } else if (table === 'incidents') {
     if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) {
       hadLocal = true;
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.photo_uri, `incident_${Date.now()}_${nextUploadSeq()}.jpg`);
+      const { url: remote, error: uploadErr } = await uploadPhotoWithSignal(data.photo_uri, `incident_${Date.now()}_${nextUploadSeq()}.jpg`);
       if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
@@ -661,7 +778,7 @@ export async function uploadLocalPhotosInPayload(
   } else if (table === 'visites') {
     if (typeof data.cover_photo_uri === 'string' && isLocalUri(data.cover_photo_uri)) {
       hadLocal = true;
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(
+      const { url: remote, error: uploadErr } = await uploadPhotoWithSignal(
         data.cover_photo_uri,
         `visite_${String(data.id ?? Date.now()).replace(/[^a-zA-Z0-9._-]/g, '_')}_${nextUploadSeq()}.jpg`,
       );
@@ -673,7 +790,7 @@ export async function uploadLocalPhotosInPayload(
     if (typeof data.photo_url === 'string' && isLocalUri(data.photo_url)) {
       hadLocal = true;
       const reference = String(data.reference ?? 'produit').replace(/[^a-zA-Z0-9._-]/g, '_');
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(
+      const { url: remote, error: uploadErr } = await uploadPhotoWithSignal(
         data.photo_url,
         `stock_${reference}_${Date.now()}_${nextUploadSeq()}.jpg`,
       );
@@ -684,7 +801,7 @@ export async function uploadLocalPhotosInPayload(
   } else if (table === 'incidents') {
     if (typeof data.photo_uri === 'string' && isLocalUri(data.photo_uri)) {
       hadLocal = true;
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.photo_uri, `incident_${Date.now()}_${nextUploadSeq()}.jpg`);
+      const { url: remote, error: uploadErr } = await uploadPhotoWithSignal(data.photo_uri, `incident_${Date.now()}_${nextUploadSeq()}.jpg`);
       if (remote === (MISSING_LOCAL_FILE as any)) data.photo_uri = null;
       else if (remote) data.photo_uri = remote;
       else { allOk = false; if (uploadErr) uploadErrors.push(`photo_uri: ${uploadErr}`); }
@@ -693,7 +810,7 @@ export async function uploadLocalPhotosInPayload(
   } else if (table === 'photos') {
     if (typeof data.uri === 'string' && isLocalUri(data.uri)) {
       hadLocal = true;
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(data.uri, `photo_${Date.now()}.jpg`);
+      const { url: remote, error: uploadErr } = await uploadPhotoWithSignal(data.uri, `photo_${Date.now()}.jpg`);
       if (remote === (MISSING_LOCAL_FILE as any)) {
         return { data: null, allOk: true, hadLocal: true, uploadErrors: [] };
       }
@@ -703,7 +820,7 @@ export async function uploadLocalPhotosInPayload(
   } else if (table === 'messages') {
     if (typeof data.attachment_uri === 'string' && isLocalUri(data.attachment_uri)) {
       hadLocal = true;
-      const { url: remote, error: uploadErr } = await _uploadPhotoWithError(
+      const { url: remote, error: uploadErr } = await uploadPhotoWithSignal(
         data.attachment_uri,
         `message_${Date.now()}_${nextUploadSeq()}.jpg`,
       );
