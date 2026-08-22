@@ -4,6 +4,7 @@ import {
   inventoryOutcomeContextFromQueuedOperation,
   isTerminalInventoryMovementOutcome,
   normalizeInventoryMovementOutcome,
+  parseInventoryMovementOutcome,
   reconcileInventoryMovementCache,
   reconcileTerminalInventoryMovementCache,
   shouldBlockInventoryMovementForInsufficientStock,
@@ -298,5 +299,58 @@ describe('inventory movement outcomes', () => {
       isOnline: false,
       isServerConfigured: true,
     })).toBe(false);
+  });
+});
+
+describe('strict verdict parsing', () => {
+  const context = { operationId: 'op-1', productId: 'P1', chantierId: 'C1' };
+
+  it.each([
+    ['aucune ligne', []],
+    ['objet vide', {}],
+    ['ligne vide', [{}]],
+    ['primitive', true],
+    ['null', null],
+    ['statut vide', [{ status: '   ' }]],
+    ['statut inconnu', [{ status: 'peut_etre' }]],
+  ])('refuses to read a verdict from %s', (_label, data) => {
+    // Le fallback `status ?? 'server_rejected'` transformait une ABSENCE DE
+    // PREUVE en PREUVE DE REFUS, donc en rollback du stock optimiste.
+    const parsed = parseInventoryMovementOutcome(data, context);
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error.code).toBe('REST_RESULT_INVALID');
+  });
+
+  it.each([
+    'ok',
+    'insufficient_stock',
+    'forbidden',
+    'invalid_payload',
+    'not_found',
+    'product_not_found',
+    'duplicate_product',
+    'duplicate_operation_mismatch',
+  ])('accepts the real server verdict %s', status => {
+    const parsed = parseInventoryMovementOutcome([{ status, product_id: 'P1' }], context);
+
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.outcome.status).toBe(status);
+  });
+
+  it('keeps an explicit refusal terminal, and only that', () => {
+    const refused = parseInventoryMovementOutcome(
+      [{ status: 'insufficient_stock', stock_before: 5 }],
+      context,
+    );
+    expect(refused.ok).toBe(true);
+    if (refused.ok) {
+      expect(isTerminalInventoryMovementOutcome(refused.outcome)).toBe(true);
+      expect(refused.outcome.stockBefore).toBe(5);
+    }
+
+    const accepted = parseInventoryMovementOutcome([{ status: 'ok', stock_after: 12 }], context);
+    expect(accepted.ok).toBe(true);
+    if (accepted.ok) expect(isTerminalInventoryMovementOutcome(accepted.outcome)).toBe(false);
   });
 });

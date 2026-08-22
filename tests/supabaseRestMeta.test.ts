@@ -408,3 +408,64 @@ describe('an empty 2xx body is not a verdict', () => {
     expect(result.error).toBeNull();
   });
 });
+
+describe('valid JSON is not automatically a verdict', () => {
+  const json = (status: number, body: string) => responseWithBody(status, async () => body);
+
+  it.each([
+    ['un tableau vide', '[]'],
+    ['une primitive', 'true'],
+    ['un tableau de primitives', '[1,2]'],
+  ])('refuses %s, which carries no result row', async (_label, body) => {
+    // `required-json` ne garantissait que « il y a du JSON ». Sur un mouvement
+    // de stock, l absence de premiere ligne se normalise en `server_rejected`,
+    // donc refus terminal et rollback, sur la foi d une reponse muette.
+    fetchMock.mockResolvedValue(json(200, body));
+
+    const result = await supabaseRestRpc('record_inventory_movement', {});
+
+    expect(result.error.code).toBe('REST_RESULT_EMPTY');
+    expect(result.meta).toEqual({ status: 200, reachedServer: true, retryAfter: null });
+  });
+
+  it.each([
+    ['un objet sans champ', '{}'],
+    ['une ligne vide', '[{}]'],
+  ])('passes %s through, for the business layer to reject', async (_label, body) => {
+    // Partage des roles : le transport constate qu une ligne objet existe, il
+    // ne connait pas la semantique metier. C est `parseInventoryMovementOutcome`
+    // qui refuse une ligne sans verdict (`REST_RESULT_INVALID`).
+    fetchMock.mockResolvedValue(json(200, body));
+
+    const result = await supabaseRestRpc('record_inventory_movement', {});
+
+    expect(result.error).toBeNull();
+  });
+
+  it('accepts a real verdict row', async () => {
+    fetchMock.mockResolvedValue(json(200, '[{"status":"ok","product_id":"P1","stock_after":10}]'));
+
+    const result = await supabaseRestRpc('record_inventory_movement', {});
+
+    expect(result.error).toBeNull();
+    expect(result.data?.[0]).toMatchObject({ status: 'ok' });
+  });
+
+  it('leaves selects and minimal inserts untouched', async () => {
+    fetchMock.mockResolvedValue(json(200, '[]'));
+    expect((await supabaseRestSelect('reserves')).error).toBeNull();
+
+    fetchMock.mockResolvedValue(json(204, ''));
+    expect((await supabaseRestMutation('reserves', 'insert', { id: 'R1' })).error).toBeNull();
+  });
+
+  it('cannot have its body contract disabled by a caller', async () => {
+    fetchMock.mockResolvedValue(json(200, '[]'));
+
+    // `bodyExpectation` ne fait plus partie des options publiques ; meme force,
+    // la valeur calculee par la couche transport doit l emporter.
+    const result = await supabaseRestRpc('record_inventory_movement', {}, { bodyExpectation: 'none' } as any);
+
+    expect(result.error.code).toBe('REST_RESULT_EMPTY');
+  });
+});
