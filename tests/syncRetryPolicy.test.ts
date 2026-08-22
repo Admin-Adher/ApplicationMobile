@@ -616,3 +616,40 @@ describe('temporal robustness', () => {
     expect(heads.map(o => o.id)).toEqual(['premiere']);
   });
 });
+
+describe('timeout semantics after headers', () => {
+  const circuitOf = (error: any, meta?: any) => computeRetryDecision({
+    failure: { error, meta }, nowMs: NOW, jitter: 0.5,
+  });
+
+  it('still calls it a timeout when the headers already arrived', () => {
+    // Depuis que la lecture du corps est bornee, un REST_TIMEOUT peut arriver
+    // AVEC status 200. Derriere la garde `!hasServerVerdict`, il tombait en
+    // `unknown`.
+    expect(classifySyncFailure({ error: { code: 'REST_TIMEOUT', status: 200 } })).toBe('timeout');
+    expect(classifySyncFailure({ error: { code: 'ECONNRESET', status: 200 } })).toBe('network');
+  });
+
+  it('only feeds the circuit when nothing answered', () => {
+    // Un serveur parfaitement joignable ne doit pas ouvrir un circuit reseau.
+    expect(circuitOf({ code: 'REST_TIMEOUT' }).contributesToCircuit).toBe(true);
+    expect(circuitOf({ code: 'REST_TIMEOUT', status: 200 }).contributesToCircuit).toBe(false);
+    expect(circuitOf({ status: 408 }).contributesToCircuit).toBe(false);
+    expect(circuitOf({ code: '57014', status: 400, message: 'statement timeout' }).contributesToCircuit)
+      .toBe(false);
+    expect(circuitOf({ code: 'ECONNRESET' }).contributesToCircuit).toBe(true);
+    expect(circuitOf({ code: 'REST_ABORTED' }).contributesToCircuit).toBe(false);
+  });
+
+  it('keeps counting an unavailable backend, even though it answers', () => {
+    // Un serveur qui repond 503 a tout est injoignable en pratique : l exclure
+    // du circuit ferait marteler un backend en panne.
+    expect(circuitOf({ status: 503 }).contributesToCircuit).toBe(true);
+    // Sauf s il a dit quand revenir : le blocage de portee backend suffit.
+    expect(computeRetryDecision({
+      failure: { error: { status: 503 }, meta: { retryAfter: '120' } },
+      nowMs: NOW,
+      jitter: 0.5,
+    }).contributesToCircuit).toBe(false);
+  });
+});

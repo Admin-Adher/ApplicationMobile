@@ -8,8 +8,33 @@ type RestRequestInit = {
   body?: string;
 };
 
+/**
+ * Ce que l'appelant attend du corps de la reponse.
+ *
+ * Un `2xx` au corps VIDE n'est ni une erreur de lecture ni un JSON invalide :
+ * il passait donc encore pour une reussite. Sur `record_inventory_movement`,
+ * l'absence de ligne se normalise en `server_rejected`, donc en refus terminal,
+ * donc en rollback d'un mouvement que le serveur a peut-etre accepte.
+ */
+export type RestBodyExpectation = 'none' | 'optional-json' | 'required-json';
+
 /** Annulation externe : préemption d'une passe, changement de compte, démontage. */
-export type RestRequestOptions = { signal?: AbortSignal | null };
+export type RestRequestOptions = {
+  signal?: AbortSignal | null;
+  bodyExpectation?: RestBodyExpectation;
+};
+
+/**
+ * RPC dont l'appelant EXPLOITE le resultat : sans ligne de verdict, l'operation
+ * ne peut pas etre declaree reussie. La connaissance vit ici pour que les
+ * appelants existants en beneficient sans changement.
+ */
+const RPC_REQUIRING_RESULT = new Set([
+  'record_inventory_movement',
+  'update_inventory_product',
+  'apply_reserve_patch',
+  'append_reserve_status_event',
+]);
 
 /**
  * Relaie une annulation externe vers le contrôleur interne (celui qui porte
@@ -337,6 +362,19 @@ async function restRequest<T = any>(
     if (!response.ok) {
       return { data: null, error: normalizeRestError(body, response.status), meta };
     }
+
+    if (body === null && options?.bodyExpectation === 'required-json') {
+      return {
+        data: null,
+        error: {
+          code: 'REST_BODY_EMPTY',
+          message: 'La reponse REST ne contient aucun resultat',
+          status: response.status,
+        },
+        meta,
+      };
+    }
+
     return { data: Array.isArray(body) ? body : body ? [body] : null, error: null, meta };
   } catch (error: any) {
     const aborted = error?.name === 'AbortError';
@@ -379,7 +417,7 @@ export async function supabaseRestSelect<T = any>(
     tableUrl(table, params),
     { method: 'GET' },
     REST_TIMEOUT_MS,
-    options,
+    { bodyExpectation: 'required-json', ...options },
   );
 }
 
@@ -411,7 +449,8 @@ export async function supabaseRestMutation<T = any>(
         body: JSON.stringify(data ?? {}),
       },
       REST_TIMEOUT_MS,
-      options,
+      // `return=minimal` : un corps vide est le comportement attendu.
+      { bodyExpectation: 'none', ...options },
     );
   }
 
@@ -424,7 +463,7 @@ export async function supabaseRestMutation<T = any>(
         body: JSON.stringify(data ?? {}),
       },
       REST_TIMEOUT_MS,
-      options,
+      { bodyExpectation: 'required-json', ...options },
     );
   }
 
@@ -437,7 +476,7 @@ export async function supabaseRestMutation<T = any>(
         body: JSON.stringify(data ?? {}),
       },
       REST_TIMEOUT_MS,
-      options,
+      { bodyExpectation: 'required-json', ...options },
     );
   }
 
@@ -448,7 +487,7 @@ export async function supabaseRestMutation<T = any>(
       headers: { Prefer: 'return=representation' },
     },
     REST_TIMEOUT_MS,
-    options,
+    { bodyExpectation: 'required-json', ...options },
   );
 }
 
@@ -466,6 +505,9 @@ export async function supabaseRestRpc<T = any>(
       body: JSON.stringify(args ?? {}),
     },
     REST_TIMEOUT_MS,
-    options,
+    {
+      bodyExpectation: RPC_REQUIRING_RESULT.has(fn) ? 'required-json' : 'optional-json',
+      ...options,
+    },
   );
 }
