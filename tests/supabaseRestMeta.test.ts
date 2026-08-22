@@ -1,0 +1,192 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+/**
+ * Le module lit sa configuration a l'import : on la remplace avant de le
+ * charger, sinon il tenterait de joindre un vrai projet Supabase.
+ */
+vi.mock('../lib/supabase', () => ({
+  supabase: { auth: { getSession: async () => ({ data: { session: null } }) } },
+  isSupabaseConfigured: true,
+  SUPABASE_KEY: 'anon-key',
+  SUPABASE_URL: 'https://exemple.supabase.co',
+}));
+
+const forceRefreshSession = vi.fn(async () => 'jeton-rafraichi');
+vi.mock('../lib/offlineCache', () => ({
+  forceRefreshSession: (...args: unknown[]) => forceRefreshSession(...(args as [])),
+  getSessionFromStorage: async () => ({
+    access_token: 'jeton-utilisateur',
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+  }),
+}));
+
+const {
+  clearSupabaseRestTokenCache,
+  supabaseRestMutation,
+  supabaseRestRpc,
+  supabaseRestSelect,
+} = await import('../lib/supabaseRest');
+
+/** Reponse minimale, avec uniquement les en-tetes que le test veut exposer. */
+function httpResponse(status: number, body: unknown, headers: Record<string, string> = {}) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    headers: { get: (name: string) => headers[name] ?? null },
+    text: async () => (body === undefined ? '' : JSON.stringify(body)),
+  } as unknown as Response;
+}
+
+const fetchMock = vi.fn();
+
+beforeEach(() => {
+  fetchMock.mockReset();
+  forceRefreshSession.mockClear();
+  forceRefreshSession.mockResolvedValue('jeton-rafraichi');
+  clearSupabaseRestTokenCache();
+  vi.stubGlobal('fetch', fetchMock);
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('transport metadata', () => {
+  it('reports a successful response', async () => {
+    fetchMock.mockResolvedValue(httpResponse(200, [{ id: 'R1' }]));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.error).toBeNull();
+    expect(result.meta).toEqual({ status: 200, reachedServer: true, retryAfter: null });
+  });
+
+  it('counts a negative response as having reached the server', async () => {
+    // Un 400 prouve que le backend repond : la politique ne doit pas le
+    // confondre avec une coupure.
+    fetchMock.mockResolvedValue(httpResponse(400, { message: 'refuse' }));
+
+    const result = await supabaseRestRpc('record_inventory_movement', {});
+
+    expect(result.error).toBeTruthy();
+    expect(result.meta.status).toBe(400);
+    expect(result.meta.reachedServer).toBe(true);
+  });
+
+  it('keeps Retry-After in seconds and as an HTTP date', async () => {
+    fetchMock.mockResolvedValue(httpResponse(429, { message: 'slow down' }, { 'Retry-After': '120' }));
+    expect((await supabaseRestRpc('x', {})).meta).toEqual({
+      status: 429, reachedServer: true, retryAfter: '120',
+    });
+
+    const httpDate = 'Wed, 22 Aug 2026 20:00:00 GMT';
+    fetchMock.mockResolvedValue(httpResponse(503, null, { 'Retry-After': httpDate }));
+    expect((await supabaseRestRpc('x', {})).meta).toEqual({
+      status: 503, reachedServer: true, retryAfter: httpDate,
+    });
+  });
+
+  it('leaks no other header into the queue', async () => {
+    fetchMock.mockResolvedValue(httpResponse(200, [], {
+      'Retry-After': '30',
+      'set-cookie': 'session=secret',
+      Authorization: 'Bearer fuite',
+      'x-request-id': 'trace-123',
+    }));
+
+    const result = await supabaseRestSelect('reserves');
+
+    // Recopier tous les en-tetes ferait entrer des donnees de session dans la
+    // file persistee et dans l'export de diagnostic.
+    expect(Object.keys(result.meta).sort()).toEqual(['reachedServer', 'retryAfter', 'status']);
+    expect(JSON.stringify(result.meta)).not.toContain('secret');
+    expect(JSON.stringify(result.meta)).not.toContain('trace-123');
+  });
+
+  it('reports no response for a transport cut', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error('socket closed'), { code: 'ECONNRESET' }));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.meta).toEqual({ status: null, reachedServer: false, retryAfter: null });
+  });
+
+  it('reports no response when the caller cancels before sending', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await supabaseRestSelect('reserves', '*', undefined, 1, { signal: controller.signal });
+
+    expect(result.error.code).toBe('REST_ABORTED');
+    expect(result.meta).toEqual({ status: null, reachedServer: false, retryAfter: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('reports no response when the fetch is aborted mid-flight', async () => {
+    fetchMock.mockRejectedValue(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.meta.reachedServer).toBe(false);
+    expect(result.meta.status).toBeNull();
+  });
+
+  it('still returns complete metadata on a purely local refusal', async () => {
+    // Aucune branche ne doit conserver l'ancien format sans `meta`.
+    const missingFilter = await supabaseRestMutation('reserves', 'update', { a: 1 });
+
+    expect(missingFilter.error.code).toBe('MISSING_FILTER');
+    expect(missingFilter.meta).toEqual({ status: null, reachedServer: false, retryAfter: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('metadata after the internal 401 replay', () => {
+  it('describes the second response when the replay succeeds', async () => {
+    fetchMock
+      .mockResolvedValueOnce(httpResponse(401, { message: 'jwt expired' }))
+      .mockResolvedValueOnce(httpResponse(200, [{ id: 'R1' }]));
+
+    const result = await supabaseRestSelect('reserves');
+
+    // Le 401 intermediaire a deja ete traite ici : l'appelant doit voir le
+    // verdict final, sinon il ouvrirait un circuit d'authentification pour une
+    // requete qui a finalement abouti.
+    expect(result.meta).toEqual({ status: 200, reachedServer: true, retryAfter: null });
+    expect(result.error).toBeNull();
+    expect(forceRefreshSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('describes the second response when the replay is refused', async () => {
+    fetchMock
+      .mockResolvedValueOnce(httpResponse(401, { message: 'jwt expired' }))
+      .mockResolvedValueOnce(httpResponse(403, { code: '42501', message: 'permission denied' }));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.meta.status).toBe(403);
+    expect(result.meta.reachedServer).toBe(true);
+  });
+
+  it('reports no response when the replay is cut by the network', async () => {
+    fetchMock
+      .mockResolvedValueOnce(httpResponse(401, { message: 'jwt expired' }))
+      .mockRejectedValueOnce(new Error('Network request failed'));
+
+    const result = await supabaseRestSelect('reserves');
+
+    // Contrat retenu : les metadonnees decrivent la tentative courante, pas une
+    // reponse intermediaire deja consommee par la couche transport.
+    expect(result.meta).toEqual({ status: null, reachedServer: false, retryAfter: null });
+  });
+
+  it('keeps the 401 when no refresh is possible', async () => {
+    forceRefreshSession.mockResolvedValue(null as any);
+    fetchMock.mockResolvedValue(httpResponse(401, { message: 'jwt expired' }));
+
+    const result = await supabaseRestSelect('reserves');
+
+    expect(result.meta.status).toBe(401);
+    expect(result.meta.reachedServer).toBe(true);
+  });
+});

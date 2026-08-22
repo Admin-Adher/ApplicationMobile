@@ -27,10 +27,42 @@ function linkAbortSignal(controller: AbortController, external?: AbortSignal | n
   return () => external.removeEventListener('abort', onAbort);
 }
 
+/**
+ * Metadonnees de transport consommees par la politique de reessai.
+ *
+ * Seule la valeur utile de `Retry-After` est conservee : recopier tous les
+ * headers ferait entrer des donnees de session dans la file persistee et dans
+ * l'export de diagnostic.
+ */
+export interface SupabaseRestMeta {
+  /** Statut HTTP de la reponse FINALE, `null` si aucune n'est parvenue. */
+  status: number | null;
+  /** Une reponse a-t-elle ete recue ? Un 400 ou un 503 comptent comme oui. */
+  reachedServer: boolean;
+  /** En-tete `Retry-After` brut, a interpreter par `parseRetryAfter`. */
+  retryAfter: string | null;
+}
+
 export type SupabaseRestResult<T = any> = {
   data: T[] | null;
   error: any | null;
+  meta: SupabaseRestMeta;
 };
+
+/** Aucune reponse : coupure, borne de temps atteinte, ou annulation. */
+const NO_RESPONSE_META: SupabaseRestMeta = {
+  status: null,
+  reachedServer: false,
+  retryAfter: null,
+};
+
+function metaFromResponse(response: Response): SupabaseRestMeta {
+  return {
+    status: response.status,
+    reachedServer: true,
+    retryAfter: response.headers.get('Retry-After'),
+  };
+}
 
 const REST_TIMEOUT_MS = 25_000;
 const TOKEN_TIMEOUT_MS = 4_000;
@@ -163,11 +195,15 @@ async function restRequest<T = any>(
   options?: RestRequestOptions,
 ): Promise<SupabaseRestResult<T>> {
   if (!isSupabaseConfigured || !SUPABASE_KEY) {
-    return { data: null, error: { message: 'Supabase non configure' } };
+    return { data: null, error: { message: 'Supabase non configure' }, meta: { ...NO_RESPONSE_META } };
   }
 
   if (options?.signal?.aborted) {
-    return { data: null, error: { code: 'REST_ABORTED', message: 'Requete aborted avant envoi' } };
+    return {
+      data: null,
+      error: { code: 'REST_ABORTED', message: 'Requete aborted avant envoi' },
+      meta: { ...NO_RESPONSE_META },
+    };
   }
 
   const token = await getSupabaseRestAccessToken();
@@ -207,17 +243,23 @@ async function restRequest<T = any>(
       }
     }
 
+    // Les metadonnees decrivent la reponse FINALE. Apres un 401 rejoue avec un
+    // jeton rafraichi, c'est le second verdict qui compte pour l'appelant : le
+    // 401 intermediaire a deja ete traite ici meme.
+    const meta = metaFromResponse(response);
     const body = await readBody(response);
     if (!response.ok) {
-      return { data: null, error: normalizeRestError(body, response.status) };
+      return { data: null, error: normalizeRestError(body, response.status), meta };
     }
-    return { data: Array.isArray(body) ? body : body ? [body] : null, error: null };
+    return { data: Array.isArray(body) ? body : body ? [body] : null, error: null, meta };
   } catch (error: any) {
     const aborted = error?.name === 'AbortError';
     // Distinguer « la borne de temps a coupé » d'une annulation demandée par
     // l'appelant : la seconde n'est pas un symptôme de réseau lent, elle ne doit
     // donc pas alimenter le backoff comme un timeout.
     const cancelledByCaller = aborted && Boolean(options?.signal?.aborted);
+    // Coupure, borne de temps ou annulation : aucune reponse n'est parvenue,
+    // meme si un 401 intermediaire avait ete recu avant le rejeu.
     return {
       data: null,
       error: {
@@ -228,6 +270,7 @@ async function restRequest<T = any>(
             : (error?.message ?? String(error)),
         code: cancelledByCaller ? 'REST_ABORTED' : aborted ? 'REST_TIMEOUT' : error?.code,
       },
+      meta: { ...NO_RESPONSE_META },
     };
   } finally {
     clearTimeout(timer);
@@ -266,6 +309,7 @@ export async function supabaseRestMutation<T = any>(
         code: 'MISSING_FILTER',
         message: `Refusing ${op.toUpperCase()} on ${table} without a filter`,
       },
+      meta: { ...NO_RESPONSE_META },
     };
   }
 
