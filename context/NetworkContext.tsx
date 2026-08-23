@@ -35,15 +35,13 @@ import {
   getSyncQueueCounts,
   hasReplayableQueuedOperations,
   inventoryOutcomeTranslationKey,
-  isAuthenticationSyncFailure,
-  isInfrastructureSyncFailure,
   isInventoryQueuedOperation,
   isReplayableQueuedOperation,
-  assessPermanentFailure,
-  shouldAbandonPassAfterInfrastructureFailure,
-  syncFailureReachedServer,
   type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
+import { classifyFailureOutcome } from '@/lib/syncOutcomeClassifier';
+import type { SupabaseRestMeta } from '@/lib/supabaseRest';
+import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
 import type { SyncFailureClass, SyncRetrySource } from '@/lib/syncRetryPolicy';
 import {
   coalesceQueuedOperations,
@@ -1357,97 +1355,100 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Helper: re-queue an op while attaching the latest error message and
     // bumping its attempt counter so the user can see in the UI why it stays
     // stuck after each retry.
+    /**
+     * Enregistre un echec et rend son verdict.
+     *
+     * La decision « rejouable, definitif, ou passe abandonnee » est deleguee a
+     * `classifyFailureOutcome`, module pur et teste. Elle vivait auparavant
+     * dans cette fermeture, melangee aux effets de bord, et aucune des 37
+     * sorties de la boucle ne pouvait etre verifiee.
+     */
     const fail = (
       op: QueuedOperation,
       err: any,
-      options?: { terminalStatus?: string; terminalOutcome?: SyncQueueTerminalOutcome },
-    ) => {
-      let msg: string;
-      if (!err) msg = i18n.t('networkQueue.unknownError');
-      else if (typeof err === 'string') msg = err;
-      else if (err.message) {
-        msg = err.message;
-        if (err.code) msg = `[${err.code}] ${msg}`;
-        if (err.details) msg += ` — ${err.details}`;
-        if (err.hint) msg += ` (${err.hint})`;
-      } else {
-        try { msg = JSON.stringify(err); } catch { msg = String(err); }
-      }
-      console.warn(`[queue] ${op.op} ${op.table} failed:`, msg);
-      const attemptCount = (op.attemptCount ?? 0) + 1;
-
-      // Un refus déterministe du serveur (droit manquant, fonction absente,
-      // payload invalide…) ne guérira jamais par un réessai. Sans cette
-      // requalification l'opération est ré-enfilée « en attente, réessai
-      // automatique » indéfiniment : la file grossit à chaque saisie, ne se
-      // vide jamais, et l'utilisateur voit des dizaines d'opérations promises
-      // à un réessai qui ne peut pas aboutir. On l'annonce donc comme refusée,
-      // avec le message technique conservé dans `lastError`.
-      //
-      // L'évaluation se fait sur l'EMPREINTE de l'erreur, pas sur le nombre
-      // total de tentatives : une séquence timeout → 503 → 404 ne doit pas
-      // rendre le 404 terminal du premier coup.
-      const assessment = assessPermanentFailure(op, err);
-      let resolvedOutcome = options?.terminalOutcome;
-      let resolvedStatus = options?.terminalOutcome?.status ?? options?.terminalStatus;
-      if (!resolvedStatus && assessment.terminal) {
-        resolvedStatus = 'server_rejected';
-        if (isInventoryQueuedOperation(op)) {
-          // Le stock optimiste doit être annulé comme pour tout refus métier :
-          // le mouvement n'a jamais atteint le serveur.
-          resolvedOutcome = normalizeInventoryMovementOutcome(
-            { status: resolvedStatus, message: msg },
-            inventoryOutcomeContextFromQueuedOperation(op),
-          );
-          terminalReconciliations.push({ op, outcome: resolvedOutcome });
-        }
-      }
-
-      failedOps.push({
-        ...op,
-        lastError: msg,
-        attemptCount,
-        lastFailureFingerprint: assessment.fingerprint ?? undefined,
-        sameFailureCount: assessment.sameFailureCount,
-        terminal: Boolean(resolvedStatus || resolvedOutcome) || op.terminal,
-        terminalStatus: resolvedStatus ?? op.terminalStatus,
-        terminalOutcome: resolvedOutcome ?? op.terminalOutcome,
+      options?: {
+        terminalStatus?: string;
+        terminalOutcome?: SyncQueueTerminalOutcome;
+        meta?: SupabaseRestMeta;
+      },
+    ): PassOperationOutcome<QueuedOperation> => {
+      const verdict = classifyFailureOutcome({
+        operation: op,
+        error: err,
+        meta: options?.meta,
+        terminalStatus: options?.terminalStatus,
+        terminalOutcome: options?.terminalOutcome,
+        nowMs: Date.now(),
+        consecutiveServiceFailures: consecutiveInfraFailures,
+        circuitAlreadyOpen: circuitOpened,
       });
+      console.warn(`[queue] ${op.op} ${op.table} failed:`, verdict.message);
 
-      if (isAuthenticationSyncFailure(err)) {
-        // Stop after the first rejected authenticated request. Replaying every
-        // queued operation with the same unusable JWT only burns retries and
-        // can trigger one refresh attempt per row.
-        if (!circuitOpened) {
-          circuitOpened = true;
-          circuitDelayMs = SYNC_AUTH_RETRY_DELAY_MS;
-          syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
-          setSyncAuthBlocked(isSessionExpired());
-        }
-      } else if (isInfrastructureSyncFailure(err)) {
-        consecutiveInfraFailures += 1;
-        // On ne condamne la passe qu'après plusieurs échecs d'affilée : c'est
-        // la différence entre « le serveur est injoignable » et « la 4G du
-        // chantier a hoqueté sur cette opération-là ».
-        if (!circuitOpened && shouldAbandonPassAfterInfrastructureFailure(consecutiveInfraFailures)) {
-          circuitOpened = true;
-          const failures = syncInfrastructureFailureCountRef.current + 1;
-          syncInfrastructureFailureCountRef.current = failures;
-          const exponential = Math.min(
-            SYNC_INFRA_BACKOFF_MAX_MS,
-            SYNC_INFRA_BACKOFF_BASE_MS * (2 ** Math.min(failures - 1, 4)),
-          );
-          circuitDelayMs = Math.round(exponential * (0.8 + Math.random() * 0.4));
-          syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
-        }
-      } else if (syncFailureReachedServer(err)) {
-        // Refus rendu PAR le serveur (400, 422, 42501…) : le lien fonctionne.
-        // La série d'échecs réseau est donc rompue, même si l'opération échoue.
-        // Sans cette branche, une alternance timeout → 400 → timeout → 422
-        // faisait croire à trois timeouts « consécutifs ».
-        consecutiveInfraFailures = 0;
+      let resolvedOutcome = options?.terminalOutcome;
+      if (verdict.inferredTerminal && verdict.terminalStatus && isInventoryQueuedOperation(op)) {
+        // Le stock optimiste doit etre annule comme pour tout refus metier :
+        // le mouvement n'a jamais atteint le serveur.
+        resolvedOutcome = normalizeInventoryMovementOutcome(
+          { status: verdict.terminalStatus, message: verdict.message },
+          inventoryOutcomeContextFromQueuedOperation(op),
+        );
+        terminalReconciliations.push({ op, outcome: resolvedOutcome });
+      }
+
+      const failedOperation: QueuedOperation = {
+        ...op,
+        lastError: verdict.message,
+        attemptCount: verdict.attemptCount,
+        lastFailureFingerprint: verdict.fingerprint ?? undefined,
+        sameFailureCount: verdict.sameFailureCount,
+        // Metadonnees P5 : persistees des maintenant, exploitees par la passe
+        // dynamique au commit suivant.
+        lastFailureAt: new Date().toISOString(),
+        nextAttemptAt: verdict.nextAttemptAt ?? undefined,
+        failureClass: verdict.failureClass,
+        retrySource: verdict.retrySource ?? undefined,
+        lastHttpStatus: verdict.lastHttpStatus ?? undefined,
+        retryPolicyVersion: 1,
+        terminal: verdict.isTerminal,
+        terminalStatus: verdict.terminalStatus ?? op.terminalStatus,
+        terminalOutcome: resolvedOutcome ?? op.terminalOutcome,
+      };
+      failedOps.push(failedOperation);
+
+      consecutiveInfraFailures = verdict.serviceFailureStreak;
+
+      if (verdict.opensAuthCircuit) {
+        circuitOpened = true;
+        circuitDelayMs = SYNC_AUTH_RETRY_DELAY_MS;
+        syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+        setSyncAuthBlocked(isSessionExpired());
+      } else if (verdict.opensServiceCircuit) {
+        circuitOpened = true;
+        const failures = syncInfrastructureFailureCountRef.current + 1;
+        syncInfrastructureFailureCountRef.current = failures;
+        const exponential = Math.min(
+          SYNC_INFRA_BACKOFF_MAX_MS,
+          SYNC_INFRA_BACKOFF_BASE_MS * (2 ** Math.min(failures - 1, 4)),
+        );
+        circuitDelayMs = Math.round(exponential * (0.8 + Math.random() * 0.4));
+        syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+      } else if (verdict.serviceFailureStreak === 0 && verdict.reachedServer) {
+        // Refus rendu PAR le serveur : le lien fonctionne, la serie est rompue.
         syncInfrastructureFailureCountRef.current = 0;
       }
+
+      if (verdict.kind === 'abandon') {
+        return {
+          kind: 'abandon',
+          operation: failedOperation,
+          reason: verdict.abandonReason ?? 'backend',
+          nextAttemptAt: verdict.nextAttemptAt,
+        };
+      }
+      if (verdict.kind === 'terminal') {
+        return { kind: 'terminal', operation: failedOperation };
+      }
+      return { kind: 'deferred', operation: failedOperation, nextAttemptAt: verdict.nextAttemptAt };
     };
 
     let processed = 0;
