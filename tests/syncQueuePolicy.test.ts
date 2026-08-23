@@ -347,9 +347,15 @@ describe('unstable-network replay policy', () => {
     // Le compteur consécutif est borné par la passe, le compteur exponentiel
     // par un succès : sans cette remise à zéro le backoff restait épinglé à
     // son maximum de 5 min pendant des heures.
-    expect(source).toContain('const failedOpsBefore = failedOps.length;');
-    expect(source).toContain('if (failedOps.length === failedOpsBefore) {');
+    //
+    // Le succès est maintenant DÉCLARÉ par l'issue, non plus déduit de
+    // `failedOps.length`. L'ancienne heuristique se trompait dans les deux
+    // sens : une réserve écrite avec un patch photo différé était comptée en
+    // échec, et un patch de commentaire malformé — abandonné sans qu'aucun
+    // serveur ne soit joint — remettait le backoff à zéro.
+    expect(source).toContain("if (outcome.kind === 'applied') {");
     expect(source).toContain('consecutiveInfraFailures = 0;');
+    expect(source).not.toContain('failedOps.length === failedOpsBefore');
     // Le seuil lui-meme vit desormais dans le classificateur pur, teste
     // directement ; le moteur ne fait qu'appliquer son verdict.
     expect(source).toContain('consecutiveInfraFailures = verdict.serviceFailureStreak;');
