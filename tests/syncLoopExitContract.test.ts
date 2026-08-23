@@ -317,18 +317,59 @@ describe('the legacy rebuild follows physical identity', () => {
   });
 });
 
-describe('the queue purge cannot outlive a concurrent enqueue', () => {
-  it('goes through the write chain and never deletes the key', () => {
+describe('the queue purge is durable and keeps what came after it', () => {
+  const purge = source.slice(
+    source.indexOf('const clearQueue = useCallback'),
+    source.indexOf('const dismissRejectedOperations'),
+  );
+
+  it('never deletes a queue key, anywhere in the file', () => {
     // Un `removeItem` lance hors chaine pouvait se terminer APRES l'ecriture
     // d'une operation enfilee entre-temps, et la faire disparaitre du disque.
     // `[]` est une file vide parfaitement valide.
-    const purge = source.slice(
-      source.indexOf("setSyncAuthBlocked(false);"),
-      source.indexOf("const dismissRejectedOperations"),
+    expect(source).not.toContain('AsyncStorage.removeItem(');
+  });
+
+  it('writes STRICTLY, and empties memory only once the disk is up to date', () => {
+    // Une reussite fabriquee ferait afficher une file vide pendant que le
+    // disque garde les anciennes operations — qui reapparaitraient, et se
+    // synchroniseraient, au redemarrage.
+    const active = purge
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('*'));
+
+    expect(active).toContain('await writeQueueStrict(survivors);');
+    expect(active.indexOf('await writeQueueStrict(survivors);'))
+      .toBeLessThan(active.indexOf('queueRef.current = survivors;'));
+  });
+
+  it('keeps the operations enqueued during the purge', () => {
+    // Elles sont POSTERIEURES a la demande de suppression : les effacer
+    // detruirait une saisie que l'utilisateur n'a jamais demande de supprimer.
+    expect(purge).toContain('purgedEntryIds.has(operation.queueEntryId)');
+  });
+
+  it('empties the anonymous key through the chain', () => {
+    expect(purge).toContain("queueWriteChain.writeBestEffort(OFFLINE_QUEUE_PREFIX + 'anon', JSON.stringify([]))");
+  });
+});
+
+describe('the anonymous migration stays inside the chain', () => {
+  it('merges in memory and clears the anon key only once the user queue is durable', () => {
+    // Ecrire la file utilisateur puis vider la clef anonyme hors chaine
+    // pouvait laisser la suppression se terminer apres une ecriture
+    // concurrente. Tant que l'ecriture definitive n'a pas abouti, la copie
+    // anonyme reste la seule trace de ces saisies.
+    const hydration = source.slice(
+      source.indexOf('const loadQueue = useCallback'),
+      source.indexOf('lastLoadedKeyRef.current = userKey ?? anonKey;'),
     );
 
-    expect(purge).toContain('queueWriteChain.writeBestEffort(offlineQueueKey, JSON.stringify([]))');
-    expect(purge).not.toContain('AsyncStorage.removeItem(offlineQueueKey)');
+    expect(hydration).toContain('anonQueueToClear = anonKey;');
+    expect(hydration).toContain('await queueWriteChain.writeBestEffort(anonQueueToClear, JSON.stringify([]));');
+    expect(hydration.indexOf('writeQueueStrict(identified.operations)'))
+      .toBeLessThan(hydration.indexOf('writeBestEffort(anonQueueToClear'));
   });
 });
 
@@ -344,6 +385,9 @@ describe('a failed hydration is actually retried', () => {
     );
 
     expect(retry).toContain('void loadQueueRef.current?.();');
+    // L'echec precedent avait pose `error` : sans retour explicite il resterait
+    // affiche lorsqu'aucune passe ne vient le remplacer.
+    expect(source).toContain("setSyncStatus('idle');");
     expect(retry).toContain('if (queueHydrationGenerationRef.current !== generation) return;');
     expect(source).toContain('scheduleHydrationRetry(myHydrationGeneration);');
   });
@@ -363,8 +407,11 @@ describe('a failed hydration is actually retried', () => {
       source.indexOf('lastLoadedKeyRef.current = userKey ?? anonKey;'),
     );
 
-    expect(hydration).toContain('if (serialized !== persistedSnapshot) {');
+    expect(hydration).toContain('if (!nothingToPersist && serialized !== persistedSnapshot) {');
     expect(hydration).toContain('await writeQueueStrict(identified.operations);');
+    // Une file ABSENTE et vide n'a rien a rendre durable : exiger un `setItem`
+    // ferait dependre le demarrage d'une ecriture qui n'ecrit rien.
+    expect(hydration).toContain('persistedSnapshot === null && identified.operations.length === 0');
   });
 });
 

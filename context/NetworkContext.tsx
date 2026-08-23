@@ -949,6 +949,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // telle quelle est deja durable : exiger une reecriture ferait dependre son
     // utilisation d'un `setItem` qui n'a rien a ecrire.
     let persistedSnapshot: string | null = null;
+    // Clef anonyme a vider APRÈS que la file utilisateur soit durable. Tant que
+    // l'écriture définitive n'a pas abouti, la copie anonyme reste la seule
+    // trace de ces saisies : mieux vaut un doublon temporaire qu'une perte.
+    let anonQueueToClear: string | null = null;
     setQueueLoaded(false);
     queueLoadedRef.current = false;
     const userKey = userId ? OFFLINE_QUEUE_PREFIX + userId : null;
@@ -981,8 +985,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               for (const op of parsedAnon) {
                 if (op?.id && !seen.has(op.id)) { seen.add(op.id); merged.push(op); }
               }
-              await AsyncStorage.setItem(userKey, JSON.stringify(merged));
-              await AsyncStorage.removeItem(anonKey);
+              // La fusion reste EN MÉMOIRE. L'écriture définitive — identités
+              // locales comprises — a lieu plus bas, par la chaîne : écrire ici
+              // puis vider la clé anonyme hors chaîne pouvait laisser la
+              // suppression se terminer après une écriture concurrente.
+              anonQueueToClear = anonKey;
               console.warn(`[NetworkContext] migrated ${parsedAnon.length} anon queue items to ${userKey}`);
             }
           }
@@ -1031,14 +1038,28 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // durable, et une panne de `setItem` ne doit alors bloquer ni la lecture
       // ni la synchronisation.
       const serialized = JSON.stringify(identified.operations);
-      if (serialized !== persistedSnapshot) {
+      // Une file ABSENTE et vide n'a rien à rendre durable : exiger un
+      // `setItem` ferait dépendre le démarrage d'une écriture qui n'écrit rien.
+      const nothingToPersist = persistedSnapshot === null && identified.operations.length === 0;
+      if (!nothingToPersist && serialized !== persistedSnapshot) {
         await writeQueueStrict(identified.operations);
+      }
+
+      // Seulement MAINTENANT : la file utilisateur porte ces opérations de
+      // façon durable, la copie anonyme peut être vidée. Par la chaîne, et sans
+      // supprimer la clef — `[]` est une file vide parfaitement valide.
+      if (anonQueueToClear) {
+        await queueWriteChain.writeBestEffort(anonQueueToClear, JSON.stringify([]));
       }
       lastLoadedKeyRef.current = userKey ?? anonKey;
       identitiesAreDurable = true;
       if (hydrationRetryTimerRef.current) {
         clearTimeout(hydrationRetryTimerRef.current);
         hydrationRetryTimerRef.current = null;
+        // L'échec précédent avait posé `error`. Sans ce retour explicite, il
+        // resterait affiché indéfiniment lorsqu'aucune passe ne vient le
+        // remplacer — typiquement sur une file vide.
+        setSyncStatus('idle');
       }
     } catch (error) {
       // Conserver les opérations éventuellement créées pendant l'hydratation.
@@ -2881,24 +2902,45 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     scheduleSync();
   }, [saveQueue, scheduleSync]);
 
+  /**
+   * Suppression EXPLICITE demandée par l'utilisateur.
+   *
+   * Contrairement à une sauvegarde automatique, une réussite fabriquée est ici
+   * inacceptable : l'interface annoncerait une file vide pendant que le disque
+   * garde les anciennes opérations, qui réapparaîtraient — et se
+   * synchroniseraient — au redémarrage. L'écriture est donc stricte, et la file
+   * n'est vidée en mémoire qu'une fois le disque à jour.
+   */
   const clearQueue = useCallback(async () => {
-    await backupQueue(queueRef.current, 'manual-clear');
+    const purged = queueRef.current;
+    await backupQueue(purged, 'manual-clear');
     if (syncKickTimerRef.current) {
       clearTimeout(syncKickTimerRef.current);
       syncKickTimerRef.current = null;
     }
-    queueRef.current = [];
-    setQueue([]);
+
+    // Les opérations enfilées PENDANT la purge n'en font pas partie : elles
+    // sont postérieures à la demande et doivent survivre.
+    const purgedEntryIds = new Set(
+      purged.map(operation => operation.queueEntryId).filter((value): value is string => Boolean(value)),
+    );
+    const survivors = queueRef.current.filter(operation => (
+      !operation.queueEntryId || !purgedEntryIds.has(operation.queueEntryId)
+    ));
+
+    // Écriture STRICTE : si elle échoue, l'exception remonte et l'interface ne
+    // prétend pas avoir supprimé quoi que ce soit.
+    await writeQueueStrict(survivors);
+
+    queueRef.current = survivors;
+    setQueue(survivors);
     // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
-    setSyncAuthBlocked(false);
-    // Purge de la file : elle passe par la MÊME chaîne que les écritures.
-    // Un `removeItem` lancé hors chaîne pouvait se terminer après l'écriture
-    // d'une opération enfilée entre-temps, et la faire disparaître du disque.
-    // Une valeur `[]` est une file vide parfaitement valide : on ne supprime
-    // pas la clé.
-    await queueWriteChain.writeBestEffort(offlineQueueKey, JSON.stringify([]));
-    try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
-  }, [backupQueue, offlineQueueKey]);
+    if (survivors.length === 0) setSyncAuthBlocked(false);
+
+    // La clef anonyme est VIDÉE, jamais supprimée : un `removeItem` hors chaîne
+    // pouvait se terminer après l'écriture d'une opération enfilée entre-temps.
+    await queueWriteChain.writeBestEffort(OFFLINE_QUEUE_PREFIX + 'anon', JSON.stringify([]));
+  }, [backupQueue, writeQueueStrict, queueWriteChain]);
 
   const dismissRejectedOperations = useCallback(async () => {
     const rejected = queueRef.current.filter(operation => operation.terminal);
