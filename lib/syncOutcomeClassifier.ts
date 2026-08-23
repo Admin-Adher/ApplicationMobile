@@ -240,13 +240,17 @@ export function classifyFailureOutcome(input: FailureClassificationInput): Failu
     ? 'abandon'
     : isTerminal ? 'terminal' : 'deferred';
 
+  // Une operation refusee n'a pas de prochaine tentative. La politique calcule
+  // sa decision AVANT que le caractere terminal soit connu ; laisser filer son
+  // echeance affichait « refusee » et « prochaine tentative dans 30 s » sur la
+  // meme ligne du diagnostic.
   return {
     kind,
     abandonReason: kind !== 'abandon' ? null : authFailure ? 'authentication' : 'backend',
     message,
     failureClass: decision.failureClass,
-    retrySource: decision.retrySource,
-    nextAttemptAt: decision.nextAttemptAt,
+    retrySource: isTerminal ? null : decision.retrySource,
+    nextAttemptAt: isTerminal ? null : decision.nextAttemptAt,
     lastHttpStatus,
     reachedServer: decision.reachedServer,
     contributesToCircuit: decision.contributesToCircuit,

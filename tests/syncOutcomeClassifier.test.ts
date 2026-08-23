@@ -235,6 +235,30 @@ describe('terminal refusals', () => {
     expect(result.inferredTerminal).toBe(false);
   });
 
+  it('leaves no retry deadline on a refusal', () => {
+    // La politique calcule sa decision AVANT que le caractere terminal soit
+    // connu : le diagnostic affichait « refusee » et « prochaine tentative dans
+    // 30 s » sur la meme ligne.
+    const result = classify({
+      error: { status: 400, message: 'stock insuffisant' },
+      meta: { status: 400 },
+      terminalStatus: 'insufficient_stock',
+    });
+
+    expect(result.kind).toBe('terminal');
+    expect(result.nextAttemptAt).toBeNull();
+    expect(result.retrySource).toBeNull();
+  });
+
+  it('keeps the deadline on a refusal that is only deferred', () => {
+    // Verrou sur la premisse : sans lui, rendre `null` partout ferait passer le
+    // test precedent sans rien prouver.
+    const deferred = classify({ error: { status: 404, message: 'HTTP 404' }, meta: { status: 404 } });
+
+    expect(deferred.kind).toBe('deferred');
+    expect(deferred.nextAttemptAt).not.toBeNull();
+  });
+
   it('only infers a refusal on the third identical deterministic verdict', () => {
     const notFound = { status: 404, message: 'HTTP 404' };
     let operation: FailureClassificationInput['operation'] = {};

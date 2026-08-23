@@ -1,21 +1,27 @@
 # Contrat des sorties de `executeQueuedOperation`
 
-Table de référence de la conversion des sorties de la boucle de synchronisation
-(`context/NetworkContext.tsx`). Chaque ligne décrit une sortie explicite : ce qui
-la déclenche, ce qu'elle laisse derrière elle, quelle version de l'opération elle
-rend, et si la métadonnée de transport atteint la politique de réessai.
+Table de référence de la boucle de synchronisation (`context/NetworkContext.tsx`).
+Chaque ligne décrit une sortie explicite : ce qui la déclenche, ce qu'elle laisse
+derrière elle, quelle version de l'opération elle rend, et si la métadonnée de
+transport atteint la politique de réessai.
 
-Le test `tests/syncLoopExitContract.test.ts` fige ce décompte. **Toute sortie
-ajoutée ou retirée doit être reportée ici dans le même commit** — c'est le rôle
-du verrou.
+Chaque sortie porte son identifiant dans le code : `syncExit('E01', …)`. Le type
+`SyncExitId` fait échouer la compilation sur un identifiant inexistant, et
+`tests/syncLoopExitContract.test.ts` vérifie que le code et cette table portent
+exactement les mêmes, chacun une seule fois — **une sortie ajoutée sans ligne ici
+fait échouer la CI**. Le verrou porte sur les identifiants, pas sur des
+décomptes : un décompte reste vert si une sortie disparaît pendant qu'une autre
+apparaît ailleurs. Il ne porte pas non plus sur les numéros de ligne, qui
+deviennent faux au premier changement — c'est pourquoi cette table n'en contient
+aucun.
 
 ## Décompte
 
 | Issue | Nombre |
 | --- | ---: |
-| `fail(...)` — verdict rendu par la politique | 40 |
+| `fail(...)` — verdict rendu par la politique | 31 |
 | `applied` | 14 |
-| `terminal` | 2 |
+| `terminalLocalOperation(...)` — refus établi localement | 11 |
 | `conflict` | 1 |
 | `deferred` | 1 |
 | **Total** | **58** |
@@ -39,64 +45,71 @@ imposées par l'appelant.
 **`meta`** — `n.a.` quand aucune requête REST n'a eu lieu (validation locale,
 échec d'upload, exception).
 
+**`terminalLocalOperation`** — refus définitif établi **sans le moindre appel
+réseau**. L'opération est marquée `terminal`, poussée dans la file pour rester
+visible dans le diagnostic et écartable par « rejets », privée de toute échéance
+de réessai. **Aucun rollback de stock n'est déclenché** : seul un
+`terminalOutcome` métier explicite, rendu par le serveur, autorise à annuler une
+écriture optimiste.
+
 ## RPC
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E01 | 1524 | `op.rpc.fn` absent | — | `op` | `fail` | politique | validation locale | n.a. |
-| E02 | 1537 | réserve sans `id` | — | `op` | `fail` | politique | validation locale | n.a. |
-| E03 | 1594 | upload photos réserve partiel | cache photo mis à jour sur le progrès partiel | `partialRetryOp` (photos déjà distantes) | `fail` | politique | upload | n.a. |
-| E04 | 1627 | mouvement de stock au payload invalide | réconciliation du cache terminal | `op` | `fail` | terminal (`terminalOutcome`) | validation locale | n.a. |
-| E05 | 1634 | upload photo produit échoué | — | `op` | `fail` | politique | upload | n.a. |
-| E06 | 1647 | modification produit au payload invalide | — | `op` | `fail` | terminal (`terminalOutcome`) | validation locale | n.a. |
-| E07 | 1654 | upload photo produit échoué | — | `op` | `fail` | politique | upload | n.a. |
-| E08 | 1668 | révision de plan sans parent ou sans plan | — | `op` | `fail` | politique | validation locale | n.a. |
-| E09 | 1675 | upload fichier plan échoué | — | `op` | `fail` | politique | upload | n.a. |
-| E10 | 1683 | remplacement de plan sans patch | — | `op` | `fail` | politique | validation locale | n.a. |
-| E11 | 1690 | upload fichier plan échoué | — | `op` | `fail` | politique | upload | n.a. |
-| E12 | 1699 | événement de statut sans `reserve_id` ou `to_status` | — | `op` | `fail` | politique | validation locale | n.a. |
-| E13 | 1721 | instantané ou `plan_id` manquant après le RPC | — | `retryRpcOp` | `fail` | politique | validation locale | n.a. |
-| E14 | 1730 | écriture des métadonnées de plan refusée | — | `retryRpcOp` | `fail` | politique | mutation | `metadataMeta` |
-| E15 | 1742 | repli mutation réserve refusé | — | `retryRpcOp` + `op.data` | `fail` | politique | mutation | `fallbackMeta` |
-| E16 | 1743 | repli mutation réserve accepté | — | `retryRpcOp` | `applied` | — | mutation | — |
-| E17 | 1745 | RPC indisponible, aucun repli possible | — | `retryRpcOp` | `fail` | politique | RPC | `rpcMeta` |
-| E18 | 1747 | toute autre erreur RPC | — | `retryRpcOp` | `fail` | politique | RPC | `rpcMeta` |
-| E19 | 1752 | verdict de statut réserve ≠ `ok` | — | `retryRpcOp` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcMeta` |
-| E20 | 1758 | verdict de statut réserve `ok` | — | `retryRpcOp` | `applied` | — | RPC | — |
-| E21 | 1765 | création de réserve avec photos réussie | cache photos, invalidation, notification | `retryRpcOp` | `applied` | — | RPC | — |
-| E22 | 1777 | réponse de stock illisible | — | `retryRpcOp` | `fail` | politique | RPC | `rpcMeta` |
-| E23 | 1791 | refus de stock définitif | réconciliation du cache terminal | `retryRpcOp` | `fail` | terminal (`terminalOutcome`) | RPC | `rpcMeta` |
-| E24 | 1809 | mouvement ou modification de stock accepté | invalidation des requêtes de stock | `retryRpcOp` | `applied` | — | RPC | — |
-| E25 | 1813 | tout autre RPC sans erreur | — | `retryRpcOp` | `applied` | — | RPC | — |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E01 | `op.rpc.fn` absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E02 | réserve sans `id` | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E03 | upload photos réserve partiel | cache photo mis à jour sur le progrès partiel | `partialRetryOp` (photos déjà distantes) | `fail` | politique | upload | n.a. |
+| E04 | mouvement de stock au payload invalide | réconciliation du cache terminal | `op` | `fail` | terminal (`terminalOutcome`) | validation locale | n.a. |
+| E05 | upload photo produit échoué | — | `op` | `fail` | politique | upload | n.a. |
+| E06 | modification produit au payload invalide | — | `op` | `fail` | terminal (`terminalOutcome`) | validation locale | n.a. |
+| E07 | upload photo produit échoué | — | `op` | `fail` | politique | upload | n.a. |
+| E08 | révision de plan sans parent ou sans plan | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E09 | upload fichier plan échoué | — | `op` | `fail` | politique | upload | n.a. |
+| E10 | remplacement de plan sans patch | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E11 | upload fichier plan échoué | — | `op` | `fail` | politique | upload | n.a. |
+| E12 | événement de statut sans `reserve_id` ou `to_status` | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E13 | instantané ou `plan_id` manquant après le RPC | — | `retryRpcOp` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E14 | écriture des métadonnées de plan refusée | — | `retryRpcOp` | `fail` | politique | mutation | `metadataMeta` |
+| E15 | repli mutation réserve refusé | — | `retryRpcOp` + `op.data` | `fail` | politique | mutation | `fallbackMeta` |
+| E16 | repli mutation réserve accepté | — | `retryRpcOp` | `applied` | — | mutation | — |
+| E17 | RPC indisponible, aucun repli possible | — | `retryRpcOp` | `fail` | politique | RPC | `rpcMeta` |
+| E18 | toute autre erreur RPC | — | `retryRpcOp` | `fail` | politique | RPC | `rpcMeta` |
+| E19 | verdict de statut réserve ≠ `ok` | — | `retryRpcOp` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcMeta` |
+| E20 | verdict de statut réserve `ok` | — | `retryRpcOp` | `applied` | — | RPC | — |
+| E21 | création de réserve avec photos réussie | cache photos, invalidation, notification | `retryRpcOp` | `applied` | — | RPC | — |
+| E22 | réponse de stock illisible | — | `retryRpcOp` | `fail` | politique | RPC | `rpcMeta` |
+| E23 | refus de stock définitif | réconciliation du cache terminal | `retryRpcOp` | `fail` | terminal (`terminalOutcome`) | RPC | `rpcMeta` |
+| E24 | mouvement ou modification de stock accepté | invalidation des requêtes de stock | `retryRpcOp` | `applied` | — | RPC | — |
+| E25 | tout autre RPC sans erreur | — | `retryRpcOp` | `applied` | — | RPC | — |
 
 ## Détection de conflit de statut
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E26 | 1826 | lecture de la réserve refusée | — | `op` | `fail` | politique | select | `fetchMeta` |
-| E27 | 1828 | réserve absente côté serveur | — | `op` | `applied` | — | select | — |
-| E28 | 1843 | statut serveur divergent | conflit empilé pour l'interface | `op` | `conflict` | — | select | — |
-| E29 | 1853 | écriture du statut refusée | — | `op` | `fail` | politique | mutation | `applyMeta` |
-| E30 | 1854 | écriture du statut acceptée | — | `op` | `applied` | — | mutation | — |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E26 | lecture de la réserve refusée | — | `op` | `fail` | politique | select | `fetchMeta` |
+| E27 | réserve absente côté serveur | — | `op` | `applied` | — | select | — |
+| E28 | statut serveur divergent | conflit empilé pour l'interface | `op` | `conflict` + `provesServerReachable` | — | select | — |
+| E29 | écriture du statut refusée | — | `op` | `fail` | politique | mutation | `applyMeta` |
+| E30 | écriture du statut acceptée | — | `op` | `applied` | — | mutation | — |
 
 ## Fusion de commentaires
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E31 | 1873 | lecture des commentaires refusée | — | `op` | `fail` | politique | select | `fetchMeta` |
-| E32 | 1876 | ligne absente côté serveur | — | `op` | `applied` | — | select | — |
-| E33 | 1900 | patch de commentaire malformé | journalisation | `op` | `terminal` | — | validation locale | n.a. |
-| E34 | 1910 | écriture fusionnée refusée | — | `op` | `fail` | politique | mutation | `writeMeta` |
-| E35 | 1911 | écriture fusionnée acceptée | — | `op` | `applied` | — | mutation | — |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E31 | lecture des commentaires refusée | — | `op` | `fail` | politique | select | `fetchMeta` |
+| E32 | ligne absente côté serveur | — | `op` | `applied` | — | select | — |
+| E33 | patch de commentaire malformé | journalisation | `op` | `terminal` local | `invalid_payload` | validation locale | n.a. |
+| E34 | écriture fusionnée refusée | — | `op` | `fail` | politique | mutation | `writeMeta` |
+| E35 | écriture fusionnée acceptée | — | `op` | `applied` | — | mutation | — |
 
 ## Upload avant rejeu générique
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E36 | 1956 | fichier photo absent du disque | journalisation | `op` | `terminal` | — | upload | n.a. |
-| E37 | 1979 | upload d'un patch photo échoué | — | `op` + progrès partiel | `fail` | politique | upload | n.a. |
-| E38 | 2047 | upload de fichiers locaux échoué | — | `op` | `fail` | politique | upload | n.a. |
-| E39 | 2051 | exception pendant l'upload | — | `op` | `fail` | politique | exception locale | n.a. |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E36 | fichier photo absent du disque | journalisation | `op` | `terminal` local | `local_file_missing` | upload | n.a. |
+| E37 | upload d'un patch photo échoué | — | `op` + progrès partiel | `fail` | politique | upload | n.a. |
+| E38 | upload de fichiers locaux échoué | — | `op` | `fail` | politique | upload | n.a. |
+| E39 | exception pendant l'upload | — | `op` | `fail` | politique | exception locale | n.a. |
 
 Le cas « réserve dont seules les photos échouent » ne sort pas ici : il dépouille
 le payload de ses URI locales, poursuit le rejeu générique, et diffère un patch
@@ -104,68 +117,82 @@ photo distinct (`deferredPhotoPatch`).
 
 ## Patch photo de réserve
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E40 | 2066 | lecture de la galerie refusée | — | `op` | `fail` | politique | select | `fetchMeta` |
-| E41 | 2070 | réserve supprimée entre-temps | — | `op` | `applied` | — | select | — |
-| E42 | 2112 | écriture de la galerie refusée | — | `op` + `nextPayload` | `fail` | politique | mutation | `writeMeta` |
-| E43 | 2113 | écriture de la galerie acceptée | — | `op` + `nextPayload` | `applied` | — | mutation | — |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E40 | lecture de la galerie refusée | — | `op` | `fail` | politique | select | `fetchMeta` |
+| E41 | réserve supprimée entre-temps | — | `op` | `applied` | — | select | — |
+| E42 | écriture de la galerie refusée | — | `op` + `nextPayload` | `fail` | politique | mutation | `writeMeta` |
+| E43 | écriture de la galerie acceptée | — | `op` + `nextPayload` | `applied` | — | mutation | — |
 
 ## Rejeu générique — `update`
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E44 | 2143 | filtre absent | — | `op` | `fail` | politique | validation locale | n.a. |
-| E45 | 2187 | conflit de version rebasé | nouvelle entrée poussée dans `failedOps` | version rebasée (nouvel `id`, `baseVersion`) | `deferred` | opération | RPC | — |
-| E46 | 2189 | rebase impossible | — | `retryOpForCatch` | `fail` | terminal (`terminalStatus`) | RPC | — |
-| E47 | 2193 | verdict de patch réserve ≠ `ok` | — | `retryOpForCatch` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcResult.meta` |
-| E48 | 2214 | 0 ligne affectée, ligne déjà absente | — | `retryOpForCatch` | `applied` | — | select de contrôle | — |
-| E49 | 2218 | 0 ligne affectée, ligne toujours présente | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E44 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E45 | conflit de version rebasé | nouvelle entrée poussée dans `failedOps` | version rebasée (nouvel `id`, `baseVersion`) | `deferred` + `provesServerReachable` | opération | RPC | — |
+| E46 | rebase impossible | — | `retryOpForCatch` | `fail` | terminal (`terminalStatus`) | RPC | — |
+| E47 | verdict de patch réserve ≠ `ok` | — | `retryOpForCatch` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcResult.meta` |
+| E48 | 0 ligne affectée, ligne déjà absente | — | `retryOpForCatch` | `applied` | — | select de contrôle | — |
+| E49 | 0 ligne affectée, ligne toujours présente | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
 
 ## Rejeu générique — `delete`
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E50 | 2223 | filtre absent | — | `op` | `fail` | politique | validation locale | n.a. |
-| E51 | 2239 | lecture des réserves liées refusée | — | `op` | `fail` | politique | select | `linkedMeta` |
-| E52 | 2242 | chantier encore porteur de réserves | — | `op` | `fail` | politique | select | n.a. |
-| E53 | 2266 | 0 ligne supprimée, ligne déjà absente | — | `op` | `applied` | — | select de contrôle | — |
-| E54 | 2270 | 0 ligne supprimée, ligne toujours présente | — | `op` | `fail` | politique | mutation | `result.meta` |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E50 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E51 | lecture des réserves liées refusée | — | `op` | `fail` | politique | select | `linkedMeta` |
+| E52 | chantier encore porteur de réserves | — | `op` | `fail` | politique | select | n.a. |
+| E53 | 0 ligne supprimée, ligne déjà absente | — | `op` | `applied` | — | select de contrôle | — |
+| E54 | 0 ligne supprimée, ligne toujours présente | — | `op` | `fail` | politique | mutation | `result.meta` |
 
 ## Sorties finales
 
-| Id | Ligne | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
-| --- | ---: | --- | --- | --- | --- | --- | --- | --- |
-| E55 | 2274 | `op.op` inconnu | — | `op` | `fail` | politique | validation locale | n.a. |
-| E56 | 2277 | rejeu générique refusé | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
-| E57 | 2289 | rejeu générique accepté | notifications, patch photo différé empilé | `retryOpForCatch` | `applied` | — | mutation | — |
-| E58 | 2291 | exception non rattrapée | — | `retryOpForCatch` | `fail` | politique | exception locale | n.a. |
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E55 | `op.op` inconnu | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E56 | rejeu générique refusé | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
+| E57 | rejeu générique accepté | notifications, patch photo différé empilé | `retryOpForCatch` | `applied` | — | mutation | — |
+| E58 | exception non rattrapée | — | `retryOpForCatch` | `fail` | politique | exception locale | n.a. |
+
+## Preuve que le backend répond
+
+`provesServerReachable` — et non `reachedServer` — parce que la nuance est
+piégeuse. Un `503` a bien été rendu par le serveur, mais il alimente
+délibérément le compteur de pannes consécutives : remettre la série à zéro sur
+« le serveur a répondu » empêcherait le disjoncteur de s'ouvrir sur une panne de
+service prolongée.
+
+Ce drapeau signifie donc précisément : *cette issue **non-échec** prouve que le
+backend répond, et les compteurs n'ont été touchés par personne d'autre*.
+`fail()` ne le pose jamais — le classificateur est déjà propriétaire des
+compteurs pour les échecs.
+
+Deux sorties le portent :
+
+- **E28** — le `SELECT` a abouti et le serveur a renvoyé un statut divergent.
+- **E45** — `rebase.kind === 'retry'` recouvre deux causes distinctes : une
+  coupure réseau, et un `version_conflict` rendu par le serveur. Seule la
+  seconde prouve que le backend répond, et le drapeau vient du transport
+  (`rpc.meta.reachedServer`), pas du motif textuel.
 
 ## Deux poussées directes conservées
 
-`failedOps.push(...)` subsiste en deux endroits, volontairement :
+`failedOps.push(...)` subsiste en dehors de `fail()` :
 
 - **E45** — l'entrée rebasée porte un nouvel `id` ; elle est à la fois l'issue de
   l'opération courante et l'entrée qui la remplace dans la file.
 - **E57** — `deferredPhotoPatch` est une **nouvelle** entrée de file, pas l'issue
   de l'opération courante : la réserve a bien été écrite, ses photos partent
   séparément.
+- `terminalLocalOperation` pousse également son opération refusée, pour la même
+  raison de pont legacy.
 
 Tant que la reconstruction de la file lit `failedOps`, ces poussées restent
 nécessaires. Elles disparaîtront quand `runSyncPass` consommera les issues.
 
-## Observation laissée ouverte
+## Limite connue
 
-Sept sorties concernent des opérations **structurellement impossibles à
-satisfaire** : E01, E02, E10, E12, E44, E50 et E55 — RPC sans fonction, payload
-absent, filtre manquant, opération inconnue. Elles rendent aujourd'hui une erreur
-sous forme de chaîne, que `classifySyncFailure` range en `unknown` : l'opération
-est **différée indéfiniment** alors qu'aucune tentative ne la rendra valide.
-
-`syncQueuePolicy` connaît pourtant déjà un code `MISSING_FILTER` traité comme
-refus déterministe — il n'est simplement utilisé par aucun de ces appels.
-
-Ce n'est pas une régression : la conversion n'a rien changé à ce comportement,
-elle l'a rendu visible. Le corriger déplacerait ces opérations de « en attente »
-vers « refusée », ce qui est **visible par l'utilisateur** — c'est une décision
-produit, pas un détail d'implémentation. Elle est donc laissée ouverte.
+**E46** ne transmet pas de `meta`. `rebaseReservePatchOnConflict` ne rend pas la
+métadonnée de transport sur sa variante terminale, et le `terminalStatus` fourni
+impose déjà la portée. La seule conséquence est un `lastHttpStatus` absent dans
+le diagnostic pour ce cas précis.
