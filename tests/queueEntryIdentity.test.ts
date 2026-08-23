@@ -91,6 +91,37 @@ describe('every entry carries a unique local identity', () => {
     expect(new Set(operations.map(o => o.queueEntryId)).size).toBe(2);
   });
 
+  it('gives up instead of looping on a degenerate generator', () => {
+    // Une boucle non bornee bloquerait l'hydratation avant tout affichage.
+    expect(() => ensureQueueEntryIdentities(
+      entries({ id: 'a' }, { id: 'b' }),
+      () => 'toujours-pareil',
+    )).toThrow(/identite locale unique/);
+  });
+
+  it.each([
+    ['une chaine blanche', '   '],
+    ['une valeur demesuree', 'x'.repeat(200)],
+    ['des caracteres interdits', 'entrée/avec espace'],
+  ])('repairs %s instead of trusting it', (_label, value) => {
+    // Une identite heritee d'une file corrompue n'est pas legitime : elle
+    // servirait de cible a une preparation qu'on ne retrouverait jamais.
+    const { operations, repaired } = ensureQueueEntryIdentities(
+      entries({ id: 'a', queueEntryId: value }),
+      sequential(),
+    );
+
+    expect(operations[0].queueEntryId).toBe('entry-1');
+    expect(repaired).toBe(1);
+  });
+
+  it('refuses an identity the generator produces in an unusable shape', () => {
+    expect(() => ensureQueueEntryIdentities(
+      entries({ id: 'a' }),
+      () => '',
+    )).toThrow(/identite locale unique/);
+  });
+
   it('returns the same array content when nothing needs fixing', () => {
     // Verrou sur la premisse : tout regenerer ferait passer les tests ci-dessus
     // sans rien prouver, et casserait l'identite a chaque hydratation.

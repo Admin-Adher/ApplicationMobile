@@ -1,6 +1,6 @@
 import React, {
   createContext, useContext, useEffect, useRef,
-  useState, useCallback,
+  useState, useCallback, useMemo,
 } from 'react';
 import { Platform, AppState, AppStateStatus, InteractionManager } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -45,6 +45,7 @@ import { computeTimerSlice, normalizeTimerTarget } from '@/lib/syncTimerSlice';
 import { redactSensitiveText } from '@/lib/redactSensitiveText';
 import { rebaseReservePatchOnConflict, type PreparedRebaseWrite } from '@/lib/reserveRebase';
 import { ensureQueueEntryIdentities } from '@/lib/queueEntryIdentity';
+import { createQueueWriteChain } from '@/lib/queueWriteChain';
 import { nextServiceFailureStreak } from '@/lib/syncServiceStreak';
 import type { SupabaseRestMeta } from '@/lib/supabaseRest';
 import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
@@ -818,7 +819,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // processSyncQueueRef.current() and get the correct behaviour.
   const processSyncQueueRef = useRef<() => Promise<void>>(async () => {});
   const syncKickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const queueWriteChainRef = useRef<Promise<void>>(Promise.resolve());
+  /**
+   * Ecritures serialisees de la file. Deux enqueue rapproches ne doivent jamais
+   * laisser une ancienne version finir apres la plus recente.
+   */
+  const queueWriteChain = useMemo(() => createQueueWriteChain(
+    (key, value) => AsyncStorage.setItem(key, value),
+    error => console.warn(
+      '[queue] failed to persist offline queue:',
+      error instanceof Error ? error.message : String(error),
+    ),
+  ), []);
   const queueHydrationGenerationRef = useRef(0);
 
   // Throttle: track when the last sync attempt started so ping-driven retries
@@ -878,19 +889,26 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
   }, [offlineQueueBackupKey]);
 
-  const saveQueue = useCallback((q: QueuedOperation[]) => {
-    const key = offlineQueueKey;
-    const serialized = JSON.stringify(q);
-    // Serialiser les écritures : deux enqueue rapprochés ne doivent jamais
-    // permettre à une ancienne version de la file de finir après la plus récente.
-    queueWriteChainRef.current = queueWriteChainRef.current
-      .catch(() => {})
-      .then(() => AsyncStorage.setItem(key, serialized))
-      .catch((err) => {
-        console.warn('[queue] failed to persist offline queue:', (err as any)?.message ?? err);
-      });
-    return queueWriteChainRef.current;
-  }, [offlineQueueKey]);
+  /**
+   * Écriture STRICTE : elle rejette réellement.
+   *
+   * Indispensable à la préparation d'une écriture idempotente — si l'identité
+   * préparée n'atteint pas le disque, aucune requête ne doit partir. L'ancienne
+   * implémentation journalisait puis RÉSOLVAIT : un `await` y attendait un
+   * succès fabriqué, et le serveur pouvait committer sous une identité que le
+   * prochain démarrage ne retrouvait pas.
+   */
+  const writeQueueStrict = useCallback((q: QueuedOperation[]) => (
+    queueWriteChain.write(offlineQueueKey, JSON.stringify(q))
+  ), [offlineQueueKey]);
+
+  /**
+   * Écriture BEST-EFFORT : les chemins historiques ne doivent pas planter parce
+   * que le disque est momentanément indisponible.
+   */
+  const saveQueue = useCallback((q: QueuedOperation[]) => (
+    queueWriteChain.writeBestEffort(offlineQueueKey, JSON.stringify(q))
+  ), [offlineQueueKey]);
 
   // Load the queue for the *current* user. We defer hydration until we know
   // user.id to avoid the catastrophic race where the queue is initially loaded
@@ -900,6 +918,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // before authentication completed) into the per-user key so they can sync.
   const loadQueue = useCallback(async () => {
     const myHydrationGeneration = ++queueHydrationGenerationRef.current;
+    // Les identités locales n'ont de valeur que persistées : tant que ce
+    // drapeau est faux, aucune passe réseau ne doit démarrer.
+    let identitiesAreDurable = false;
     setQueueLoaded(false);
     queueLoadedRef.current = false;
     const userKey = userId ? OFFLINE_QUEUE_PREFIX + userId : null;
@@ -971,21 +992,39 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
       queueRef.current = identified.operations;
       setQueue(identified.operations);
-      await saveQueue(identified.operations);
+      // Écriture STRICTE : une identité locale présente seulement en mémoire ne
+      // survivrait pas au redémarrage, et une préparation faite pendant la
+      // passe deviendrait introuvable. Si elle échoue, l'exception ci-dessous
+      // empêche `queueLoaded` de passer à vrai — donc aucune passe réseau.
+      await writeQueueStrict(identified.operations);
       lastLoadedKeyRef.current = userKey ?? anonKey;
-    } catch {
+      identitiesAreDurable = true;
+    } catch (error) {
       // Conserver les opérations éventuellement créées pendant l'hydratation.
       if (queueHydrationGenerationRef.current === myHydrationGeneration) {
         setQueue([...queueRef.current]);
       }
+      console.warn(
+        '[queue] hydratation incomplète :',
+        error instanceof Error ? error.message : String(error),
+      );
     } finally {
       if (queueHydrationGenerationRef.current === myHydrationGeneration) {
-        queueLoadedRef.current = true;
-        setQueueLoaded(true);
-        if (hasReplayableQueuedOperations(queueRef.current)) scheduleSync();
+        // La file n'est déclarée prête QUE si les identités locales ont atteint
+        // le disque. Sinon une préparation faite pendant la passe serait
+        // introuvable au redémarrage, et la même écriture métier repartirait.
+        // On replanifie plutôt que de synchroniser sur une identité volatile.
+        queueLoadedRef.current = identitiesAreDurable;
+        setQueueLoaded(identitiesAreDurable);
+        if (!identitiesAreDurable) {
+          setSyncStatus('error');
+          scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);
+        } else if (hasReplayableQueuedOperations(queueRef.current)) {
+          scheduleSync();
+        }
       }
     }
-  }, [userId, saveQueue, scheduleSync]);
+  }, [userId, writeQueueStrict, scheduleSync]);
 
   // ── Hydrate queue when user.id changes (cold start, login, switch) ─────────
   useEffect(() => {
@@ -1603,23 +1642,44 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
      * rebase est précisément en train de remplacer — ni par contenu.
      */
     const persistPreparedRebase = async (prepared: PreparedRebaseWrite): Promise<void> => {
-      const matches = queueRef.current.filter(entry => entry.queueEntryId === prepared.queueEntryId);
-      if (matches.length !== 1) {
-        // Échec FERMÉ : sans entrée cible unique, la préparation ne serait pas
-        // retrouvable après une préemption, et l'écriture ne doit pas partir.
-        throw new Error(
-          `Preparation de rebase impossible : ${matches.length} entree(s) pour cette identite locale.`,
-        );
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const current = queueRef.current;
+        const targets = current
+          .map((entry, index) => (entry.queueEntryId === prepared.queueEntryId ? index : -1))
+          .filter(index => index >= 0);
+
+        if (targets.length !== 1) {
+          // Échec FERMÉ : sans entrée cible unique, la préparation ne serait pas
+          // retrouvable après une préemption, et l'écriture ne doit pas partir.
+          throw new Error(
+            `Preparation de rebase impossible : ${targets.length} entree(s) pour cette identite locale.`,
+          );
+        }
+
+        const next = current.map((entry, index) => (
+          index === targets[0]
+            ? { ...entry, id: prepared.operationId, baseVersion: prepared.baseVersion }
+            : entry
+        ));
+
+        // RIEN n'est publié tant que l'écriture n'a pas abouti. Publier avant
+        // laisserait, en cas d'échec, une identité préparée visible uniquement
+        // en mémoire : la reconstruction legacy la prendrait pour une opération
+        // enfilée pendant la passe et la file finirait avec DEUX entrées.
+        await writeQueueStrict(next);
+
+        // Une opération a été enfilée pendant l'écriture : recalculer sur la
+        // file la plus récente et réécrire après elle, sinon cet enqueue serait
+        // écrasé par un instantané qui l'ignore.
+        if (queueRef.current !== current) continue;
+
+        // Aucun `await` entre le contrôle et la publication.
+        queueRef.current = next;
+        setQueue(next);
+        return;
       }
 
-      const next = queueRef.current.map(entry => (
-        entry.queueEntryId === prepared.queueEntryId
-          ? { ...entry, id: prepared.operationId, baseVersion: prepared.baseVersion }
-          : entry
-      ));
-      queueRef.current = next;
-      setQueue(next);
-      await saveQueue(next);
+      throw new Error('Preparation de rebase impossible : la file evolue continuellement.');
     };
 
     let processed = 0;
@@ -2762,11 +2822,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     setQueue([]);
     // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
     setSyncAuthBlocked(false);
-    queueWriteChainRef.current = queueWriteChainRef.current
-      .catch(() => {})
-      .then(() => AsyncStorage.removeItem(offlineQueueKey))
-      .catch(() => {});
-    await queueWriteChainRef.current;
+    // Purge de la file : la suppression passe par la meme chaine que les
+    // ecritures, sinon elle pourrait doubler une ecriture encore en vol.
+    await queueWriteChain.writeBestEffort(offlineQueueKey, JSON.stringify([]));
+    try { await AsyncStorage.removeItem(offlineQueueKey); } catch {}
     try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
   }, [backupQueue, offlineQueueKey]);
 
