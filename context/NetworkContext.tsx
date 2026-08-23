@@ -983,6 +983,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Les identités locales n'ont de valeur que persistées : tant que ce
     // drapeau est faux, aucune passe réseau ne doit démarrer.
     let identitiesAreDurable = false;
+    // Une hydratation obsolète ne doit écrire sous aucune clef, ni toucher le
+    // cache du compte qui a pris la main.
+    const assertHydrationOwner = () => {
+      if (queueHydrationGenerationRef.current !== myHydrationGeneration) {
+        throw new Error('Hydratation obsolete.');
+      }
+    };
     // Contenu EXACT deja present sous la clef que l'on ecrira. Une file relue
     // telle quelle est deja durable : exiger une reecriture ferait dependre son
     // utilisation d'un `setItem` qui n'a rien a ecrire.
@@ -1105,19 +1112,28 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               queueRef.current = next;
               setQueue(next);
             },
+            assertCurrent: assertHydrationOwner,
           }),
-          reconcile: reconcilePurgedOperationRef.current,
+          reconcile: async operation => {
+            // La reprise ne doit pas réparer le cache d'un compte qui n'est
+            // plus le nôtre.
+            assertHydrationOwner();
+            await reconcilePurgedOperationRef.current(operation);
+            assertHydrationOwner();
+          },
         });
         if (resumed.length > 0) {
           console.warn(`[queue] purge interrompue reprise : ${resumed.length} opération(s)`);
         }
       } catch (error) {
-        // L'entrée reste en attente : reprenable au prochain démarrage, jamais
-        // supprimée sans réparation.
+        // L'entrée reste en attente : reprenable, jamais supprimée sans
+        // réparation. On replanifie DANS la session — attendre le prochain
+        // démarrage laisserait l'entrée bloquée indéfiniment.
         console.warn(
           '[queue] reprise de purge impossible :',
           error instanceof Error ? error.message : String(error),
         );
+        scheduleHydrationRetry(myHydrationGeneration);
       }
 
       lastLoadedKeyRef.current = userKey ?? anonKey;
@@ -1544,33 +1560,26 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // aboutit : sur un lien instable, un timeout isolé ne dit rien de la
     // suivante, et abandonner la passe trop tôt gelait toute la file.
     let consecutiveInfraFailures = 0;
-    // Snapshot the queue from the ref (always current, not a stale closure)
-    const currentQueue = queueRef.current.filter(isReplayableQueuedOperation).sort((a, b) => {
-      const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
-      if (priorityDiff !== 0) return priorityDiff;
-      return (a.queuedAt ?? '').localeCompare(b.queuedAt ?? '');
-    });
-    setSyncProgress({ done: 0, total: currentQueue.length });
-
     // Preuve DURABLE qu'une écriture a pu partir, écrite AVANT le premier appel
-    // réseau. Sans elle, la purge manuelle ne peut pas distinguer une opération
-    // jamais envoyée d'une opération dont la réponse s'est perdue, et supprimer
-    // la seconde détruirait la seule trace locale de son `operation_id`.
+    // réseau ET avant de construire le snapshot de travail.
     //
-    // Volontairement conservateur : on marque toute la passe d'un coup plutôt
-    // qu'à chaque envoi. Marquer un peu trop est du bon côté de l'erreur, et
-    // c'est une seule écriture au lieu d'une par opération.
-    if (currentQueue.some(operation => operation.dispatchState !== 'started')) {
-      const marked = new Set(
-        currentQueue
-          .map(operation => operation.queueEntryId)
-          .filter((value): value is string => Boolean(value)),
-      );
+    // La marquer après coup ne suffisait pas : `fail()` reconstruit l'opération
+    // différée à partir de l'objet du snapshot, qui portait encore
+    // `never_started`. La version durable était alors écrasée par l'ancienne,
+    // et une opération réellement envoyée redevenait « jamais tentée » — donc
+    // supprimable, alors que le serveur avait peut-être validé son effet.
+    //
+    // Volontairement conservateur : toute la file d'un coup plutôt qu'à chaque
+    // envoi. Marquer un peu trop est du bon côté de l'erreur, et c'est une
+    // seule écriture au lieu d'une par opération.
+    if (queueRef.current.some(operation => (
+      isReplayableQueuedOperation(operation) && operation.dispatchState !== 'started'
+    ))) {
       try {
         await publishAfterDurableWrite<QueuedOperation>({
           readCurrent: () => queueRef.current,
           compute: current => current.map(operation => (
-            operation.queueEntryId && marked.has(operation.queueEntryId)
+            isReplayableQueuedOperation(operation) && operation.dispatchState !== 'started'
               ? { ...operation, dispatchState: 'started' as const }
               : operation
           )),
@@ -1579,12 +1588,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             queueRef.current = next;
             setQueue(next);
           },
+          // Une passe préemptée ne doit pas réécrire la file du compte qui a
+          // pris la main entre-temps.
+          assertCurrent: () => {
+            if (!isCurrentGeneration()) throw new Error('Passe de synchronisation obsolete.');
+          },
         });
       } catch (error) {
         // Si la preuve n'atteint pas le disque, AUCUNE requête ne part : une
         // écriture envoyée sans elle serait ensuite prise pour « jamais tentée ».
         console.warn(
-          '[queue] passe annulée : état d\'envoi non persistable —',
+          "[queue] passe annulée : état d'envoi non persistable —",
           error instanceof Error ? error.message : String(error),
         );
         syncingRef.current = false;
@@ -1593,6 +1607,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         return;
       }
     }
+
+    // Snapshot de travail construit APRÈS le marquage : ses objets portent donc
+    // déjà l'état durable, et `fail()` ne peut plus le faire régresser.
+    const currentQueue = queueRef.current.filter(isReplayableQueuedOperation).sort((a, b) => {
+      const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
+      if (priorityDiff !== 0) return priorityDiff;
+      return (a.queuedAt ?? '').localeCompare(b.queuedAt ?? '');
+    });
+    setSyncProgress({ done: 0, total: currentQueue.length });
 
     // Helper: re-queue an op while attaching the latest error message and
     // bumping its attempt counter so the user can see in the UI why it stays
@@ -3040,18 +3063,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
-    const domain = getSyncQueueOperationDomain(operation);
-    if (domain === 'inventory') {
-      return () => queryClient.invalidateQueries({ queryKey: ['inventory'], refetchType: 'active' });
-    }
-    if (domain === 'reserve') {
-      return () => queryClient.invalidateQueries({ queryKey: queryKeys.reserves(), refetchType: 'active' });
-    }
-    if (domain === 'plan') {
-      return () => queryClient.invalidateQueries({ queryKey: ['site_plans'], refetchType: 'active' });
-    }
-    // Domaine générique : aucun effet optimiste durable à annuler.
-    return async () => {};
+    // Registre FERMÉ. Une invalidation de requête n'est pas une compensation :
+    // hors ligne, ou avec l'écran concerné inactif, aucun refetch autoritaire
+    // n'a lieu — l'opération disparaîtrait pendant que le cache DURABLE garde
+    // son état optimiste. Les produits d'inventaire et les réserves écrivent
+    // tous deux dans AsyncStorage à chaque mutation.
+    //
+    // Tant qu'un vrai compensateur durable n'existe pas pour un domaine, ses
+    // opérations sont CONSERVÉES plutôt que supprimées à l'aveugle.
+    return null;
   }, [userId]);
 
   const reconcilePurgedOperation = useCallback(async (operation: QueuedOperation) => {
@@ -3073,7 +3093,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const result = await runManualQueuePurge<QueuedOperation>({
       // Préempter ne suffirait pas : `AbortController` coupe le transport
       // client, il n'annule pas une transaction PostgreSQL.
-      isSyncing: () => syncingRef.current,
+      // L'hydratation publie elle aussi dans `queueRef` : purger pendant
+      // qu'elle court ferait écrire deux propriétaires concurrents.
+      isSyncing: () => syncingRef.current || !queueLoadedRef.current,
       acquire: () => { syncingRef.current = true; },
       release: () => { syncingRef.current = false; },
       isOwner,

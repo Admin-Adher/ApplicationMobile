@@ -154,3 +154,45 @@ describe('offline queue coalescing', () => {
       .toEqual([otherOwner]);
   });
 });
+
+describe('a protected entry never takes part in coalescing', () => {
+  type Entry = CoalescibleQueuedOperation & { id: string };
+  const entry = (id: string, over: Partial<Entry> = {}): Entry => (
+    { id, coalesceKey: 'K', ...over } as Entry
+  );
+
+  it.each([
+    ['une purge en attente de reconciliation', { purgeState: 'pending_reconciliation' }],
+    ['un refus non acquitte', { terminal: true }],
+    ['une quarantaine', { quarantined: true }],
+  ])('keeps %s alongside a newer entry sharing its key', (_label, guard) => {
+    // Emportee par le coalescing, une purge marquee disparaitrait AVANT que son
+    // effet local soit repare : le stock optimiste resterait faux, et plus
+    // aucune operation ne viendrait le corriger.
+    const kept = coalesceQueuedOperations([
+      entry('protegee', guard as Partial<Entry>),
+      entry('plus-recente'),
+    ]);
+
+    expect(kept.map(operation => operation.id)).toEqual(['protegee', 'plus-recente']);
+  });
+
+  it('never lets a protected entry replace an ordinary one either', () => {
+    // Elle ne participe PAS : ni remplacee, ni remplacante.
+    const kept = coalesceQueuedOperations([
+      entry('ordinaire-1'),
+      entry('protegee', { terminal: true }),
+      entry('ordinaire-2'),
+    ]);
+
+    expect(kept.map(operation => operation.id)).toEqual(['protegee', 'ordinaire-2']);
+  });
+
+  it('still coalesces ordinary entries', () => {
+    // Verrou sur la premisse : tout conserver ferait passer les tests ci-dessus
+    // sans rien prouver.
+    const kept = coalesceQueuedOperations([entry('ancienne'), entry('recente')]);
+
+    expect(kept.map(operation => operation.id)).toEqual(['recente']);
+  });
+});

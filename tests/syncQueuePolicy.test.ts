@@ -35,6 +35,7 @@ describe('sync queue policy', () => {
       pending: 2,
       rejected: 1,
       stuck: 1,
+      purgePending: 0,
       attention: 2,
     });
   });
@@ -99,8 +100,34 @@ describe('sync queue policy', () => {
       pending: 1,
       rejected: 1,
       stuck: 1,
+      purgePending: 0,
       attention: 2,
     });
+  });
+});
+
+describe('a purge awaiting reconciliation is counted apart', () => {
+  it('is neither pending work nor a refusal', () => {
+    // La compter « en attente » laisserait croire qu'elle repartira, alors
+    // qu'elle attend une reparation locale ; la compter « refusee » suggererait
+    // un verdict serveur qui n'existe pas.
+    const queue = [
+      { purgeState: 'pending_reconciliation', attemptCount: 4 },
+      { terminal: true },
+      { attemptCount: 0 },
+    ];
+
+    expect(getSyncQueueCounts(queue)).toEqual({
+      pending: 1,
+      rejected: 1,
+      stuck: 0,
+      purgePending: 1,
+      attention: 2,
+    });
+  });
+
+  it('is never replayed', () => {
+    expect(hasReplayableQueuedOperations([{ purgeState: 'pending_reconciliation' }])).toBe(false);
   });
 });
 
