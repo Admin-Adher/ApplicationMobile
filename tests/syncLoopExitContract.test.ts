@@ -326,33 +326,53 @@ describe('the queue purge is durable and keeps what came after it', () => {
     expect(purge).toContain('write: next => writeQueueStrict(next),');
   });
 
-  it('takes ownership of the queue before purging anything', () => {
-    // Sans cela une passe deja lancee garde son propre instantane : elle
-    // continuerait d'envoyer les operations que l'utilisateur vient de
-    // demander de supprimer, et pourrait en reinserer en fin de passe.
-    expect(purge).toContain("abortCurrentPass('purge manuelle');");
-    expect(purge).toContain('syncGenerationRef.current += 1;');
-    // La passe obsolete ne relachera pas forcement le verrou : la purge le
-    // prend et le rend elle-meme.
-    expect(purge).toContain('syncingRef.current = true;');
-    expect(purge).toContain('} finally {');
-    expect(purge).toContain('syncingRef.current = false;');
+  it('never preempts a running pass', () => {
+    // `AbortController` coupe le transport client, il n'annule pas une
+    // transaction PostgreSQL : le serveur peut avoir commite juste avant.
+    expect(purge).not.toContain('abortCurrentPass(');
   });
 
-  it('keeps the queue resumable even when the purge fails', () => {
-    expect(purge).toContain('if (hasReplayableQueuedOperations(queueRef.current)) scheduleSync();');
+  it('delegates ordering to the tested coordinator', () => {
+    // « Verrou avant la premiere attente », « une invocation obsolete ne
+    // touche rien », « une operation ambigue n'est jamais supprimee » : ces
+    // regles portent sur un ORDRE, que des assertions de source ne peuvent
+    // pas verifier. Elles vivent dans `lib/manualQueuePurge.ts`, prouvees
+    // avec des promesses controlees.
+    expect(purge).toContain('runManualQueuePurge<QueuedOperation>');
+    expect(purge).toContain('isSyncing: () => syncingRef.current,');
+    expect(purge).toContain('isPurgeable: isUnambiguouslyPurgeableOperation,');
   });
 
-  it('keeps the operations enqueued during the purge', () => {
-    // Elles sont POSTERIEURES a la demande de suppression : les effacer
-    // detruirait une saisie que l'utilisateur n'a jamais demande de supprimer.
-    expect(purge).toContain('purgedEntryIds.has(operation.queueEntryId)');
+  it('binds ownership to the account generation captured up front', () => {
+    // Une purge peut traverser un changement de compte : sans ce garde,
+    // l'ancienne invocation ecrivait sous la clef du compte precedent et
+    // liberait le verrou d'une passe qui ne lui appartenait pas.
+    expect(purge).toContain('const ownerGeneration = queueHydrationGenerationRef.current;');
+    expect(purge).toContain('queueHydrationGenerationRef.current === ownerGeneration');
+    expect(purge).toContain('assertCurrent: () => {');
+  });
+
+  it('restores the pass state the preempted pass no longer cleans up', () => {
+    // Sa generation n'etant plus courante, la passe ne se nettoie plus
+    // elle-meme : l'interface restait sur « 3/29 » et un statut `syncing`
+    // alors que rien ne tournait.
+    expect(purge).toContain('setSyncProgress({ done: 0, total: 0 });');
+    expect(purge).toContain('setNextSyncAttemptAt(null);');
+    expect(purge).toContain('passAbortRef.current = null;');
+  });
+
+  it('rolls back only the optimistic effect of what never left', () => {
+    // Un refus terminal a deja ete reconcilie a sa reception ; une ecriture
+    // jamais envoyee, elle, laisse un stock optimiste a annuler.
+    expect(purge).toContain('if (operation.terminal === true) continue;');
+    expect(purge).toContain('isInventoryMovementOperation(operation)');
+    expect(purge).toContain('reconcileTerminalInventoryOperationCache(operation, outcome, userId)');
   });
 
   it('never empties the anonymous key when it IS the active key', () => {
     // Sans utilisateur, `offlineQueueKey` EST la clef anonyme : cette
     // ecriture effacerait les survivantes qu'on vient de persister.
-    expect(purge).toContain('if (offlineQueueKey !== anonKey) {');
+    expect(purge).toContain('if (isOwner() && offlineQueueKey !== anonKey) {');
     expect(purge).toContain('queueWriteChain.writeBestEffort(anonKey, JSON.stringify([]))');
   });
 });

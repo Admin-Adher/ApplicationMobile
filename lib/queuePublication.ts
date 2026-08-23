@@ -30,6 +30,12 @@ export interface PublishAfterDurableWriteInput<T> {
   write: (next: T[]) => Promise<void>;
   /** Publication en memoire. Aucun `await` ne doit la separer du controle. */
   publish: (next: T[]) => void;
+  /**
+   * Leve si l'appelant n'est plus proprietaire du contexte — changement de
+   * compte, par exemple. Verifie a chaque tour : une boucle de recalcul peut
+   * enjamber ce changement, et ecrire sous une clef qui n'est plus la sienne.
+   */
+  assertCurrent?: () => void;
   maxAttempts?: number;
 }
 
@@ -39,12 +45,14 @@ export async function publishAfterDurableWrite<T>(
   const maxAttempts = input.maxAttempts ?? 8;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    input.assertCurrent?.();
     const current = input.readCurrent();
     const next = input.compute(current);
 
     // Un rejet remonte tel quel : l'appelant doit savoir que rien n'a ete
     // publie, et surtout ne pas annoncer un succes.
     await input.write(next);
+    input.assertCurrent?.();
 
     // Une saisie est apparue pendant l'ecriture : on recommence sur la file la
     // plus recente, dont la persistance passera derriere celle-ci.
