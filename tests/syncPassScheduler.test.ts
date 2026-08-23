@@ -233,8 +233,7 @@ describe('convergence and reporting', () => {
       const result = await runSyncPass({
         operations: [movement('a1', 'A', 10)],
         now: frozenClock,
-        idOf,
-        maxOperations: 3,
+          maxOperations: 3,
         execute: async () => ({ kind } as PassOperationOutcome),
       });
 

@@ -44,6 +44,7 @@ import {
   syncFailureReachedServer,
   type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
+import type { SyncFailureClass, SyncRetrySource } from '@/lib/syncRetryPolicy';
 import {
   coalesceQueuedOperations,
   migrateAndCoalesceSitePlanSnapshots,
@@ -189,6 +190,22 @@ export interface QueuedOperation {
   lastFailureFingerprint?: string;
   /** Refus déterministes consécutifs de même empreinte. */
   sameFailureCount?: number;
+  // ── Planification par opération (P5) ────────────────────────────────────
+  // Tous optionnels : une file persistée par une version anterieure ne porte
+  // aucun de ces champs, et doit rester immediatement exigible plutot que
+  // d'attendre une echeance qu'elle n'a jamais eue.
+  /** Derniere tentative reelle, succes comme echec. */
+  lastAttemptAt?: string;
+  /** Dernier echec, distinct de la derniere tentative. */
+  lastFailureAt?: string;
+  /** Echeance avant laquelle l'operation ne doit pas etre rejouee. */
+  nextAttemptAt?: string;
+  failureClass?: SyncFailureClass;
+  retrySource?: SyncRetrySource;
+  /** Statut HTTP du dernier verdict serveur, pour le diagnostic. */
+  lastHttpStatus?: number;
+  /** Version du schema de planification, pour une migration future. */
+  retryPolicyVersion?: 1;
   /** Server row version observed when the user made this mutation. */
   baseVersion?: number | null;
   /** Terminal failures stay visible but are not replayed automatically. */
