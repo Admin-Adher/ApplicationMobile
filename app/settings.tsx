@@ -251,6 +251,8 @@ export default function SettingsScreen() {
   const [nameInput, setNameInput] = useState(projectName);
   const [descInput, setDescInput] = useState(projectDescription);
   const [saving, setSaving] = useState(false);
+  /** Empeche un second appui pendant que la suppression est en cours. */
+  const [clearingQueue, setClearingQueue] = useState(false);
   const [activeTab, setActiveTab] = useState<'compte' | 'notifications' | 'project' | 'attendance' | 'integrations'>('compte');
 
   const [nameEdit, setNameEdit] = useState(user?.name ?? '');
@@ -648,8 +650,12 @@ export default function SettingsScreen() {
     retryPushRegistration();
   }
 
+  // Le garde-fou du provider reste AUTORITAIRE : griser le bouton ne protège
+  // pas contre un changement d'état entre le rendu et l'appui.
+  const queueClearDisabled = syncStatus === 'syncing' || clearingQueue;
+
   function handleClearQueue() {
-    if (totalQueueCount === 0) return;
+    if (totalQueueCount === 0 || queueClearDisabled) return;
     showAlert(
       t('settings.syncQueue.clearTitle'),
       t('settings.syncQueue.clearMessage', { count: totalQueueCount }),
@@ -664,23 +670,41 @@ export default function SettingsScreen() {
             // ce `catch`, l'utilisateur n'obtenait aucun message et la promesse
             // partait en rejet non géré.
             try {
+              setClearingQueue(true);
               const result = await clearQueue();
-              const kept = result?.kept.length ?? 0;
-              if (kept > 0) {
+              // Les survivantes ont des CAUSES différentes : annoncer « déjà
+              // envoyées » pour une saisie créée pendant la purge serait faux.
+              const ambiguous = result.keptAmbiguous.length
+                + result.keptWithoutIdentity.length
+                + result.keptWithoutCompensator.length;
+              if (ambiguous > 0) {
                 showAlert(
                   t('settings.syncQueue.clearKeptTitle'),
-                  t('settings.syncQueue.clearKeptText', { count: kept }),
+                  t('settings.syncQueue.clearKeptText', {
+                    removed: result.removed.length,
+                    kept: ambiguous,
+                    added: result.concurrentAdditions.length,
+                  }),
                 );
                 return;
               }
               showAlert(t('settings.syncQueue.clearedTitle'), t('settings.syncQueue.clearedText'));
-            } catch {
-              // Message générique : une erreur de stockage ne doit pas être
-              // recopiée brute dans l'interface.
+            } catch (error) {
+              // Trois causes distinctes : conseiller d'attendre la fin d'une
+              // synchronisation alors que le disque est indisponible n'aiderait
+              // personne. Le détail technique, lui, ne remonte jamais.
+              const name = (error as { name?: string } | null)?.name;
+              const key = name === 'QueuePurgeBusyError'
+                ? 'clearBusyText'
+                : name === 'QueuePurgeOwnershipError'
+                  ? 'clearOwnershipText'
+                  : 'clearFailedText';
               showAlert(
                 t('settings.syncQueue.clearFailedTitle'),
-                t('settings.syncQueue.clearFailedText'),
+                t(`settings.syncQueue.${key}` as any),
               );
+            } finally {
+              setClearingQueue(false);
             }
           },
         },
@@ -1401,9 +1425,11 @@ export default function SettingsScreen() {
                             </TouchableOpacity>
                           ) : queueCount > 0 ? (
                             <TouchableOpacity
-                              style={styles.queueClearBtn}
+                              style={[styles.queueClearBtn, queueClearDisabled && styles.queueBtnDisabled]}
                               onPress={handleClearQueue}
+                              disabled={queueClearDisabled}
                               accessibilityRole="button"
+                              accessibilityState={{ disabled: queueClearDisabled }}
                             >
                               <Ionicons name="trash-outline" size={16} color="#DC2626" />
                               <Text style={styles.queueClearTxt}>{t('settings.syncQueue.clearAction')}</Text>

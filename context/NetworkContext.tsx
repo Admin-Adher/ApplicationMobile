@@ -35,6 +35,7 @@ import {
   getSyncQueueCounts,
   hasReplayableQueuedOperations,
   inventoryOutcomeTranslationKey,
+  getSyncQueueOperationDomain,
   isInventoryMovementOperation,
   isInventoryQueuedOperation,
   isReplayableQueuedOperation,
@@ -48,9 +49,12 @@ import { ensureQueueEntryIdentities } from '@/lib/queueEntryIdentity';
 import { createQueueWriteChain } from '@/lib/queueWriteChain';
 import { publishAfterDurableWrite } from '@/lib/queuePublication';
 import {
+  PURGE_PENDING_RECONCILIATION,
   isUnambiguouslyPurgeableOperation,
+  resumePendingQueuePurge,
   runManualQueuePurge,
   type ManualQueuePurgeResult,
+  type QueueDispatchState,
 } from '@/lib/manualQueuePurge';
 import { nextServiceFailureStreak } from '@/lib/syncServiceStreak';
 import type { SupabaseRestMeta } from '@/lib/supabaseRest';
@@ -175,6 +179,18 @@ export interface QueuedOperation {
    * Optionnelle le temps de la migration des files déjà persistées.
    */
   queueEntryId?: string;
+  /**
+   * Preuve DURABLE qu'aucune requête n'est partie.
+   *
+   * Déduire cette preuve de l'absence de compteurs était faux : une métadonnée
+   * illisible, une file antérieure au champ, ou une branche d'échec
+   * n'incrémentant rien produisent toutes « aucune trace de tentative » sans
+   * démontrer qu'aucune écriture n'a été envoyée. Passe à `started` — et est
+   * persistée — AVANT le premier appel réseau de la passe.
+   */
+  dispatchState?: QueueDispatchState;
+  /** Suppression manuelle en cours : réconciliation pas encore terminée. */
+  purgeState?: typeof PURGE_PENDING_RECONCILIATION;
   id: string;
   queuedAt: string;
   table: string;
@@ -405,7 +421,10 @@ const NetworkContext = createContext<NetworkContextValue>({
   resolveConflict: async () => {},
   dismissConflicts: () => {},
   registerReloadHandler: () => {},
-  clearQueue: async () => ({ removed: [], kept: [] }),
+  clearQueue: async () => ({
+    removed: [], keptAmbiguous: [], concurrentAdditions: [],
+    keptWithoutIdentity: [], keptWithoutCompensator: [],
+  }),
   dismissRejectedOperations: async () => {},
   retrySync: async () => {},
 });
@@ -837,6 +856,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   /** Réessai d'hydratation : distinct du timer de synchronisation. */
   const hydrationRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadQueueRef = useRef<(() => Promise<void>) | null>(null);
+  /**
+   * Référence : l'hydratation reprend une purge interrompue, et le
+   * réconciliateur est défini plus bas — une dépendance directe entre les deux
+   * `useCallback` serait circulaire.
+   */
+  const reconcilePurgedOperationRef = useRef<(operation: QueuedOperation) => Promise<void>>(
+    async () => {},
+  );
 
   const queueWriteChain = useMemo(() => createQueueWriteChain(
     (key, value) => AsyncStorage.setItem(key, value),
@@ -1062,6 +1089,37 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (anonQueueToClear) {
         await queueWriteChain.writeBestEffort(anonQueueToClear, JSON.stringify([]));
       }
+      // Une purge interrompue reprend AVANT toute passe : ses entrées sont
+      // déjà non rejouables, mais leur effet local n'a pas encore été annulé.
+      // La réconciliation est idempotente, donc rejouable sans risque.
+      try {
+        const resumed = await resumePendingQueuePurge<QueuedOperation>({
+          readCurrent: () => queueRef.current,
+          isPending: operation => operation.purgeState === PURGE_PENDING_RECONCILIATION,
+          entryIdOf: operation => operation.queueEntryId ?? null,
+          persist: compute => publishAfterDurableWrite<QueuedOperation>({
+            readCurrent: () => queueRef.current,
+            compute,
+            write: next => writeQueueStrict(next),
+            publish: next => {
+              queueRef.current = next;
+              setQueue(next);
+            },
+          }),
+          reconcile: reconcilePurgedOperationRef.current,
+        });
+        if (resumed.length > 0) {
+          console.warn(`[queue] purge interrompue reprise : ${resumed.length} opération(s)`);
+        }
+      } catch (error) {
+        // L'entrée reste en attente : reprenable au prochain démarrage, jamais
+        // supprimée sans réparation.
+        console.warn(
+          '[queue] reprise de purge impossible :',
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+
       lastLoadedKeyRef.current = userKey ?? anonKey;
       identitiesAreDurable = true;
       if (hydrationRetryTimerRef.current) {
@@ -1493,6 +1551,48 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       return (a.queuedAt ?? '').localeCompare(b.queuedAt ?? '');
     });
     setSyncProgress({ done: 0, total: currentQueue.length });
+
+    // Preuve DURABLE qu'une écriture a pu partir, écrite AVANT le premier appel
+    // réseau. Sans elle, la purge manuelle ne peut pas distinguer une opération
+    // jamais envoyée d'une opération dont la réponse s'est perdue, et supprimer
+    // la seconde détruirait la seule trace locale de son `operation_id`.
+    //
+    // Volontairement conservateur : on marque toute la passe d'un coup plutôt
+    // qu'à chaque envoi. Marquer un peu trop est du bon côté de l'erreur, et
+    // c'est une seule écriture au lieu d'une par opération.
+    if (currentQueue.some(operation => operation.dispatchState !== 'started')) {
+      const marked = new Set(
+        currentQueue
+          .map(operation => operation.queueEntryId)
+          .filter((value): value is string => Boolean(value)),
+      );
+      try {
+        await publishAfterDurableWrite<QueuedOperation>({
+          readCurrent: () => queueRef.current,
+          compute: current => current.map(operation => (
+            operation.queueEntryId && marked.has(operation.queueEntryId)
+              ? { ...operation, dispatchState: 'started' as const }
+              : operation
+          )),
+          write: next => writeQueueStrict(next),
+          publish: next => {
+            queueRef.current = next;
+            setQueue(next);
+          },
+        });
+      } catch (error) {
+        // Si la preuve n'atteint pas le disque, AUCUNE requête ne part : une
+        // écriture envoyée sans elle serait ensuite prise pour « jamais tentée ».
+        console.warn(
+          '[queue] passe annulée : état d\'envoi non persistable —',
+          error instanceof Error ? error.message : String(error),
+        );
+        syncingRef.current = false;
+        setSyncStatus('error');
+        scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);
+        return;
+      }
+    }
 
     // Helper: re-queue an op while attaching the latest error message and
     // bumping its attempt counter so the user can see in the UI why it stays
@@ -2314,6 +2414,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   deferredPhotoPatch = {
                     id: genQueueId(),
                     queueEntryId: genQueueId(),
+                    dispatchState: 'never_started',
                     queuedAt: new Date().toISOString(),
                     table: 'reserves',
                     op: 'update',
@@ -2895,6 +2996,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       ...op,
       id: genQueueId(),
       queueEntryId: genQueueId(),
+      dispatchState: 'never_started',
       queuedAt: new Date().toISOString(),
     };
     // queueRef est la source atomique : React peut différer le state updater et
@@ -2917,6 +3019,49 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
    * synchroniseraient — au redémarrage. L'écriture est donc stricte, et la file
    * n'est vidée en mémoire qu'une fois le disque à jour.
    */
+  /**
+   * Existe-t-il de quoi annuler l'effet local de cette opération ?
+   *
+   * Un mouvement de stock écrit dans un cache DURABLE : sans compensateur, le
+   * supprimer laisserait le stock local en désaccord avec le serveur pour de
+   * bon. Les autres domaines n'écrivent que dans les caches de requêtes, qu'une
+   * invalidation suffit à reconstruire depuis le serveur.
+   */
+  const purgeCompensatorFor = useCallback((operation: QueuedOperation): (() => Promise<void>) | null => {
+    if (isInventoryMovementOperation(operation)) {
+      return async () => {
+        const outcome = normalizeInventoryMovementOutcome(
+          { status: 'invalid_payload', message: 'Opération supprimée avant tout envoi.' },
+          inventoryOutcomeContextFromQueuedOperation(operation),
+        );
+        // AUCUN `catch` : absorber l'échec déclarerait la purge réussie avec un
+        // stock local incohérent, et plus aucune opération pour le réparer.
+        await reconcileTerminalInventoryOperationCache(operation, outcome, userId);
+      };
+    }
+
+    const domain = getSyncQueueOperationDomain(operation);
+    if (domain === 'inventory') {
+      return () => queryClient.invalidateQueries({ queryKey: ['inventory'], refetchType: 'active' });
+    }
+    if (domain === 'reserve') {
+      return () => queryClient.invalidateQueries({ queryKey: queryKeys.reserves(), refetchType: 'active' });
+    }
+    if (domain === 'plan') {
+      return () => queryClient.invalidateQueries({ queryKey: ['site_plans'], refetchType: 'active' });
+    }
+    // Domaine générique : aucun effet optimiste durable à annuler.
+    return async () => {};
+  }, [userId]);
+
+  const reconcilePurgedOperation = useCallback(async (operation: QueuedOperation) => {
+    const compensator = purgeCompensatorFor(operation);
+    if (!compensator) throw new Error('Aucun compensateur pour cette operation.');
+    await compensator();
+  }, [purgeCompensatorFor]);
+
+  reconcilePurgedOperationRef.current = reconcilePurgedOperation;
+
   const clearQueue = useCallback(async () => {
     // Capturée AVANT toute attente : une invocation devenue obsolète ne doit
     // écrire sous la clef d'un compte qui n'est plus le sien, ni libérer le
@@ -2935,6 +3080,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       readCurrent: () => queueRef.current,
       entryIdOf: operation => operation.queueEntryId ?? null,
       isPurgeable: isUnambiguouslyPurgeableOperation,
+      hasCompensator: operation => purgeCompensatorFor(operation) !== null,
+      markPending: operation => ({ ...operation, purgeState: PURGE_PENDING_RECONCILIATION }),
       backup: operations => backupQueue([...operations], 'manual-clear'),
       persist: compute => publishAfterDurableWrite<QueuedOperation>({
         readCurrent: () => queueRef.current,
@@ -2948,20 +3095,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           if (!isOwner()) throw new Error('Purge annulee : le compte actif a change.');
         },
       }),
-      reconcile: async removed => {
-        // Seules les entrées jamais envoyées laissent un effet optimiste à
-        // annuler : un refus terminal a déjà été réconcilié à sa réception.
-        for (const operation of removed) {
-          if (operation.terminal === true) continue;
-          if (!isInventoryMovementOperation(operation)) continue;
-          const outcome = normalizeInventoryMovementOutcome(
-            { status: 'invalid_payload', message: 'Opération supprimée avant tout envoi.' },
-            inventoryOutcomeContextFromQueuedOperation(operation),
-          );
-          await reconcileTerminalInventoryOperationCache(operation, outcome, userId).catch(error => {
-            console.warn('[inventory] rollback de purge impossible :', (error as any)?.message ?? error);
-          });
-        }
+      reconcile: reconcilePurgedOperation,
+      finalize: () => {
+        // Réussite comme échec : la file doit rester automatiquement
+        // reprenable. Un rejet du coordinateur sortait avant l'appel postérieur.
+        if (hasReplayableQueuedOperations(queueRef.current)) scheduleSync();
       },
       reset: outcome => {
         // La passe préemptée ne se nettoie plus elle-même : sa génération n'est
@@ -2990,12 +3128,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (isOwner() && offlineQueueKey !== anonKey) {
       await queueWriteChain.writeBestEffort(anonKey, JSON.stringify([]));
     }
-    if (isOwner() && hasReplayableQueuedOperations(queueRef.current)) scheduleSync();
-
     return result;
   }, [
     backupQueue, writeQueueStrict, queueWriteChain, offlineQueueKey,
-    scheduleSync, userId,
+    scheduleSync, purgeCompensatorFor, reconcilePurgedOperation,
   ]);
 
   const dismissRejectedOperations = useCallback(async () => {

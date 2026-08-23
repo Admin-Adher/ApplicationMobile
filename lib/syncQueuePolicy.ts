@@ -3,6 +3,8 @@ import { redactSensitiveText } from './redactSensitiveText';
 export interface SyncQueueOperationLike {
   table?: string;
   terminal?: boolean;
+  /** Suppression manuelle en cours : reconciliation pas encore terminee. */
+  purgeState?: string;
   terminalStatus?: string;
   terminalOutcome?: SyncQueueTerminalOutcome;
   attemptCount?: number;
@@ -341,6 +343,10 @@ export function shouldAbandonPassAfterInfrastructureFailure(consecutiveFailures:
 }
 
 export function isReplayableQueuedOperation(operation: SyncQueueOperationLike): boolean {
+  // Une entree en attente de reconciliation a deja quitte le circuit : la
+  // rejouer enverrait au serveur une ecriture que l'utilisateur vient de
+  // demander de supprimer.
+  if (operation.purgeState === 'pending_reconciliation') return false;
   return operation.terminal !== true;
 }
 

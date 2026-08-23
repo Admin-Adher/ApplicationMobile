@@ -361,12 +361,48 @@ describe('the queue purge is durable and keeps what came after it', () => {
     expect(purge).toContain('passAbortRef.current = null;');
   });
 
-  it('rolls back only the optimistic effect of what never left', () => {
-    // Un refus terminal a deja ete reconcilie a sa reception ; une ecriture
-    // jamais envoyee, elle, laisse un stock optimiste a annuler.
-    expect(purge).toContain('if (operation.terminal === true) continue;');
-    expect(purge).toContain('isInventoryMovementOperation(operation)');
-    expect(purge).toContain('reconcileTerminalInventoryOperationCache(operation, outcome, userId)');
+  it('deletes in three durable phases, reconciling before removing', () => {
+    // Supprimer d'abord laissait le stock optimiste en desaccord avec le
+    // serveur, sans plus aucune operation pour reparer l'ecart. L'ordre des
+    // phases est prouve dans `lib/manualQueuePurge.ts`.
+    expect(purge).toContain('markPending: operation => ({ ...operation, purgeState: PURGE_PENDING_RECONCILIATION })');
+    expect(purge).toContain('reconcile: reconcilePurgedOperation,');
+    expect(purge).toContain('hasCompensator: operation => purgeCompensatorFor(operation) !== null,');
+  });
+
+  it('never absorbs a reconciliation failure', () => {
+    // Absorber l'echec declarerait la purge reussie avec un cache incoherent.
+    const compensator = source.slice(
+      source.indexOf('const purgeCompensatorFor = useCallback'),
+      source.indexOf('const reconcilePurgedOperation = useCallback'),
+    );
+
+    expect(compensator).toContain('await reconcileTerminalInventoryOperationCache(operation, outcome, userId);');
+    expect(compensator).not.toContain('.catch(');
+  });
+
+  it('proves a dispatch could have happened BEFORE the first request', () => {
+    // Sans cette preuve durable, la purge ne distingue pas une operation jamais
+    // envoyee d'une operation dont la reponse s'est perdue.
+    const pass = source.slice(
+      source.indexOf('setSyncProgress({ done: 0, total: currentQueue.length });'),
+      source.indexOf('const fail = ('),
+    );
+
+    expect(pass).toContain("dispatchState: 'started' as const");
+    expect(pass).toContain('write: next => writeQueueStrict(next),');
+    // Si la preuve n'atteint pas le disque, aucune requete ne part.
+    expect(pass).toContain('return;');
+  });
+
+  it('resumes an interrupted purge before any pass', () => {
+    const hydration = source.slice(
+      source.indexOf('const loadQueue = useCallback'),
+      source.indexOf('lastLoadedKeyRef.current = userKey ?? anonKey;'),
+    );
+
+    expect(hydration).toContain('resumePendingQueuePurge<QueuedOperation>');
+    expect(hydration).toContain('operation.purgeState === PURGE_PENDING_RECONCILIATION');
   });
 
   it('never empties the anonymous key when it IS the active key', () => {

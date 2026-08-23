@@ -1,18 +1,30 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
+  PURGE_PENDING_RECONCILIATION,
   QueuePurgeBusyError,
   QueuePurgeOwnershipError,
   isUnambiguouslyPurgeableOperation,
+  resumePendingQueuePurge,
   runManualQueuePurge,
 } from '../lib/manualQueuePurge';
 
-type Op = { entryId: string; attempted?: boolean };
+type Op = {
+  entryId: string;
+  dispatchState?: 'never_started' | 'started';
+  terminal?: boolean;
+  purgeState?: string;
+};
 
-const op = (entryId: string, attempted = false): Op => ({ entryId, attempted });
+const op = (entryId: string, over: Partial<Op> = {}): Op => ({
+  entryId,
+  dispatchState: 'never_started',
+  ...over,
+});
 
 function harness(over: Partial<Parameters<typeof runManualQueuePurge<Op>>[0]> = {}) {
   let current: Op[] = [op('a'), op('b')];
   const events: string[] = [];
+  const persisted: Op[][] = [];
 
   const base = {
     isSyncing: () => false,
@@ -21,31 +33,59 @@ function harness(over: Partial<Parameters<typeof runManualQueuePurge<Op>>[0]> = 
     isOwner: () => true,
     readCurrent: () => current,
     entryIdOf: (operation: Op) => operation.entryId,
-    isPurgeable: () => true,
+    isPurgeable: isUnambiguouslyPurgeableOperation,
+    hasCompensator: () => true,
     backup: async () => { events.push('sauvegarde'); },
     persist: async (compute: (c: readonly Op[]) => Op[]) => {
-      events.push('persiste');
       current = compute(current);
+      persisted.push(current.map(entry => ({ ...entry })));
+      events.push('persiste');
       return current;
     },
+    markPending: (operation: Op) => ({ ...operation, purgeState: PURGE_PENDING_RECONCILIATION }),
     reconcile: async () => { events.push('reconcilie'); },
     reset: (outcome: string) => { events.push(`remise a zero ${outcome}`); },
   };
 
   return {
     events,
+    persisted,
     setCurrent: (next: Op[]) => { current = next; },
     getCurrent: () => current,
     run: () => runManualQueuePurge<Op>({ ...base, ...over }),
   };
 }
 
+describe('only a durable proof of never having been sent allows deletion', () => {
+  it('allows an operation whose durable state says it never started', () => {
+    expect(isUnambiguouslyPurgeableOperation({ dispatchState: 'never_started' })).toBe(true);
+  });
+
+  it.each([
+    ['started', { dispatchState: 'started' as const }],
+    ['absent — file heritee', {}],
+    ['corrompu', { dispatchState: 'peut-etre' as never }],
+  ])('keeps an operation whose state is %s', (_label, operation) => {
+    // Absence de preuve d'envoi n'est pas preuve d'absence d'envoi : une
+    // metadonnee illisible ou une file anterieure au champ ne demontrent rien.
+    expect(isUnambiguouslyPurgeableOperation(operation)).toBe(false);
+  });
+
+  it('keeps a terminal refusal, whatever its dispatch state', () => {
+    // `terminal` dit que le sort SERVEUR est connu ; il ne dit rien de la
+    // coherence de l'etat local, et rien ne prouve que sa reconciliation a
+    // abouti. Ces entrees ont leur propre parcours d'acquittement.
+    expect(isUnambiguouslyPurgeableOperation({
+      terminal: true,
+      dispatchState: 'never_started',
+    })).toBe(false);
+  });
+});
+
 describe('the purge refuses to start on a running pass', () => {
   it('throws instead of preempting', async () => {
     // `AbortController` coupe le transport client, il n'annule pas une
-    // transaction PostgreSQL : le serveur peut avoir commite juste avant de
-    // constater la fermeture. Supprimer l'operation detruirait alors la seule
-    // trace locale de son `operation_id`.
+    // transaction PostgreSQL : le serveur peut avoir commite juste avant.
     const h = harness({ isSyncing: () => true });
 
     await expect(h.run()).rejects.toBeInstanceOf(QueuePurgeBusyError);
@@ -53,7 +93,6 @@ describe('the purge refuses to start on a running pass', () => {
   });
 
   it('proceeds when nothing is in flight', async () => {
-    // Verrou sur la premisse : tout refuser ferait passer le test ci-dessus.
     const h = harness();
     await h.run();
 
@@ -63,22 +102,114 @@ describe('the purge refuses to start on a running pass', () => {
 
 describe('the lock is taken before the first await', () => {
   it('acquires before backing anything up', async () => {
-    // Sauvegarder d'abord laissait une fenetre pendant laquelle une passe
-    // pouvait demarrer, une operation etre engendree, ou une reponse reseau
-    // reconstruire la file.
     const h = harness();
     await h.run();
 
-    expect(h.events.indexOf('verrou pris')).toBeLessThan(h.events.indexOf('sauvegarde'));
     expect(h.events[0]).toBe('verrou pris');
+    expect(h.events.indexOf('verrou pris')).toBeLessThan(h.events.indexOf('sauvegarde'));
   });
 
-  it('releases it even when the write fails', async () => {
-    const h = harness({ persist: async () => { throw new Error('disque plein'); } });
+  it('releases it even when a phase fails', async () => {
+    const h = harness({ reconcile: async () => { throw new Error('cache indisponible'); } });
 
-    await expect(h.run()).rejects.toThrow('disque plein');
+    await expect(h.run()).rejects.toThrow('cache indisponible');
     expect(h.events).toContain('remise a zero failed');
     expect(h.events[h.events.length - 1]).toBe('verrou rendu');
+  });
+});
+
+describe('the deletion is transactional', () => {
+  it('marks pending BEFORE reconciling, and removes only after', async () => {
+    const h = harness();
+    await h.run();
+
+    // Marquage, reconciliations, puis suppression.
+    expect(h.events).toEqual([
+      'verrou pris', 'sauvegarde', 'persiste',
+      'reconcilie', 'reconcilie',
+      'persiste',
+      'remise a zero succeeded', 'verrou rendu',
+    ]);
+    expect(h.persisted[0].every(entry => entry.purgeState === PURGE_PENDING_RECONCILIATION)).toBe(true);
+    expect(h.persisted[1]).toEqual([]);
+  });
+
+  it('keeps the entry when reconciliation fails', async () => {
+    // Supprimer d'abord laissait le stock optimiste en desaccord avec le
+    // serveur, sans plus aucune operation pour reparer l'ecart.
+    const h = harness({ reconcile: async () => { throw new Error('cache indisponible'); } });
+
+    await expect(h.run()).rejects.toThrow('cache indisponible');
+
+    expect(h.getCurrent()).toHaveLength(2);
+    expect(h.getCurrent().every(entry => entry.purgeState === PURGE_PENDING_RECONCILIATION)).toBe(true);
+  });
+
+  it('stops at the first reconciliation failure, keeping the rest', async () => {
+    let calls = 0;
+    const h = harness({
+      reconcile: async () => {
+        calls += 1;
+        if (calls === 2) throw new Error('cache indisponible');
+      },
+    });
+
+    await expect(h.run()).rejects.toThrow('cache indisponible');
+    expect(calls).toBe(2);
+    // Aucune suppression : la phase 3 n'a jamais eu lieu.
+    expect(h.getCurrent()).toHaveLength(2);
+  });
+});
+
+describe('an interrupted purge resumes at hydration', () => {
+  it('reconciles then removes the entries left pending', async () => {
+    let current: Op[] = [
+      op('a', { purgeState: PURGE_PENDING_RECONCILIATION }),
+      op('b'),
+    ];
+    const reconciled: string[] = [];
+
+    const resumed = await resumePendingQueuePurge<Op>({
+      readCurrent: () => current,
+      isPending: operation => operation.purgeState === PURGE_PENDING_RECONCILIATION,
+      entryIdOf: operation => operation.entryId,
+      persist: async compute => { current = compute(current); return current; },
+      reconcile: async operation => { reconciled.push(operation.entryId); },
+    });
+
+    expect(reconciled).toEqual(['a']);
+    expect(resumed.map(o => o.entryId)).toEqual(['a']);
+    expect(current.map(o => o.entryId)).toEqual(['b']);
+  });
+
+  it('leaves the entry pending when the reconciliation fails again', async () => {
+    let current: Op[] = [op('a', { purgeState: PURGE_PENDING_RECONCILIATION })];
+
+    await expect(resumePendingQueuePurge<Op>({
+      readCurrent: () => current,
+      isPending: operation => operation.purgeState === PURGE_PENDING_RECONCILIATION,
+      entryIdOf: operation => operation.entryId,
+      persist: async compute => { current = compute(current); return current; },
+      reconcile: async () => { throw new Error('toujours indisponible'); },
+    })).rejects.toThrow('toujours indisponible');
+
+    // Reprenable au prochain demarrage, jamais supprimee sans reparation.
+    expect(current).toHaveLength(1);
+  });
+
+  it('does nothing when no purge was interrupted', async () => {
+    const persist = vi.fn();
+
+    const resumed = await resumePendingQueuePurge<Op>({
+      readCurrent: () => [op('a')],
+      isPending: operation => operation.purgeState === PURGE_PENDING_RECONCILIATION,
+      entryIdOf: operation => operation.entryId,
+      persist,
+      reconcile: async () => {},
+    });
+
+    expect(resumed).toEqual([]);
+    expect(persist).not.toHaveBeenCalled();
   });
 });
 
@@ -86,141 +217,94 @@ describe('an obsolete invocation touches nothing', () => {
   it('stops when the account changed during the backup', async () => {
     let owner = true;
     const persist = vi.fn(async (compute: (c: readonly Op[]) => Op[]) => compute([]));
-    const h = harness({
-      isOwner: () => owner,
-      backup: async () => { owner = false; },
-      persist,
-    });
+    const h = harness({ isOwner: () => owner, backup: async () => { owner = false; }, persist });
 
     await expect(h.run()).rejects.toBeInstanceOf(QueuePurgeOwnershipError);
-    // Rien n'est ecrit sous la clef d'un compte qui n'est plus le notre.
     expect(persist).not.toHaveBeenCalled();
   });
 
-  it('stops when the account changed during the write', async () => {
+  it('stops between two reconciliations', async () => {
     let owner = true;
-    const reconcile = vi.fn(async () => {});
+    let calls = 0;
     const h = harness({
       isOwner: () => owner,
-      persist: async () => { owner = false; return []; },
-      reconcile,
+      reconcile: async () => { calls += 1; owner = false; },
     });
 
     await expect(h.run()).rejects.toBeInstanceOf(QueuePurgeOwnershipError);
-    expect(reconcile).not.toHaveBeenCalled();
+    expect(calls).toBe(1);
   });
 
   it('neither resets nor releases the state of the account that took over', async () => {
-    // L'ancienne purge liberait sinon le verrou d'une passe qui ne lui
-    // appartient pas, et ecrasait le statut du nouveau compte.
     let owner = true;
     const reset = vi.fn();
     const release = vi.fn();
+    const finalize = vi.fn();
     const h = harness({
       isOwner: () => owner,
       backup: async () => { owner = false; },
       reset,
       release,
+      finalize,
     });
 
     await expect(h.run()).rejects.toBeInstanceOf(QueuePurgeOwnershipError);
     expect(reset).not.toHaveBeenCalled();
     expect(release).not.toHaveBeenCalled();
+    expect(finalize).not.toHaveBeenCalled();
   });
 
-  it('does reset and release while it is still the owner', async () => {
-    // Verrou sur la premisse.
-    const reset = vi.fn();
-    const release = vi.fn();
-    const h = harness({ reset, release });
+  it('finalises while it is still the owner, on success AND on failure', async () => {
+    const finalize = vi.fn();
+    await harness({ finalize }).run();
+    expect(finalize).toHaveBeenCalledWith('succeeded');
 
-    await h.run();
-
-    expect(reset).toHaveBeenCalledWith('succeeded');
-    expect(release).toHaveBeenCalledTimes(1);
+    const failing = harness({ finalize, reconcile: async () => { throw new Error('boum'); } });
+    await expect(failing.run()).rejects.toThrow('boum');
+    expect(finalize).toHaveBeenLastCalledWith('failed');
   });
 });
 
-describe('an ambiguous operation is never deleted', () => {
-  it('keeps what was already attempted', async () => {
-    // Une ecriture deja tentee peut avoir abouti sans que sa reponse soit
-    // parvenue. La supprimer laisserait le cache optimiste en desaccord avec le
-    // serveur, sans plus aucune operation pour reparer l'ecart.
-    const h = harness({ isPurgeable: (operation: Op) => !operation.attempted });
-    h.setCurrent([op('jamais-tentee'), op('deja-tentee', true)]);
-
-    const { removed, kept } = await h.run();
-
-    expect(removed.map(o => o.entryId)).toEqual(['jamais-tentee']);
-    expect(kept.map(o => o.entryId)).toEqual(['deja-tentee']);
-  });
-
-  it('reconciles only what actually left the queue', async () => {
-    const reconciled: Op[][] = [];
+describe('survivors are categorised, never lumped together', () => {
+  it('separates ambiguous, identity-less, compensator-less and concurrent', async () => {
+    // L'interface annoncait « deja envoyees » pour toutes les survivantes —
+    // faux pour une saisie creee pendant la purge.
     const h = harness({
-      isPurgeable: (operation: Op) => !operation.attempted,
-      reconcile: async removed => { reconciled.push([...removed]); },
+      hasCompensator: (operation: Op) => operation.entryId !== 'sans-compensateur',
+      entryIdOf: (operation: Op) => (operation.entryId === 'anonyme' ? null : operation.entryId),
+      persist: async compute => {
+        const next = compute(h.getCurrent());
+        // Une saisie apparait pendant la purge.
+        const withAddition = next.some(o => o.entryId === 'pendant')
+          ? next
+          : [...next, op('pendant')];
+        h.setCurrent(withAddition);
+        return withAddition;
+      },
     });
-    h.setCurrent([op('partie'), op('gardee', true)]);
+    h.setCurrent([
+      op('supprimable'),
+      op('deja-envoyee', { dispatchState: 'started' }),
+      op('sans-compensateur'),
+      op('anonyme'),
+    ]);
 
-    await h.run();
+    const result = await h.run();
 
-    expect(reconciled).toEqual([[op('partie')]]);
+    expect(result.removed.map(o => o.entryId)).toEqual(['supprimable']);
+    expect(result.keptAmbiguous.map(o => o.entryId)).toEqual(['deja-envoyee']);
+    expect(result.keptWithoutCompensator.map(o => o.entryId)).toEqual(['sans-compensateur']);
+    expect(result.keptWithoutIdentity.map(o => o.entryId)).toEqual(['anonyme']);
+    expect(result.concurrentAdditions.map(o => o.entryId)).toEqual(['pendant']);
   });
 
-  it('reconciles nothing when the write kept everything', async () => {
-    // La persistance peut rendre une file inchangee — recalcul apres un enqueue
-    // concurrent, par exemple. On n'annule alors aucun effet local.
-    const reconcile = vi.fn(async () => {});
-    const h = harness({ persist: async () => h.getCurrent(), reconcile });
-
-    await h.run();
-
-    expect(reconcile).toHaveBeenCalledWith([]);
-  });
-});
-
-describe('entries without a physical identity are kept', () => {
-  it('never removes what it cannot prove is the same entry', async () => {
+  it('never removes an entry it cannot identify physically', async () => {
     const h = harness({ entryIdOf: () => null });
     h.setCurrent([op('a'), op('b')]);
 
-    const { removed, kept } = await h.run();
+    const result = await h.run();
 
-    expect(removed).toEqual([]);
-    expect(kept).toHaveLength(2);
-  });
-});
-
-describe('only two situations are free of ambiguity', () => {
-  it('allows an operation that was never sent', () => {
-    expect(isUnambiguouslyPurgeableOperation({})).toBe(true);
-    expect(isUnambiguouslyPurgeableOperation({ attemptCount: 0 })).toBe(true);
-  });
-
-  it('allows an operation the server explicitly refused', () => {
-    // Son effet local a deja ete reconcilie a la reception du refus.
-    expect(isUnambiguouslyPurgeableOperation({ terminal: true, attemptCount: 5 })).toBe(true);
-  });
-
-  it.each([
-    ['un compteur de tentatives', { attemptCount: 1 }],
-    ['une derniere tentative', { lastAttemptAt: '2026-08-23T12:00:00.000Z' }],
-    ['un dernier echec', { lastFailureAt: '2026-08-23T12:00:00.000Z' }],
-  ])('refuses an operation carrying %s', (_label, operation) => {
-    // Une ecriture tentee peut avoir abouti sans que sa reponse soit parvenue :
-    // la supprimer laisserait le cache local en desaccord avec le serveur.
-    expect(isUnambiguouslyPurgeableOperation(operation)).toBe(false);
-  });
-
-  it('ignores a corrupted attempt counter rather than trusting it', () => {
-    // Une valeur illisible ne prouve pas qu'aucune tentative n'a eu lieu, mais
-    // elle ne prouve pas non plus le contraire : on se rabat sur les
-    // horodatages, seuls temoins fiables d'un envoi.
-    expect(isUnambiguouslyPurgeableOperation({ attemptCount: 'trois' as never })).toBe(true);
-    expect(isUnambiguouslyPurgeableOperation({
-      attemptCount: 'trois' as never,
-      lastAttemptAt: '2026-08-23T12:00:00.000Z',
-    })).toBe(false);
+    expect(result.removed).toEqual([]);
+    expect(result.keptWithoutIdentity).toHaveLength(2);
   });
 });

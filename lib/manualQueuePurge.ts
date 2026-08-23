@@ -6,6 +6,19 @@
  * attente, et ce qu'une invocation devenue obsolete a encore le droit de
  * toucher. Des assertions de source verifient qu'un appel existe ; elles ne
  * verifient pas qu'il precede le premier `await`.
+ *
+ * La suppression est TRANSACTIONNELLE. Supprimer d'abord et reconcilier
+ * ensuite laissait une fenetre fatale : l'entree quittait la file et le disque,
+ * puis un plantage — ou un simple echec de reconciliation — laissait le stock
+ * optimiste local en desaccord avec le serveur, sans plus aucune operation pour
+ * reparer l'ecart. Trois phases, chacune persistee :
+ *
+ *   1. marquer `pending_reconciliation` — l'entree cesse d'etre rejouable ;
+ *   2. reconcilier les effets locaux, sans absorber la moindre erreur ;
+ *   3. retirer definitivement ce qui a ete reconcilie.
+ *
+ * Une purge interrompue reprend a l'hydratation : la reconciliation est
+ * idempotente, et la phase 1 est deja durable.
  */
 
 /** La file est en cours de synchronisation : la purge ne peut pas commencer. */
@@ -24,36 +37,40 @@ export class QueuePurgeOwnershipError extends Error {
   }
 }
 
+/** Etat durable d'une entree en cours de suppression. */
+export const PURGE_PENDING_RECONCILIATION = 'pending_reconciliation';
+
+/**
+ * Preuve DURABLE qu'aucune requete n'est partie.
+ *
+ * Deduire cette preuve de l'absence de compteurs etait faux : une metadonnee
+ * illisible, une file heritee d'une version anterieure au champ, ou une branche
+ * d'echec qui n'incremente rien produisent toutes « aucune trace de tentative »
+ * sans prouver qu'aucune ecriture n'a ete envoyee. Absence de preuve d'envoi
+ * n'est pas preuve d'absence d'envoi.
+ */
+export type QueueDispatchState = 'never_started' | 'started';
+
 export interface PurgeAmbiguityLike {
   terminal?: boolean;
-  attemptCount?: number;
-  lastAttemptAt?: string;
-  lastFailureAt?: string;
+  dispatchState?: QueueDispatchState;
 }
 
 /**
- * Cette operation peut-elle etre supprimee sans ambiguite ?
+ * Cette operation peut-elle etre supprimee sans ambiguite serveur ?
  *
- * Deux cas SEULEMENT en sont depourvus :
+ * Un seul cas : l'etat durable affirme qu'aucune requete n'a jamais ete
+ * preparee. Tout le reste — `started`, absent, inconnu, corrompu — est
+ * conserve.
  *
- *   - elle n'a jamais ete envoyee — aucune ecriture serveur ne peut lui
- *     correspondre, et son effet optimiste local peut etre annule sans risque ;
- *   - le serveur a explicitement rendu un refus — son effet a deja ete
- *     reconcilie a la reception.
- *
- * Tout le reste est ambigu : une ecriture tentee peut avoir abouti sans que sa
- * reponse soit parvenue. La supprimer laisserait le cache local en desaccord
- * avec le serveur, sans plus aucune operation pour reparer l'ecart.
+ * Les refus TERMINAUX sont exclus de ce parcours. `terminal` dit que le sort
+ * serveur est connu ; il ne dit rien de la coherence de l'etat local, et rien
+ * ne demontre que leur reconciliation a abouti. Ils ont leur propre parcours,
+ * « marquer comme examinee », qui reconcilie avant de supprimer.
  */
 export function isUnambiguouslyPurgeableOperation(operation: PurgeAmbiguityLike): boolean {
-  if (operation.terminal === true) return true;
-
-  const attempts = Number(operation.attemptCount);
-  const attempted = (Number.isFinite(attempts) && attempts > 0)
-    || Boolean(operation.lastAttemptAt)
-    || Boolean(operation.lastFailureAt);
-
-  return !attempted;
+  if (operation.terminal === true) return false;
+  return operation.dispatchState === 'never_started';
 }
 
 export interface ManualQueuePurgeInput<T> {
@@ -75,26 +92,71 @@ export interface ManualQueuePurgeInput<T> {
   readCurrent: () => readonly T[];
   /** Identite PHYSIQUE : `id` peut etre partage ou remplace. */
   entryIdOf: (operation: T) => string | null;
-  /**
-   * Cette operation peut-elle etre supprimee sans ambiguite ?
-   *
-   * Une ecriture deja tentee peut avoir abouti sans que sa reponse soit
-   * parvenue. La supprimer laisserait le cache optimiste local en desaccord
-   * avec le serveur, sans plus aucune operation pour reparer l'ecart.
-   */
+  /** Sans ambiguite serveur ? Voir `isUnambiguouslyPurgeableOperation`. */
   isPurgeable: (operation: T) => boolean;
+  /**
+   * Existe-t-il de quoi annuler l'effet local de cette operation ?
+   *
+   * Sans compensateur, une entree portant un effet optimiste ne doit pas etre
+   * supprimee : rien ne viendrait reparer l'ecart.
+   */
+  hasCompensator: (operation: T) => boolean;
   backup: (operations: readonly T[]) => Promise<void>;
   /** Ecriture stricte puis publication atomique. */
   persist: (compute: (current: readonly T[]) => T[]) => Promise<T[]>;
-  /** Annule l'effet optimiste local des operations reellement supprimees. */
-  reconcile: (removed: readonly T[]) => Promise<void>;
+  /** Marque une entree comme en attente de reconciliation. */
+  markPending: (operation: T) => T;
+  /**
+   * Annule l'effet optimiste local. Toute erreur REMONTE : absorber un echec
+   * ici declarerait la purge reussie avec un cache incoherent.
+   */
+  reconcile: (operation: T) => Promise<void>;
   /** Remise a zero de l'etat de passe. Appelee UNIQUEMENT si encore proprietaire. */
   reset: (outcome: 'succeeded' | 'failed') => void;
+  /** Finalisation proprietaire — replanification, notamment. */
+  finalize?: (outcome: 'succeeded' | 'failed') => void;
 }
 
 export interface ManualQueuePurgeResult<T> {
   removed: T[];
-  kept: T[];
+  /** Deja envoyees, ou dont l'envoi ne peut pas etre exclu. */
+  keptAmbiguous: T[];
+  /** Apparues PENDANT la purge : elles ne sont pas concernees. */
+  concurrentAdditions: T[];
+  /** Sans identite physique : impossible de prouver qu'il s'agit de la meme. */
+  keptWithoutIdentity: T[];
+  /** Aucun moyen d'annuler leur effet local. */
+  keptWithoutCompensator: T[];
+}
+
+/** Reprend une purge interrompue : phases 2 et 3 uniquement. */
+export async function resumePendingQueuePurge<T>(input: {
+  readCurrent: () => readonly T[];
+  isPending: (operation: T) => boolean;
+  entryIdOf: (operation: T) => string | null;
+  persist: (compute: (current: readonly T[]) => T[]) => Promise<T[]>;
+  reconcile: (operation: T) => Promise<void>;
+}): Promise<T[]> {
+  const pending = input.readCurrent().filter(input.isPending);
+  if (pending.length === 0) return [];
+
+  const reconciled: T[] = [];
+  for (const operation of pending) {
+    // Un echec laisse l'entree en attente : elle sera reprise au prochain
+    // demarrage plutot que supprimee sans reparation.
+    await input.reconcile(operation);
+    reconciled.push(operation);
+  }
+
+  const reconciledIds = new Set(
+    reconciled.map(input.entryIdOf).filter((value): value is string => value !== null),
+  );
+  await input.persist(current => current.filter(operation => {
+    const entryId = input.entryIdOf(operation);
+    return entryId === null || !reconciledIds.has(entryId);
+  }));
+
+  return reconciled;
 }
 
 export async function runManualQueuePurge<T>(
@@ -115,7 +177,31 @@ export async function runManualQueuePurge<T>(
   let succeeded = false;
   try {
     const snapshot = input.readCurrent();
-    const removable = snapshot.filter(input.isPurgeable);
+    const snapshotIds = new Set(
+      snapshot.map(input.entryIdOf).filter((value): value is string => value !== null),
+    );
+
+    const removable: T[] = [];
+    const keptAmbiguous: T[] = [];
+    const keptWithoutIdentity: T[] = [];
+    const keptWithoutCompensator: T[] = [];
+
+    for (const operation of snapshot) {
+      if (input.entryIdOf(operation) === null) {
+        keptWithoutIdentity.push(operation);
+        continue;
+      }
+      if (!input.isPurgeable(operation)) {
+        keptAmbiguous.push(operation);
+        continue;
+      }
+      if (!input.hasCompensator(operation)) {
+        keptWithoutCompensator.push(operation);
+        continue;
+      }
+      removable.push(operation);
+    }
+
     const removableIds = new Set(
       removable.map(input.entryIdOf).filter((value): value is string => value !== null),
     );
@@ -123,27 +209,52 @@ export async function runManualQueuePurge<T>(
     await input.backup(removable);
     assertOwnership();
 
-    const kept = await input.persist(current => current.filter(operation => {
+    // ── Phase 1 : marquage durable ────────────────────────────────────────
+    // L'entree cesse d'etre rejouable AVANT toute reconciliation. Un plantage
+    // a partir d'ici laisse une trace reprenable, pas une donnee perdue.
+    await input.persist(current => current.map(operation => {
       const entryId = input.entryIdOf(operation);
-      // Sans identite physique, on ne peut pas prouver qu'il s'agit de la meme
-      // entree : on conserve.
-      return entryId === null || !removableIds.has(entryId);
+      return entryId !== null && removableIds.has(entryId) ? input.markPending(operation) : operation;
     }));
     assertOwnership();
 
-    // Seulement ce qui a REELLEMENT quitte la file.
-    const keptIds = new Set(kept.map(input.entryIdOf));
-    const removed = removable.filter(operation => !keptIds.has(input.entryIdOf(operation)));
+    // ── Phase 2 : reconciliation, sans absorber la moindre erreur ─────────
+    const reconciled: T[] = [];
+    for (const operation of removable) {
+      await input.reconcile(operation);
+      reconciled.push(operation);
+      assertOwnership();
+    }
 
-    await input.reconcile(removed);
+    // ── Phase 3 : suppression definitive ──────────────────────────────────
+    const reconciledIds = new Set(
+      reconciled.map(input.entryIdOf).filter((value): value is string => value !== null),
+    );
+    const kept = await input.persist(current => current.filter(operation => {
+      const entryId = input.entryIdOf(operation);
+      return entryId === null || !reconciledIds.has(entryId);
+    }));
+
+    const concurrentAdditions = kept.filter(operation => {
+      const entryId = input.entryIdOf(operation);
+      return entryId !== null && !snapshotIds.has(entryId);
+    });
+
     succeeded = true;
-    return { removed, kept };
+    return {
+      removed: reconciled,
+      keptAmbiguous,
+      concurrentAdditions,
+      keptWithoutIdentity,
+      keptWithoutCompensator,
+    };
   } finally {
     // Une invocation devenue obsolete ne touche RIEN : ni le verrou, ni le
     // statut du compte qui a pris la main entre-temps.
     if (input.isOwner()) {
       input.reset(succeeded ? 'succeeded' : 'failed');
       input.release();
+      input.finalize?.(succeeded ? 'succeeded' : 'failed');
     }
   }
 }
