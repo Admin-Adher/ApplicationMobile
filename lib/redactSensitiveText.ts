@@ -40,6 +40,9 @@ const REDACTION_PATTERNS: [RegExp, string][] = [
     /\b(access_token|refresh_token|api[_-]?key|apikey|token|signature|secret|password|pwd)\s*[=:]\s*[^\s"',;]+/gi,
     `$1=${REDACTED}`,
   ],
+  // Cles autonomes reconnaissables a leur prefixe : « Invalid API key
+  // sb_secret_ABCDEF » n'est precede ni de `Bearer`, ni de `apikey=`.
+  [/\b(?:sb_(?:publishable|secret)|sk_(?:live|test)|pk_(?:live|test)|sbp)_[A-Za-z0-9_-]{8,}\b/gi, REDACTED],
   // Identifiants dans l'autorite d'une URL : https://user:motdepasse@hote
   [/(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s:@"']+:[^/\s@"']+@/gi, `$1${REDACTED}@`],
   // Chemins locaux : une photo de chantier, un fichier de session.

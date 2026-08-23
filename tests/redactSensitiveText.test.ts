@@ -18,6 +18,9 @@ describe('secrets never survive', () => {
     ['chemin Android', 'ENOENT /data/user/0/cache/session.json', 'session.json'],
     ['chemin Windows', 'echec C:\\Users\\Adrien\\photos\\chantier.jpg', 'chantier.jpg'],
     ['adresse e-mail', 'compte jean.dupont@exemple.fr introuvable', 'jean.dupont@exemple.fr'],
+    ['cle autonome Supabase', 'Invalid API key sb_secret_ABCDEF0123456789', 'sb_secret_ABCDEF0123456789'],
+    ['cle publiable', 'utilise sb_publishable_LEAKED0123 par erreur', 'sb_publishable_LEAKED0123'],
+    ['cle Stripe', 'refus sk_live_0123456789abcdef', 'sk_live_0123456789abcdef'],
   ])('removes a %s', (_label, input, canary) => {
     expect(redactSensitiveText(input)).not.toContain(canary);
   });

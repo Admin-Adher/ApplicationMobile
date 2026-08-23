@@ -177,6 +177,44 @@ describe('sync failure classification', () => {
     expect(verdicts.map(v => v.terminal)).toEqual([false, false, true]);
   });
 
+  it('bounds the error code before it enters the fingerprint', () => {
+    // L'empreinte est persistee dans la file ET regroupee dans l'export : un
+    // `code` arbitraire y entrait sans aucun controle de format.
+    const hostile = syncFailureFingerprint({
+      code: 'Jean Dupont <jean@exemple.fr> — ' + 'x'.repeat(400),
+      message: 'refus',
+    });
+
+    expect(hostile).not.toContain('Jean Dupont');
+    expect(hostile).not.toContain('jean@exemple.fr');
+    expect(hostile.startsWith('<CODE>|')).toBe(true);
+    // Un code legitime traverse intact.
+    expect(syncFailureFingerprint({ code: '42501', message: 'refus' })).toContain('42501');
+  });
+
+  it('never concatenates a corrupted repetition counter', () => {
+    // `(value ?? 0) + 1` sur la chaine "2" produisait "21" : l'operation
+    // devenait terminale des le premier refus, puisque "21" >= 3.
+    const error = { status: 404, message: 'HTTP 404' };
+    const fingerprint = syncFailureFingerprint(error);
+    const count = (sameFailureCount: unknown) => assessRepeatedPermanentFailure({
+      operation: { lastFailureFingerprint: fingerprint, sameFailureCount } as any,
+      error,
+    }).sameFailureCount;
+
+    // Une chaine numerique reste une valeur exploitable : un aller-retour JSON
+    // peut legitimement en produire une.
+    expect(count('2')).toBe(3);
+    expect(count(2)).toBe(3);
+    // Valeurs impossibles : la serie repart de zero plutot que de propager
+    // l'absurde jusqu'a condamner une saisie utilisateur.
+    for (const corrupted of [-1, 2.5, 'deux', NaN, Infinity, null, undefined, {}]) {
+      expect(count(corrupted), String(corrupted)).toBe(1);
+    }
+    // Borne haute : une file gonflee ne doit pas faire deborder le compteur.
+    expect(count(10_000)).toBe(999);
+  });
+
   it('does not merge two refusals that differ only by their transport status', () => {
     // Sans le statut normalise, `{ message: 'not found' }` rendu en 404 puis en
     // 403 partageaient une empreinte : deux refus DIFFERENTS comptaient comme
@@ -309,9 +347,15 @@ describe('unstable-network replay policy', () => {
     // Le compteur consécutif est borné par la passe, le compteur exponentiel
     // par un succès : sans cette remise à zéro le backoff restait épinglé à
     // son maximum de 5 min pendant des heures.
-    expect(source).toContain('const failedOpsBefore = failedOps.length;');
-    expect(source).toContain('if (failedOps.length === failedOpsBefore) {');
+    //
+    // Le succès est maintenant DÉCLARÉ par l'issue, non plus déduit de
+    // `failedOps.length`. L'ancienne heuristique se trompait dans les deux
+    // sens : une réserve écrite avec un patch photo différé était comptée en
+    // échec, et un patch de commentaire malformé — abandonné sans qu'aucun
+    // serveur ne soit joint — remettait le backoff à zéro.
+    expect(source).toContain("if (outcome.kind === 'applied') {");
     expect(source).toContain('consecutiveInfraFailures = 0;');
+    expect(source).not.toContain('failedOps.length === failedOpsBefore');
     // Le seuil lui-meme vit desormais dans le classificateur pur, teste
     // directement ; le moteur ne fait qu'appliquer son verdict.
     expect(source).toContain('consecutiveInfraFailures = verdict.serviceFailureStreak;');
