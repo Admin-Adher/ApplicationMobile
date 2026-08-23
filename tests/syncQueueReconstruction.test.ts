@@ -28,11 +28,24 @@ function entry(
   return { token: originalIndex, originalIndex, resolved, kind, nextAttemptAt };
 }
 
+/** Le MEME predicat que celui remis a l'ordonnanceur. */
+const isReplayable = (operation: Op) => operation.terminal !== true && operation.quarantined !== true;
+
+let identityCounter = 0;
+const newQueueEntryId = () => `repare-${(identityCounter += 1)}`;
+
 const rebuild = (
   snapshot: Op[],
   entries: PassEntryResult<Op>[],
   additions?: QueueAddition<Op>[],
-) => reconstructSyncQueue({ snapshot, entries, additions, markQuarantined: quarantine });
+) => reconstructSyncQueue({
+  snapshot,
+  entries,
+  additions,
+  isReplayable,
+  markQuarantined: quarantine,
+  newQueueEntryId,
+});
 
 describe('each outcome lands on its own physical entry', () => {
   it('removes ONLY the applied entry when two share a business id', () => {
@@ -109,13 +122,41 @@ describe('each outcome lands on its own physical entry', () => {
     expect(queue.map(o => o.id)).toEqual(['b', 'c']);
   });
 
-  it('keeps the deadline of the operation that stopped the pass', () => {
+  it('takes the deadline from the JOURNAL, not from the operation', () => {
+    // Le test precedent placait la meme echeance aux deux endroits : il restait
+    // vert meme si le reconstructeur ignorait totalement le journal — ce qu'il
+    // faisait. L'echeance calculee par la politique aurait ete perdue.
     const a = movement('a');
-    const deferred = { ...a, nextAttemptAt: '2026-08-23T12:30:00.000Z' };
+    const sansEcheance = { ...a };
 
-    const { queue } = rebuild([a], [entry(0, 'abandon', deferred, '2026-08-23T12:30:00.000Z')]);
+    const { queue } = rebuild([a], [entry(0, 'deferred', sansEcheance, '2026-08-23T12:30:00.000Z')]);
 
     expect(queue[0].nextAttemptAt).toBe('2026-08-23T12:30:00.000Z');
+  });
+
+  it('erases a deadline the journal says is gone', () => {
+    const a = movement('a', { nextAttemptAt: '2026-08-23T11:00:00.000Z' });
+
+    const { queue } = rebuild([a], [entry(0, 'deferred', a, null)]);
+
+    expect(queue[0].nextAttemptAt).toBeUndefined();
+  });
+
+  it.each([
+    ['terminal', 'terminal' as PassEntryKind],
+    ['conflict', 'conflict' as PassEntryKind],
+  ])('strips the retry state from a %s outcome', (_label, kind) => {
+    // « Refusee » et « prochaine tentative dans 30 s » sur la meme ligne : le
+    // diagnostic devenait contradictoire.
+    const a = movement('a', {
+      nextAttemptAt: '2026-08-23T11:00:00.000Z',
+      retrySource: 'client_backoff',
+    });
+
+    const { queue } = rebuild([a], [entry(0, kind, a, '2026-08-23T12:00:00.000Z')]);
+
+    expect(queue[0].nextAttemptAt).toBeUndefined();
+    expect(queue[0].retrySource).toBeUndefined();
   });
 });
 
@@ -279,7 +320,99 @@ describe('a broken contract stops the rebuild instead of guessing', () => {
     const a = movement('a');
 
     expect(() => rebuild([a], [entry(0, 'applied', a), entry(0, 'deferred', a)]))
-      .toThrow(/deux issues/);
+      .toThrow(/jeton 0 duplique/);
+  });
+
+  it('refuses a token that contradicts its own index', () => {
+    // Les exposer separement sans verifier leur accord laissait passer une
+    // ligne contradictoire, et l'issue s'appliquait a la mauvaise entree.
+    const a = movement('a');
+    const b = movement('b');
+
+    expect(() => rebuild([a, b], [
+      { token: 9, originalIndex: 0, kind: 'applied', resolved: a, nextAttemptAt: null },
+      entry(1, 'untouched', b),
+    ])).toThrow(/incoherent avec l'index/);
+  });
+
+  it('refuses a missing outcome for a replayable entry', () => {
+    // Une omission de l'ordonnanceur passait pour une entree deja terminale :
+    // l'operation etait conservee et rejouee indefiniment, sans signal.
+    const a = movement('a');
+    const b = movement('b');
+
+    expect(() => rebuild([a, b], [entry(0, 'applied', a)]))
+      .toThrow(/issue absente pour l'index 1/);
+  });
+
+  it('refuses an outcome for an entry the scheduler must not have seen', () => {
+    const refused = movement('refusee', { terminal: true });
+
+    expect(() => rebuild([refused], [entry(0, 'applied', refused)]))
+      .toThrow(/entree non rejouable/);
+  });
+
+  it('refuses an unknown outcome kind instead of treating it as untouched', () => {
+    const a = movement('a');
+
+    expect(() => rebuild([a], [entry(0, 'inconnue' as PassEntryKind, a)]))
+      .toThrow(/issue de journal inconnue/);
+  });
+
+  it('refuses a resolved version whose local identity drifted', () => {
+    // Le rebase change `id`, `baseVersion` et le payload — jamais l'identite
+    // locale. La laisser deriver ferait disparaitre l'ancrage physique.
+    const a = movement('a', { queueEntryId: 'q-stable' });
+    const derive = { ...a, queueEntryId: 'q-autre' };
+
+    expect(() => rebuild([a], [entry(0, 'deferred', derive)]))
+      .toThrow(/queueEntryId modifie/);
+  });
+
+  it.each([
+    ['NaN', Number.NaN],
+    ['negative', -1],
+    ['fractionnaire', 1.5],
+  ])('refuses an addition sequence that is %s', (_label, sequence) => {
+    const a = movement('a');
+
+    expect(() => rebuild(
+      [a],
+      [entry(0, 'applied', a)],
+      [{ sequence, source: 'spawned', operation: movement('x') }],
+    )).toThrow(/sequence d'addition invalide/);
+  });
+
+  it('refuses two additions claiming the same sequence', () => {
+    // Le contrat annonce un ordre TOTAL : deux sequences egales feraient
+    // dependre le resultat de l'ordre du tableau.
+    const a = movement('a');
+
+    expect(() => rebuild(
+      [a],
+      [entry(0, 'applied', a)],
+      [
+        { sequence: 3, source: 'spawned', operation: movement('x') },
+        { sequence: 3, source: 'concurrent_enqueue', operation: movement('y') },
+      ],
+    )).toThrow(/sequence d'addition dupliquee/);
+  });
+
+  it('repairs a local identity collision an addition brought in', () => {
+    // Une collision LOCALE se repare : contrairement a un `id` metier duplique,
+    // elle n'a aucun effet sur l'idempotence serveur.
+    const kept = movement('a', { queueEntryId: 'q-partage' });
+    const addition = movement('b', { queueEntryId: 'q-partage' });
+
+    const { queue, repairedIdentities } = rebuild(
+      [kept],
+      [entry(0, 'deferred', kept)],
+      [{ sequence: 0, source: 'concurrent_enqueue', operation: addition }],
+    );
+
+    expect(new Set(queue.map(o => o.queueEntryId)).size).toBe(2);
+    expect(queue[0].queueEntryId).toBe('q-partage');
+    expect(repairedIdentities).toBe(1);
   });
 });
 
@@ -304,7 +437,9 @@ describe('the whole pass converges', () => {
     const rebuilt = reconstructSyncQueue({
       snapshot,
       entries: result.entries,
+      isReplayable,
       markQuarantined: quarantine,
+      newQueueEntryId,
     });
 
     expect(result.processed).toBe(30);
@@ -333,7 +468,9 @@ describe('the whole pass converges', () => {
     const rebuilt = reconstructSyncQueue({
       snapshot,
       entries: result.entries,
+      isReplayable,
       markQuarantined: quarantine,
+      newQueueEntryId,
     });
 
     // Les succes restent retires, les non tentees subsistent a leur place.
