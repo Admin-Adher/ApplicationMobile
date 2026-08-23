@@ -4337,8 +4337,13 @@ export const resources: Resource = {
           clearFailedText: "La file n'a pas pu être vidée. Aucune opération n'a été supprimée. "
             + 'Attendez la fin de la synchronisation, puis réessayez.',
           clearKeptTitle: 'File partiellement vidée',
-          clearKeptText: "{{count}} opération(s) déjà envoyée(s) ont été conservées : leur sort côté "
-            + 'serveur est incertain, les supprimer fausserait votre stock.',
+          clearKeptText: '{{removed}} opération(s) supprimée(s), {{kept}} conservée(s) car leur envoi '
+            + "ne peut pas être exclu — les supprimer fausserait votre stock. "
+            + '{{added}} ajoutée(s) pendant la suppression.',
+          clearBusyText: "Une synchronisation est en cours. Attendez qu'elle se termine, puis "
+            + 'réessayez. Aucune opération n\'a été supprimée.',
+          clearOwnershipText: "Le compte actif a changé pendant la suppression. Aucune opération "
+            + "n'a été supprimée.",
           titleWithCount: 'File de synchronisation ({{count}})',
           rejectedTitleWithCount: 'Opérations refusées ({{count}})',
           mixedTitle: '{{pending}} en attente · {{rejected}} refusée(s)',
@@ -9005,8 +9010,12 @@ export const resources: Resource = {
           clearFailedText: 'The queue could not be cleared. Nothing was deleted. '
             + 'Wait for the current sync to finish, then try again.',
           clearKeptTitle: 'Queue partially cleared',
-          clearKeptText: '{{count}} already-sent operation(s) were kept: their fate on the server '
-            + 'is unknown, and deleting them would skew your stock.',
+          clearKeptText: '{{removed}} operation(s) deleted, {{kept}} kept because their dispatch '
+            + 'cannot be ruled out — deleting them would skew your stock. '
+            + '{{added}} added while clearing.',
+          clearBusyText: 'A sync is running. Wait for it to finish, then try again. '
+            + 'Nothing was deleted.',
+          clearOwnershipText: 'The active account changed while clearing. Nothing was deleted.',
           titleWithCount: 'Sync queue ({{count}})',
           rejectedTitleWithCount: 'Rejected operations ({{count}})',
           mixedTitle: '{{pending}} pending · {{rejected}} rejected',
@@ -13673,8 +13682,12 @@ export const resources: Resource = {
           clearFailedText: 'La cola no se pudo vaciar. No se eliminó nada. '
             + 'Espere a que termine la sincronización e inténtelo de nuevo.',
           clearKeptTitle: 'Cola vaciada parcialmente',
-          clearKeptText: '{{count}} operación(es) ya enviada(s) se han conservado: su resultado en el '
-            + 'servidor es incierto y eliminarlas falsearía su stock.',
+          clearKeptText: '{{removed}} operación(es) eliminada(s), {{kept}} conservada(s) porque no se '
+            + 'puede descartar su envío: eliminarlas falsearía su stock. '
+            + '{{added}} añadida(s) durante el borrado.',
+          clearBusyText: 'Hay una sincronización en curso. Espere a que termine e inténtelo de nuevo. '
+            + 'No se eliminó nada.',
+          clearOwnershipText: 'La cuenta activa cambió durante el borrado. No se eliminó nada.',
           titleWithCount: 'Cola de sincronización ({{count}})',
           rejectedTitleWithCount: 'Operaciones rechazadas ({{count}})',
           mixedTitle: '{{pending}} pendiente(s) · {{rejected}} rechazada(s)',
