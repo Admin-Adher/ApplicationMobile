@@ -186,6 +186,56 @@ describe('a preempted pass sends nothing', () => {
     expect(harness.applyPatch.mock.calls[0][1]).toBe(controller.signal);
   });
 
+  /** Requete qui ne se resout QUE lorsque son signal est annule. */
+  const abortableCall = () => vi.fn((...args: any[]) => {
+    const signal: AbortSignal | undefined = args[args.length - 1];
+    return new Promise<SupabaseRestResult<any>>(resolve => {
+      signal?.addEventListener('abort', () => resolve(restResult({
+        error: { code: 'REST_ABORTED', message: 'aborted' },
+        meta: NO_RESPONSE_META,
+      })), { once: true });
+    });
+  });
+
+  it('aborts a SELECT already in flight', async () => {
+    // Les tests precedents prouvent le CABLAGE. Celui-ci prouve l'annulation :
+    // sans le signal transmis, cette promesse ne se resoudrait jamais et le
+    // test expirerait.
+    const controller = new AbortController();
+    const selectVersion = abortableCall();
+    const harness = rebase({ signal: controller.signal, selectVersion });
+
+    const pending = harness.run();
+    controller.abort();
+    const result = await pending;
+
+    expect(selectVersion).toHaveBeenCalledTimes(1);
+    expect(harness.applyPatch).not.toHaveBeenCalled();
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    expect((result.error as any).code).toBe('REST_ABORTED');
+  });
+
+  it('aborts a write already in flight', async () => {
+    const controller = new AbortController();
+    const applyPatch = abortableCall();
+    const harness = rebase({ signal: controller.signal, applyPatch });
+
+    const pending = harness.run();
+    // L'ecriture ne part qu'apres la lecture : on laisse la micro-tache passer.
+    await Promise.resolve();
+    await Promise.resolve();
+    controller.abort();
+    const result = await pending;
+
+    expect(applyPatch).toHaveBeenCalledTimes(1);
+    expect((result as any).error.code).toBe('REST_ABORTED');
+    // Meme identifiant : si le serveur a malgre tout commite, il rendra son
+    // resultat memorise plutot que d'ecrire deux fois.
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    expect(result.operationId).toBe('op-1');
+  });
+
   it('lets an in-flight abort surface as a transport failure', async () => {
     // Le transport rend `REST_ABORTED` : la politique le classe `cancelled`,
     // donc aucune tentative n'est consommee.
@@ -261,10 +311,57 @@ describe('the second call keeps transport and verdict apart', () => {
     expect(result.meta.reachedServer).toBe(true);
   });
 
-  it('treats an empty result as applied rather than inventing a refusal', async () => {
-    const harness = rebase({ applyPatch: async () => restResult({ data: [] }) });
+  it.each([
+    ['reponse vide', [] as any[]],
+    ['ligne sans statut', [{ reserve_id: 'r-1' }]],
+    ['statut inconnu', [{ status: 'peut_etre' }]],
+    ['statut non textuel', [{ status: 42 }]],
+  ])('never turns %s into a success', async (_label, data) => {
+    // Une absence de verdict n'est ni un succes ni un refus. La declarer
+    // `applied` retirerait de la file une ecriture dont on ignore le sort —
+    // exactement le defaut deja corrige cote inventaire.
+    const harness = rebase({ applyPatch: async () => restResult({ data }) });
+
     const result = await harness.run();
 
-    expect(result.kind).toBe('applied');
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    expect((result.error as any).code).toBe('REST_RESULT_INVALID');
+    // L'ecriture EST partie : on garde son identite idempotente, sinon le
+    // reessai en creerait une seconde.
+    expect(result.operationId).toBe('op-1');
+  });
+
+  it('still accepts a well-formed success', async () => {
+    // Verrou sur la premisse : tout refuser ferait passer le test ci-dessus
+    // sans rien prouver.
+    const harness = rebase({ applyPatch: async () => restResult({ data: [{ status: 'ok' }] }) });
+
+    expect((await harness.run()).kind).toBe('applied');
+  });
+});
+
+describe('a version read that answers without a version blocks the write', () => {
+  it.each([
+    ['aucune ligne', [] as any[]],
+    ['ligne sans version', [{ id: 'r-1' }]],
+    ['version non numerique', [{ version: 'trois' }]],
+    ['version fractionnaire', [{ version: 2.5 }]],
+    ['version negative', [{ version: -1 }]],
+  ])('sends nothing on %s', async (_label, data) => {
+    // Envoyer avec `base_version: null` ferait perdre la protection optimiste.
+    // On ne conclut pas non plus a une suppression : une ligne absente peut
+    // venir d'une visibilite RLS inattendue, et condamner l'operation sur cette
+    // base detruirait une saisie.
+    const harness = rebase({ selectVersion: async () => restResult({ data }) });
+
+    const result = await harness.run();
+
+    expect(harness.applyPatch).not.toHaveBeenCalled();
+    expect(harness.newOperationId).not.toHaveBeenCalled();
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    expect((result.error as any).code).toBe('REST_RESULT_INVALID');
+    expect(result.operationId).toBeNull();
   });
 });
