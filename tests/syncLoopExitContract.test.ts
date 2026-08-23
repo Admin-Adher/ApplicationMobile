@@ -228,15 +228,33 @@ describe('a prepared rebase identity is durable before the write', () => {
   it('fails closed when the target entry is not unique', () => {
     // Sans entree cible unique, la preparation ne serait pas retrouvable apres
     // une preemption : l'ecriture ne doit pas partir.
-    expect(helper).toContain('if (matches.length !== 1)');
+    expect(helper).toContain('if (targets.length !== 1)');
     expect(helper).toContain('throw new Error(');
   });
 
-  it('persists through the queue write chain, and awaits it', () => {
-    expect(helper).toContain('await saveQueue(next);');
+  it('persists STRICTLY, and before publishing anything', () => {
+    // `saveQueue` absorbe l'echec : un `await` dessus attend un succes
+    // fabrique. Et publier avant l'ecriture laisserait, en cas d'echec, une
+    // identite visible seulement en memoire — que la reconstruction legacy
+    // prendrait pour un enqueue concurrent, doublant l'entree.
+    const active = helper
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('*'));
+
+    expect(active).toContain('await writeQueueStrict(next);');
+    expect(active).not.toContain('await saveQueue(next);');
+    expect(active.indexOf('await writeQueueStrict(next);'))
+      .toBeLessThan(active.indexOf('queueRef.current = next;'));
   });
 
-  it('migrates local identities before any network call', () => {
+  it('recomputes when the queue moved during the write', () => {
+    // Sinon l'operation enfilee pendant l'ecriture serait ecrasee par un
+    // instantane qui l'ignore.
+    expect(helper).toContain('if (queueRef.current !== current) continue;');
+  });
+
+  it('migrates local identities strictly, before any network call', () => {
     // La migration doit precéder la premiere passe : une file persistee avant
     // l'existence du champ n'en porte aucune, et la preparation deviendrait
     // introuvable.
@@ -246,8 +264,22 @@ describe('a prepared rebase identity is durable before the write', () => {
     );
 
     expect(hydration).toContain('ensureQueueEntryIdentities(coalesced, genQueueId)');
+    expect(hydration).toContain('await writeQueueStrict(identified.operations);');
     expect(hydration.indexOf('ensureQueueEntryIdentities'))
-      .toBeLessThan(hydration.indexOf('await saveQueue('));
+      .toBeLessThan(hydration.indexOf('await writeQueueStrict('));
+  });
+
+  it('starts no pass while the identities are only in memory', () => {
+    // Une identite volatile ne survivrait pas au redemarrage : la preparation
+    // deviendrait introuvable et la meme ecriture metier repartirait.
+    const tail = source.slice(
+      source.indexOf('let identitiesAreDurable = false;'),
+      source.indexOf('// ── Hydrate queue when user.id changes'),
+    );
+
+    expect(tail).toContain('queueLoadedRef.current = identitiesAreDurable;');
+    expect(tail).toContain('setQueueLoaded(identitiesAreDurable);');
+    expect(tail).toContain('if (!identitiesAreDurable) {');
   });
 
   it('stamps a local identity on every operation it creates', () => {

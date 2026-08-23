@@ -19,6 +19,27 @@ export interface QueueEntryIdentityLike {
   queueEntryId?: string;
 }
 
+/**
+ * Une identite locale doit rester lisible et bornee : une chaine blanche,
+ * immense ou heritee d'une file corrompue n'est pas une identite legitime, elle
+ * se repare.
+ */
+const LOCAL_ID_PATTERN = /^[A-Za-z0-9_.:-]{1,96}$/;
+
+/**
+ * Genere une identite locale unique, en NOMBRE BORNE d'essais.
+ *
+ * Une boucle non bornee sur un generateur degenere — qui rendrait toujours la
+ * meme valeur — bloquerait l'hydratation avant tout affichage.
+ */
+function generateUniqueLocalId(used: Set<string>, newId: () => string): string {
+  for (let attempt = 0; attempt < 32; attempt += 1) {
+    const candidate = newId();
+    if (LOCAL_ID_PATTERN.test(candidate) && !used.has(candidate)) return candidate;
+  }
+  throw new Error('Impossible de generer une identite locale unique.');
+}
+
 export interface QueueEntryIdentityReport<T> {
   operations: T[];
   /** Entrees migrees depuis une file persistee avant l'existence du champ. */
@@ -44,19 +65,19 @@ export function ensureQueueEntryIdentities<T extends QueueEntryIdentityLike>(
 
   const result = operations.map(operation => {
     const current = operation.queueEntryId;
-    const valid = typeof current === 'string' && current.length > 0;
+    const valid = typeof current === 'string' && LOCAL_ID_PATTERN.test(current);
 
     if (valid && !used.has(current as string)) {
       used.add(current as string);
       return operation;
     }
 
-    let candidate = newId();
-    // `newId` peut, en principe, rendre deux fois la meme valeur.
-    while (used.has(candidate)) candidate = newId();
+    const candidate = generateUniqueLocalId(used, newId);
     used.add(candidate);
 
-    if (valid) repaired += 1;
+    // Une identite presente mais illisible compte comme reparee : elle
+    // existait, elle etait simplement inutilisable.
+    if (typeof current === 'string' && current.length > 0) repaired += 1;
     else assigned += 1;
 
     return { ...operation, queueEntryId: candidate };
