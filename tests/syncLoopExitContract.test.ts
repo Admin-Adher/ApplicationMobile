@@ -526,6 +526,56 @@ describe('a failed hydration is actually retried', () => {
   });
 });
 
+describe('entering the queue never fabricates a proof of non-dispatch', () => {
+  const enqueue = source.slice(
+    source.indexOf('const enqueueOperation = useCallback'),
+    source.indexOf('const clearQueue = useCallback'),
+  );
+
+  it('defaults to started, not to never_started', () => {
+    // Plusieurs chemins tentent le serveur d'abord et n'enfilent qu'en cas
+    // d'erreur : cette requete a pu etre validee sans que sa reponse arrive.
+    // La marquer « jamais tentee » rendrait supprimable une ecriture dont le
+    // serveur detient peut-etre l'effet. Le risque n'est pas symetrique.
+    expect(enqueue).toContain("dispatchState: op.dispatchState ?? options?.dispatchState ?? 'started',");
+    expect(enqueue).not.toContain("dispatchState: 'never_started',");
+  });
+
+  it('lets the caller assert non-dispatch explicitly', () => {
+    expect(enqueue).toContain('options?: { dispatchState?: QueueDispatchState },');
+  });
+
+  it('asserts it for the deferred photo patch, whose upload just failed', () => {
+    // Ces photos n'ont PAS ete envoyees : leur upload vient d'echouer, et la
+    // reserve part sans elles.
+    const executor = source.slice(
+      source.indexOf('const executeQueuedOperation = async'),
+      source.indexOf('for (const op of currentQueue) {'),
+    );
+
+    expect(executor).toContain("dispatchState: 'never_started',");
+  });
+});
+
+describe('the purge resume has its own retry timer', () => {
+  it('does not share the hydration one', () => {
+    // Les confondre neutralisait la reprise : l'hydratation se terminait avec
+    // succes juste apres, annulait le timer et remettait sa reference a `null`.
+    expect(source).toContain('const schedulePurgeResumeRetry = useCallback');
+    expect(source).toContain('schedulePurgeResumeRetry(myHydrationGeneration);');
+
+    const hydrationRetry = source.slice(
+      source.indexOf('const scheduleHydrationRetry = useCallback'),
+      source.indexOf('const schedulePurgeResumeRetry = useCallback'),
+    );
+    expect(hydrationRetry).not.toContain('purgeResumeRetryTimerRef');
+  });
+
+  it('cancels it on unmount and on account change', () => {
+    expect(source.split('clearTimeout(purgeResumeRetryTimerRef.current)').length - 1).toBe(3);
+  });
+});
+
 describe('logs never carry business payloads', () => {
   it('reports the shape of a malformed comment patch, not its content', () => {
     // Le patch porte le texte du commentaire, parfois un nom : la discipline
