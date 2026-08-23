@@ -155,6 +155,7 @@ export default function SettingsScreen() {
     backendReachable,
     isOnline,
     syncStatus,
+    queueLoaded,
     syncProgress,
     syncAuthBlocked,
     clearQueue,
@@ -652,7 +653,7 @@ export default function SettingsScreen() {
 
   // Le garde-fou du provider reste AUTORITAIRE : griser le bouton ne protège
   // pas contre un changement d'état entre le rendu et l'appui.
-  const queueClearDisabled = syncStatus === 'syncing' || clearingQueue;
+  const queueClearDisabled = !queueLoaded || syncStatus === 'syncing' || clearingQueue;
 
   function handleClearQueue() {
     if (totalQueueCount === 0 || queueClearDisabled) return;
@@ -677,7 +678,9 @@ export default function SettingsScreen() {
               const ambiguous = result.keptAmbiguous.length
                 + result.keptWithoutIdentity.length
                 + result.keptWithoutCompensator.length;
-              if (ambiguous > 0) {
+              // Une saisie apparue PENDANT la purge laisse la file non vide :
+              // annoncer « File vidée » serait faux.
+              if (ambiguous > 0 || result.concurrentAdditions.length > 0) {
                 showAlert(
                   t('settings.syncQueue.clearKeptTitle'),
                   t('settings.syncQueue.clearKeptText', {

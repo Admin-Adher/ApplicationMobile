@@ -339,7 +339,9 @@ describe('the queue purge is durable and keeps what came after it', () => {
     // pas verifier. Elles vivent dans `lib/manualQueuePurge.ts`, prouvees
     // avec des promesses controlees.
     expect(purge).toContain('runManualQueuePurge<QueuedOperation>');
-    expect(purge).toContain('isSyncing: () => syncingRef.current,');
+    // L'hydratation publie elle aussi dans `queueRef` : deux proprietaires
+    // concurrents ecriraient la meme file.
+    expect(purge).toContain('isSyncing: () => syncingRef.current || !queueLoadedRef.current,');
     expect(purge).toContain('isPurgeable: isUnambiguouslyPurgeableOperation,');
   });
 
@@ -381,18 +383,55 @@ describe('the queue purge is durable and keeps what came after it', () => {
     expect(compensator).not.toContain('.catch(');
   });
 
-  it('proves a dispatch could have happened BEFORE the first request', () => {
-    // Sans cette preuve durable, la purge ne distingue pas une operation jamais
-    // envoyee d'une operation dont la reponse s'est perdue.
+  it('marks the dispatch proof BEFORE building the working snapshot', () => {
+    // La marquer apres coup ne suffisait pas : `fail()` reconstruit l'operation
+    // differee a partir de l'objet du snapshot, qui portait encore
+    // `never_started`. Une operation reellement envoyee redevenait « jamais
+    // tentee », donc supprimable par la purge.
+    const marking = source.indexOf("dispatchState: 'started' as const");
+    const snapshot = source.indexOf('const currentQueue = queueRef.current.filter(isReplayableQueuedOperation)');
+
+    expect(marking).toBeGreaterThan(-1);
+    expect(marking).toBeLessThan(snapshot);
+  });
+
+  it('sends nothing when that proof cannot be persisted', () => {
     const pass = source.slice(
-      source.indexOf('setSyncProgress({ done: 0, total: currentQueue.length });'),
-      source.indexOf('const fail = ('),
+      source.indexOf("dispatchState: 'started' as const"),
+      source.indexOf('const currentQueue = queueRef.current.filter(isReplayableQueuedOperation)'),
     );
 
-    expect(pass).toContain("dispatchState: 'started' as const");
     expect(pass).toContain('write: next => writeQueueStrict(next),');
-    // Si la preuve n'atteint pas le disque, aucune requete ne part.
+    expect(pass).toContain('scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);');
     expect(pass).toContain('return;');
+    // Une passe preemptee ne doit pas reecrire la file du compte suivant.
+    expect(pass).toContain("throw new Error('Passe de synchronisation obsolete.')");
+  });
+
+  it('guards the purge resume with the hydration generation', () => {
+    const hydration = source.slice(
+      source.indexOf('const loadQueue = useCallback'),
+      source.indexOf('lastLoadedKeyRef.current = userKey ?? anonKey;'),
+    );
+
+    expect(hydration).toContain('const assertHydrationOwner = () => {');
+    expect(hydration).toContain('assertCurrent: assertHydrationOwner,');
+    expect(hydration).toContain('await reconcilePurgedOperationRef.current(operation);');
+  });
+
+  it('closes the compensator registry rather than assuming a no-op is safe', () => {
+    // Une invalidation de requete n'est pas une compensation : hors ligne, ou
+    // avec l'ecran inactif, aucun refetch autoritaire n'a lieu — l'operation
+    // disparaitrait pendant que le cache DURABLE garde son etat optimiste.
+    const compensator = source.slice(
+      source.indexOf('const purgeCompensatorFor = useCallback'),
+      source.indexOf('const reconcilePurgedOperation = useCallback'),
+    );
+
+    expect(compensator).not.toContain('invalidateQueries');
+    expect(compensator).not.toContain('return async () => {};');
+    expect(compensator.trimEnd().endsWith('}, [userId]);')).toBe(true);
+    expect(compensator).toContain('return null;');
   });
 
   it('resumes an interrupted purge before any pass', () => {

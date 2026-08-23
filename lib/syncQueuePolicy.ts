@@ -5,6 +5,8 @@ export interface SyncQueueOperationLike {
   terminal?: boolean;
   /** Suppression manuelle en cours : reconciliation pas encore terminee. */
   purgeState?: string;
+  /** Deux ecritures divergentes derriere un identifiant idempotent. */
+  quarantined?: boolean;
   terminalStatus?: string;
   terminalOutcome?: SyncQueueTerminalOutcome;
   attemptCount?: number;
@@ -37,6 +39,8 @@ export interface SyncQueueCounts {
   pending: number;
   rejected: number;
   stuck: number;
+  /** Suppressions manuelles en attente de reconciliation locale. */
+  purgePending: number;
   /** Operations requiring attention, without double-counting terminal failures. */
   attention: number;
 }
@@ -342,6 +346,21 @@ export function shouldAbandonPassAfterInfrastructureFailure(consecutiveFailures:
   return consecutiveFailures >= SYNC_INFRA_CIRCUIT_THRESHOLD;
 }
 
+/**
+ * Cette entree doit-elle survivre au coalescing ?
+ *
+ * `coalesceQueuedOperations` ne garde que la DERNIERE entree d'une meme clef.
+ * Une entree protegee emportee par ce mecanisme disparaitrait sans que son
+ * effet local soit repare : une purge marquee `pending_reconciliation` mais
+ * jamais reconciliee, un refus que l'utilisateur n'a pas encore acquitte, ou
+ * une quarantaine mise de cote pour arbitrage.
+ */
+export function mustSurviveCoalescing(operation: SyncQueueOperationLike): boolean {
+  return operation.purgeState === 'pending_reconciliation'
+    || operation.terminal === true
+    || operation.quarantined === true;
+}
+
 export function isReplayableQueuedOperation(operation: SyncQueueOperationLike): boolean {
   // Une entree en attente de reconciliation a deja quitte le circuit : la
   // rejouer enverrait au serveur une ecriture que l'utilisateur vient de
@@ -358,8 +377,16 @@ export function getSyncQueueCounts(queue: SyncQueueOperationLike[]): SyncQueueCo
   let pending = 0;
   let rejected = 0;
   let stuck = 0;
+  let purgePending = 0;
 
   for (const operation of queue) {
+    // Une suppression en attente de reconciliation n'est ni un rejeu en
+    // attente ni un refus : la compter comme « en attente » laisserait croire
+    // qu'elle repartira, alors qu'elle attend une reparation locale.
+    if (operation.purgeState === 'pending_reconciliation') {
+      purgePending += 1;
+      continue;
+    }
     if (operation.terminal) {
       rejected += 1;
       continue;
@@ -369,7 +396,13 @@ export function getSyncQueueCounts(queue: SyncQueueOperationLike[]): SyncQueueCo
     if ((operation.attemptCount ?? 0) >= 3) stuck += 1;
   }
 
-  return { pending, rejected, stuck, attention: rejected + stuck };
+  return {
+    pending,
+    rejected,
+    stuck,
+    purgePending,
+    attention: rejected + stuck + purgePending,
+  };
 }
 
 export function getSyncQueueOperationDomain(operation: SyncQueueOperationLike): SyncQueueOperationDomain {

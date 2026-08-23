@@ -1,7 +1,13 @@
 import { sitePlanSnapshotCoalesceKey } from './plan-annotations/site-plan-write-policy';
 
+import { mustSurviveCoalescing } from './syncQueuePolicy';
+
 export interface CoalescibleQueuedOperation {
   coalesceKey?: string;
+  /** Etats proteges : voir `mustSurviveCoalescing`. */
+  purgeState?: string;
+  terminal?: boolean;
+  quarantined?: boolean;
 }
 
 export interface MigratableQueuedOperation extends CoalescibleQueuedOperation {
@@ -41,11 +47,17 @@ export function coalesceQueuedOperations<T extends CoalescibleQueuedOperation>(
 ): T[] {
   const newestIndexByKey = new Map<string, number>();
   operations.forEach((operation, index) => {
+    // Une entree PROTEGEE ne participe pas : elle ne peut ni remplacer une
+    // autre, ni etre remplacee. Emportee par le coalescing, une purge marquee
+    // `pending_reconciliation` disparaitrait avant que son effet local soit
+    // repare, et un refus non acquitte perdrait sa trace.
+    if (mustSurviveCoalescing(operation)) return;
     const key = String(operation.coalesceKey ?? '').trim();
     if (key) newestIndexByKey.set(key, index);
   });
 
   return operations.filter((operation, index) => {
+    if (mustSurviveCoalescing(operation)) return true;
     const key = String(operation.coalesceKey ?? '').trim();
     return !key || newestIndexByKey.get(key) === index;
   });
