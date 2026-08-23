@@ -232,34 +232,82 @@ const FAILURE_BLOCK = [
  * retenu. Melanger un message avec la classe d'une AUTRE erreur produirait un
  * diagnostic faux.
  */
+interface TerminalVerdictSignature {
+  status: string | null;
+  outcomeFingerprint: string | null;
+}
+
+/**
+ * Verdict terminal porte par UNE copie, statut et resultat lus ensemble.
+ *
+ * Les comparer separement laissait passer la forme croisee : le statut de la
+ * copie A et le resultat de la copie B pouvaient etre choisis independamment,
+ * chacun unique dans son propre ensemble, et la fusion produisait une operation
+ * refusee pour un motif qui n'est pas le sien. `terminalOutcome` pilote le
+ * rollback de stock : ce n'est pas un detail d'affichage.
+ *
+ * Rend `null` — donc « incomparable » — quand la copie se contredit elle-meme,
+ * ou quand son resultat n'est pas lisible.
+ */
+function terminalVerdictSignature(copy: Record<string, unknown>): TerminalVerdictSignature | null {
+  const directStatus = typeof copy.terminalStatus === 'string' && copy.terminalStatus.trim()
+    ? copy.terminalStatus.trim()
+    : null;
+
+  const outcome = copy.terminalOutcome && typeof copy.terminalOutcome === 'object'
+    && !Array.isArray(copy.terminalOutcome)
+    ? copy.terminalOutcome as Record<string, unknown>
+    : null;
+
+  const outcomeStatus = typeof outcome?.status === 'string' && outcome.status.trim()
+    ? (outcome.status as string).trim()
+    : null;
+
+  // Une meme copie ne peut deja pas se contredire.
+  if (directStatus && outcomeStatus && directStatus !== outcomeStatus) return null;
+
+  const outcomeFingerprint = outcome ? queueOperationFingerprint({ data: outcome }) : null;
+  if (outcome && outcomeFingerprint === null) return null;
+
+  return { status: directStatus ?? outcomeStatus, outcomeFingerprint };
+}
+
 /**
  * L'etat AUTORITAIRE des copies est-il compatible ?
  *
  * Un contenu metier identique ne suffit pas : deux copies peuvent porter des
- * verdicts terminaux DIFFERENTS. Prendre le statut de l'une et le resultat de
- * l'autre — deux recherches independantes — produisait une operation refusee
- * pour un motif qui n'est pas le sien, et `terminalOutcome` pilote la
- * reconciliation du stock. Quand les verdicts divergent, on ne fusionne pas.
+ * verdicts terminaux differents, ou une quarantaine dont le motif a disparu.
+ * Dans les deux cas on ne fusionne pas — un etat autoritaire ne se recompose
+ * pas a partir de morceaux.
  */
-function terminalStatesAreCompatible<T extends Record<string, unknown>>(copies: T[]): boolean {
+function authoritativeStatesAreCompatible<T extends Record<string, unknown>>(copies: T[]): boolean {
+  const signatures = copies.map(terminalVerdictSignature);
+  if (signatures.some(signature => signature === null)) return false;
+
   const statuses = new Set(
-    copies
-      .map(copy => copy.terminalStatus)
-      .filter((value): value is string => typeof value === 'string' && value.length > 0),
+    signatures.map(signature => signature!.status).filter((value): value is string => value !== null),
   );
   if (statuses.size > 1) return false;
 
   const outcomes = new Set(
-    copies
-      .map(copy => copy.terminalOutcome)
-      .filter(value => value !== undefined && value !== null)
-      .map(value => queueOperationFingerprint({ data: value as Record<string, unknown> }) ?? '<illisible>'),
+    signatures
+      .map(signature => signature!.outcomeFingerprint)
+      .filter((value): value is string => value !== null),
   );
-  // Deux resultats illisibles ne sont pas prouves egaux : la marque unique les
-  // rendrait faussement compatibles.
-  if (outcomes.has('<illisible>')) return false;
+  if (outcomes.size > 1) return false;
 
-  return outcomes.size <= 1;
+  // Une quarantaine sans motif ne peut etre ni expliquee ni arbitree, et deux
+  // motifs contradictoires ne se choisissent pas.
+  if (copies.some(copy => copy.quarantined === true)) {
+    const reasons = new Set(
+      copies
+        .map(copy => copy.quarantineReason)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+    );
+    if (reasons.size !== 1) return false;
+  }
+
+  return true;
 }
 
 /** Efface un champ dont AUCUNE copie ne fournit de valeur exploitable. */
@@ -352,7 +400,7 @@ export function resolveDuplicateQueueIds<T extends QueueIdentityLike & Record<st
     const fingerprints = copies.map(queueOperationFingerprint);
     const comparable = fingerprints.every(fingerprint => fingerprint !== null);
 
-    if (comparable && new Set(fingerprints).size === 1 && terminalStatesAreCompatible(copies)) {
+    if (comparable && new Set(fingerprints).size === 1 && authoritativeStatesAreCompatible(copies)) {
       // Contenu identique : la duplication est un artefact, pas une donnee.
       replacementByIndex.set(positions[0], [mergeIdenticalCopies(copies)]);
       for (const index of positions.slice(1)) droppedIndices.add(index);

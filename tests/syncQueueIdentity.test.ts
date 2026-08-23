@@ -300,8 +300,44 @@ describe('an authoritative state is never assembled from two verdicts', () => {
     expect(merged.terminal).toBe(true);
   });
 
-  it('never leaves a quarantine without a reason', () => {
-    // Une operation bloquee sans motif ne peut etre ni expliquee ni arbitree.
+  it('quarantines a status that contradicts ANOTHER copy outcome', () => {
+    // Forme croisee : chaque ensemble ne contenait qu'une valeur, donc les deux
+    // controles independants concluaient « compatible », puis la fusion prenait
+    // le statut de l'une et le resultat de l'autre. `terminalOutcome` pilote le
+    // rollback de stock : l'operation aurait ete annulee pour un motif qui
+    // n'est pas le sien.
+    const { resolutions, operations } = resolve([
+      movement('op-1', { terminal: true, terminalStatus: 'forbidden' }),
+      movement('op-1', { terminal: true, terminalOutcome: { domain: 'inventory', status: 'insufficient_stock' } }),
+    ]);
+
+    expect(resolutions).toEqual([{ kind: 'quarantined', id: 'op-1', entries: 2 }]);
+    expect(operations).toHaveLength(2);
+  });
+
+  it('still merges a status that AGREES with another copy outcome', () => {
+    // Verrou sur la premisse : tout mettre en quarantaine ferait passer le test
+    // ci-dessus sans rien prouver.
+    const { resolutions, operations } = resolve([
+      movement('op-1', { terminal: true, terminalStatus: 'forbidden' }),
+      movement('op-1', { terminal: true, terminalOutcome: { domain: 'inventory', status: 'forbidden' } }),
+    ]);
+
+    expect(resolutions[0].kind).toBe('deduplicated');
+    expect(operations[0].terminalStatus).toBe('forbidden');
+    expect(operations[0].terminalOutcome).toEqual({ domain: 'inventory', status: 'forbidden' });
+  });
+
+  it('quarantines a copy that contradicts itself', () => {
+    const { resolutions } = resolve([
+      movement('op-1', { terminalStatus: 'forbidden', terminalOutcome: { status: 'not_found' } }),
+      movement('op-1'),
+    ]);
+
+    expect(resolutions[0].kind).toBe('quarantined');
+  });
+
+  it('keeps a quarantine reason that every copy agrees on', () => {
     const merged = resolve([
       movement('op-1'),
       movement('op-1', { quarantined: true, quarantineReason: 'duplicate_id_mismatch' }),
@@ -309,6 +345,29 @@ describe('an authoritative state is never assembled from two verdicts', () => {
 
     expect(merged.quarantined).toBe(true);
     expect(merged.quarantineReason).toBe('duplicate_id_mismatch');
+  });
+
+  it('repairs a quarantined copy whose reason is missing', () => {
+    // Le test precedent injectait un motif valide : il ne couvrait pas la
+    // corruption que son nom annoncait. Une quarantaine sans motif ne peut etre
+    // ni expliquee ni arbitree — le groupe entier repasse par la marque.
+    const { operations } = resolve([
+      movement('op-1', { quarantined: true }),
+      movement('op-1'),
+    ]);
+
+    expect(operations).toHaveLength(2);
+    expect(operations.every(o => o.quarantined === true)).toBe(true);
+    expect(operations.every(o => o.quarantineReason === 'duplicate_id_mismatch')).toBe(true);
+  });
+
+  it('refuses two contradictory quarantine reasons', () => {
+    const { resolutions } = resolve([
+      movement('op-1', { quarantined: true, quarantineReason: 'duplicate_id_mismatch' }),
+      movement('op-1', { quarantined: true, quarantineReason: 'autre_motif' }),
+    ]);
+
+    expect(resolutions[0].kind).toBe('quarantined');
   });
 
   it('erases a corrupted value no copy can replace', () => {
