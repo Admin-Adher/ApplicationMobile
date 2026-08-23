@@ -1,5 +1,6 @@
+import { redactSensitiveText } from './redactSensitiveText';
 import {
-  assessPermanentFailure,
+  assessRepeatedPermanentFailure,
   shouldAbandonPassAfterInfrastructureFailure,
   type SyncFailureTrackingLike,
   type SyncQueueTerminalOutcome,
@@ -90,7 +91,11 @@ const MAX_MESSAGE_PART = 500;
 
 function safeText(value: unknown, maxLength: number): string | null {
   if (typeof value !== 'string') return null;
-  const trimmed = value.trim().replace(/\s+/g, ' ');
+  // La liste blanche protege des proprietes attachees par un SDK ; elle ne dit
+  // rien du CONTENU des champs autorises. Un `message`, un `details` ou une
+  // erreur chaine peut porter un JWT, une URL signee, un chemin de photo ou
+  // une adresse e-mail. On expurge avant de borner.
+  const trimmed = redactSensitiveText(value).trim().replace(/\s+/g, ' ');
   return trimmed ? trimmed.slice(0, maxLength) : null;
 }
 
@@ -142,7 +147,10 @@ export function classifyFailureOutcome(input: FailureClassificationInput): Failu
   const message = formatSyncFailureMessage(error, 'Erreur inconnue');
   const currentAttempts = normalizeAttemptCount(operation.attemptCount);
   const currentSameFailures = normalizeSameFailureCount(operation.sameFailureCount);
-  const lastHttpStatus = typeof input.meta?.status === 'number' ? input.meta.status : null;
+  // Recopie, jamais reinterprete : ne lire que `meta.status` rendait
+  // `rate_limited` avec `lastHttpStatus: null` des que le 429 n'arrivait que
+  // sur l'erreur.
+  const lastHttpStatus = decision.httpStatus;
 
   // ── Annulation volontaire ────────────────────────────────────────────────
   // Elle ne consomme rien : ni tentative, ni serie, ni echeance. La generation
@@ -184,7 +192,15 @@ export function classifyFailureOutcome(input: FailureClassificationInput): Failu
     );
   }
 
-  const serviceFailureStreak = decision.contributesToCircuit ? consecutiveServiceFailures + 1 : 0;
+  // Une erreur locale qui ne prouve rien sur la sante du backend ne doit pas
+  // effacer la serie : la remise a zero systematique produisait 1 -> 0 -> 1 sur
+  // « timeout, erreur locale, timeout », et le circuit ne s'ouvrait jamais.
+  let serviceFailureStreak = consecutiveServiceFailures;
+  if (decision.contributesToCircuit) {
+    serviceFailureStreak += 1;
+  } else if (decision.reachedServer) {
+    serviceFailureStreak = 0;
+  }
   const reachesServiceThreshold = decision.contributesToCircuit
     && shouldAbandonPassAfterInfrastructureFailure(serviceFailureStreak);
 
@@ -194,7 +210,18 @@ export function classifyFailureOutcome(input: FailureClassificationInput): Failu
   // globale en simple echec local, sinon la passe continuerait d'envoyer.
   const mustAbandon = decision.blocksCurrentPass || reachesServiceThreshold;
 
-  const assessment = assessPermanentFailure(operation, error);
+  // `computeRetryDecision` a deja tranche. `assessRepeatedPermanentFailure` ne
+  // fait plus que compter les refus identiques consecutifs, et recoit le statut
+  // NORMALISE : l'ancienne evaluation ne voyait que `error`, si bien qu'une
+  // erreur `{ message: 'not found' }` accompagnee de `meta.status = 404` restait
+  // rejouable indefiniment malgre trois refus identiques.
+  const assessment = decision.failureClass === 'permanent_candidate'
+    ? assessRepeatedPermanentFailure({
+      operation,
+      error,
+      status: decision.httpStatus ?? undefined,
+    })
+    : { fingerprint: null, sameFailureCount: 0, terminal: false };
   // Un refus deduit est une PRESOMPTION tiree de trois verdicts identiques ; une
   // panne globale du transport est un FAIT observe. Le fait l'emporte : deduire
   // un refus definitif alors que le lien vient de tomber condamnerait une

@@ -85,9 +85,15 @@ describe('sync diagnostic export', () => {
       message: 'Produit Cable HTA chantier Opera invalide pour jean.dupont@example.com',
     });
 
-    // Verrou sur la premisse : si l'empreinte cessait de porter ces valeurs, ce
-    // test deviendrait vide sans que personne ne le remarque.
-    expect(realFingerprint).toContain('jean.dupont@example.com');
+    // Defense en profondeur : l'empreinte expurge desormais les secrets
+    // reconnaissables — jeton, chemin local, adresse e-mail — avant meme d'etre
+    // persistee dans la file.
+    expect(realFingerprint).not.toContain('jean.dupont@example.com');
+
+    // Verrou sur la premisse : le texte metier, lui, n'est pas un secret
+    // reconnaissable et survit integralement. Si l'empreinte cessait de le
+    // porter, ce test deviendrait vide sans que personne ne le remarque — et
+    // c'est bien ce qui justifie l'alias local dans l'export.
     expect(realFingerprint).toContain('chantier opera');
 
     const report = buildSyncDiagnosticReport(

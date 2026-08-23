@@ -1,3 +1,5 @@
+import { redactSensitiveText } from './redactSensitiveText';
+
 export interface SyncQueueOperationLike {
   table?: string;
   terminal?: boolean;
@@ -224,10 +226,17 @@ const VOLATILE_FAILURE_MESSAGE_PATTERNS: [RegExp, string][] = [
  * rendait le 404 terminal du premier coup, puisque seul le nombre total de
  * tentatives était consulté.
  */
-export function syncFailureFingerprint(error: any): string {
+export function syncFailureFingerprint(error: any, transportStatus?: number): string {
   const code = String(error?.code ?? '').toUpperCase().trim();
-  const status = syncErrorStatus(error);
-  let message = String(error?.message ?? error ?? '').toLowerCase().trim();
+  const status = Number.isFinite(transportStatus) && (transportStatus as number) > 0
+    ? (transportStatus as number)
+    : syncErrorStatus(error);
+  // Expurge AVANT normalisation, pour deux raisons. Fuite : l'empreinte est
+  // persistee dans la file et recopiee dans l'export de diagnostic, et la
+  // substitution des chiffres ne suffit pas a detruire un JWT. Justesse : une
+  // URL signee changeant a chaque tentative donnait une empreinte differente a
+  // chaque fois, si bien que trois refus identiques n'etaient jamais reconnus.
+  let message = redactSensitiveText(String(error?.message ?? error ?? '')).toLowerCase().trim();
   for (const [pattern, token] of VOLATILE_FAILURE_MESSAGE_PATTERNS) {
     message = message.replace(pattern, token);
   }
@@ -255,17 +264,20 @@ export interface PermanentFailureAssessment {
  * empreinte différente) casse la série : une écriture utilisateur ne doit jamais
  * être requalifiée en refus sur la foi d'échecs hétérogènes.
  */
-export function assessPermanentFailure(
-  operation: SyncFailureTrackingLike,
-  error: any,
-): PermanentFailureAssessment {
-  if (!isPermanentSyncFailure(error)) {
-    return { fingerprint: null, sameFailureCount: 0, terminal: false };
-  }
-
-  const fingerprint = syncFailureFingerprint(error);
-  const sameFailureCount = operation.lastFailureFingerprint === fingerprint
-    ? (operation.sameFailureCount ?? 0) + 1
+export function assessRepeatedPermanentFailure(input: {
+  operation: SyncFailureTrackingLike;
+  error: any;
+  /** Statut deja normalise par la politique de reessai. */
+  status?: number;
+}): PermanentFailureAssessment {
+  // Cette fonction ne decide PLUS si l'erreur est permanente : `classifySyncFailure`
+  // a deja tranche. Elle repassait auparavant par `isPermanentSyncFailure`, qui
+  // ne voyait que `error` — sans le statut du transport, une erreur
+  // `{ message: 'not found' }` avec `meta.status = 404` n'etait jamais reconnue
+  // comme un refus deterministe et restait rejouable indefiniment.
+  const fingerprint = syncFailureFingerprint(input.error, input.status);
+  const sameFailureCount = input.operation.lastFailureFingerprint === fingerprint
+    ? (input.operation.sameFailureCount ?? 0) + 1
     : 1;
 
   return {

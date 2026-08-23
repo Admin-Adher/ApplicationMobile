@@ -1340,6 +1340,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const terminalReconciliations: { op: QueuedOperation; outcome: SyncQueueTerminalOutcome }[] = [];
     let circuitOpened = false;
     let circuitDelayMs = 0;
+    // Portee globale rendue par la politique P5. Un 429, ou un 503 porteur d'un
+    // `Retry-After`, arrete toute la passe SANS alimenter une deuxieme fois le
+    // compteur exponentiel : le blocage est deja porte par `blocksCurrentPass`.
+    // Tant que les 37 sorties ne sont pas converties en `return`, la valeur
+    // rendue par `fail()` est ignoree par la boucle — ce drapeau est le pont.
+    let passMustStop = false;
     // Échecs d'infrastructure d'affilée. Remis à zéro par chaque opération qui
     // aboutit : sur un lien instable, un timeout isolé ne dit rien de la
     // suivante, et abandonner la passe trop tôt gelait toute la file.
@@ -1395,24 +1401,31 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         terminalReconciliations.push({ op, outcome: resolvedOutcome });
       }
 
-      const failedOperation: QueuedOperation = {
-        ...op,
-        lastError: verdict.message,
-        attemptCount: verdict.attemptCount,
-        lastFailureFingerprint: verdict.fingerprint ?? undefined,
-        sameFailureCount: verdict.sameFailureCount,
-        // Metadonnees P5 : persistees des maintenant, exploitees par la passe
-        // dynamique au commit suivant.
-        lastFailureAt: new Date().toISOString(),
-        nextAttemptAt: verdict.nextAttemptAt ?? undefined,
-        failureClass: verdict.failureClass,
-        retrySource: verdict.retrySource ?? undefined,
-        lastHttpStatus: verdict.lastHttpStatus ?? undefined,
-        retryPolicyVersion: 1,
-        terminal: verdict.isTerminal,
-        terminalStatus: verdict.terminalStatus ?? op.terminalStatus,
-        terminalOutcome: resolvedOutcome ?? op.terminalOutcome,
-      };
+      // Une annulation volontaire n'est pas un echec. Le classificateur ne lui
+      // consomme aucune tentative ; ecrire malgre tout `lastError` et
+      // `lastFailureAt` la ferait apparaitre dans le diagnostic comme le
+      // dernier echec de l'operation. Si aucune tentative n'a ete consommee,
+      // aucune metadonnee d'echec n'est ecrite.
+      const failedOperation: QueuedOperation = verdict.incrementAttempt
+        ? {
+          ...op,
+          lastError: verdict.message,
+          attemptCount: verdict.attemptCount,
+          lastFailureFingerprint: verdict.fingerprint ?? undefined,
+          sameFailureCount: verdict.sameFailureCount,
+          // Metadonnees P5 : persistees des maintenant, exploitees par la passe
+          // dynamique au commit suivant.
+          lastFailureAt: new Date().toISOString(),
+          nextAttemptAt: verdict.nextAttemptAt ?? undefined,
+          failureClass: verdict.failureClass,
+          retrySource: verdict.retrySource ?? undefined,
+          lastHttpStatus: verdict.lastHttpStatus ?? undefined,
+          retryPolicyVersion: 1,
+          terminal: verdict.isTerminal,
+          terminalStatus: verdict.terminalStatus ?? op.terminalStatus,
+          terminalOutcome: resolvedOutcome ?? op.terminalOutcome,
+        }
+        : { ...op };
       failedOps.push(failedOperation);
 
       consecutiveInfraFailures = verdict.serviceFailureStreak;
@@ -1438,6 +1451,24 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (verdict.kind === 'abandon') {
+        passMustStop = true;
+        if (!circuitOpened && verdict.abandonReason === 'backend') {
+          // `circuitOpened` pilote la programmation d'apres-passe : sans lui,
+          // le bloc final remet `syncBackoffUntilRef` a zero et relance dans
+          // 30 s, ignorant l'echeance imposee par le serveur. On ouvre donc le
+          // disjoncteur SANS incrementer `syncInfrastructureFailureCountRef` :
+          // la portee backend ne doit pas etre comptabilisee deux fois.
+          const deadlineMs = verdict.nextAttemptAt
+            ? Date.parse(verdict.nextAttemptAt)
+            : Number.NaN;
+          circuitDelayMs = Number.isFinite(deadlineMs)
+            ? Math.max(0, deadlineMs - Date.now())
+            : SYNC_FAILURE_RETRY_DELAY_MS;
+          circuitOpened = true;
+          syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
+        }
+        // Une preemption arrete la passe sans creer de backoff artificiel :
+        // la generation suivante possede deja la file.
         return {
           kind: 'abandon',
           operation: failedOperation,
@@ -1456,7 +1487,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // Le disjoncteur ne s'ouvre qu'après plusieurs échecs d'infrastructure
       // consécutifs : à ce stade les opérations restantes échoueraient pour la
       // même raison. On les laisse intactes pour le réessai différé.
-      if (circuitOpened) break;
+      if (circuitOpened || passMustStop) break;
       // Si une passe plus récente nous a préemptés (nous étions gelés puis
       // réveillés), on cesse immédiatement tout travail : la passe courante
       // possède la file et a déjà rejoué (ou est en train de rejouer) ces ops.

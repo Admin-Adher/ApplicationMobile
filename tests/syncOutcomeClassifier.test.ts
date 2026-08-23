@@ -157,7 +157,72 @@ describe('global scope versus local failure', () => {
   });
 });
 
+describe('the service streak only resets on proof the server answers', () => {
+  it('keeps the streak through a local error that proves nothing', () => {
+    // La remise a zero systematique produisait 1 -> 0 -> 1 sur la sequence
+    // « timeout, erreur locale, timeout » : le circuit ne s'ouvrait jamais.
+    const result = classify({
+      error: new Error('quelque chose'),
+      consecutiveServiceFailures: 2,
+    });
+
+    expect(result.reachedServer).toBe(false);
+    expect(result.contributesToCircuit).toBe(false);
+    expect(result.serviceFailureStreak).toBe(2);
+  });
+
+  it('resets it as soon as the server renders a verdict', () => {
+    const result = classify({
+      error: { status: 400 },
+      meta: { status: 400 },
+      consecutiveServiceFailures: 2,
+    });
+
+    expect(result.reachedServer).toBe(true);
+    expect(result.serviceFailureStreak).toBe(0);
+  });
+});
+
+describe('the HTTP status is normalised once', () => {
+  it('reports it even when only the error carries it', () => {
+    // Le classificateur ne lisait que `meta.status` et rendait donc
+    // `rate_limited` avec `lastHttpStatus: null`.
+    const result = classify({ error: { status: 429 } });
+
+    expect(result.failureClass).toBe('rate_limited');
+    expect(result.lastHttpStatus).toBe(429);
+  });
+
+  it('reports nothing when nobody answered', () => {
+    expect(classify({ error: { message: 'Network request failed' } }).lastHttpStatus).toBeNull();
+  });
+});
+
 describe('terminal refusals', () => {
+  it('infers a refusal from a status carried only by the transport', () => {
+    // `assessPermanentFailure` ne recevait que `error` : sans statut dans
+    // l'objet erreur, l'empreinte ne s'incrementait jamais et l'operation
+    // restait rejouable malgre trois reponses 404 identiques.
+    let operation: FailureClassificationInput['operation'] = {};
+    const kinds: string[] = [];
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = classify({
+        operation,
+        error: { message: 'not found' },
+        meta: { status: 404, reachedServer: true },
+      });
+      kinds.push(result.kind);
+      operation = {
+        attemptCount: result.attemptCount,
+        lastFailureFingerprint: result.fingerprint ?? undefined,
+        sameFailureCount: result.sameFailureCount,
+      };
+    }
+
+    expect(kinds).toEqual(['deferred', 'deferred', 'terminal']);
+  });
+
   it('honours a business refusal established by the caller', () => {
     const result = classify({
       error: { status: 400, message: 'stock insuffisant' },
@@ -272,6 +337,43 @@ describe('failure messages stay on a whitelist', () => {
     const circular: Record<string, unknown> = {};
     circular.self = circular;
     expect(formatSyncFailureMessage(circular, 'repli')).toBe('repli');
+  });
+
+  it('redacts the CONTENT of the allowed fields, not just the property list', () => {
+    // Le test precedent placait les canaris dans `config` — une propriete
+    // refusee par la liste blanche. Rien ne verifiait `message`, `details`,
+    // `hint` ni une erreur chaine, qui traversent tous la liste blanche.
+    const message = formatSyncFailureMessage(
+      'Echec: Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.SIGNATURE_SECRETE '
+      + 'sur file:///data/user/0/photos/IMG_0042.jpg pour jean.dupont@exemple.fr',
+      'inconnu',
+    );
+
+    for (const canary of [
+      'eyJhbGciOiJIUzI1NiJ9', 'SIGNATURE_SECRETE', 'IMG_0042', 'jean.dupont@exemple.fr',
+    ]) {
+      expect(message, canary).not.toContain(canary);
+    }
+    // Le contexte utile survit.
+    expect(message).toContain('Echec');
+  });
+
+  it('redacts a signed URL inside details and hint', () => {
+    const message = formatSyncFailureMessage(
+      {
+        code: 'PGRST116',
+        message: 'upload refuse',
+        details: 'https://exemple.supabase.co/storage/v1/object/x?token=SECRET_SIGNE',
+        hint: 'reessayer avec apikey=CLE_PRIVEE',
+      },
+      'inconnu',
+    );
+
+    expect(message).not.toContain('SECRET_SIGNE');
+    expect(message).not.toContain('CLE_PRIVEE');
+    // L'hote reste lisible : il sert au diagnostic et n'est pas un secret.
+    expect(message).toContain('exemple.supabase.co');
+    expect(message).toContain('[PGRST116]');
   });
 
   it('bounds every part so a hostile payload cannot bloat the queue', () => {
