@@ -2259,12 +2259,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               const rebase = await rebaseReservePatchOnConflict(
                 { reserveId: String(op.filter.value), patch: data!, conflict: outcome },
                 {
-                  selectVersion: reserveId => supabaseRestSelect<any>(
+                  selectVersion: (reserveId, signal) => supabaseRestSelect<any>(
                     'reserves',
                     'version',
                     { column: 'id', value: reserveId },
+                    1,
+                    { signal },
                   ),
-                  applyPatch: applyReservePatchOperation,
+                  applyPatch: (patchParams, signal) => applyReservePatchOperation(patchParams, { signal }),
                   newOperationId,
                   // Les deux appels du rebase doivent être interruptibles, et
                   // aucun ne doit démarrer après une préemption : une écriture

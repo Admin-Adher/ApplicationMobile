@@ -16,10 +16,10 @@ const restResult = <T,>(over: Partial<SupabaseRestResult<T>>): SupabaseRestResul
 const CONFLICT_WITHOUT_VERSION = { status: 'version_conflict', reserve_id: 'r-1' } as const;
 
 function rebase(over: {
-  selectVersion?: () => Promise<SupabaseRestResult<any>>;
-  applyPatch?: () => Promise<SupabaseRestResult<any>>;
+  selectVersion?: (reserveId: string, signal?: AbortSignal) => Promise<SupabaseRestResult<any>>;
+  applyPatch?: (params: any, signal?: AbortSignal) => Promise<SupabaseRestResult<any>>;
   conflict?: Record<string, unknown>;
-  signal?: { aborted: boolean };
+  signal?: AbortSignal;
 } = {}) {
   const selectVersion = vi.fn(over.selectVersion ?? (async () => restResult({ data: [{ version: 7 }] })));
   const applyPatch = vi.fn(over.applyPatch ?? (async () => restResult({ data: [{ status: 'ok' }] })));
@@ -90,7 +90,7 @@ describe('the version SELECT is not allowed to fail silently', () => {
     const result = await harness.run();
 
     expect(harness.selectVersion).toHaveBeenCalledTimes(1);
-    expect(harness.applyPatch).toHaveBeenCalledWith(expect.objectContaining({ baseVersion: 7 }));
+    expect(harness.applyPatch.mock.calls[0][0]).toMatchObject({ baseVersion: 7 });
     expect(result.kind).toBe('applied');
   });
 
@@ -99,7 +99,7 @@ describe('the version SELECT is not allowed to fail silently', () => {
     await harness.run();
 
     expect(harness.selectVersion).not.toHaveBeenCalled();
-    expect(harness.applyPatch).toHaveBeenCalledWith(expect.objectContaining({ baseVersion: 12 }));
+    expect(harness.applyPatch.mock.calls[0][0]).toMatchObject({ baseVersion: 12 });
   });
 });
 
@@ -125,13 +125,15 @@ describe('no idempotent identity is burned without a write', () => {
     await harness.run();
 
     expect(harness.newOperationId).toHaveBeenCalledTimes(1);
-    expect(harness.applyPatch).toHaveBeenCalledWith(expect.objectContaining({ operationId: 'op-1' }));
+    expect(harness.applyPatch.mock.calls[0][0]).toMatchObject({ operationId: 'op-1' });
   });
 });
 
 describe('a preempted pass sends nothing', () => {
   it('reads nothing when the signal is already aborted', async () => {
-    const harness = rebase({ signal: { aborted: true } });
+    const controller = new AbortController();
+    controller.abort();
+    const harness = rebase({ signal: controller.signal });
     const result = await harness.run();
 
     expect(harness.selectVersion).not.toHaveBeenCalled();
@@ -144,11 +146,11 @@ describe('a preempted pass sends nothing', () => {
   });
 
   it('writes nothing when the pass is preempted during the read', async () => {
-    const signal = { aborted: false };
+    const controller = new AbortController();
     const harness = rebase({
-      signal,
+      signal: controller.signal,
       selectVersion: async () => {
-        signal.aborted = true;
+        controller.abort();
         return restResult({ data: [{ version: 7 }] });
       },
     });
@@ -166,10 +168,44 @@ describe('a preempted pass sends nothing', () => {
   it('still writes when no signal is aborted', async () => {
     // Verrou sur la premisse : sans lui, ne jamais ecrire ferait passer les
     // deux tests precedents sans rien prouver.
-    const harness = rebase({ signal: { aborted: false } });
+    const harness = rebase({ signal: new AbortController().signal });
     await harness.run();
 
     expect(harness.applyPatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('hands the signal to BOTH requests, not just to the guard between them', async () => {
+    // Une garde entre les etapes empeche de DEMARRER une requete apres la
+    // preemption ; elle n'interrompt pas celle qui est deja en vol. Un SELECT
+    // bloque continuerait jusqu'a sa reponse ou son delai d'attente.
+    const controller = new AbortController();
+    const harness = rebase({ signal: controller.signal });
+    await harness.run();
+
+    expect(harness.selectVersion.mock.calls[0]).toEqual(['r-1', controller.signal]);
+    expect(harness.applyPatch.mock.calls[0][1]).toBe(controller.signal);
+  });
+
+  it('lets an in-flight abort surface as a transport failure', async () => {
+    // Le transport rend `REST_ABORTED` : la politique le classe `cancelled`,
+    // donc aucune tentative n'est consommee.
+    const controller = new AbortController();
+    const harness = rebase({
+      signal: controller.signal,
+      applyPatch: async () => restResult({
+        error: { code: 'REST_ABORTED', message: 'aborted' },
+        meta: NO_RESPONSE_META,
+      }),
+    });
+
+    const result = await harness.run();
+
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    expect((result.error as any).code).toBe('REST_ABORTED');
+    // Meme identifiant : si l'ecriture a malgre tout abouti, le serveur rendra
+    // son resultat memorise.
+    expect(result.operationId).toBe('op-1');
   });
 });
 

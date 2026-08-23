@@ -51,20 +51,23 @@ export type ReserveRebaseResult =
   | { kind: 'terminal'; status: string; message?: string; meta: SupabaseRestMeta };
 
 export interface ReserveRebaseDependencies {
-  /** Lecture de la version courante, quand le conflit n'en porte pas. */
-  selectVersion: (reserveId: string) => Promise<SupabaseRestResult<any>>;
   /**
-   * Signal de la passe. Les deux appels doivent etre interruptibles, et aucun
-   * ne doit meme demarrer si la passe a deja ete preemptee : une ecriture
-   * envoyee apres la preemption serait rejouee par la generation suivante.
+   * Signal de la passe. Il est passe A CHAQUE appel, pas seulement consulte
+   * entre eux : une garde entre les etapes empeche de DEMARRER une requete
+   * apres la preemption, elle n'interrompt pas celle qui est deja en vol.
    */
-  signal?: { readonly aborted: boolean };
-  applyPatch: (params: {
-    operationId: string;
-    reserveId: string;
-    baseVersion: number | null;
-    patch: Record<string, any>;
-  }) => Promise<SupabaseRestResult<ReserveMutationResult>>;
+  signal?: AbortSignal;
+  /** Lecture de la version courante, quand le conflit n'en porte pas. */
+  selectVersion: (reserveId: string, signal?: AbortSignal) => Promise<SupabaseRestResult<any>>;
+  applyPatch: (
+    params: {
+      operationId: string;
+      reserveId: string;
+      baseVersion: number | null;
+      patch: Record<string, any>;
+    },
+    signal?: AbortSignal,
+  ) => Promise<SupabaseRestResult<ReserveMutationResult>>;
   /** Injecte : ce module doit rester chargeable hors React Native. */
   newOperationId: () => string;
 }
@@ -94,7 +97,7 @@ export async function rebaseReservePatchOnConflict(
     typeof params.conflict.current_version === 'number' ? params.conflict.current_version : null;
 
   if (currentVersion === null) {
-    const version = await dependencies.selectVersion(params.reserveId);
+    const version = await dependencies.selectVersion(params.reserveId, dependencies.signal);
 
     // Ce SELECT ignorait `error` et `meta` : une limitation, une panne ou une
     // coupure laissait `currentVersion` a null et envoyait QUAND MEME le second
@@ -128,7 +131,7 @@ export async function rebaseReservePatchOnConflict(
     reserveId: params.reserveId,
     baseVersion: currentVersion,
     patch: params.patch,
-  });
+  }, dependencies.signal);
 
   if (rpc.error) {
     // On reutilise le meme `operation_id` : si l'ecriture a en fait abouti, le

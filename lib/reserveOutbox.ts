@@ -100,12 +100,17 @@ export function isReserveMutationRpcUnavailable(error: any): boolean {
   );
 }
 
-export async function applyReservePatchOperation(params: {
-  operationId: string;
-  reserveId: string;
-  baseVersion?: number | null;
-  patch: Record<string, any>;
-}) {
+export async function applyReservePatchOperation(
+  params: {
+    operationId: string;
+    reserveId: string;
+    baseVersion?: number | null;
+    patch: Record<string, any>;
+  },
+  // Une ecriture partie apres la preemption serait rejouee par la generation
+  // suivante : elle doit etre annulable en vol, pas seulement evitable avant.
+  options?: { signal?: AbortSignal | null },
+) {
   const request = {
     fn: 'apply_reserve_patch',
     reserve_id: params.reserveId,
@@ -119,7 +124,7 @@ export async function applyReservePatchOperation(params: {
     p_reserve_id: params.reserveId,
     p_base_version: params.baseVersion ?? null,
     p_patch: params.patch,
-  });
+  }, options);
 }
 
 export async function appendReserveStatusEventOperation(params: {

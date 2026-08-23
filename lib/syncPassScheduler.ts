@@ -91,11 +91,17 @@ export type PassEntryKind =
  * ete decidee explicitement.
  */
 export interface PassEntryResult<T> {
-  /** Identite physique de l'entree, egale a son index dans le snapshot. */
+  /** Identite physique de l'entree. */
   token: number;
+  /**
+   * Index dans le snapshot COMPLET fourni a l'ordonnanceur.
+   *
+   * Les operations deja terminales n'entrent pas dans la passe : la suite des
+   * index peut donc avoir des trous. Un reconstructeur doit indexer avec
+   * `snapshot[entry.originalIndex]`, jamais avec la position de la ligne dans
+   * `entries`.
+   */
   originalIndex: number;
-  /** Version presente au debut de la passe. */
-  original: T;
   /** Version a persister : `execute` a pu enrichir l'operation. */
   resolved: T;
   kind: PassEntryKind;
@@ -106,10 +112,18 @@ export interface RunSyncPassResult<T> {
   /** Operations executees, succes comme echecs. */
   processed: number;
   /**
-   * Source NORMATIVE pour reconstruire la file : une ligne par entree du
-   * snapshot, y compris celles jamais tentees. Les tableaux ci-dessous en sont
-   * des vues derivees, pratiques a lire mais incapables de dire QUELLE entree
-   * physique a produit quelle issue.
+   * Source NORMATIVE pour reconstruire la file : une ligne par entree
+   * REJOUABLE du snapshot, y compris celles jamais tentees. Les operations
+   * deja terminales n'y figurent pas — elles n'entrent jamais dans la passe, et
+   * c'est au reconstructeur de les conserver depuis son propre snapshot.
+   *
+   * Aucune version « d'origine » n'est rendue : l'ordonnanceur transmet
+   * l'operation a `execute`, qui peut la muter en place. Un champ `original`
+   * serait donc une promesse que la structure ne tient pas. La version d'avant
+   * la passe est celle du snapshot que l'appelant a lui-meme conserve.
+   *
+   * Les tableaux ci-dessous sont des vues derivees, pratiques a lire mais
+   * incapables de dire QUELLE entree physique a produit quelle issue.
    */
   entries: PassEntryResult<T>[];
   applied: T[];
@@ -163,8 +177,6 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
 
   /** Version courante de chaque entree : `execute` peut la transformer. */
   const currentByToken = new Map<number, T>();
-  /** Version d'origine, conservee telle quelle pour le journal d'issues. */
-  const originalByToken = new Map<number, T>();
   const kindByToken = new Map<number, PassEntryKind>();
   const deadlineByToken = new Map<number, string | null>();
   const handledTokens = new Set<number>();
@@ -174,7 +186,6 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
   operations.forEach((operation, index) => {
     if (operation.terminal) return;
     currentByToken.set(index, operation);
-    originalByToken.set(index, operation);
     orderedTokens.push(index);
     remaining.push({ ...operation, __passToken: index } as Tracked<T>);
   });
@@ -300,7 +311,6 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
       // Le jeton EST l'index d'origine : rien dans l'identite d'une entree ne
       // doit dependre de son contenu.
       originalIndex: token,
-      original: originalByToken.get(token) as T,
       resolved: currentByToken.get(token) as T,
       kind: kindByToken.get(token) ?? 'untouched',
       nextAttemptAt: deadlineByToken.get(token) ?? null,

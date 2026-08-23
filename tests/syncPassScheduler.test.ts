@@ -241,8 +241,9 @@ describe('the entry journal carries physical identity', () => {
 
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].token).toBe(0);
-    expect(idOf(result.entries[0].original)).toBe('avant');
     expect(idOf(result.entries[0].resolved)).toBe('apres-rebase');
+    // La version d'AVANT la passe reste celle du snapshot de l'appelant.
+    expect(idOf(operations[0])).toBe('avant');
   });
 
   it('separates two entries sharing one identifier', async () => {
@@ -276,6 +277,30 @@ describe('the entry journal carries physical identity', () => {
 
     expect(result.entries.map(entry => entry.kind)).toEqual(['abandon', 'untouched']);
     expect(result.entries[0].nextAttemptAt).toBe(iso(NOW + 120_000));
+  });
+
+  it('promises no original version, because execute may mutate in place', async () => {
+    // Un champ `original` serait une promesse que la structure ne tient pas :
+    // l'ordonnanceur transmet l'operation elle-meme, et rien n'empeche
+    // `execute` d'en muter un payload imbrique. Le reconstructeur doit donc
+    // utiliser SON propre snapshot, pris avant la passe.
+    const snapshot = [{ ...movement('a1', 'A', 10), data: { value: 1 } }];
+
+    const result = await runSyncPass({
+      operations: snapshot,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      execute: async operation => {
+        (operation as any).data.value = 2;
+        return { kind: 'deferred', operation, nextAttemptAt: null };
+      },
+    });
+
+    // Demonstration de la mutation possible : c'est bien pour cela qu'aucune
+    // version d'origine n'est promise.
+    expect((snapshot[0] as any).data.value).toBe(2);
+    expect(result.entries[0]).not.toHaveProperty('original');
+    expect(result.entries[0].token).toBe(0);
   });
 
   it('skips operations already terminal, leaving no journal line for them', async () => {
