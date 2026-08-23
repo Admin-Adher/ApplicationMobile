@@ -7,7 +7,7 @@ import {
 } from '../components/pdfPlanViewerNativeBridge';
 
 const viewerSource = readFileSync(
-  fileURLToPath(new URL('../components/PdfPlanViewer.tsx', import.meta.url)),
+  fileURLToPath(new URL('../components/PdfPlanViewer.tsx', import.meta.url).href),
   'utf8',
 );
 

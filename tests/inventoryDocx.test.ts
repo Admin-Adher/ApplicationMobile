@@ -36,7 +36,7 @@ const expected = {
 
 describe('inventory DOCX export', () => {
   it('keeps package resolution in each app instead of the shared engine', () => {
-    const enginePath = fileURLToPath(new URL('../lib/inventoryDocxEngine.ts', import.meta.url));
+    const enginePath = fileURLToPath(new URL('../lib/inventoryDocxEngine.ts', import.meta.url).href);
     expect(readFileSync(enginePath, 'utf8')).not.toContain("from 'fflate'");
   });
 

@@ -58,6 +58,12 @@ jobs:
       - name: Type-check Expo application
         run: npx tsc --noEmit --pretty false
 
+      # La suite Vitest n'etait couverte par AUCUN type-check : `tests/**` est
+      # absent du tsconfig applicatif. Une signature obsolete y survivait donc
+      # sans que rien ne la signale.
+      - name: Type-check Vitest suite
+        run: npx tsc -p tsconfig.tests.json --noEmit --pretty false
+
       - name: Type-check canonical Next.js server
         working-directory: vercel-app
         run: npx tsc --noEmit --pretty false

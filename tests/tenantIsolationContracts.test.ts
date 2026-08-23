@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 function repoPath(relative: string) {
-  return fileURLToPath(new URL(`../${relative}`, import.meta.url));
+  return fileURLToPath(new URL(`../${relative}`, import.meta.url).href);
 }
 
 function source(relative: string) {
