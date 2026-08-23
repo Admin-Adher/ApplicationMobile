@@ -344,21 +344,26 @@ describe('unstable-network replay policy', () => {
       'utf8',
     ).replace(/\r\n/g, '\n');
 
-    // Le compteur consécutif est borné par la passe, le compteur exponentiel
-    // par un succès : sans cette remise à zéro le backoff restait épinglé à
-    // son maximum de 5 min pendant des heures.
+    // Le compteur exponentiel est remis à zéro par une preuve que le backend
+    // répond : sans cela le backoff restait épinglé à son maximum de 5 min
+    // pendant des heures.
     //
     // Le succès est maintenant DÉCLARÉ par l'issue, non plus déduit de
     // `failedOps.length`. L'ancienne heuristique se trompait dans les deux
     // sens : une réserve écrite avec un patch photo différé était comptée en
     // échec, et un patch de commentaire malformé — abandonné sans qu'aucun
     // serveur ne soit joint — remettait le backoff à zéro.
-    expect(source).toContain("if (outcome.kind === 'applied') {");
-    expect(source).toContain('consecutiveInfraFailures = 0;');
+    expect(source).toContain("if (outcome.kind === 'applied' || outcome.provesServerReachable === true) {");
+    expect(source).toContain('syncInfrastructureFailureCountRef.current = 0;');
     expect(source).not.toContain('failedOps.length === failedOpsBefore');
+    // La série consécutive, elle, est pliée par un module pur — voir
+    // `tests/syncServiceStreak.test.ts`, qui l'éprouve vraiment.
+    expect(source).toContain('consecutiveInfraFailures = nextServiceFailureStreak({');
+    expect(source).not.toContain('consecutiveInfraFailures = verdict.serviceFailureStreak;');
     // Le seuil lui-meme vit desormais dans le classificateur pur, teste
-    // directement ; le moteur ne fait qu'appliquer son verdict.
-    expect(source).toContain('consecutiveInfraFailures = verdict.serviceFailureStreak;');
+    // directement ; le moteur ne fait qu'appliquer son verdict, que la boucle
+    // plie ensuite avec les issues non-echec.
+    expect(source).toContain('failureStreak: outcome.serviceFailureStreak,');
     const classifier = readFileSync(
       resolve(import.meta.dirname, '..', 'lib/syncOutcomeClassifier.ts'),
       'utf8',
