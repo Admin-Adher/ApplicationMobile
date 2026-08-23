@@ -226,8 +226,20 @@ const VOLATILE_FAILURE_MESSAGE_PATTERNS: [RegExp, string][] = [
  * rendait le 404 terminal du premier coup, puisque seul le nombre total de
  * tentatives était consulté.
  */
+/**
+ * `formatSyncFailureMessage` valide le format du code avant de l'exposer ;
+ * l'empreinte le reprenait brut alors qu'elle est persistee dans la file ET
+ * regroupee dans l'export. Un `code` arbitraire — objet serialise, texte long,
+ * valeur injectee — y entrait sans controle.
+ */
+function safeFingerprintCode(value: unknown): string {
+  const normalized = String(value ?? '').toUpperCase().trim();
+  if (!normalized) return '';
+  return /^[A-Z0-9_.-]{1,48}$/.test(normalized) ? normalized : '<CODE>';
+}
+
 export function syncFailureFingerprint(error: any, transportStatus?: number): string {
-  const code = String(error?.code ?? '').toUpperCase().trim();
+  const code = safeFingerprintCode(error?.code);
   const status = Number.isFinite(transportStatus) && (transportStatus as number) > 0
     ? (transportStatus as number)
     : syncErrorStatus(error);
@@ -264,6 +276,23 @@ export interface PermanentFailureAssessment {
  * empreinte différente) casse la série : une écriture utilisateur ne doit jamais
  * être requalifiée en refus sur la foi d'échecs hétérogènes.
  */
+const MAX_SAME_FAILURE_COUNT = 999;
+
+/**
+ * Un compteur venu d'une file persistee n'est pas une donnee de confiance :
+ * corruption, migration ou edition manuelle peuvent y laisser autre chose qu'un
+ * entier. `(value ?? 0) + 1` sur la chaine "2" produisait "21", et l'operation
+ * devenait terminale des le premier refus puisque "21" >= 3.
+ *
+ * Normalisation locale, et non importee de `syncRetryPolicy` : cette dependance
+ * serait circulaire, la politique de reessai consommant deja ce module.
+ */
+function normalizePreviousSameFailureCount(value: unknown): number {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 0) return 0;
+  return Math.min(parsed, MAX_SAME_FAILURE_COUNT);
+}
+
 export function assessRepeatedPermanentFailure(input: {
   operation: SyncFailureTrackingLike;
   error: any;
@@ -276,8 +305,9 @@ export function assessRepeatedPermanentFailure(input: {
   // `{ message: 'not found' }` avec `meta.status = 404` n'etait jamais reconnue
   // comme un refus deterministe et restait rejouable indefiniment.
   const fingerprint = syncFailureFingerprint(input.error, input.status);
+  const previousCount = normalizePreviousSameFailureCount(input.operation.sameFailureCount);
   const sameFailureCount = input.operation.lastFailureFingerprint === fingerprint
-    ? (input.operation.sameFailureCount ?? 0) + 1
+    ? Math.min(previousCount + 1, MAX_SAME_FAILURE_COUNT)
     : 1;
 
   return {
