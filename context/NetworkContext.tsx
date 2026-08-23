@@ -46,6 +46,7 @@ import { redactSensitiveText } from '@/lib/redactSensitiveText';
 import { rebaseReservePatchOnConflict, type PreparedRebaseWrite } from '@/lib/reserveRebase';
 import { ensureQueueEntryIdentities } from '@/lib/queueEntryIdentity';
 import { createQueueWriteChain } from '@/lib/queueWriteChain';
+import { publishAfterDurableWrite } from '@/lib/queuePublication';
 import { nextServiceFailureStreak } from '@/lib/syncServiceStreak';
 import type { SupabaseRestMeta } from '@/lib/supabaseRest';
 import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
@@ -1056,11 +1057,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (hydrationRetryTimerRef.current) {
         clearTimeout(hydrationRetryTimerRef.current);
         hydrationRetryTimerRef.current = null;
-        // L'échec précédent avait posé `error`. Sans ce retour explicite, il
-        // resterait affiché indéfiniment lorsqu'aucune passe ne vient le
-        // remplacer — typiquement sur une file vide.
-        setSyncStatus('idle');
       }
+      // INCONDITIONNEL. La version précédente ne remettait `idle` que si un
+      // timer était encore armé — or le vrai réessai met la référence à `null`
+      // AVANT de rappeler `loadQueue`. La branche ne s'exécutait donc jamais
+      // dans le chemin qu'elle prétendait couvrir, et l'état `error` de l'échec
+      // précédent restait affiché sur une file vide.
+      setSyncStatus('idle');
     } catch (error) {
       // Conserver les opérations éventuellement créées pendant l'hydratation.
       if (queueHydrationGenerationRef.current === myHydrationGeneration) {
@@ -1714,44 +1717,37 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
      * rebase est précisément en train de remplacer — ni par contenu.
      */
     const persistPreparedRebase = async (prepared: PreparedRebaseWrite): Promise<void> => {
-      for (let attempt = 0; attempt < 8; attempt += 1) {
-        const current = queueRef.current;
-        const targets = current
-          .map((entry, index) => (entry.queueEntryId === prepared.queueEntryId ? index : -1))
-          .filter(index => index >= 0);
+      // Même invariant que la purge manuelle : rien n'est publié tant que
+      // l'écriture n'a pas abouti, et une saisie apparue pendant l'écriture
+      // fait recalculer sur la file la plus récente.
+      await publishAfterDurableWrite<QueuedOperation>({
+        readCurrent: () => queueRef.current,
+        compute: current => {
+          const targets = current
+            .map((entry, index) => (entry.queueEntryId === prepared.queueEntryId ? index : -1))
+            .filter(index => index >= 0);
 
-        if (targets.length !== 1) {
-          // Échec FERMÉ : sans entrée cible unique, la préparation ne serait pas
-          // retrouvable après une préemption, et l'écriture ne doit pas partir.
-          throw new Error(
-            `Preparation de rebase impossible : ${targets.length} entree(s) pour cette identite locale.`,
-          );
-        }
+          if (targets.length !== 1) {
+            // Échec FERMÉ : sans entrée cible unique, la préparation ne serait
+            // pas retrouvable après une préemption, et l'écriture ne doit pas
+            // partir.
+            throw new Error(
+              `Preparation de rebase impossible : ${targets.length} entree(s) pour cette identite locale.`,
+            );
+          }
 
-        const next = current.map((entry, index) => (
-          index === targets[0]
-            ? { ...entry, id: prepared.operationId, baseVersion: prepared.baseVersion }
-            : entry
-        ));
-
-        // RIEN n'est publié tant que l'écriture n'a pas abouti. Publier avant
-        // laisserait, en cas d'échec, une identité préparée visible uniquement
-        // en mémoire : la reconstruction legacy la prendrait pour une opération
-        // enfilée pendant la passe et la file finirait avec DEUX entrées.
-        await writeQueueStrict(next);
-
-        // Une opération a été enfilée pendant l'écriture : recalculer sur la
-        // file la plus récente et réécrire après elle, sinon cet enqueue serait
-        // écrasé par un instantané qui l'ignore.
-        if (queueRef.current !== current) continue;
-
-        // Aucun `await` entre le contrôle et la publication.
-        queueRef.current = next;
-        setQueue(next);
-        return;
-      }
-
-      throw new Error('Preparation de rebase impossible : la file evolue continuellement.');
+          return current.map((entry, index) => (
+            index === targets[0]
+              ? { ...entry, id: prepared.operationId, baseVersion: prepared.baseVersion }
+              : entry
+          ));
+        },
+        write: next => writeQueueStrict(next),
+        publish: next => {
+          queueRef.current = next;
+          setQueue(next);
+        },
+      });
     };
 
     let processed = 0;
@@ -2914,33 +2910,62 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const clearQueue = useCallback(async () => {
     const purged = queueRef.current;
     await backupQueue(purged, 'manual-clear');
+
+    // La purge doit POSSÉDER la file avant de commencer. Sans cela, une passe
+    // déjà lancée garde son propre instantané : elle continuerait d'envoyer les
+    // opérations que l'utilisateur vient de demander de supprimer, et pourrait
+    // en réinsérer en fin de passe.
+    abortCurrentPass('purge manuelle');
+    syncGenerationRef.current += 1;
     if (syncKickTimerRef.current) {
       clearTimeout(syncKickTimerRef.current);
       syncKickTimerRef.current = null;
     }
+    // La passe devenue obsolète ne relâchera pas forcément le verrou : la purge
+    // le prend, et le rend elle-même.
+    syncingRef.current = true;
 
     // Les opérations enfilées PENDANT la purge n'en font pas partie : elles
     // sont postérieures à la demande et doivent survivre.
     const purgedEntryIds = new Set(
       purged.map(operation => operation.queueEntryId).filter((value): value is string => Boolean(value)),
     );
-    const survivors = queueRef.current.filter(operation => (
-      !operation.queueEntryId || !purgedEntryIds.has(operation.queueEntryId)
-    ));
 
-    // Écriture STRICTE : si elle échoue, l'exception remonte et l'interface ne
-    // prétend pas avoir supprimé quoi que ce soit.
-    await writeQueueStrict(survivors);
+    try {
+      const survivors = await publishAfterDurableWrite<QueuedOperation>({
+        readCurrent: () => queueRef.current,
+        compute: current => current.filter(operation => (
+          !operation.queueEntryId || !purgedEntryIds.has(operation.queueEntryId)
+        )),
+        // Écriture STRICTE : si elle échoue, l'exception remonte et l'interface
+        // ne prétend pas avoir supprimé quoi que ce soit.
+        write: next => writeQueueStrict(next),
+        publish: next => {
+          queueRef.current = next;
+          setQueue(next);
+        },
+      });
 
-    queueRef.current = survivors;
-    setQueue(survivors);
-    // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
-    if (survivors.length === 0) setSyncAuthBlocked(false);
+      // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
+      if (survivors.length === 0) setSyncAuthBlocked(false);
 
-    // La clef anonyme est VIDÉE, jamais supprimée : un `removeItem` hors chaîne
-    // pouvait se terminer après l'écriture d'une opération enfilée entre-temps.
-    await queueWriteChain.writeBestEffort(OFFLINE_QUEUE_PREFIX + 'anon', JSON.stringify([]));
-  }, [backupQueue, writeQueueStrict, queueWriteChain]);
+      // La copie anonyme est VIDÉE, jamais supprimée. Mais seulement si ce
+      // n'est PAS la clef active : sans utilisateur, `offlineQueueKey` EST la
+      // clef anonyme, et cette écriture effacerait les survivantes qu'on vient
+      // de persister.
+      const anonKey = OFFLINE_QUEUE_PREFIX + 'anon';
+      if (offlineQueueKey !== anonKey) {
+        await queueWriteChain.writeBestEffort(anonKey, JSON.stringify([]));
+      }
+    } finally {
+      syncingRef.current = false;
+      // Que la purge ait abouti ou non, la file doit rester reprenable.
+      if (hasReplayableQueuedOperations(queueRef.current)) scheduleSync();
+    }
+  }, [
+    backupQueue, writeQueueStrict, queueWriteChain, offlineQueueKey,
+    abortCurrentPass, scheduleSync,
+  ]);
 
   const dismissRejectedOperations = useCallback(async () => {
     const rejected = queueRef.current.filter(operation => operation.terminal);

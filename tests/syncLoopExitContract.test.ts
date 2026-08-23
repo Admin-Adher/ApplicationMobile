@@ -232,26 +232,14 @@ describe('a prepared rebase identity is durable before the write', () => {
     expect(helper).toContain('throw new Error(');
   });
 
-  it('persists STRICTLY, and before publishing anything', () => {
-    // `saveQueue` absorbe l'echec : un `await` dessus attend un succes
-    // fabrique. Et publier avant l'ecriture laisserait, en cas d'echec, une
-    // identite visible seulement en memoire — que la reconstruction legacy
-    // prendrait pour un enqueue concurrent, doublant l'entree.
-    const active = helper
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('*'));
-
-    expect(active).toContain('await writeQueueStrict(next);');
-    expect(active).not.toContain('await saveQueue(next);');
-    expect(active.indexOf('await writeQueueStrict(next);'))
-      .toBeLessThan(active.indexOf('queueRef.current = next;'));
-  });
-
-  it('recomputes when the queue moved during the write', () => {
-    // Sinon l'operation enfilee pendant l'ecriture serait ecrasee par un
-    // instantane qui l'ignore.
-    expect(helper).toContain('if (queueRef.current !== current) continue;');
+  it('delegates to the publication helper, which is tested behaviourally', () => {
+    // « Ecrire puis publier » n'est plus recopie ici : la sequence — rien de
+    // publie avant l'ecriture, recalcul si la file a bouge — vit dans
+    // `lib/queuePublication.ts`, ou elle est prouvee avec des promesses
+    // controlees plutot qu'affirmee sur du texte.
+    expect(helper).toContain('publishAfterDurableWrite<QueuedOperation>');
+    expect(helper).toContain('write: next => writeQueueStrict(next),');
+    expect(helper).not.toContain('saveQueue(');
   });
 
   it('migrates local identities strictly, before any network call', () => {
@@ -330,18 +318,29 @@ describe('the queue purge is durable and keeps what came after it', () => {
     expect(source).not.toContain('AsyncStorage.removeItem(');
   });
 
-  it('writes STRICTLY, and empties memory only once the disk is up to date', () => {
+  it('writes STRICTLY, through the publication helper', () => {
     // Une reussite fabriquee ferait afficher une file vide pendant que le
     // disque garde les anciennes operations — qui reapparaitraient, et se
     // synchroniseraient, au redemarrage.
-    const active = purge
-      .split('\n')
-      .map(line => line.trim())
-      .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('*'));
+    expect(purge).toContain('publishAfterDurableWrite<QueuedOperation>');
+    expect(purge).toContain('write: next => writeQueueStrict(next),');
+  });
 
-    expect(active).toContain('await writeQueueStrict(survivors);');
-    expect(active.indexOf('await writeQueueStrict(survivors);'))
-      .toBeLessThan(active.indexOf('queueRef.current = survivors;'));
+  it('takes ownership of the queue before purging anything', () => {
+    // Sans cela une passe deja lancee garde son propre instantane : elle
+    // continuerait d'envoyer les operations que l'utilisateur vient de
+    // demander de supprimer, et pourrait en reinserer en fin de passe.
+    expect(purge).toContain("abortCurrentPass('purge manuelle');");
+    expect(purge).toContain('syncGenerationRef.current += 1;');
+    // La passe obsolete ne relachera pas forcement le verrou : la purge le
+    // prend et le rend elle-meme.
+    expect(purge).toContain('syncingRef.current = true;');
+    expect(purge).toContain('} finally {');
+    expect(purge).toContain('syncingRef.current = false;');
+  });
+
+  it('keeps the queue resumable even when the purge fails', () => {
+    expect(purge).toContain('if (hasReplayableQueuedOperations(queueRef.current)) scheduleSync();');
   });
 
   it('keeps the operations enqueued during the purge', () => {
@@ -350,8 +349,11 @@ describe('the queue purge is durable and keeps what came after it', () => {
     expect(purge).toContain('purgedEntryIds.has(operation.queueEntryId)');
   });
 
-  it('empties the anonymous key through the chain', () => {
-    expect(purge).toContain("queueWriteChain.writeBestEffort(OFFLINE_QUEUE_PREFIX + 'anon', JSON.stringify([]))");
+  it('never empties the anonymous key when it IS the active key', () => {
+    // Sans utilisateur, `offlineQueueKey` EST la clef anonyme : cette
+    // ecriture effacerait les survivantes qu'on vient de persister.
+    expect(purge).toContain('if (offlineQueueKey !== anonKey) {');
+    expect(purge).toContain('queueWriteChain.writeBestEffort(anonKey, JSON.stringify([]))');
   });
 });
 
@@ -385,11 +387,25 @@ describe('a failed hydration is actually retried', () => {
     );
 
     expect(retry).toContain('void loadQueueRef.current?.();');
-    // L'echec precedent avait pose `error` : sans retour explicite il resterait
-    // affiche lorsqu'aucune passe ne vient le remplacer.
-    expect(source).toContain("setSyncStatus('idle');");
     expect(retry).toContain('if (queueHydrationGenerationRef.current !== generation) return;');
     expect(source).toContain('scheduleHydrationRetry(myHydrationGeneration);');
+  });
+
+  it('restores idle UNCONDITIONALLY on success', () => {
+    // La version precedente ne remettait `idle` que si un timer etait encore
+    // arme — or le vrai reessai met la reference a `null` AVANT de rappeler
+    // `loadQueue`. La branche ne s'executait jamais dans le chemin qu'elle
+    // pretendait couvrir, et l'assertion ne le voyait pas : le fichier
+    // contient d'autres `setSyncStatus('idle')`.
+    const from = source.indexOf('identitiesAreDurable = true;');
+    const success = source.slice(from, source.indexOf('} catch (error) {', from));
+    const active = success
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('//'));
+
+    // Hors de toute condition : derniere ligne du bloc de succes.
+    expect(active[active.length - 1]).toBe("setSyncStatus('idle');");
   });
 
   it('cancels the pending retry on unmount, account change and success', () => {
