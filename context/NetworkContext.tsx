@@ -386,7 +386,10 @@ interface NetworkContextValue {
   /** Prochaine passe planifiee, quand un backoff est actif. */
   nextSyncAttemptAt: string | null;
   conflicts: StatusConflict[];
-  enqueueOperation: (op: Omit<QueuedOperation, 'id' | 'queuedAt'>) => void;
+  enqueueOperation: (
+    op: Omit<QueuedOperation, 'id' | 'queuedAt'>,
+    options?: { dispatchState?: QueueDispatchState },
+  ) => void;
   resolveConflict: (conflictId: string, chosenStatus: string) => Promise<void>;
   dismissConflicts: () => void;
   registerReloadHandler: (fn: () => void) => void;
@@ -855,6 +858,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
    */
   /** Réessai d'hydratation : distinct du timer de synchronisation. */
   const hydrationRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /**
+   * Réessai de reprise de purge, distinct du précédent.
+   *
+   * Les confondre neutralisait la reprise : l'hydratation se terminait avec
+   * succès juste après, annulait le timer et remettait sa référence à `null`.
+   * La réparation attendait alors le prochain démarrage.
+   */
+  const purgeResumeRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const loadQueueRef = useRef<(() => Promise<void>) | null>(null);
   /**
    * Référence : l'hydratation reprend une purge interrompue, et le
@@ -913,6 +924,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => () => {
     if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
     if (hydrationRetryTimerRef.current) clearTimeout(hydrationRetryTimerRef.current);
+    if (purgeResumeRetryTimerRef.current) clearTimeout(purgeResumeRetryTimerRef.current);
     // Démontage du provider : plus personne n'exploitera le résultat, on coupe
     // les transferts au lieu de les laisser courir en tâche de fond.
     abortCurrentPass('démontage du provider');
@@ -973,6 +985,19 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     hydrationRetryTimerRef.current = setTimeout(() => {
       hydrationRetryTimerRef.current = null;
       // Une génération plus récente a repris la main : ce réessai est obsolète.
+      if (queueHydrationGenerationRef.current !== generation) return;
+      void loadQueueRef.current?.();
+    }, SYNC_FAILURE_RETRY_DELAY_MS);
+  }, []);
+
+  /**
+   * Rappelle `loadQueue` pour reprendre une purge, sans partager le timer de
+   * l'hydratation : celle-ci l'annule dès qu'elle réussit.
+   */
+  const schedulePurgeResumeRetry = useCallback((generation: number) => {
+    if (purgeResumeRetryTimerRef.current) clearTimeout(purgeResumeRetryTimerRef.current);
+    purgeResumeRetryTimerRef.current = setTimeout(() => {
+      purgeResumeRetryTimerRef.current = null;
       if (queueHydrationGenerationRef.current !== generation) return;
       void loadQueueRef.current?.();
     }, SYNC_FAILURE_RETRY_DELAY_MS);
@@ -1133,7 +1158,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           '[queue] reprise de purge impossible :',
           error instanceof Error ? error.message : String(error),
         );
-        scheduleHydrationRetry(myHydrationGeneration);
+        schedulePurgeResumeRetry(myHydrationGeneration);
       }
 
       lastLoadedKeyRef.current = userKey ?? anonKey;
@@ -1173,7 +1198,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, [userId, writeQueueStrict, scheduleSync, scheduleHydrationRetry]);
+  }, [userId, writeQueueStrict, scheduleSync, scheduleHydrationRetry, schedulePurgeResumeRetry]);
 
   // `loadQueue` se rappelle lui-même après un échec de migration : la référence
   // évite une dépendance circulaire entre les deux `useCallback`.
@@ -1196,6 +1221,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     if (hydrationRetryTimerRef.current) {
       clearTimeout(hydrationRetryTimerRef.current);
       hydrationRetryTimerRef.current = null;
+    }
+    if (purgeResumeRetryTimerRef.current) {
+      clearTimeout(purgeResumeRetryTimerRef.current);
+      purgeResumeRetryTimerRef.current = null;
     }
     queueLoadedRef.current = false;
     setQueueLoaded(false);
@@ -2437,6 +2466,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   deferredPhotoPatch = {
                     id: genQueueId(),
                     queueEntryId: genQueueId(),
+                    // Les photos de ce patch n'ont PAS été envoyées : leur
+                    // upload vient d'échouer, et la réserve part sans elles.
                     dispatchState: 'never_started',
                     queuedAt: new Date().toISOString(),
                     table: 'reserves',
@@ -3005,7 +3036,24 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   // ── Queue management ───────────────────────────────────────────────────────
 
-  const enqueueOperation = useCallback((op: Omit<QueuedOperation, 'id' | 'queuedAt'>) => {
+  /**
+   * @param options.dispatchState
+   *   `'never_started'` — l'appelant AFFIRME qu'aucune requête n'est partie
+   *   pour cette écriture. C'est une affirmation, pas une supposition : elle
+   *   autorise la purge manuelle à supprimer l'entrée et à annuler son effet
+   *   optimiste.
+   *
+   *   Par DÉFAUT `'started'`, y compris pour une saisie apparemment locale.
+   *   Plusieurs chemins tentent le serveur d'abord et n'enfilent qu'en cas
+   *   d'erreur : cette requête a pu être validée sans que sa réponse arrive, et
+   *   la marquer « jamais tentée » rendrait supprimable une écriture dont le
+   *   serveur détient peut-être l'effet. Le risque n'est pas symétrique — sur-
+   *   marquer conserve une entrée de trop, sous-marquer en détruit une.
+   */
+  const enqueueOperation = useCallback((
+    op: Omit<QueuedOperation, 'id' | 'queuedAt'>,
+    options?: { dispatchState?: QueueDispatchState },
+  ) => {
     const allowedOps = new Set(['insert', 'update', 'upsert', 'delete', 'rpc']);
     if (!allowedOps.has((op as any).op)) {
       console.warn('[queue] operation ignored: op inconnue', (op as any).op, op.table);
@@ -3019,7 +3067,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       ...op,
       id: genQueueId(),
       queueEntryId: genQueueId(),
-      dispatchState: 'never_started',
+      dispatchState: op.dispatchState ?? options?.dispatchState ?? 'started',
       queuedAt: new Date().toISOString(),
     };
     // queueRef est la source atomique : React peut différer le state updater et
