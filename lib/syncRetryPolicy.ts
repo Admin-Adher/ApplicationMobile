@@ -51,6 +51,14 @@ export interface SyncRetryDecision {
   nextAttemptAt: string | null;
   retrySource: SyncRetrySource | null;
   /**
+   * Statut HTTP normalise, ou null quand personne n'a repondu. Il vient de
+   * `meta.status`, sinon de `error.status`, sinon du message. L'exposer ici
+   * evite une troisieme interpretation en aval : le classificateur ne lisait
+   * que `meta.status` et rendait `rate_limited` avec `lastHttpStatus: null`
+   * des que le 429 n'arrivait que sur l'erreur.
+   */
+  httpStatus: number | null;
+  /**
    * Le serveur impose une attente superieure a 24 h. On ne la raccourcit pas —
    * l'interface doit signaler une limitation prolongee plutot que laisser
    * croire a une panne.
@@ -425,6 +433,7 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
       contributesToCircuit: false,
       nextAttemptAt: null,
       retrySource: null,
+      httpStatus: status > 0 ? status : null,
       retryAfterLong: false,
     };
   }
@@ -441,6 +450,7 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
       contributesToCircuit: false,
       nextAttemptAt: null,
       retrySource: null,
+      httpStatus: status > 0 ? status : null,
       retryAfterLong: false,
     };
   }
@@ -502,6 +512,7 @@ export function computeRetryDecision(input: RetryDecisionInput): SyncRetryDecisi
     retrySource: serverAttemptAtMs !== null && serverAttemptAtMs >= clientAttemptAtMs
       ? 'retry_after'
       : failureClass === 'authentication' ? 'authentication' : 'policy',
+    httpStatus: status > 0 ? status : null,
     retryAfterLong: retryAfter.long,
   };
 }

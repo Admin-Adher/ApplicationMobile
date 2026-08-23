@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
+import {
+  classifySyncFailure,
+  type SyncFailureTransportMeta,
+} from '../lib/syncRetryPolicy';
 import { resolve } from 'node:path';
 import {
   SYNC_INFRA_CIRCUIT_THRESHOLD,
@@ -12,7 +16,7 @@ import {
   isInfrastructureSyncFailure,
   isInventoryQueuedOperation,
   isPermanentSyncFailure,
-  assessPermanentFailure,
+  assessRepeatedPermanentFailure,
   shouldAbandonPassAfterInfrastructureFailure,
   syncFailureFingerprint,
   syncFailureReachedServer,
@@ -135,11 +139,24 @@ describe('sync failure classification', () => {
     expect(isInfrastructureSyncFailure({ code: 'REST_TIMEOUT' })).toBe(true);
   });
 
-  /** Rejoue une séquence d'erreurs comme le ferait le moteur, opération par opération. */
-  function replayFailureSequence(errors: any[]) {
+  /**
+   * Rejoue une sequence d'erreurs COMME LE FAIT le classificateur.
+   *
+   * La question « cet echec est-il un refus deterministe ? » appartient
+   * desormais a `classifySyncFailure` seul ; `assessRepeatedPermanentFailure`
+   * ne fait plus que compter les repetitions. Rejouer sans cette porte
+   * testerait une composition qui n'existe plus dans le moteur.
+   */
+  function replayFailureSequence(
+    errors: any[],
+    metas: (SyncFailureTransportMeta | undefined)[] = [],
+  ) {
     let tracking: { lastFailureFingerprint?: string; sameFailureCount?: number } = {};
-    return errors.map(error => {
-      const assessment = assessPermanentFailure(tracking, error);
+    return errors.map((error, index) => {
+      const meta = metas[index];
+      const assessment = classifySyncFailure({ error, meta }) === 'permanent_candidate'
+        ? assessRepeatedPermanentFailure({ operation: tracking, error, status: meta?.status ?? undefined })
+        : { fingerprint: null, sameFailureCount: 0, terminal: false };
       tracking = {
         lastFailureFingerprint: assessment.fingerprint ?? undefined,
         sameFailureCount: assessment.sameFailureCount,
@@ -147,6 +164,33 @@ describe('sync failure classification', () => {
       return assessment;
     });
   }
+
+  it('counts identical refusals whose status lives only on the transport', () => {
+    // L'ancienne evaluation ne recevait que `error` : une erreur sans statut
+    // accompagnee d'un `meta.status = 404` n'etait jamais reconnue comme un
+    // refus deterministe, et l'operation restait rejouable indefiniment.
+    const bare = { message: 'not found' };
+    const meta = { status: 404, reachedServer: true } as SyncFailureTransportMeta;
+    const verdicts = replayFailureSequence([bare, bare, bare], [meta, meta, meta]);
+
+    expect(verdicts.map(v => v.sameFailureCount)).toEqual([1, 2, 3]);
+    expect(verdicts.map(v => v.terminal)).toEqual([false, false, true]);
+  });
+
+  it('does not merge two refusals that differ only by their transport status', () => {
+    // Sans le statut normalise, `{ message: 'not found' }` rendu en 404 puis en
+    // 403 partageaient une empreinte : deux refus DIFFERENTS comptaient comme
+    // deux repetitions du meme, et rapprochaient l'abandon definitif d'un cran
+    // sans preuve.
+    const bare = { message: 'not found' };
+    const verdicts = replayFailureSequence(
+      [bare, bare],
+      [{ status: 404 } as SyncFailureTransportMeta, { status: 403 } as SyncFailureTransportMeta],
+    );
+
+    expect(verdicts.map(v => v.sameFailureCount)).toEqual([1, 1]);
+    expect(verdicts[0].fingerprint).not.toBe(verdicts[1].fingerprint);
+  });
 
   it('drops an operation only after repeated refusals with the SAME fingerprint', () => {
     const notFound = { status: 404, message: 'HTTP 404' };
@@ -284,5 +328,68 @@ describe('unstable-network replay policy', () => {
     );
     expect(webBranch).toContain('hasReplayableQueuedOperations(queueRef.current)');
     expect(webBranch).toContain('processSyncQueueRef.current()');
+  });
+});
+
+/**
+ * Contrats de SOURCE sur `NetworkContext`.
+ *
+ * Seam de dernier recours : la boucle vit dans une fermeture React que rien ne
+ * permet d'instancier en test unitaire. Ces assertions disparaitront avec la
+ * conversion des 37 sorties, qui rendra le verdict observable directement.
+ */
+describe('the legacy loop honours a global abandon', () => {
+  const source = readFileSync(
+    resolve(import.meta.dirname, '..', 'context/NetworkContext.tsx'),
+    'utf8',
+  ).replace(/\r\n/g, '\n');
+
+  it('stops the pass on any abandon verdict, not only when a circuit opens', () => {
+    // Un 429, ou un 503 porteur d'un `Retry-After`, rend `blocksCurrentPass`
+    // SANS alimenter le circuit : `opensServiceCircuit` reste volontairement
+    // faux pour ne pas comptabiliser deux fois le meme blocage. Tant que les
+    // 37 sorties ignorent la valeur rendue par `fail()`, cette garde est la
+    // seule chose qui empeche la boucle de continuer a envoyer pendant toute
+    // la limitation serveur.
+    expect(source).toContain('if (circuitOpened || passMustStop) break;');
+    expect(source).toContain('passMustStop = true;');
+  });
+
+  it('waits for the server deadline instead of the fixed retry delay', () => {
+    // Le bloc d'apres-passe fait `syncBackoffUntilRef.current = 0` des que le
+    // disjoncteur est ferme. Sans ouverture explicite, l'echeance imposee par
+    // le serveur etait effacee et la file repartait au bout de 30 s.
+    const abandonBranch = source.slice(
+      source.indexOf("if (verdict.kind === 'abandon') {"),
+      source.indexOf("if (verdict.kind === 'terminal') {"),
+    );
+
+    expect(abandonBranch).toContain("verdict.abandonReason === 'backend'");
+    expect(abandonBranch).toContain('circuitOpened = true;');
+    expect(abandonBranch).toContain('syncBackoffUntilRef.current = Date.now() + circuitDelayMs;');
+    // Le compteur exponentiel ne doit PAS bouger : le blocage de portee backend
+    // est deja porte par `blocksCurrentPass`. On ignore les commentaires, qui
+    // citent legitimement le compteur pour expliquer pourquoi il reste fige.
+    const codeOnly = abandonBranch
+      .split('\n')
+      .filter(line => !line.trim().startsWith('//'))
+      .join('\n');
+    expect(codeOnly).not.toContain('syncInfrastructureFailureCountRef');
+  });
+
+  it('writes no failure metadata when no attempt was consumed', () => {
+    // Une preemption apparaissait sinon dans le diagnostic comme le dernier
+    // echec de l'operation.
+    const failedOperationBlock = source.slice(
+      source.indexOf('const failedOperation: QueuedOperation'),
+      source.indexOf('failedOps.push(failedOperation);'),
+    );
+
+    expect(failedOperationBlock).toContain('verdict.incrementAttempt');
+    // Les ecritures d'echec vivent toutes DANS la branche conditionnelle.
+    for (const field of ['lastError:', 'lastFailureAt:', 'attemptCount:', 'failureClass:']) {
+      expect(failedOperationBlock.indexOf(field), field)
+        .toBeGreaterThan(failedOperationBlock.indexOf('verdict.incrementAttempt'));
+    }
   });
 });
