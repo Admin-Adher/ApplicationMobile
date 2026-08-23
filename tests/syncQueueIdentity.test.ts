@@ -92,6 +92,33 @@ describe('the business fingerprint ignores retry history', () => {
     })).not.toBeNull();
   });
 
+  it('never lets a hole in an array pass for an absent element', () => {
+    // `map` ne visite pas les cases absentes : `new Array(1)` et `[]`
+    // produisaient tous deux `[]`, donc deux payloads DIFFERENTS partageaient
+    // une empreinte et pouvaient etre fusionnes.
+    const empty = queueOperationFingerprint({ data: { liste: [] } });
+    const sparse = queueOperationFingerprint({ data: { liste: new Array(1) } });
+
+    expect(empty).not.toBeNull();
+    expect(sparse).toBeNull();
+  });
+
+  it('gives up quickly on a huge sparse array', () => {
+    // Les cases absentes ne consomment aucun noeud : sans borne sur la
+    // longueur, ce payload contournait entierement le budget.
+    const started = Date.now();
+
+    expect(queueOperationFingerprint({ data: { liste: new Array(5_000_000) } } as any)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
+  it('gives up on a single oversized string without building it whole', () => {
+    // Le controle de longueur intervenait APRES construction : une seule chaine
+    // metier de plusieurs dizaines de megaoctets bloquait le fil avant d'etre
+    // rejetee.
+    expect(queueOperationFingerprint({ data: { texte: 'x'.repeat(300_000) } })).toBeNull();
+  });
+
   it('gives up on a payload too large to compare within budget', () => {
     // Une file corrompue ne doit pas bloquer le fil pendant l'hydratation.
     const huge = { data: { liste: Array.from({ length: 50_000 }, (_, i) => i) } };
@@ -226,6 +253,75 @@ describe('identical content behind one identifier is deduplicated', () => {
     const { operations } = resolve([movement('a'), movement('b'), movement('a')]);
 
     expect(operations.map(o => o.id)).toEqual(['a', 'b']);
+  });
+});
+
+describe('an authoritative state is never assembled from two verdicts', () => {
+  it('quarantines copies carrying different terminal statuses', () => {
+    // Le statut venait d'une copie et le resultat metier d'une autre : deux
+    // recherches independantes produisaient une operation refusee pour un motif
+    // qui n'est pas le sien — et `terminalOutcome` pilote le rollback de stock.
+    const { operations, resolutions } = resolve([
+      movement('op-1', { terminal: true, terminalStatus: 'forbidden' }),
+      movement('op-1', { terminal: true, terminalStatus: 'insufficient_stock' }),
+    ]);
+
+    expect(resolutions).toEqual([{ kind: 'quarantined', id: 'op-1', entries: 2 }]);
+    expect(operations).toHaveLength(2);
+  });
+
+  it('quarantines copies carrying different terminal outcomes', () => {
+    const { resolutions } = resolve([
+      movement('op-1', { terminalOutcome: { domain: 'inventory', status: 'forbidden' } }),
+      movement('op-1', { terminalOutcome: { domain: 'inventory', status: 'not_found' } }),
+    ]);
+
+    expect(resolutions[0].kind).toBe('quarantined');
+  });
+
+  it('merges when only one copy carries the verdict', () => {
+    // Verrou sur la premisse : tout mettre en quarantaine ferait passer les
+    // deux tests ci-dessus sans rien prouver.
+    const { operations, resolutions } = resolve([
+      movement('op-1'),
+      movement('op-1', { terminal: true, terminalStatus: 'forbidden' }),
+    ]);
+
+    expect(resolutions[0].kind).toBe('deduplicated');
+    expect(operations[0].terminalStatus).toBe('forbidden');
+  });
+
+  it('treats a status or an outcome as terminality, even without the flag', () => {
+    const merged = resolve([
+      movement('op-1'),
+      movement('op-1', { terminalStatus: 'forbidden' }),
+    ]).operations[0];
+
+    expect(merged.terminal).toBe(true);
+  });
+
+  it('never leaves a quarantine without a reason', () => {
+    // Une operation bloquee sans motif ne peut etre ni expliquee ni arbitree.
+    const merged = resolve([
+      movement('op-1'),
+      movement('op-1', { quarantined: true, quarantineReason: 'duplicate_id_mismatch' }),
+    ]).operations[0];
+
+    expect(merged.quarantined).toBe(true);
+    expect(merged.quarantineReason).toBe('duplicate_id_mismatch');
+  });
+
+  it('erases a corrupted value no copy can replace', () => {
+    // La base vient de la premiere copie : une valeur invalide y survivait des
+    // lors qu'aucune autre n'en fournissait une valide.
+    const merged = resolve([
+      movement('op-1', { attemptCount: 'quatre', queuedAt: 'pas une date', nextAttemptAt: 'jamais' }),
+      movement('op-1', { attemptCount: 'cinq', queuedAt: 'non plus' }),
+    ]).operations[0];
+
+    expect(merged.attemptCount).toBeUndefined();
+    expect(merged.queuedAt).toBeUndefined();
+    expect(merged.nextAttemptAt).toBeUndefined();
   });
 });
 

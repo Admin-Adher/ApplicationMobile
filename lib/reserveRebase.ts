@@ -13,6 +13,45 @@ function firstRow(data: SupabaseRestResult<ReserveMutationResult>['data']): Rese
 }
 
 /**
+ * Verdicts que le serveur peut rendre. Tout autre statut — absent, inconnu,
+ * ou fabrique par une dependance de test — n'est PAS un verdict : c'est une
+ * absence de verdict.
+ */
+const KNOWN_STATUSES = new Set([
+  'ok',
+  'version_conflict',
+  'deleted',
+  'forbidden',
+  'not_found',
+  'duplicate_operation_mismatch',
+  'invalid_payload',
+]);
+
+/**
+ * Absence de verdict exploitable.
+ *
+ * Une reponse vide n'est ni un succes ni un refus. La transformer localement en
+ * `applied` etait exactement le defaut corrige cote inventaire : declarer
+ * appliquee une ecriture dont on ignore le sort. Elle repart donc en reessai,
+ * avec le MEME `operation_id` quand l'ecriture a bel et bien ete envoyee — le
+ * serveur rendra son resultat memorise plutot que d'ecrire deux fois.
+ */
+function invalidResult(
+  operationId: string | null,
+  baseVersion: number | null,
+  meta: SupabaseRestMeta,
+  detail: string,
+): ReserveRebaseResult {
+  return {
+    kind: 'retry_transport',
+    baseVersion,
+    operationId,
+    error: { code: 'REST_RESULT_INVALID', message: detail },
+    meta,
+  };
+}
+
+/**
  * Resolution d'un `version_conflict` sur une reserve.
  *
  * Pourquoi c'est necessaire : `apply_reserve_patch` memorise son resultat — y
@@ -116,7 +155,20 @@ export async function rebaseReservePatchOnConflict(
     }
 
     const value = version.data?.[0]?.version;
-    currentVersion = typeof value === 'number' ? value : null;
+    if (!Number.isSafeInteger(value) || value < 0) {
+      // Le SELECT a repondu, mais sans version exploitable. Envoyer quand meme
+      // l'ecriture avec `base_version: null` ferait perdre la protection
+      // optimiste. On ne conclut PAS a une suppression non plus : une ligne
+      // absente peut aussi venir d'une visibilite RLS inattendue, et condamner
+      // l'operation sur cette base detruirait une saisie.
+      return invalidResult(
+        null,
+        null,
+        version.meta,
+        'Version de reserve absente ou illisible : ecriture non envoyee.',
+      );
+    }
+    currentVersion = value as number;
   }
 
   // Annulation entre la lecture et l'ecriture : on ne part pas quand meme.
@@ -146,8 +198,16 @@ export async function rebaseReservePatchOnConflict(
   }
 
   const outcome = firstRow(rpc.data);
-  if (!outcome || outcome.status === 'ok') {
-    return { kind: 'applied', outcome: outcome ?? { status: 'ok', reserve_id: params.reserveId } };
+  // L'ecriture EST partie : on conserve son identite idempotente.
+  if (!outcome) {
+    return invalidResult(operationId, currentVersion, rpc.meta, 'Reponse de rebase vide.');
+  }
+  if (typeof outcome.status !== 'string' || !KNOWN_STATUSES.has(outcome.status)) {
+    return invalidResult(operationId, currentVersion, rpc.meta, 'Statut de rebase absent ou inconnu.');
+  }
+
+  if (outcome.status === 'ok') {
+    return { kind: 'applied', outcome };
   }
 
   if (outcome.status === 'version_conflict') {

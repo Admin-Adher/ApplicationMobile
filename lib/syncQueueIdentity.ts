@@ -76,23 +76,50 @@ const MAX_LENGTH = 200_000;
  * toute instance de classe. `NaN` et `Infinity` deviennent `null` en JSON,
  * indiscernables d'un vrai `null`.
  */
-function stableStringify(value: unknown, budget: { nodes: number }, depth = 0): string {
+interface SerializationBudget {
+  nodes: number;
+  characters: number;
+}
+
+/** Comptabilise un fragment produit, et abandonne des que le budget est franchi. */
+function spend(budget: SerializationBudget, fragment: string): string {
+  budget.characters += fragment.length;
+  if (budget.characters > MAX_LENGTH) throw UNREADABLE;
+  return fragment;
+}
+
+function stableStringify(value: unknown, budget: SerializationBudget, depth = 0): string {
   if (depth > MAX_DEPTH) throw UNREADABLE;
   budget.nodes += 1;
   if (budget.nodes > MAX_NODES) throw UNREADABLE;
 
-  if (value === null) return 'null';
+  if (value === null) return spend(budget, 'null');
 
   const type = typeof value;
-  if (type === 'boolean' || type === 'string') return JSON.stringify(value) as string;
+  if (type === 'boolean' || type === 'string') return spend(budget, JSON.stringify(value) as string);
   if (type === 'number') {
     if (!Number.isFinite(value as number)) throw UNREADABLE;
-    return JSON.stringify(value) as string;
+    return spend(budget, JSON.stringify(value) as string);
   }
   if (type !== 'object') throw UNREADABLE;
 
   if (Array.isArray(value)) {
-    return `[${value.map(item => stableStringify(item, budget, depth + 1)).join(',')}]`;
+    // `map` NE VISITE PAS les cases absentes : `new Array(1)` et `[]`
+    // produisaient tous deux `[]`, donc deux payloads differents partageaient
+    // une empreinte et pouvaient etre fusionnes. La longueur est aussi
+    // comptabilisee AVANT la boucle : un tableau creux enorme ne consomme aucun
+    // noeud et contournerait le budget.
+    if (value.length > MAX_NODES) throw UNREADABLE;
+
+    const parts: string[] = [];
+    for (let index = 0; index < value.length; index += 1) {
+      // Redondant AUJOURD'HUI : un trou rend `undefined`, que la garde de type
+      // ci-dessus rejette deja. On le garde pour que cette branche ne depende
+      // pas d'une coincidence dans une autre.
+      if (!Object.prototype.hasOwnProperty.call(value, index)) throw UNREADABLE;
+      parts.push(stableStringify(value[index], budget, depth + 1));
+    }
+    return `[${parts.join(',')}]`;
   }
 
   // Objet PLAT uniquement : un prototype exotique cache un etat que
@@ -104,7 +131,12 @@ function stableStringify(value: unknown, budget: { nodes: number }, depth = 0): 
     .filter(([, item]) => item !== undefined)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
-  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item, budget, depth + 1)}`).join(',')}}`;
+  const parts = entries.map(([key, item]) => {
+    const serializedKey = spend(budget, JSON.stringify(key) as string);
+    return `${serializedKey}:${stableStringify(item, budget, depth + 1)}`;
+  });
+
+  return `{${parts.join(',')}}`;
 }
 
 /**
@@ -126,8 +158,10 @@ export function queueOperationFingerprint(operation: QueueIdentityLike): string 
   }
 
   try {
-    const serialized = stableStringify(business, { nodes: 0 });
-    return serialized.length > MAX_LENGTH ? null : serialized;
+    // Le budget est verifie PENDANT la serialisation : le controler apres
+    // laissait construire une chaine de plusieurs dizaines de megaoctets avant
+    // de la rejeter.
+    return stableStringify(business, { nodes: 0, characters: 0 });
   } catch {
     return null;
   }
@@ -198,42 +232,87 @@ const FAILURE_BLOCK = [
  * retenu. Melanger un message avec la classe d'une AUTRE erreur produirait un
  * diagnostic faux.
  */
+/**
+ * L'etat AUTORITAIRE des copies est-il compatible ?
+ *
+ * Un contenu metier identique ne suffit pas : deux copies peuvent porter des
+ * verdicts terminaux DIFFERENTS. Prendre le statut de l'une et le resultat de
+ * l'autre — deux recherches independantes — produisait une operation refusee
+ * pour un motif qui n'est pas le sien, et `terminalOutcome` pilote la
+ * reconciliation du stock. Quand les verdicts divergent, on ne fusionne pas.
+ */
+function terminalStatesAreCompatible<T extends Record<string, unknown>>(copies: T[]): boolean {
+  const statuses = new Set(
+    copies
+      .map(copy => copy.terminalStatus)
+      .filter((value): value is string => typeof value === 'string' && value.length > 0),
+  );
+  if (statuses.size > 1) return false;
+
+  const outcomes = new Set(
+    copies
+      .map(copy => copy.terminalOutcome)
+      .filter(value => value !== undefined && value !== null)
+      .map(value => queueOperationFingerprint({ data: value as Record<string, unknown> }) ?? '<illisible>'),
+  );
+  // Deux resultats illisibles ne sont pas prouves egaux : la marque unique les
+  // rendrait faussement compatibles.
+  if (outcomes.has('<illisible>')) return false;
+
+  return outcomes.size <= 1;
+}
+
+/** Efface un champ dont AUCUNE copie ne fournit de valeur exploitable. */
+function assign(merged: Record<string, unknown>, field: string, value: unknown): void {
+  if (value === undefined) delete merged[field];
+  else merged[field] = value;
+}
+
 function mergeIdenticalCopies<T extends Record<string, unknown>>(copies: T[]): T {
   const merged: Record<string, unknown> = { ...copies[0] };
 
-  const queuedAt = pickTime(copies.map(copy => copy.queuedAt), 'oldest');
-  if (queuedAt !== undefined) merged.queuedAt = queuedAt;
+  // La base vient de la premiere copie : une valeur corrompue y survivrait si
+  // aucune autre n'en fournissait une valide. Chaque champ est donc assigne ou
+  // EFFACE, jamais laisse tel quel.
+  assign(merged, 'queuedAt', pickTime(copies.map(copy => copy.queuedAt), 'oldest'));
+  assign(merged, 'attemptCount', maxCount(copies.map(copy => copy.attemptCount)));
+  assign(merged, 'lastAttemptAt', pickTime(copies.map(copy => copy.lastAttemptAt), 'latest'));
+  assign(merged, 'nextAttemptAt', pickTime(copies.map(copy => copy.nextAttemptAt), 'latest'));
 
-  const attemptCount = maxCount(copies.map(copy => copy.attemptCount));
-  if (attemptCount !== undefined) merged.attemptCount = attemptCount;
+  // Une operation portant un statut ou un resultat terminal EST terminale,
+  // meme si le drapeau manque.
+  const isTerminal = copies.some(copy => (
+    copy.terminal === true || copy.terminalStatus != null || copy.terminalOutcome != null
+  ));
+  if (isTerminal) merged.terminal = true;
+  else delete merged.terminal;
 
-  if (copies.some(copy => copy.terminal === true)) merged.terminal = true;
-  if (copies.some(copy => copy.quarantined === true)) merged.quarantined = true;
+  // Compatibilite deja verifiee : statut et resultat viennent donc du meme
+  // verdict, quelle que soit la copie qui les porte.
+  assign(merged, 'terminalStatus', copies.find(copy => copy.terminalStatus != null)?.terminalStatus);
+  assign(merged, 'terminalOutcome', copies.find(copy => copy.terminalOutcome != null)?.terminalOutcome);
 
-  const terminalCopy = copies.find(copy => copy.terminal === true);
-  if (terminalCopy?.terminalStatus !== undefined) merged.terminalStatus = terminalCopy.terminalStatus;
-
-  const withOutcome = copies.find(copy => copy.terminalOutcome !== undefined && copy.terminalOutcome !== null);
-  if (withOutcome) merged.terminalOutcome = withOutcome.terminalOutcome;
-
-  const lastAttemptAt = pickTime(copies.map(copy => copy.lastAttemptAt), 'latest');
-  if (lastAttemptAt !== undefined) merged.lastAttemptAt = lastAttemptAt;
-
-  const nextAttemptAt = pickTime(copies.map(copy => copy.nextAttemptAt), 'latest');
-  if (nextAttemptAt !== undefined) merged.nextAttemptAt = nextAttemptAt;
+  const quarantined = copies.some(copy => copy.quarantined === true);
+  if (quarantined) {
+    merged.quarantined = true;
+    // Une operation bloquee sans motif ne peut pas etre expliquee a
+    // l'utilisateur ni arbitree.
+    assign(merged, 'quarantineReason', copies.find(copy => copy.quarantineReason != null)?.quarantineReason);
+  } else {
+    delete merged.quarantined;
+    delete merged.quarantineReason;
+  }
 
   const lastFailureAt = pickTime(copies.map(copy => copy.lastFailureAt), 'latest');
   const source = lastFailureAt === undefined
     ? copies.find(copy => copy.lastError !== undefined)
     : copies.find(copy => copy.lastFailureAt === lastFailureAt);
-  if (source) {
-    for (const field of FAILURE_BLOCK) merged[field] = source[field];
-  }
+  for (const field of FAILURE_BLOCK) assign(merged, field, source?.[field]);
 
   // Une operation refusee n'a aucune prochaine tentative.
   if (merged.terminal === true) {
-    merged.nextAttemptAt = undefined;
-    merged.retrySource = undefined;
+    delete merged.nextAttemptAt;
+    delete merged.retrySource;
   }
 
   return merged as T;
@@ -273,7 +352,7 @@ export function resolveDuplicateQueueIds<T extends QueueIdentityLike & Record<st
     const fingerprints = copies.map(queueOperationFingerprint);
     const comparable = fingerprints.every(fingerprint => fingerprint !== null);
 
-    if (comparable && new Set(fingerprints).size === 1) {
+    if (comparable && new Set(fingerprints).size === 1 && terminalStatesAreCompatible(copies)) {
       // Contenu identique : la duplication est un artefact, pas une donnee.
       replacementByIndex.set(positions[0], [mergeIdenticalCopies(copies)]);
       for (const index of positions.slice(1)) droppedIndices.add(index);

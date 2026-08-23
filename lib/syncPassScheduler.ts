@@ -63,6 +63,19 @@ export interface RunSyncPassInput<T extends RetryQueueOperationLike> {
     operation: T,
     error: unknown,
   ) => PassExecutionErrorOutcome<T> | Promise<PassExecutionErrorOutcome<T>>;
+  /**
+   * Quelles entrees la passe a-t-elle le droit de tenter ?
+   *
+   * Injecte plutot que devine : une operation mise en quarantaine — deux
+   * ecritures divergentes derriere un identifiant idempotent — ne doit jamais
+   * etre executee, et l'ordonnanceur n'a pas a connaitre cette notion.
+   *
+   * Prefiltrer le tableau AVANT l'appel serait la mauvaise solution : les
+   * jetons ne correspondraient plus aux index du snapshot complet, et le
+   * reconstructeur positionnel perdrait son fondement. Les entrees ecartees
+   * gardent donc leur place, sans ligne dans le journal.
+   */
+  isReplayable?: (operation: T) => boolean;
   orderingKey?: (operation: T) => string;
   priority?: (operation: T) => number;
   onProgress?: (done: number, total: number) => void;
@@ -163,6 +176,7 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
     now,
     execute,
     onExecuteError,
+    isReplayable = (operation: T) => operation.terminal !== true,
     orderingKey = syncOrderingKey as (operation: T) => string,
     priority,
     onProgress,
@@ -184,7 +198,7 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
 
   let remaining: Tracked<T>[] = [];
   operations.forEach((operation, index) => {
-    if (operation.terminal) return;
+    if (!isReplayable(operation)) return;
     currentByToken.set(index, operation);
     orderedTokens.push(index);
     remaining.push({ ...operation, __passToken: index } as Tracked<T>);

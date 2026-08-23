@@ -303,6 +303,31 @@ describe('the entry journal carries physical identity', () => {
     expect(result.entries[0].token).toBe(0);
   });
 
+  it('honours an injected replayability predicate without shifting tokens', async () => {
+    // Prefiltrer le tableau avant l'appel decalerait les jetons : le
+    // reconstructeur positionnel indexe le snapshot COMPLET, et une operation
+    // en quarantaine doit garder sa place sans jamais etre executee.
+    const operations = [
+      { ...movement('refusee', 'A', 12), terminal: true },
+      { ...movement('bloquee', 'A', 11), quarantined: true } as any,
+      movement('a1', 'A', 10),
+    ];
+    const executed: string[] = [];
+
+    const result = await runSyncPass({
+      operations,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      isReplayable: operation => (operation as any).terminal !== true
+        && (operation as any).quarantined !== true,
+      execute: async operation => { executed.push(idOf(operation)); return { kind: 'applied' }; },
+    });
+
+    expect(executed).toEqual(['a1']);
+    expect(result.entries.map(entry => entry.token)).toEqual([2]);
+    expect(result.entries[0].originalIndex).toBe(2);
+  });
+
   it('skips operations already terminal, leaving no journal line for them', async () => {
     // Elles ne sont pas transmises a l'ordonnanceur : c'est au snapshot P5 de
     // les conserver a leur place, pas au journal de les inventer.
