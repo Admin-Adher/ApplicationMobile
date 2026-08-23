@@ -823,6 +823,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
    * Ecritures serialisees de la file. Deux enqueue rapproches ne doivent jamais
    * laisser une ancienne version finir apres la plus recente.
    */
+  /** Réessai d'hydratation : distinct du timer de synchronisation. */
+  const hydrationRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const loadQueueRef = useRef<(() => Promise<void>) | null>(null);
+
   const queueWriteChain = useMemo(() => createQueueWriteChain(
     (key, value) => AsyncStorage.setItem(key, value),
     error => console.warn(
@@ -870,6 +874,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => () => {
     if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
+    if (hydrationRetryTimerRef.current) clearTimeout(hydrationRetryTimerRef.current);
     // Démontage du provider : plus personne n'exploitera le résultat, on coupe
     // les transferts au lieu de les laisser courir en tâche de fond.
     abortCurrentPass('démontage du provider');
@@ -916,11 +921,34 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // arrives — losing every offline mutation made before login finished
   // restoring. We also migrate any orphan `..._anon` queue (mutations enqueued
   // before authentication completed) into the per-user key so they can sync.
+  /**
+   * Rappelle `loadQueue` — et non `processSyncQueue`.
+   *
+   * `scheduleSync` ne déclenche le moteur que si `queueLoadedRef.current` est
+   * vrai : après un échec de migration il se réveillait, constatait que la file
+   * n'était pas chargée, et ne faisait rien. La file restait bloquée jusqu'au
+   * redémarrage ou au changement de compte — un blocage permanent pour toute la
+   * session, sûr pour les données mais tout aussi inutilisable.
+   */
+  const scheduleHydrationRetry = useCallback((generation: number) => {
+    if (hydrationRetryTimerRef.current) clearTimeout(hydrationRetryTimerRef.current);
+    hydrationRetryTimerRef.current = setTimeout(() => {
+      hydrationRetryTimerRef.current = null;
+      // Une génération plus récente a repris la main : ce réessai est obsolète.
+      if (queueHydrationGenerationRef.current !== generation) return;
+      void loadQueueRef.current?.();
+    }, SYNC_FAILURE_RETRY_DELAY_MS);
+  }, []);
+
   const loadQueue = useCallback(async () => {
     const myHydrationGeneration = ++queueHydrationGenerationRef.current;
     // Les identités locales n'ont de valeur que persistées : tant que ce
     // drapeau est faux, aucune passe réseau ne doit démarrer.
     let identitiesAreDurable = false;
+    // Contenu EXACT deja present sous la clef que l'on ecrira. Une file relue
+    // telle quelle est deja durable : exiger une reecriture ferait dependre son
+    // utilisation d'un `setItem` qui n'a rien a ecrire.
+    let persistedSnapshot: string | null = null;
     setQueueLoaded(false);
     queueLoadedRef.current = false;
     const userKey = userId ? OFFLINE_QUEUE_PREFIX + userId : null;
@@ -933,6 +961,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (userKey) {
         try {
           const rawUser = await AsyncStorage.getItem(userKey);
+          persistedSnapshot = rawUser;
           if (rawUser) {
             const parsed = JSON.parse(rawUser);
             if (Array.isArray(parsed)) {
@@ -962,6 +991,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         // No user yet — read anon-only queue (rare; usually we just wait for user.id)
         try {
           const rawAnon = await AsyncStorage.getItem(anonKey);
+          persistedSnapshot = rawAnon;
           if (rawAnon) {
             const parsed = JSON.parse(rawAnon);
             if (Array.isArray(parsed)) merged = parsed;
@@ -996,9 +1026,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // survivrait pas au redémarrage, et une préparation faite pendant la
       // passe deviendrait introuvable. Si elle échoue, l'exception ci-dessous
       // empêche `queueLoaded` de passer à vrai — donc aucune passe réseau.
-      await writeQueueStrict(identified.operations);
+      //
+      // Sauf si le disque porte DÉJÀ exactement ce contenu : rien à rendre
+      // durable, et une panne de `setItem` ne doit alors bloquer ni la lecture
+      // ni la synchronisation.
+      const serialized = JSON.stringify(identified.operations);
+      if (serialized !== persistedSnapshot) {
+        await writeQueueStrict(identified.operations);
+      }
       lastLoadedKeyRef.current = userKey ?? anonKey;
       identitiesAreDurable = true;
+      if (hydrationRetryTimerRef.current) {
+        clearTimeout(hydrationRetryTimerRef.current);
+        hydrationRetryTimerRef.current = null;
+      }
     } catch (error) {
       // Conserver les opérations éventuellement créées pendant l'hydratation.
       if (queueHydrationGenerationRef.current === myHydrationGeneration) {
@@ -1018,13 +1059,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         setQueueLoaded(identitiesAreDurable);
         if (!identitiesAreDurable) {
           setSyncStatus('error');
-          scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);
+          scheduleHydrationRetry(myHydrationGeneration);
         } else if (hasReplayableQueuedOperations(queueRef.current)) {
           scheduleSync();
         }
       }
     }
-  }, [userId, writeQueueStrict, scheduleSync]);
+  }, [userId, writeQueueStrict, scheduleSync, scheduleHydrationRetry]);
+
+  // `loadQueue` se rappelle lui-même après un échec de migration : la référence
+  // évite une dépendance circulaire entre les deux `useCallback`.
+  loadQueueRef.current = loadQueue;
 
   // ── Hydrate queue when user.id changes (cold start, login, switch) ─────────
   useEffect(() => {
@@ -1038,6 +1083,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     abortCurrentPass('changement de compte');
     syncingRef.current = false;
     queueHydrationGenerationRef.current += 1;
+    // Un réessai programmé pour le compte précédent ne doit pas réveiller
+    // l'hydratation du suivant.
+    if (hydrationRetryTimerRef.current) {
+      clearTimeout(hydrationRetryTimerRef.current);
+      hydrationRetryTimerRef.current = null;
+    }
     queueLoadedRef.current = false;
     setQueueLoaded(false);
     queueRef.current = [];
@@ -1683,6 +1734,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     };
 
     let processed = 0;
+    /** Entrées physiques déjà traitées par cette passe. */
+    const processedEntryIds = new Set<string>();
+
     /**
      * Exécute UNE opération et rend son issue.
      *
@@ -2564,6 +2618,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
       const outcome = await executeQueuedOperation(op);
       processed += 1;
+      // Enregistré APRÈS exécution, jamais déduit d'un décompte : c'est cette
+      // entrée physique qui vient d'être traitée, quelle que soit l'identité
+      // serveur qu'elle porte désormais.
+      if (op.queueEntryId) processedEntryIds.add(op.queueEntryId);
 
       // Le succès est désormais DÉCLARÉ, non plus déduit de `failedOps.length`.
       // Cette heuristique se trompait dans les deux sens : une réserve écrite
@@ -2623,10 +2681,21 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // perdues silencieusement (et jamais synchronisées). queueRef est mis à jour
     // avant React et AsyncStorage pour rester insensible au batching et aux
     // courses avec un enqueue concurrent.
-    const processedIds = new Set(currentQueue.slice(0, processed).map(o => o.id));
+    // Par IDENTITÉ PHYSIQUE, jamais par `id` métier : un rebase remplace
+    // volontairement l'identifiant serveur de l'entrée. Suivre l'ancien `id`
+    // faisait passer la version préparée pour une opération enfilée pendant la
+    // passe — elle restait dans la file après un succès, et pouvait y coexister
+    // avec sa propre version en échec.
+    //
+    // Le décompte `slice(0, processed)` est également abandonné : il déduisait
+    // les entrées traitées de leur POSITION, alors que le tableau parcouru et
+    // celui de `queueRef` peuvent avoir divergé pendant la passe.
+    const additionsDuringPass = queueRef.current.filter(operation => (
+      !operation.queueEntryId || !processedEntryIds.has(operation.queueEntryId)
+    ));
     const nextQueue = coalesceQueuedOperations([
       ...remaining,
-      ...queueRef.current.filter(o => !processedIds.has(o.id)),
+      ...additionsDuringPass,
     ]);
     queueRef.current = nextQueue;
     setQueue(nextQueue);
@@ -2822,10 +2891,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     setQueue([]);
     // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
     setSyncAuthBlocked(false);
-    // Purge de la file : la suppression passe par la meme chaine que les
-    // ecritures, sinon elle pourrait doubler une ecriture encore en vol.
+    // Purge de la file : elle passe par la MÊME chaîne que les écritures.
+    // Un `removeItem` lancé hors chaîne pouvait se terminer après l'écriture
+    // d'une opération enfilée entre-temps, et la faire disparaître du disque.
+    // Une valeur `[]` est une file vide parfaitement valide : on ne supprime
+    // pas la clé.
     await queueWriteChain.writeBestEffort(offlineQueueKey, JSON.stringify([]));
-    try { await AsyncStorage.removeItem(offlineQueueKey); } catch {}
     try { await AsyncStorage.removeItem(OFFLINE_QUEUE_PREFIX + 'anon'); } catch {}
   }, [backupQueue, offlineQueueKey]);
 

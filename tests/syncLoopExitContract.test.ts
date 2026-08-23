@@ -289,6 +289,85 @@ describe('a prepared rebase identity is durable before the write', () => {
   });
 });
 
+describe('the legacy rebuild follows physical identity', () => {
+  const rebuild = source.slice(
+    source.indexOf('const additionsDuringPass ='),
+    source.indexOf('queueRef.current = nextQueue;'),
+  );
+
+  it('never tracks processed work by the business id', () => {
+    // Un rebase remplace volontairement l'identifiant serveur : suivre l'ancien
+    // `id` faisait passer la version preparee pour un enqueue concurrent. Elle
+    // restait dans la file apres un succes, et pouvait y coexister avec sa
+    // propre version en echec.
+    expect(rebuild).toContain('processedEntryIds.has(operation.queueEntryId)');
+    expect(source).not.toContain('const processedIds = new Set(');
+    expect(source).not.toContain('currentQueue.slice(0, processed)');
+  });
+
+  it('records the entry AFTER executing it, never from a positional count', () => {
+    const start = source.indexOf('const outcome = await executeQueuedOperation(op);');
+    // `indexOf` sans borne trouverait l'occurrence du rappel d'upload, situee
+    // AVANT la boucle : la tranche serait vide et l'assertion sans objet.
+    const loop = source.slice(start, source.indexOf('setSyncProgress({ done: processed', start));
+
+    expect(loop.length).toBeGreaterThan(100);
+
+    expect(loop).toContain('processedEntryIds.add(op.queueEntryId);');
+  });
+});
+
+describe('the queue purge cannot outlive a concurrent enqueue', () => {
+  it('goes through the write chain and never deletes the key', () => {
+    // Un `removeItem` lance hors chaine pouvait se terminer APRES l'ecriture
+    // d'une operation enfilee entre-temps, et la faire disparaitre du disque.
+    // `[]` est une file vide parfaitement valide.
+    const purge = source.slice(
+      source.indexOf("setSyncAuthBlocked(false);"),
+      source.indexOf("const dismissRejectedOperations"),
+    );
+
+    expect(purge).toContain('queueWriteChain.writeBestEffort(offlineQueueKey, JSON.stringify([]))');
+    expect(purge).not.toContain('AsyncStorage.removeItem(offlineQueueKey)');
+  });
+});
+
+describe('a failed hydration is actually retried', () => {
+  it('recalls loadQueue, not the sync scheduler', () => {
+    // `scheduleSync` ne declenche le moteur que si `queueLoadedRef.current` est
+    // vrai : apres un echec de migration il se reveillait, constatait que la
+    // file n'etait pas chargee, et ne faisait rien. Blocage permanent pour
+    // toute la session.
+    const retry = source.slice(
+      source.indexOf('const scheduleHydrationRetry = useCallback'),
+      source.indexOf('const loadQueue = useCallback'),
+    );
+
+    expect(retry).toContain('void loadQueueRef.current?.();');
+    expect(retry).toContain('if (queueHydrationGenerationRef.current !== generation) return;');
+    expect(source).toContain('scheduleHydrationRetry(myHydrationGeneration);');
+  });
+
+  it('cancels the pending retry on unmount, account change and success', () => {
+    const cancellations = source.split('clearTimeout(hydrationRetryTimerRef.current)').length - 1;
+
+    // Demontage, changement de compte, hydratation reussie, et re-armement.
+    expect(cancellations).toBe(4);
+  });
+
+  it('does not demand a rewrite when the disk already holds it', () => {
+    // Une file relue telle quelle est deja durable : exiger une reecriture
+    // ferait dependre son utilisation d'un `setItem` qui n'a rien a ecrire.
+    const hydration = source.slice(
+      source.indexOf('const identified = ensureQueueEntryIdentities'),
+      source.indexOf('lastLoadedKeyRef.current = userKey ?? anonKey;'),
+    );
+
+    expect(hydration).toContain('if (serialized !== persistedSnapshot) {');
+    expect(hydration).toContain('await writeQueueStrict(identified.operations);');
+  });
+});
+
 describe('logs never carry business payloads', () => {
   it('reports the shape of a malformed comment patch, not its content', () => {
     // Le patch porte le texte du commentaire, parfois un nom : la discipline
