@@ -31,7 +31,7 @@ const executor = source.slice(
   source.indexOf('for (const op of currentQueue) {'),
 );
 
-const EXPECTED_IDS = Array.from({ length: 58 }, (_, i) => `E${String(i + 1).padStart(2, '0')}`);
+const EXPECTED_IDS = Array.from({ length: 59 }, (_, i) => `E${String(i + 1).padStart(2, '0')}`);
 
 /** Expression rendue par une sortie, parenthèses équilibrées comprises. */
 function exitExpression(id: string): string {
@@ -62,7 +62,7 @@ describe('the contract table covers every exit, one for one', () => {
     expect(executor).toContain('Promise<QueuedOperationOutcome>');
   });
 
-  it('numbers the exits E01 to E58, each exactly once', () => {
+  it('numbers the exits E01 to E59, each exactly once', () => {
     expect(idsInCode).toEqual(EXPECTED_IDS);
   });
 
@@ -105,7 +105,7 @@ describe('each exit declares the right kind', () => {
     const local = EXPECTED_IDS.filter(id => kindOf(id) === 'terminalLocal');
 
     expect(local).toEqual([
-      'E01', 'E02', 'E08', 'E10', 'E12', 'E13', 'E33', 'E36', 'E44', 'E50', 'E55',
+      'E01', 'E02', 'E08', 'E10', 'E12', 'E13', 'E33', 'E36', 'E44', 'E51', 'E56',
     ]);
   });
 
@@ -129,6 +129,31 @@ describe('each exit declares the right kind', () => {
     // Une opération refusée n'a aucune prochaine tentative.
     expect(activeLines).toContain('nextAttemptAt: undefined,');
     expect(activeLines).toContain('retrySource: undefined,');
+    // L'historique d'echec est REMPLACE : conserver une classe ou un statut
+    // HTTP perimes afficherait « refusee localement » a cote d'un « HTTP 503 »,
+    // et regrouperait l'operation sous le mauvais alias dans l'export.
+    for (const cleared of [
+      'failureClass: undefined,',
+      'lastHttpStatus: undefined,',
+      'lastFailureFingerprint: undefined,',
+      'sameFailureCount: 0,',
+    ]) {
+      expect(activeLines, cleared).toContain(cleared);
+    }
+    // Une validation locale prouve qu'aucune requete n'a ete emise : le stock
+    // optimiste d'un mouvement doit etre annule, contrairement a une erreur
+    // reseau ambigue ou l'ecriture a peut-etre abouti.
+    expect(activeLines).toContain('terminalReconciliations.push({ op: terminalOperation, outcome: terminalOutcome });');
+    expect(helper).toContain('isInventoryMovementOperation(operation)');
+  });
+
+  it('reconciles a movement whose RPC name vanished', () => {
+    // La garde `rpc?.fn !== 'record_inventory_movement'` vivait AUSSI dans la
+    // reconciliation et dans le rejet manuel : pousser la reconciliation sans
+    // l'elargir aurait ete sans effet, et le cache serait reste decale.
+    expect(source).toContain('if (!isInventoryMovementOperation(operation) || outcome.domain !== ');
+    expect(source).toContain('if (!isInventoryMovementOperation(operation)) continue;');
+    expect(source).not.toContain("operation.rpc?.fn !== 'record_inventory_movement'");
   });
 
   it('keeps the remaining kinds where the table puts them', () => {
@@ -139,8 +164,8 @@ describe('each exit declares the right kind', () => {
     }, {});
 
     expect(byKind.conflict).toEqual(['E28']);
-    expect(byKind.deferred).toEqual(['E45']);
-    expect(byKind.fail).toHaveLength(31);
+    expect(byKind.deferred).toEqual(['E46']);
+    expect(byKind.fail).toHaveLength(32);
     expect(byKind.applied).toHaveLength(14);
     expect(byKind.inconnu).toBeUndefined();
   });
@@ -154,8 +179,8 @@ describe('transport metadata reaches the policy, exit by exit', () => {
     // pas : retirer `{ meta: result.meta }` d'un site laissait le test vert tant
     // qu'un autre site citait la même variable.
     const expected = [
-      'E14', 'E15', 'E17', 'E18', 'E19', 'E22', 'E23', 'E26', 'E29',
-      'E31', 'E34', 'E40', 'E42', 'E47', 'E49', 'E51', 'E54', 'E56',
+      'E14', 'E15', 'E17', 'E18', 'E19', 'E22', 'E23', 'E26', 'E29', 'E31',
+      'E34', 'E40', 'E42', 'E45', 'E47', 'E48', 'E50', 'E52', 'E53', 'E55', 'E57',
     ];
 
     expect(EXPECTED_IDS.filter(forwardsMeta)).toEqual(expected);
@@ -164,7 +189,7 @@ describe('transport metadata reaches the policy, exit by exit', () => {
   it('omits it exactly where no response exists to carry it', () => {
     // Échec d'upload, validation locale, exception, refus métier construit
     // localement : aucune réponse HTTP n'a été reçue.
-    const expected = ['E03', 'E04', 'E05', 'E06', 'E07', 'E09', 'E11', 'E37', 'E38', 'E39', 'E46', 'E52', 'E58'];
+    const expected = ['E03', 'E04', 'E05', 'E06', 'E07', 'E09', 'E11', 'E37', 'E38', 'E39', 'E59'];
     const failuresWithoutMeta = EXPECTED_IDS
       .filter(id => exitExpression(id).includes('fail(') && !forwardsMeta(id));
 
@@ -186,10 +211,40 @@ describe('transport metadata reaches the policy, exit by exit', () => {
   });
 });
 
+describe('logs never carry business payloads', () => {
+  it('reports the shape of a malformed comment patch, not its content', () => {
+    // Le patch porte le texte du commentaire, parfois un nom : la discipline
+    // d'expurgation appliquee aux erreurs persistees vaut aussi pour les
+    // journaux.
+    expect(executor).not.toContain('JSON.stringify(patch)');
+    expect(executor).toContain("action: patch?.action,");
+    expect(executor).toContain('hasComment: Boolean(patch?.comment),');
+  });
+});
+
 describe('proof that the backend answers breaks the failure streak', () => {
-  it('carries it on the conflict and on a server-side rebase', () => {
+  it('carries it on every non-failure outcome that already got an answer', () => {
     expect(exitExpression('E28')).toContain('provesServerReachable: true');
-    expect(exitExpression('E45')).toContain('provesServerReachable: rebase.reachedServer');
+    expect(exitExpression('E46')).toContain('provesServerReachable: true');
+    // E13 et E33 refusent localement, mais APRES une reponse serveur.
+    expect(exitExpression('E13')).toContain('provesServerReachable: true');
+    expect(exitExpression('E33')).toContain('provesServerReachable: true');
+  });
+
+  it('never lets a rebase transport failure fake that proof', () => {
+    // Le defaut central : `rebase.reachedServer` valait `true` pour un 503 —
+    // qui doit precisement alimenter la serie. L'echec passe desormais par la
+    // politique, qui sait qu'un 503 compte et qu'un 429 arrete la passe.
+    const rebaseTransport = exitExpression('E45');
+
+    expect(rebaseTransport).toContain('fail(');
+    expect(rebaseTransport).toContain('meta: rebase.meta');
+    expect(rebaseTransport).toContain('serverAnsweredEarlier: true');
+    expect(rebaseTransport).not.toContain('provesServerReachable');
+    // Le type interdit desormais de confondre les deux causes.
+    expect(source).toContain("kind: 'retry_transport';");
+    expect(source).toContain("kind: 'retry_conflict';");
+    expect(source).not.toContain('reachedServer: rpc.meta.reachedServer');
   });
 
   it('resets the streak on that proof, not only on success', () => {
@@ -209,5 +264,8 @@ describe('proof that the backend answers breaks the failure streak', () => {
     );
 
     expect(failBody).not.toContain('provesServerReachable');
+    // Un premier verdict serveur DANS la meme operation rompt la serie ; cet
+    // echec-ci en demarre une nouvelle plutot que de conserver l'ancienne.
+    expect(failBody).toContain('options?.serverAnsweredEarlier ? 0 : consecutiveInfraFailures');
   });
 });

@@ -35,6 +35,7 @@ import {
   getSyncQueueCounts,
   hasReplayableQueuedOperations,
   inventoryOutcomeTranslationKey,
+  isInventoryMovementOperation,
   isInventoryQueuedOperation,
   isReplayableQueuedOperation,
   type SyncQueueTerminalOutcome,
@@ -228,7 +229,7 @@ async function reconcileTerminalInventoryOperationCache(
   outcome: SyncQueueTerminalOutcome,
   userId: string | undefined,
 ): Promise<boolean> {
-  if (operation.rpc?.fn !== 'record_inventory_movement' || outcome.domain !== 'inventory') return false;
+  if (!isInventoryMovementOperation(operation) || outcome.domain !== 'inventory') return false;
   if (!userId) throw new Error('Authenticated user required for inventory cache reconciliation.');
 
   const context = inventoryOutcomeContextFromQueuedOperation(operation);
@@ -706,7 +707,7 @@ type QueuedOperationOutcome = PassOperationOutcome<QueuedOperation> & {
  * seule fois. Les numeros de ligne, eux, deviennent faux au premier changement.
  */
 type SyncExitId =
-  'E01' | 'E02' | 'E03' | 'E04' | 'E05' | 'E06' | 'E07' | 'E08' | 'E09' | 'E10' | 'E11' | 'E12' | 'E13' | 'E14' | 'E15' | 'E16' | 'E17' | 'E18' | 'E19' | 'E20' | 'E21' | 'E22' | 'E23' | 'E24' | 'E25' | 'E26' | 'E27' | 'E28' | 'E29' | 'E30' | 'E31' | 'E32' | 'E33' | 'E34' | 'E35' | 'E36' | 'E37' | 'E38' | 'E39' | 'E40' | 'E41' | 'E42' | 'E43' | 'E44' | 'E45' | 'E46' | 'E47' | 'E48' | 'E49' | 'E50' | 'E51' | 'E52' | 'E53' | 'E54' | 'E55' | 'E56' | 'E57' | 'E58';
+  'E01' | 'E02' | 'E03' | 'E04' | 'E05' | 'E06' | 'E07' | 'E08' | 'E09' | 'E10' | 'E11' | 'E12' | 'E13' | 'E14' | 'E15' | 'E16' | 'E17' | 'E18' | 'E19' | 'E20' | 'E21' | 'E22' | 'E23' | 'E24' | 'E25' | 'E26' | 'E27' | 'E28' | 'E29' | 'E30' | 'E31' | 'E32' | 'E33' | 'E34' | 'E35' | 'E36' | 'E37' | 'E38' | 'E39' | 'E40' | 'E41' | 'E42' | 'E43' | 'E44' | 'E45' | 'E46' | 'E47' | 'E48' | 'E49' | 'E50' | 'E51' | 'E52' | 'E53' | 'E54' | 'E55' | 'E56' | 'E57' | 'E58' | 'E59';
 
 /**
  * Marqueur d'identite d'une sortie. Ne transforme rien : l'issue traverse
@@ -720,16 +721,24 @@ function syncExit<T extends QueuedOperationOutcome>(_id: SyncExitId, outcome: T)
 
 type ReserveRebaseResult =
   | { kind: 'applied'; outcome: ReserveMutationResult }
-  // À ré-enfiler : nouvel operation_id + base_version rafraîchie pour réessayer.
+  /**
+   * Le SECOND appel a échoué au transport — coupure, 401, 429, 503, timeout.
+   * Regrouper ce cas avec un `version_conflict` sous un même `retry` faisait
+   * contourner toute la politique P5 : pas de classe d'échec, pas d'échéance,
+   * pas de portée backend ou authentification, et surtout un `503` — dont
+   * `meta.reachedServer` vaut `true` — remettait la série de pannes à zéro
+   * alors qu'il doit précisément l'alimenter.
+   */
   | {
-    kind: 'retry';
+    kind: 'retry_transport';
     baseVersion: number | null;
     operationId: string;
-    reason: string;
-    /** Vient du transport, pas du motif : seule preuve fiable d'une reponse. */
-    reachedServer: boolean;
+    error: unknown;
+    meta: SupabaseRestMeta;
   }
-  | { kind: 'terminal'; status: string; message?: string };
+  /** Le serveur a de nouveau rendu `version_conflict` : il répond, lui. */
+  | { kind: 'retry_conflict'; baseVersion: number | null; operationId: string }
+  | { kind: 'terminal'; status: string; message?: string; meta: SupabaseRestMeta };
 
 /**
  * Résout un `version_conflict` sur une réserve.
@@ -778,11 +787,11 @@ async function rebaseReservePatchOnConflict(
     // operation_id (idempotent : si l'écriture a en fait abouti, le serveur
     // renverra le résultat mémorisé).
     return {
-      kind: 'retry',
+      kind: 'retry_transport',
       baseVersion: currentVersion,
       operationId,
-      reason: rpc.error?.message ?? 'network',
-      reachedServer: rpc.meta.reachedServer,
+      error: rpc.error,
+      meta: rpc.meta,
     };
   }
 
@@ -795,15 +804,12 @@ async function rebaseReservePatchOnConflict(
     // passage avec la nouvelle version et un NOUVEL operation_id (l'actuel est
     // désormais mémorisé avec un conflit).
     return {
-      kind: 'retry',
+      kind: 'retry_conflict',
       baseVersion: typeof outcome.current_version === 'number' ? outcome.current_version : currentVersion,
       operationId: newOperationId(),
-      reason: 'version_conflict',
-      // Le serveur a rendu un verdict structure : le lien fonctionne.
-      reachedServer: true,
     };
   }
-  return { kind: 'terminal', status: outcome.status, message: outcome.message };
+  return { kind: 'terminal', status: outcome.status, message: outcome.message, meta: rpc.meta };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1451,6 +1457,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         terminalStatus?: string;
         terminalOutcome?: SyncQueueTerminalOutcome;
         meta?: SupabaseRestMeta;
+        /**
+         * Le serveur a déjà rendu un verdict PLUS TÔT dans cette même
+         * opération — cas du rebase, appelé seulement après un premier
+         * `version_conflict`. La série de pannes consécutives est donc déjà
+         * rompue : cet échec-ci en démarre une nouvelle.
+         */
+        serverAnsweredEarlier?: boolean;
       },
     ): QueuedOperationOutcome => {
       const verdict = classifyFailureOutcome({
@@ -1460,7 +1473,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         terminalStatus: options?.terminalStatus,
         terminalOutcome: options?.terminalOutcome,
         nowMs: Date.now(),
-        consecutiveServiceFailures: consecutiveInfraFailures,
+        consecutiveServiceFailures: options?.serverAnsweredEarlier ? 0 : consecutiveInfraFailures,
         circuitAlreadyOpen: circuitOpened,
       });
       console.warn(`[queue] ${op.op} ${op.table} failed:`, verdict.message);
@@ -1586,21 +1599,54 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       operation: QueuedOperation,
       terminalStatus: string,
       message: string,
+      options?: { provesServerReachable?: boolean },
     ): QueuedOperationOutcome => {
+      const safeMessage = redactSensitiveText(message).slice(0, 500);
+
+      // « Aucun rollback sur un refus local » était trop général. Une erreur
+      // réseau est AMBIGUË — la requête a peut-être abouti, sa réponse s'est
+      // perdue — et là il ne faut rien annuler. Une validation locale, elle,
+      // prouve qu'aucune requête n'a été émise : le serveur ne peut pas avoir
+      // appliqué l'écriture, et laisser le stock optimiste en place décale
+      // durablement le cache.
+      const terminalOutcome = isInventoryMovementOperation(operation)
+        ? normalizeInventoryMovementOutcome(
+          { status: 'invalid_payload', message: safeMessage },
+          inventoryOutcomeContextFromQueuedOperation(operation),
+        )
+        : null;
+
       const terminalOperation: QueuedOperation = {
         ...operation,
         terminal: true,
         terminalStatus,
-        lastError: redactSensitiveText(message).slice(0, 500),
+        terminalOutcome: terminalOutcome ?? operation.terminalOutcome,
+        lastError: safeMessage,
         lastFailureAt: new Date().toISOString(),
+        // Le refus local REMPLACE l'historique d'échec. Conserver l'ancien
+        // afficherait « refusée localement » à côté d'un « HTTP 503 » périmé,
+        // et la regrouperait sous le mauvais alias dans le diagnostic.
+        failureClass: undefined,
+        lastHttpStatus: undefined,
+        lastFailureFingerprint: undefined,
+        sameFailureCount: 0,
         // Une opération refusée n'a aucune prochaine tentative.
         nextAttemptAt: undefined,
         retrySource: undefined,
+        retryPolicyVersion: 1,
       };
+
+      if (terminalOutcome) {
+        terminalReconciliations.push({ op: terminalOperation, outcome: terminalOutcome });
+      }
       // Pont legacy : la reconstruction lit encore `failedOps`. Cette poussée
       // disparaît quand `runSyncPass` consommera les issues.
       failedOps.push(terminalOperation);
-      return { kind: 'terminal', operation: terminalOperation };
+      return {
+        kind: 'terminal',
+        operation: terminalOperation,
+        provesServerReachable: options?.provesServerReachable,
+      };
     };
 
     let processed = 0;
@@ -1823,7 +1869,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             const snapshotPatch = (args.p_patch ?? retryRpcOp.data) as Record<string, any> | undefined;
             const planId = args.p_plan_id;
             if (!snapshotPatch || !planId) {
-              return syncExit('E13', terminalLocalOperation(retryRpcOp, 'invalid_local_operation', i18n.t('networkQueue.replacePlanMissingPatch')));
+              // Le RPC vient d'aboutir : le backend répond, la série de
+              // pannes doit être rompue même si l'opération est refusée.
+              return syncExit('E13', terminalLocalOperation(
+                retryRpcOp,
+                'invalid_local_operation',
+                i18n.t('networkQueue.replacePlanMissingPatch'),
+                { provesServerReachable: true },
+              ));
             }
             const { error: metadataError, meta: metadataMeta } = await supabaseRestMutation(
               'site_plans',
@@ -2002,8 +2055,21 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           } else {
             // Patch malformé : abandonné définitivement, pas différé — le
             // rejouer produirait exactement le même verdict à chaque passe.
-            console.warn('[queue] commentPatch malformed, dropping:', JSON.stringify(patch));
-            return syncExit('E33', terminalLocalOperation(op, 'invalid_payload', 'Patch de commentaire illisible.'));
+            // Sérialiser le patch versait dans les journaux le texte du
+            // commentaire, un nom, ou toute autre donnée métier qu'il porte.
+            // Seule sa FORME est utile au diagnostic.
+            console.warn('[queue] commentPatch malformed', {
+              action: patch?.action,
+              hasComment: Boolean(patch?.comment),
+              hasCommentId: Boolean(patch?.commentId),
+            });
+            // Le SELECT des commentaires a abouti juste avant : le lien marche.
+            return syncExit('E33', terminalLocalOperation(
+              op,
+              'invalid_payload',
+              'Patch de commentaire illisible.',
+              { provesServerReachable: true },
+            ));
           }
 
           const { error: writeErr, meta: writeMeta } = await supabaseRestMutation(
@@ -2276,11 +2342,29 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               const rebase = await rebaseReservePatchOnConflict(String(op.filter.value), data!, outcome);
               if (rebase.kind === 'applied') {
                 result = { error: null, data: [rebase.outcome] };
-              } else if (rebase.kind === 'retry') {
-                // Ré-enfiler avec la version rebasée + un nouvel id pour
-                // réessayer proprement (et non rejouer le conflit mémorisé).
-                // Rebasé : l'opération repart avec une nouvelle identité, sinon
-                // le serveur rejoue indéfiniment le conflit mémorisé.
+              } else if (rebase.kind === 'retry_transport') {
+                // Le second appel a échoué au transport. Il doit suivre la
+                // politique P5 comme n'importe quel autre échec : un 429 arrête
+                // la passe avec l'échéance du serveur, un 503 alimente le
+                // circuit, un 401 ouvre le circuit d'authentification. La
+                // version rebasée est conservée pour que le réessai reparte
+                // avec une identité neuve.
+                const retryOperation: QueuedOperation = {
+                  ...op,
+                  id: rebase.operationId,
+                  baseVersion: rebase.baseVersion,
+                };
+                return syncExit('E45', fail(retryOperation, rebase.error, {
+                  meta: rebase.meta,
+                  // Le rebase n'est atteint qu'APRÈS un premier
+                  // `version_conflict` rendu par le serveur : la série de
+                  // pannes est déjà rompue, celle-ci en démarre une nouvelle.
+                  serverAnsweredEarlier: true,
+                }));
+              } else if (rebase.kind === 'retry_conflict') {
+                // Le serveur a de nouveau tranché : écriture concurrente entre
+                // le SELECT et l'apply. On repart avec une identité neuve,
+                // sinon le serveur rejoue indéfiniment le conflit mémorisé.
                 const rebasedOperation: QueuedOperation = {
                   ...op,
                   id: rebase.operationId,
@@ -2289,21 +2373,21 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   attemptCount: normalizeAttemptCount(op.attemptCount) + 1,
                 };
                 failedOps.push(rebasedOperation);
-                return syncExit('E45', {
+                return syncExit('E46', {
                   kind: 'deferred',
                   operation: rebasedOperation,
                   nextAttemptAt: null,
-                  // `rebase.kind === 'retry'` recouvre deux causes distinctes :
-                  // une coupure réseau, et un `version_conflict` rendu par le
-                  // serveur. Seule la seconde prouve que le backend répond.
-                  provesServerReachable: rebase.reachedServer,
+                  provesServerReachable: true,
                 });
               } else {
-                return syncExit('E46', fail(retryOpForCatch, rebase.message ?? rebase.status, { terminalStatus: rebase.status }));
+                return syncExit('E47', fail(retryOpForCatch, rebase.message ?? rebase.status, {
+                  terminalStatus: rebase.status,
+                  meta: rebase.meta,
+                }));
               }
             } else {
               const terminal = ['deleted', 'forbidden', 'not_found', 'duplicate_operation_mismatch', 'invalid_payload'].includes(outcome.status);
-              return syncExit('E47', fail(
+              return syncExit('E48', fail(
                 retryOpForCatch,
                 outcome.message ?? outcome.status,
                 terminal
@@ -2324,16 +2408,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 );
                 // Ligne disparue côté serveur : la mise à jour n'a plus d'objet.
                 if (!existsErr && !exists?.[0]) {
-                  return syncExit('E48', { kind: 'applied', operation: retryOpForCatch });
+                  return syncExit('E49', { kind: 'applied', operation: retryOpForCatch });
                 }
               } catch {}
             }
-            return syncExit('E49', fail(retryOpForCatch, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`, { meta: result.meta }));
+            return syncExit('E50', fail(retryOpForCatch, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`, { meta: result.meta }));
           }
         } else if (op.op === 'delete') {
           if (!op.filter) {
             // Sans filtre, un DELETE viderait la table : refus définitif.
-            return syncExit('E50', terminalLocalOperation(op, 'invalid_local_operation', `DELETE ${op.table} refusé: filtre manquant.`));
+            return syncExit('E51', terminalLocalOperation(op, 'invalid_local_operation', `DELETE ${op.table} refusé: filtre manquant.`));
           }
           const criticalDeleteRpc = CRITICAL_SOFT_DELETE_RPCS[op.table];
           if (criticalDeleteRpc && op.filter.column === 'id') {
@@ -2349,10 +2433,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               { column: 'chantier_id', value: op.filter.value },
             );
             if (linkedErr) {
-              return syncExit('E51', fail(op, linkedErr, { meta: linkedMeta }));
+              return syncExit('E52', fail(op, linkedErr, { meta: linkedMeta }));
             }
             if (linkedReserves?.[0]) {
-              return syncExit('E52', fail(op, i18n.t('networkQueue.deleteProjectHasReserves')));
+              // Le SELECT a répondu : l'opération reste différée — les
+              // réserves peuvent être supprimées plus tard — mais le backend
+              // est prouvé joignable.
+              return syncExit('E53', fail(op, i18n.t('networkQueue.deleteProjectHasReserves'), { meta: linkedMeta }));
             }
           }
           if (op.table === 'reserves') {
@@ -2376,18 +2463,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 );
                 if (!existsErr && !exists?.[0]) {
                   // Row is already gone server-side — consider the delete successful
-                  return syncExit('E53', { kind: 'applied', operation: op });
+                  return syncExit('E54', { kind: 'applied', operation: op });
                 }
               } catch {}
             }
-            return syncExit('E54', fail(op, `DELETE sur ${op.table} bloqué par une policy RLS (0 ligne supprimée).`, { meta: result.meta }));
+            return syncExit('E55', fail(op, `DELETE sur ${op.table} bloqué par une policy RLS (0 ligne supprimée).`, { meta: result.meta }));
           }
         } else {
           // Opération illisible : aucune tentative ne la rendra valide.
-          return syncExit('E55', terminalLocalOperation(op, 'invalid_local_operation', `Opération inconnue: ${(op as any).op}`));
+          return syncExit('E56', terminalLocalOperation(op, 'invalid_local_operation', `Opération inconnue: ${(op as any).op}`));
         }
 
-        if (result.error) return syncExit('E56', fail(retryOpForCatch, result.error, { meta: result.meta }));
+        if (result.error) return syncExit('E57', fail(retryOpForCatch, result.error, { meta: result.meta }));
 
         if (op.op === 'insert' && op.table === 'messages' && data?.id && data?.channel_id) {
           triggerMessagePush(String(data.id), String(data.channel_id));
@@ -2399,9 +2486,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         // été écrite, ses photos partent séparément. Elle reste poussée
         // directement tant que la reconstruction legacy lit `failedOps`.
         if (deferredPhotoPatch) failedOps.push(deferredPhotoPatch);
-        return syncExit('E57', { kind: 'applied', operation: retryOpForCatch });
+        return syncExit('E58', { kind: 'applied', operation: retryOpForCatch });
       } catch (e) {
-        return syncExit('E58', fail(retryOpForCatch, e));
+        return syncExit('E59', fail(retryOpForCatch, e));
       }
     };
 
@@ -2689,7 +2776,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Final safeguard for outcomes created by an older app session: reconcile
     // the durable inventory cache before removing the acknowledgement record.
     for (const operation of rejected) {
-      if (operation.rpc?.fn !== 'record_inventory_movement') continue;
+      if (!isInventoryMovementOperation(operation)) continue;
       const terminalOutcome = operation.terminalOutcome?.domain === 'inventory'
         ? operation.terminalOutcome
         : normalizeInventoryMovementOutcome(

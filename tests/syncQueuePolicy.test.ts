@@ -14,6 +14,7 @@ import {
   inventoryOutcomeTranslationKey,
   isAuthenticationSyncFailure,
   isInfrastructureSyncFailure,
+  isInventoryMovementOperation,
   isInventoryQueuedOperation,
   isPermanentSyncFailure,
   assessRepeatedPermanentFailure,
@@ -100,6 +101,33 @@ describe('sync queue policy', () => {
       stuck: 1,
       attention: 2,
     });
+  });
+});
+
+describe('a movement whose RPC name vanished is still a movement', () => {
+  it('recognises it by table when no function is present', () => {
+    // Le stock optimiste d'un mouvement dont `rpc.fn` a disparu doit etre annule
+    // comme les autres : sans cela le cache local reste durablement decale, et
+    // le filet de securite du rejet manuel ne rattrape pas le cas puisqu'il
+    // exigeait la fonction exacte.
+    expect(isInventoryMovementOperation({ rpc: { fn: 'record_inventory_movement' } })).toBe(true);
+    expect(isInventoryMovementOperation({ table: 'inventory_movements' })).toBe(true);
+    expect(isInventoryMovementOperation({ table: 'inventory_movements', rpc: {} })).toBe(true);
+  });
+
+  it('never mistakes a product write for a movement', () => {
+    // Une modification de produit ne touche aucun mouvement : l'annuler comme
+    // tel corromprait le stock dans l'autre sens.
+    expect(isInventoryMovementOperation({ rpc: { fn: 'update_inventory_product' } })).toBe(false);
+    expect(isInventoryMovementOperation({ table: 'inventory_products' })).toBe(false);
+    // Elargissement volontairement etroit : une AUTRE fonction connue sur la
+    // table des mouvements reste hors du champ.
+    expect(isInventoryMovementOperation({
+      table: 'inventory_movements',
+      rpc: { fn: 'update_inventory_product' },
+    })).toBe(false);
+    expect(isInventoryMovementOperation({ table: 'reserves' })).toBe(false);
+    expect(isInventoryMovementOperation({})).toBe(false);
   });
 });
 

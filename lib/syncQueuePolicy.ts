@@ -383,6 +383,23 @@ export function isInventoryQueuedOperation(operation: SyncQueueOperationLike): b
   return getSyncQueueOperationDomain(operation) === 'inventory';
 }
 
+/**
+ * L'operation est-elle un MOUVEMENT de stock ?
+ *
+ * `rpc.fn === 'record_inventory_movement'` ne suffit pas : une operation dont
+ * la fonction RPC a disparu reste un mouvement, enfile sous
+ * `inventory_movements`, et son stock optimiste doit etre annule comme les
+ * autres. Sans cela le cache local reste durablement decale.
+ *
+ * La table seule ne suffit pas non plus : une modification de produit ne touche
+ * aucun mouvement et ne doit rien annuler. On n'elargit donc QUE le cas ou
+ * aucune fonction n'est presente.
+ */
+export function isInventoryMovementOperation(operation: SyncQueueOperationLike): boolean {
+  if (operation.rpc?.fn === 'record_inventory_movement') return true;
+  return !operation.rpc?.fn && operation.table === 'inventory_movements';
+}
+
 export function inventoryOutcomeTranslationKey(operation: SyncQueueOperationLike): string | null;
 export function inventoryOutcomeTranslationKey(
   status: string | null | undefined,

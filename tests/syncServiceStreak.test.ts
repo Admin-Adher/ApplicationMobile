@@ -60,6 +60,20 @@ describe('only proof that the backend answers breaks the streak', () => {
     expect(replay([timeout, localRefusal, timeout])).toEqual([1, 1, 2]);
   });
 
+  it('breaks it on a local refusal that FOLLOWED a server answer', () => {
+    // E13, E33 et E53 refusent ou different l'operation apres une reponse
+    // serveur : le RPC de plan avait abouti, le SELECT des commentaires aussi,
+    // les reserves liees venaient d'etre lues. La preuve existait deja et
+    // n'etait simplement pas transmise.
+    //
+    // C'est le meme pliage que pour un conflit — le test ci-dessus le couvre
+    // deja ; ce qui se verifie ici, c'est que ces sorties portent bien le
+    // drapeau, et cela se joue dans `syncLoopExitContract`.
+    const proven = (current: number) => nextServiceFailureStreak({ current, provesServerReachable: true });
+
+    expect(replay([timeout, timeout, proven, timeout])).toEqual([1, 2, 0, 1]);
+  });
+
   it('breaks it on an accepted operation', () => {
     expect(replay([timeout, timeout, applied, timeout])).toEqual([1, 2, 0, 1]);
   });
@@ -107,6 +121,69 @@ describe('the failure verdict is authoritative, never reinterpreted', () => {
       provesServerReachable: true,
       applied: true,
     })).toBe(3);
+  });
+});
+
+/**
+ * Le second appel du rebase passe desormais par `fail()`. On modelise ici ce
+ * que la boucle en fait : le classificateur tranche, le pliage applique.
+ *
+ * `serverAnsweredEarlier` se traduit par une serie de depart a zero : le rebase
+ * n'est atteint qu'APRES un premier `version_conflict` rendu par le serveur.
+ */
+function rebaseTransportFailure(error: unknown, meta: Record<string, unknown> | undefined, previous: number) {
+  const verdict = classifyFailureOutcome({
+    operation: {},
+    error,
+    meta: meta as never,
+    nowMs: NOW,
+    jitter: 0,
+    consecutiveServiceFailures: 0,
+    circuitAlreadyOpen: false,
+  });
+
+  return {
+    verdict,
+    streak: nextServiceFailureStreak({ current: previous, failureStreak: verdict.serviceFailureStreak }),
+  };
+}
+
+describe('a rebase that fails on transport follows the policy', () => {
+  it('stops the pass immediately on a rate limit, with the exact deadline', () => {
+    const { verdict } = rebaseTransportFailure({ status: 429 }, { status: 429, retryAfter: '120' }, 0);
+
+    expect(verdict.failureClass).toBe('rate_limited');
+    expect(verdict.kind).toBe('abandon');
+    expect(verdict.abandonReason).toBe('backend');
+    expect(Date.parse(verdict.nextAttemptAt!)).toBe(NOW + 120_000);
+    expect(verdict.retrySource).toBe('retry_after');
+  });
+
+  it('feeds the streak on a 503 instead of faking proof of reachability', () => {
+    // Le defaut central : l'ancienne issue lisait `meta.reachedServer`, vrai
+    // pour un 503, et remettait la serie a zero — alors que ce statut doit
+    // precisement l'alimenter.
+    const { verdict, streak } = rebaseTransportFailure({ status: 503 }, { status: 503 }, 4);
+
+    expect(verdict.failureClass).toBe('server_unavailable');
+    expect(verdict.contributesToCircuit).toBe(true);
+    expect(streak).toBe(1);
+  });
+
+  it('opens the authentication scope on a 401', () => {
+    const { verdict } = rebaseTransportFailure({ status: 401 }, { status: 401 }, 0);
+
+    expect(verdict.kind).toBe('abandon');
+    expect(verdict.abandonReason).toBe('authentication');
+    expect(verdict.opensAuthCircuit).toBe(true);
+  });
+
+  it('restarts the streak at one after the initial server verdict', () => {
+    // Ancien compteur 2, premier `version_conflict` rendu par le serveur, puis
+    // coupure reseau sur le second appel : la serie repart de 1, pas de 3.
+    const { streak } = rebaseTransportFailure({ code: 'REST_TIMEOUT', message: 'timeout' }, undefined, 2);
+
+    expect(streak).toBe(1);
   });
 });
 
