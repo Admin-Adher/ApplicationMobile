@@ -43,7 +43,8 @@ import {
 import { classifyFailureOutcome } from '@/lib/syncOutcomeClassifier';
 import { computeTimerSlice, normalizeTimerTarget } from '@/lib/syncTimerSlice';
 import { redactSensitiveText } from '@/lib/redactSensitiveText';
-import { rebaseReservePatchOnConflict } from '@/lib/reserveRebase';
+import { rebaseReservePatchOnConflict, type PreparedRebaseWrite } from '@/lib/reserveRebase';
+import { ensureQueueEntryIdentities } from '@/lib/queueEntryIdentity';
 import { nextServiceFailureStreak } from '@/lib/syncServiceStreak';
 import type { SupabaseRestMeta } from '@/lib/supabaseRest';
 import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
@@ -154,6 +155,19 @@ export interface PhotoPatch {
  * Comment/photo operations carry patches so each delta is merged server-side by ID.
  */
 export interface QueuedOperation {
+  /**
+   * Identité LOCALE et immuable de l'entrée dans la file.
+   *
+   * Distincte de `id`, qui est l'identifiant idempotent connu du serveur et que
+   * le rebase remplace volontairement. Le jeton de `runSyncPass` ne vit que le
+   * temps d'une passe, deux entrées peuvent partager le même `id` métier, et
+   * une préemption oblige la génération suivante à retrouver exactement la même
+   * entrée persistée. Aucune signification serveur : elle n'entre ni dans
+   * l'empreinte métier, ni dans l'export de diagnostic.
+   *
+   * Optionnelle le temps de la migration des files déjà persistées.
+   */
+  queueEntryId?: string;
   id: string;
   queuedAt: string;
   table: string;
@@ -946,9 +960,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
       }
       const coalesced = migrateAndCoalesceSitePlanSnapshots(combined, userId);
-      queueRef.current = coalesced;
-      setQueue(coalesced);
-      await saveQueue(coalesced);
+      // Identité locale garantie AVANT le premier appel réseau : une opération
+      // préparée pendant une passe doit pouvoir être retrouvée exactement, et
+      // une file persistée avant l'existence du champ n'en porte aucune.
+      const identified = ensureQueueEntryIdentities(coalesced, genQueueId);
+      if (identified.assigned > 0 || identified.repaired > 0) {
+        console.warn(
+          `[queue] identités locales : ${identified.assigned} attribuée(s), ${identified.repaired} réparée(s)`,
+        );
+      }
+      queueRef.current = identified.operations;
+      setQueue(identified.operations);
+      await saveQueue(identified.operations);
       lastLoadedKeyRef.current = userKey ?? anonKey;
     } catch {
       // Conserver les opérations éventuellement créées pendant l'hydratation.
@@ -1566,6 +1589,39 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       };
     };
 
+    /**
+     * Rend l'identité préparée durable AVANT que l'écriture ne parte.
+     *
+     * Sans elle : le serveur applique le patch sous le nouvel identifiant, la
+     * réponse se perd ou la passe est préemptée avant persistance, et la
+     * génération suivante repart de l'ancien — elle génère une troisième
+     * identité et rejoue la MÊME écriture métier. Un mouvement de stock compté
+     * deux fois. Le signal ne fait que réduire cette fenêtre : le serveur peut
+     * committer avant que l'annulation soit observée.
+     *
+     * La localisation se fait par `queueEntryId`, jamais par `id` — que le
+     * rebase est précisément en train de remplacer — ni par contenu.
+     */
+    const persistPreparedRebase = async (prepared: PreparedRebaseWrite): Promise<void> => {
+      const matches = queueRef.current.filter(entry => entry.queueEntryId === prepared.queueEntryId);
+      if (matches.length !== 1) {
+        // Échec FERMÉ : sans entrée cible unique, la préparation ne serait pas
+        // retrouvable après une préemption, et l'écriture ne doit pas partir.
+        throw new Error(
+          `Preparation de rebase impossible : ${matches.length} entree(s) pour cette identite locale.`,
+        );
+      }
+
+      const next = queueRef.current.map(entry => (
+        entry.queueEntryId === prepared.queueEntryId
+          ? { ...entry, id: prepared.operationId, baseVersion: prepared.baseVersion }
+          : entry
+      ));
+      queueRef.current = next;
+      setQueue(next);
+      await saveQueue(next);
+    };
+
     let processed = 0;
     /**
      * Exécute UNE opération et rend son issue.
@@ -2116,6 +2172,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   );
                   deferredPhotoPatch = {
                     id: genQueueId(),
+                    queueEntryId: genQueueId(),
                     queuedAt: new Date().toISOString(),
                     table: 'reserves',
                     op: 'update',
@@ -2257,7 +2314,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               // serveur avec un nouvel operation_id (sinon le serveur renvoie le
               // conflit mémorisé à l'infini → opération coincée pour toujours).
               const rebase = await rebaseReservePatchOnConflict(
-                { reserveId: String(op.filter.value), patch: data!, conflict: outcome },
+                {
+                  reserveId: String(op.filter.value),
+                  patch: data!,
+                  conflict: outcome,
+                  queueEntryId: op.queueEntryId ?? '',
+                },
                 {
                   selectVersion: (reserveId, signal) => supabaseRestSelect<any>(
                     'reserves',
@@ -2268,6 +2330,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   ),
                   applyPatch: (patchParams, signal) => applyReservePatchOperation(patchParams, { signal }),
                   newOperationId,
+                  beforeApply: persistPreparedRebase,
                   // Les deux appels du rebase doivent être interruptibles, et
                   // aucun ne doit démarrer après une préemption : une écriture
                   // partie ensuite serait rejouée par la génération suivante.
@@ -2675,6 +2738,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const newOp: QueuedOperation = {
       ...op,
       id: genQueueId(),
+      queueEntryId: genQueueId(),
       queuedAt: new Date().toISOString(),
     };
     // queueRef est la source atomique : React peut différer le state updater et

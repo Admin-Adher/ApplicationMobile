@@ -89,6 +89,18 @@ export type ReserveRebaseResult =
   | { kind: 'retry_conflict'; baseVersion: number | null; operationId: string }
   | { kind: 'terminal'; status: string; message?: string; meta: SupabaseRestMeta };
 
+/** Identite preparee, rendue DURABLE avant que l'ecriture ne parte. */
+export interface PreparedRebaseWrite {
+  /**
+   * Identite LOCALE de l'entree de file. Ni `id` — que le rebase est
+   * precisement en train de remplacer — ni le jeton de passe, qui n'existe que
+   * le temps d'une passe.
+   */
+  queueEntryId: string;
+  operationId: string;
+  baseVersion: number;
+}
+
 export interface ReserveRebaseDependencies {
   /**
    * Signal de la passe. Il est passe A CHAQUE appel, pas seulement consulte
@@ -109,6 +121,18 @@ export interface ReserveRebaseDependencies {
   ) => Promise<SupabaseRestResult<ReserveMutationResult>>;
   /** Injecte : ce module doit rester chargeable hors React Native. */
   newOperationId: () => string;
+  /**
+   * Rend l'identite preparee DURABLE avant l'ecriture.
+   *
+   * Sans elle : le serveur applique le patch sous `op-2`, la reponse se perd ou
+   * la passe est preemptee avant persistance, et la generation suivante repart
+   * de `op-1`. Elle genere alors `op-3` et rejoue la MEME ecriture metier — un
+   * mouvement de stock compte deux fois. Le signal ne fait que reduire cette
+   * fenetre : le serveur peut committer avant que l'annulation soit observee.
+   *
+   * Si elle rejette, aucune ecriture ne part.
+   */
+  beforeApply: (prepared: PreparedRebaseWrite) => Promise<void>;
 }
 
 export async function rebaseReservePatchOnConflict(
@@ -116,6 +140,8 @@ export async function rebaseReservePatchOnConflict(
     reserveId: string;
     patch: Record<string, any>;
     conflict: ReserveMutationResult;
+    /** Entree physique a mettre a jour avant l'ecriture. */
+    queueEntryId: string;
   },
   dependencies: ReserveRebaseDependencies,
 ): Promise<ReserveRebaseResult> {
@@ -177,6 +203,37 @@ export async function rebaseReservePatchOnConflict(
   // L'identite idempotente n'est consommee qu'ici, juste avant l'ecriture.
   const nextOperationId = dependencies.newOperationId;
   const operationId = nextOperationId();
+
+  // Persistance AVANT reseau. Un echec de persistance n'envoie rien : mieux
+  // vaut rejouer le conflit que perdre la trace d'une ecriture partie.
+  try {
+    await dependencies.beforeApply({
+      queueEntryId: params.queueEntryId,
+      operationId,
+      baseVersion: currentVersion,
+    });
+  } catch (error) {
+    return {
+      kind: 'retry_transport',
+      baseVersion: currentVersion,
+      // Rien n'a ete ecrit NI persiste : l'operation garde son identite.
+      operationId: null,
+      error,
+      meta: { status: null, reachedServer: false, retryAfter: null },
+    };
+  }
+
+  // Annulation apres preparation : saine. L'ecriture ne part pas, et le
+  // prochain passage retrouvera l'identite deja preparee.
+  if (dependencies.signal?.aborted) {
+    return {
+      kind: 'retry_transport',
+      baseVersion: currentVersion,
+      operationId,
+      error: { code: 'REST_ABORTED', message: 'Rebase annule apres preparation persistee.' },
+      meta: { status: null, reachedServer: false, retryAfter: null },
+    };
+  }
 
   const rpc = await dependencies.applyPatch({
     operationId,
