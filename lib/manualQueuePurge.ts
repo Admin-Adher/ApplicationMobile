@@ -49,7 +49,23 @@ export const PURGE_PENDING_RECONCILIATION = 'pending_reconciliation';
  * sans prouver qu'aucune ecriture n'a ete envoyee. Absence de preuve d'envoi
  * n'est pas preuve d'absence d'envoi.
  */
-export type QueueDispatchState = 'never_started' | 'started';
+export type QueueDispatchState =
+  /** Preuve EXPLICITE qu'aucune requete n'a ete envoyee pour cette ecriture. */
+  | 'never_started'
+  /**
+   * Le sort anterieur n'est pas connu. C'est l'etat par defaut a l'entree en
+   * file : plusieurs chemins tentent le serveur d'abord et n'enfilent qu'en cas
+   * d'erreur. Ni supprimable, ni preuve de durabilite.
+   */
+  | 'unknown'
+  /**
+   * Etat strictement PERSISTE avant un appel reseau de la file.
+   *
+   * Il ne doit jamais etre pose a l'entree : la condition de la passe verrait
+   * l'entree deja marquee et sauterait l'ecriture stricte, supprimant la
+   * barriere meme qu'il represente.
+   */
+  | 'started';
 
 export interface PurgeAmbiguityLike {
   terminal?: boolean;

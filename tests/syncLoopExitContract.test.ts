@@ -388,7 +388,7 @@ describe('the queue purge is durable and keeps what came after it', () => {
     // differee a partir de l'objet du snapshot, qui portait encore
     // `never_started`. Une operation reellement envoyee redevenait « jamais
     // tentee », donc supprimable par la purge.
-    const marking = source.indexOf("dispatchState: 'started' as const");
+    const marking = source.indexOf('await prepareQueueForDispatch<QueuedOperation>({');
     const snapshot = source.indexOf('const currentQueue = queueRef.current.filter(isReplayableQueuedOperation)');
 
     expect(marking).toBeGreaterThan(-1);
@@ -397,11 +397,11 @@ describe('the queue purge is durable and keeps what came after it', () => {
 
   it('sends nothing when that proof cannot be persisted', () => {
     const pass = source.slice(
-      source.indexOf("dispatchState: 'started' as const"),
+      source.indexOf('await prepareQueueForDispatch<QueuedOperation>({'),
       source.indexOf('const currentQueue = queueRef.current.filter(isReplayableQueuedOperation)'),
     );
 
-    expect(pass).toContain('write: next => writeQueueStrict(next),');
+    expect(pass).toContain('writeStrict: next => writeQueueStrict(next),');
     expect(pass).toContain('scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);');
     expect(pass).toContain('return;');
     // Une passe preemptee ne doit pas reecrire la file du compte suivant.
@@ -532,17 +532,22 @@ describe('entering the queue never fabricates a proof of non-dispatch', () => {
     source.indexOf('const clearQueue = useCallback'),
   );
 
-  it('defaults to started, not to never_started', () => {
-    // Plusieurs chemins tentent le serveur d'abord et n'enfilent qu'en cas
-    // d'erreur : cette requete a pu etre validee sans que sa reponse arrive.
-    // La marquer « jamais tentee » rendrait supprimable une ecriture dont le
-    // serveur detient peut-etre l'effet. Le risque n'est pas symetrique.
-    expect(enqueue).toContain("dispatchState: op.dispatchState ?? options?.dispatchState ?? 'started',");
-    expect(enqueue).not.toContain("dispatchState: 'never_started',");
+  it('defaults to unknown — neither a proof of dispatch nor of durability', () => {
+    // `never_started` par defaut etait faux : plusieurs chemins tentent le
+    // serveur d'abord. `started` etait pire : cet etat fait sauter l'ecriture
+    // stricte de la passe, donc le poser a l'entree supprimait la barriere
+    // meme qu'il represente.
+    expect(enqueue).toContain(
+      "dispatchState: options?.proveNeverStarted === true ? 'never_started' : 'unknown',",
+    );
   });
 
-  it('lets the caller assert non-dispatch explicitly', () => {
-    expect(enqueue).toContain('options?: { dispatchState?: QueueDispatchState },');
+  it('gives the assertion a single source', () => {
+    // Deux sources — `op.dispatchState` et l'option — rendaient l'intention
+    // ambigue, et laissaient un appelant affirmer `started` sans persistance.
+    expect(enqueue).toContain('options?: EnqueueOperationOptions,');
+    expect(enqueue).not.toContain('op.dispatchState');
+    expect(source).toContain("'id' | 'queueEntryId' | 'queuedAt' | 'dispatchState'");
   });
 
   it('asserts it for the deferred photo patch, whose upload just failed', () => {
@@ -553,7 +558,7 @@ describe('entering the queue never fabricates a proof of non-dispatch', () => {
       source.indexOf('for (const op of currentQueue) {'),
     );
 
-    expect(executor).toContain("dispatchState: 'never_started',");
+    expect(executor).toContain("dispatchState: 'never_started' as const,");
   });
 });
 

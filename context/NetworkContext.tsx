@@ -48,6 +48,7 @@ import { rebaseReservePatchOnConflict, type PreparedRebaseWrite } from '@/lib/re
 import { ensureQueueEntryIdentities } from '@/lib/queueEntryIdentity';
 import { createQueueWriteChain } from '@/lib/queueWriteChain';
 import { publishAfterDurableWrite } from '@/lib/queuePublication';
+import { prepareQueueForDispatch } from '@/lib/queueDispatchPreparation';
 import {
   PURGE_PENDING_RECONCILIATION,
   isUnambiguouslyPurgeableOperation,
@@ -165,6 +166,21 @@ export interface PhotoPatch {
  * Status-change operations also carry a conflictCheck so we can detect concurrent edits.
  * Comment/photo operations carry patches so each delta is merged server-side by ID.
  */
+/**
+ * Ce qu'un appelant fournit : ni identite, ni horodatage, ni etat d'envoi. Ces
+ * trois-la appartiennent a la file, et laisser un appelant affirmer `started`
+ * sans passer par la persistance stricte reintroduirait le defaut.
+ */
+export type EnqueueOperationInput = Omit<
+  QueuedOperation,
+  'id' | 'queueEntryId' | 'queuedAt' | 'dispatchState'
+>;
+
+export interface EnqueueOperationOptions {
+  /** Affirmation explicite : aucune requete n'est partie pour cette ecriture. */
+  proveNeverStarted?: boolean;
+}
+
 export interface QueuedOperation {
   /**
    * Identité LOCALE et immuable de l'entrée dans la file.
@@ -387,8 +403,8 @@ interface NetworkContextValue {
   nextSyncAttemptAt: string | null;
   conflicts: StatusConflict[];
   enqueueOperation: (
-    op: Omit<QueuedOperation, 'id' | 'queuedAt'>,
-    options?: { dispatchState?: QueueDispatchState },
+    op: EnqueueOperationInput,
+    options?: EnqueueOperationOptions,
   ) => void;
   resolveConflict: (conflictId: string, chosenStatus: string) => Promise<void>;
   dismissConflicts: () => void;
@@ -1589,52 +1605,39 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // aboutit : sur un lien instable, un timeout isolé ne dit rien de la
     // suivante, et abandonner la passe trop tôt gelait toute la file.
     let consecutiveInfraFailures = 0;
-    // Preuve DURABLE qu'une écriture a pu partir, écrite AVANT le premier appel
-    // réseau ET avant de construire le snapshot de travail.
-    //
-    // La marquer après coup ne suffisait pas : `fail()` reconstruit l'opération
-    // différée à partir de l'objet du snapshot, qui portait encore
-    // `never_started`. La version durable était alors écrasée par l'ancienne,
-    // et une opération réellement envoyée redevenait « jamais tentée » — donc
-    // supprimable, alors que le serveur avait peut-être validé son effet.
-    //
-    // Volontairement conservateur : toute la file d'un coup plutôt qu'à chaque
-    // envoi. Marquer un peu trop est du bon côté de l'erreur, et c'est une
-    // seule écriture au lieu d'une par opération.
-    if (queueRef.current.some(operation => (
-      isReplayableQueuedOperation(operation) && operation.dispatchState !== 'started'
-    ))) {
-      try {
-        await publishAfterDurableWrite<QueuedOperation>({
-          readCurrent: () => queueRef.current,
-          compute: current => current.map(operation => (
-            isReplayableQueuedOperation(operation) && operation.dispatchState !== 'started'
-              ? { ...operation, dispatchState: 'started' as const }
-              : operation
-          )),
-          write: next => writeQueueStrict(next),
-          publish: next => {
-            queueRef.current = next;
-            setQueue(next);
-          },
-          // Une passe préemptée ne doit pas réécrire la file du compte qui a
-          // pris la main entre-temps.
-          assertCurrent: () => {
-            if (!isCurrentGeneration()) throw new Error('Passe de synchronisation obsolete.');
-          },
-        });
-      } catch (error) {
-        // Si la preuve n'atteint pas le disque, AUCUNE requête ne part : une
-        // écriture envoyée sans elle serait ensuite prise pour « jamais tentée ».
-        console.warn(
-          "[queue] passe annulée : état d'envoi non persistable —",
-          error instanceof Error ? error.message : String(error),
-        );
-        syncingRef.current = false;
-        setSyncStatus('error');
-        scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);
-        return;
-      }
+    // Barrière de persistance : aucune requête ne part sans qu'une trace
+    // durable n'existe déjà sur le disque. La séquence — rien de publié avant
+    // l'écriture, recalcul si la file bouge, refus si la passe est obsolète —
+    // vit dans `lib/queueDispatchPreparation.ts`, où elle est prouvée avec des
+    // promesses contrôlées.
+    try {
+      await prepareQueueForDispatch<QueuedOperation>({
+        readCurrent: () => queueRef.current,
+        needsProof: operation => (
+          isReplayableQueuedOperation(operation) && operation.dispatchState !== 'started'
+        ),
+        markStarted: operation => ({ ...operation, dispatchState: 'started' as const }),
+        writeStrict: next => writeQueueStrict(next),
+        publish: next => {
+          queueRef.current = next;
+          setQueue(next);
+        },
+        assertCurrent: () => {
+          if (!isCurrentGeneration()) throw new Error('Passe de synchronisation obsolete.');
+        },
+      });
+    } catch (error) {
+      // Si la preuve n'atteint pas le disque, AUCUNE requête ne part : une
+      // écriture envoyée sans elle ne laisserait aucune trace exploitable après
+      // un plantage — ni pour la rejouer, ni pour réconcilier son effet local.
+      console.warn(
+        "[queue] passe annulée : état d'envoi non persistable —",
+        error instanceof Error ? error.message : String(error),
+      );
+      syncingRef.current = false;
+      setSyncStatus('error');
+      scheduleSync(SYNC_FAILURE_RETRY_DELAY_MS);
+      return;
     }
 
     // Snapshot de travail construit APRÈS le marquage : ses objets portent donc
@@ -2468,7 +2471,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                     queueEntryId: genQueueId(),
                     // Les photos de ce patch n'ont PAS été envoyées : leur
                     // upload vient d'échouer, et la réserve part sans elles.
-                    dispatchState: 'never_started',
+                    dispatchState: 'never_started' as const,
                     queuedAt: new Date().toISOString(),
                     table: 'reserves',
                     op: 'update',
@@ -3037,22 +3040,26 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // ── Queue management ───────────────────────────────────────────────────────
 
   /**
-   * @param options.dispatchState
-   *   `'never_started'` — l'appelant AFFIRME qu'aucune requête n'est partie
-   *   pour cette écriture. C'est une affirmation, pas une supposition : elle
-   *   autorise la purge manuelle à supprimer l'entrée et à annuler son effet
-   *   optimiste.
+   * @param options.proveNeverStarted
+   *   L'appelant AFFIRME qu'aucune requête n'est partie pour cette écriture.
+   *   Affirmation, pas supposition : elle seule autorise la purge manuelle à
+   *   supprimer l'entrée et à annuler son effet optimiste.
    *
-   *   Par DÉFAUT `'started'`, y compris pour une saisie apparemment locale.
-   *   Plusieurs chemins tentent le serveur d'abord et n'enfilent qu'en cas
-   *   d'erreur : cette requête a pu être validée sans que sa réponse arrive, et
-   *   la marquer « jamais tentée » rendrait supprimable une écriture dont le
-   *   serveur détient peut-être l'effet. Le risque n'est pas symétrique — sur-
-   *   marquer conserve une entrée de trop, sous-marquer en détruit une.
+   *   Par DÉFAUT `'unknown'` — ni `never_started`, ni `started`.
+   *
+   *   `never_started` par défaut était faux : plusieurs chemins tentent le
+   *   serveur d'abord et n'enfilent qu'en cas d'erreur, si bien qu'une écriture
+   *   peut-être validée devenait supprimable.
+   *
+   *   `started` par défaut était pire : cet état signifie « preuve durable
+   *   écrite avant tout réseau », et la passe saute son écriture stricte quand
+   *   elle le voit. Le poser à l'entrée supprimait donc la barrière même qu'il
+   *   représente — l'entrée partait vers le serveur sans qu'aucune trace ne
+   *   soit garantie sur le disque.
    */
   const enqueueOperation = useCallback((
-    op: Omit<QueuedOperation, 'id' | 'queuedAt'>,
-    options?: { dispatchState?: QueueDispatchState },
+    op: EnqueueOperationInput,
+    options?: EnqueueOperationOptions,
   ) => {
     const allowedOps = new Set(['insert', 'update', 'upsert', 'delete', 'rpc']);
     if (!allowedOps.has((op as any).op)) {
@@ -3067,7 +3074,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       ...op,
       id: genQueueId(),
       queueEntryId: genQueueId(),
-      dispatchState: op.dispatchState ?? options?.dispatchState ?? 'started',
+      dispatchState: options?.proveNeverStarted === true ? 'never_started' : 'unknown',
       queuedAt: new Date().toISOString(),
     };
     // queueRef est la source atomique : React peut différer le state updater et
