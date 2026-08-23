@@ -241,10 +241,12 @@ describe('proof that the backend answers breaks the failure streak', () => {
     expect(rebaseTransport).toContain('meta: rebase.meta');
     expect(rebaseTransport).toContain('serverAnsweredEarlier: true');
     expect(rebaseTransport).not.toContain('provesServerReachable');
-    // Le type interdit desormais de confondre les deux causes.
-    expect(source).toContain("kind: 'retry_transport';");
-    expect(source).toContain("kind: 'retry_conflict';");
-    expect(source).not.toContain('reachedServer: rpc.meta.reachedServer');
+    // Le type interdit desormais de confondre les deux causes. Il vit dans
+    // `lib/reserveRebase.ts`, ou le chemin est reellement testable.
+    const rebaseModule = read('lib/reserveRebase.ts');
+    expect(rebaseModule).toContain("kind: 'retry_transport';");
+    expect(rebaseModule).toContain("kind: 'retry_conflict';");
+    expect(rebaseModule).not.toContain('reachedServer: rpc.meta.reachedServer');
   });
 
   it('resets the streak on that proof, not only on success', () => {
@@ -267,5 +269,17 @@ describe('proof that the backend answers breaks the failure streak', () => {
     // Un premier verdict serveur DANS la meme operation rompt la serie ; cet
     // echec-ci en demarre une nouvelle plutot que de conserver l'ancienne.
     expect(failBody).toContain('options?.serverAnsweredEarlier ? 0 : consecutiveInfraFailures');
+
+    // La preuve casse les DEUX dimensions. Sans cette remise a zero, le palier
+    // exponentiel restait celui d'AVANT le verdict : historique 4, un
+    // `version_conflict` recu, trois `503`, et le circuit repartait du palier 5.
+    const activeLines = failBody
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line.length > 0 && !line.startsWith('//') && !line.startsWith('*'));
+    const guard = activeLines.indexOf('if (options?.serverAnsweredEarlier) {');
+
+    expect(guard).toBeGreaterThan(-1);
+    expect(activeLines[guard + 1]).toBe('syncInfrastructureFailureCountRef.current = 0;');
   });
 });

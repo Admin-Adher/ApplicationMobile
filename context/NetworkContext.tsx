@@ -43,6 +43,7 @@ import {
 import { classifyFailureOutcome } from '@/lib/syncOutcomeClassifier';
 import { computeTimerSlice, normalizeTimerTarget } from '@/lib/syncTimerSlice';
 import { redactSensitiveText } from '@/lib/redactSensitiveText';
+import { rebaseReservePatchOnConflict } from '@/lib/reserveRebase';
 import { nextServiceFailureStreak } from '@/lib/syncServiceStreak';
 import type { SupabaseRestMeta } from '@/lib/supabaseRest';
 import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
@@ -717,99 +718,6 @@ type SyncExitId =
  */
 function syncExit<T extends QueuedOperationOutcome>(_id: SyncExitId, outcome: T): T {
   return outcome;
-}
-
-type ReserveRebaseResult =
-  | { kind: 'applied'; outcome: ReserveMutationResult }
-  /**
-   * Le SECOND appel a échoué au transport — coupure, 401, 429, 503, timeout.
-   * Regrouper ce cas avec un `version_conflict` sous un même `retry` faisait
-   * contourner toute la politique P5 : pas de classe d'échec, pas d'échéance,
-   * pas de portée backend ou authentification, et surtout un `503` — dont
-   * `meta.reachedServer` vaut `true` — remettait la série de pannes à zéro
-   * alors qu'il doit précisément l'alimenter.
-   */
-  | {
-    kind: 'retry_transport';
-    baseVersion: number | null;
-    operationId: string;
-    error: unknown;
-    meta: SupabaseRestMeta;
-  }
-  /** Le serveur a de nouveau rendu `version_conflict` : il répond, lui. */
-  | { kind: 'retry_conflict'; baseVersion: number | null; operationId: string }
-  | { kind: 'terminal'; status: string; message?: string; meta: SupabaseRestMeta };
-
-/**
- * Résout un `version_conflict` sur une réserve.
- *
- * Pourquoi c'est nécessaire : `apply_reserve_patch` mémorise son résultat (y
- * compris un `version_conflict`) dans `reserve_outbox_operations`, indexé par
- * `operation_id`. Rejouer la MÊME opération (même id + même hash, donc même
- * `base_version`) renvoie indéfiniment le conflit mémorisé — l'opération reste
- * coincée pour toujours (« 5 fallos · version_conflict »).
- *
- * La seule issue est de REBASER : on ré-applique le patch sur la version
- * courante du serveur avec un NOUVEL `operation_id` (donc un nouveau hash →
- * réévaluation fraîche). Comme ce chemin ne touche qu'à des champs « simples »
- * (statut, photos, commentaires ont leurs propres mutations dédiées et sont
- * refusés ici), appliquer l'édition locale par-dessus la dernière version est
- * le comportement attendu : l'édition de l'utilisateur prend effet (dernier
- * écrivain gagne, par champ), au lieu d'être bloquée ou perdue.
- */
-async function rebaseReservePatchOnConflict(
-  reserveId: string,
-  patch: Record<string, any>,
-  conflict: ReserveMutationResult,
-): Promise<ReserveRebaseResult> {
-  // Version courante la plus fraîche connue : celle renvoyée par le conflit,
-  // sinon un SELECT direct (le conflit peut être un résultat mémorisé, donc
-  // potentiellement périmé).
-  let currentVersion: number | null =
-    typeof conflict.current_version === 'number' ? conflict.current_version : null;
-  if (currentVersion === null) {
-    try {
-      const { data: rows } = await supabaseRestSelect<any>(
-        'reserves',
-        'version',
-        { column: 'id', value: reserveId },
-      );
-      const v = rows?.[0]?.version;
-      currentVersion = typeof v === 'number' ? v : null;
-    } catch {}
-  }
-
-  const operationId = newOperationId();
-  const rpc = await applyReservePatchOperation({ operationId, reserveId, baseVersion: currentVersion, patch });
-
-  if (rpc.error) {
-    // Erreur réseau : on réessaie au prochain passage. On réutilise le même
-    // operation_id (idempotent : si l'écriture a en fait abouti, le serveur
-    // renverra le résultat mémorisé).
-    return {
-      kind: 'retry_transport',
-      baseVersion: currentVersion,
-      operationId,
-      error: rpc.error,
-      meta: rpc.meta,
-    };
-  }
-
-  const outcome = firstReserveMutationResult(rpc.data);
-  if (!outcome || outcome.status === 'ok') {
-    return { kind: 'applied', outcome: outcome ?? { status: 'ok', reserve_id: reserveId } };
-  }
-  if (outcome.status === 'version_conflict') {
-    // Écriture concurrente entre le SELECT et l'apply : on réessaie au prochain
-    // passage avec la nouvelle version et un NOUVEL operation_id (l'actuel est
-    // désormais mémorisé avec un conflit).
-    return {
-      kind: 'retry_conflict',
-      baseVersion: typeof outcome.current_version === 'number' ? outcome.current_version : currentVersion,
-      operationId: newOperationId(),
-    };
-  }
-  return { kind: 'terminal', status: outcome.status, message: outcome.message, meta: rpc.meta };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1515,6 +1423,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
         : { ...op };
       failedOps.push(failedOperation);
+
+      // La preuve serveur casse les DEUX dimensions. Ne remettre à zéro que la
+      // série consécutive laissait le palier exponentiel intact : après un
+      // historique de 4, un `version_conflict` reçu, puis trois `503`, le
+      // circuit repartait du palier 5 — rattaché à une panne que le verdict
+      // intermédiaire venait pourtant de casser.
+      if (options?.serverAnsweredEarlier) {
+        syncInfrastructureFailureCountRef.current = 0;
+      }
 
       if (verdict.opensAuthCircuit) {
         circuitOpened = true;
@@ -2339,7 +2256,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               // Conflit de version : rebaser le patch sur la version courante du
               // serveur avec un nouvel operation_id (sinon le serveur renvoie le
               // conflit mémorisé à l'infini → opération coincée pour toujours).
-              const rebase = await rebaseReservePatchOnConflict(String(op.filter.value), data!, outcome);
+              const rebase = await rebaseReservePatchOnConflict(
+                { reserveId: String(op.filter.value), patch: data!, conflict: outcome },
+                {
+                  selectVersion: reserveId => supabaseRestSelect<any>(
+                    'reserves',
+                    'version',
+                    { column: 'id', value: reserveId },
+                  ),
+                  applyPatch: applyReservePatchOperation,
+                  newOperationId,
+                },
+              );
               if (rebase.kind === 'applied') {
                 result = { error: null, data: [rebase.outcome] };
               } else if (rebase.kind === 'retry_transport') {
