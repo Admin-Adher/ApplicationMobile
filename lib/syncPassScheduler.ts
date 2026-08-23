@@ -72,9 +72,46 @@ export interface RunSyncPassInput<T extends RetryQueueOperationLike> {
   maxOperations?: number;
 }
 
+export type PassEntryKind =
+  | 'applied'
+  | 'terminal'
+  | 'conflict'
+  | 'deferred'
+  | 'abandon'
+  | 'untouched';
+
+/**
+ * Issue d'UNE entree du snapshot, portant son identite physique.
+ *
+ * Sans elle, un reconstructeur ne peut retrouver l'entree qu'a partir de son
+ * `id` ou de son contenu — et les deux mentent : deux entrees peuvent partager
+ * un identifiant, une operation enrichie n'a plus le meme contenu, un rebase
+ * change volontairement d'identifiant, et deux ecritures strictement identiques
+ * restent deux entrees physiques distinctes tant que la deduplication n'a pas
+ * ete decidee explicitement.
+ */
+export interface PassEntryResult<T> {
+  /** Identite physique de l'entree, egale a son index dans le snapshot. */
+  token: number;
+  originalIndex: number;
+  /** Version presente au debut de la passe. */
+  original: T;
+  /** Version a persister : `execute` a pu enrichir l'operation. */
+  resolved: T;
+  kind: PassEntryKind;
+  nextAttemptAt: string | null;
+}
+
 export interface RunSyncPassResult<T> {
   /** Operations executees, succes comme echecs. */
   processed: number;
+  /**
+   * Source NORMATIVE pour reconstruire la file : une ligne par entree du
+   * snapshot, y compris celles jamais tentees. Les tableaux ci-dessous en sont
+   * des vues derivees, pratiques a lire mais incapables de dire QUELLE entree
+   * physique a produit quelle issue.
+   */
+  entries: PassEntryResult<T>[];
   applied: T[];
   terminal: T[];
   conflicts: T[];
@@ -126,6 +163,10 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
 
   /** Version courante de chaque entree : `execute` peut la transformer. */
   const currentByToken = new Map<number, T>();
+  /** Version d'origine, conservee telle quelle pour le journal d'issues. */
+  const originalByToken = new Map<number, T>();
+  const kindByToken = new Map<number, PassEntryKind>();
+  const deadlineByToken = new Map<number, string | null>();
   const handledTokens = new Set<number>();
   const orderedTokens: number[] = [];
 
@@ -133,6 +174,7 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
   operations.forEach((operation, index) => {
     if (operation.terminal) return;
     currentByToken.set(index, operation);
+    originalByToken.set(index, operation);
     orderedTokens.push(index);
     remaining.push({ ...operation, __passToken: index } as Tracked<T>);
   });
@@ -205,24 +247,29 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
 
     if (outcome.kind === 'applied') {
       applied.push(resolved);
+      kindByToken.set(token, 'applied');
       dropFromRemaining();
       continue;
     }
 
     if (outcome.kind === 'terminal') {
       terminal.push(resolved);
+      kindByToken.set(token, 'terminal');
       dropFromRemaining();
       continue;
     }
 
     if (outcome.kind === 'conflict') {
       conflicts.push(resolved);
+      kindByToken.set(token, 'conflict');
       dropFromRemaining();
       continue;
     }
 
     if (outcome.kind === 'deferred') {
       deferred.push({ operation: resolved, nextAttemptAt: outcome.nextAttemptAt ?? null });
+      kindByToken.set(token, 'deferred');
+      deadlineByToken.set(token, outcome.nextAttemptAt ?? null);
       // Les DEUX cles : si une transformation deplacait l'operation vers un
       // autre groupe, celui d'origine serait reste ouvert et son operation
       // suivante aurait pu passer devant.
@@ -237,6 +284,10 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
     }
 
     deferred.push({ operation: resolved, nextAttemptAt: outcome.nextAttemptAt ?? null });
+    // L'operation declenchante a bien ete tentee : elle est differee, mais son
+    // issue est distincte — c'est elle qui a arrete la passe.
+    kindByToken.set(token, 'abandon');
+    deadlineByToken.set(token, outcome.nextAttemptAt ?? null);
     abandoned = true;
     abandonReason = outcome.reason;
     break;
@@ -244,6 +295,16 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
 
   return {
     processed,
+    entries: orderedTokens.map(token => ({
+      token,
+      // Le jeton EST l'index d'origine : rien dans l'identite d'une entree ne
+      // doit dependre de son contenu.
+      originalIndex: token,
+      original: originalByToken.get(token) as T,
+      resolved: currentByToken.get(token) as T,
+      kind: kindByToken.get(token) ?? 'untouched',
+      nextAttemptAt: deadlineByToken.get(token) ?? null,
+    })),
     applied,
     terminal,
     conflicts,

@@ -19,25 +19,24 @@ function rebase(over: {
   selectVersion?: () => Promise<SupabaseRestResult<any>>;
   applyPatch?: () => Promise<SupabaseRestResult<any>>;
   conflict?: Record<string, unknown>;
+  signal?: { aborted: boolean };
 } = {}) {
   const selectVersion = vi.fn(over.selectVersion ?? (async () => restResult({ data: [{ version: 7 }] })));
   const applyPatch = vi.fn(over.applyPatch ?? (async () => restResult({ data: [{ status: 'ok' }] })));
   let counter = 0;
+  const newOperationId = vi.fn(() => `op-${(counter += 1)}`);
 
   return {
     selectVersion,
     applyPatch,
+    newOperationId,
     run: () => rebaseReservePatchOnConflict(
       {
         reserveId: 'r-1',
         patch: { title: 'x' },
         conflict: (over.conflict ?? CONFLICT_WITHOUT_VERSION) as never,
       },
-      {
-        selectVersion,
-        applyPatch,
-        newOperationId: () => `op-${(counter += 1)}`,
-      },
+      { selectVersion, applyPatch, newOperationId, signal: over.signal },
     ),
   };
 }
@@ -101,6 +100,76 @@ describe('the version SELECT is not allowed to fail silently', () => {
 
     expect(harness.selectVersion).not.toHaveBeenCalled();
     expect(harness.applyPatch).toHaveBeenCalledWith(expect.objectContaining({ baseVersion: 12 }));
+  });
+});
+
+describe('no idempotent identity is burned without a write', () => {
+  it('consumes none when the version read fails', async () => {
+    // L'identifiant n'est utile qu'au second RPC. Le generer avant la lecture
+    // brulait une identite pour une ecriture jamais envoyee, et changeait
+    // l'identite de l'operation sans contrepartie.
+    const harness = rebase({
+      selectVersion: async () => restResult({ error: { status: 503 }, meta: OK_META }),
+    });
+
+    const result = await harness.run();
+
+    expect(harness.newOperationId).not.toHaveBeenCalled();
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    expect(result.operationId).toBeNull();
+  });
+
+  it('consumes exactly one when the write is actually sent', async () => {
+    const harness = rebase();
+    await harness.run();
+
+    expect(harness.newOperationId).toHaveBeenCalledTimes(1);
+    expect(harness.applyPatch).toHaveBeenCalledWith(expect.objectContaining({ operationId: 'op-1' }));
+  });
+});
+
+describe('a preempted pass sends nothing', () => {
+  it('reads nothing when the signal is already aborted', async () => {
+    const harness = rebase({ signal: { aborted: true } });
+    const result = await harness.run();
+
+    expect(harness.selectVersion).not.toHaveBeenCalled();
+    expect(harness.applyPatch).not.toHaveBeenCalled();
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    // Classee `cancelled` par la politique : aucune tentative consommee.
+    expect((result.error as any).code).toBe('REST_ABORTED');
+    expect(result.operationId).toBeNull();
+  });
+
+  it('writes nothing when the pass is preempted during the read', async () => {
+    const signal = { aborted: false };
+    const harness = rebase({
+      signal,
+      selectVersion: async () => {
+        signal.aborted = true;
+        return restResult({ data: [{ version: 7 }] });
+      },
+    });
+
+    const result = await harness.run();
+
+    expect(harness.selectVersion).toHaveBeenCalledTimes(1);
+    // Une ecriture partie apres la preemption serait rejouee par la generation
+    // suivante — deux fois le meme mouvement de stock.
+    expect(harness.applyPatch).not.toHaveBeenCalled();
+    expect(harness.newOperationId).not.toHaveBeenCalled();
+    expect((result as any).error.code).toBe('REST_ABORTED');
+  });
+
+  it('still writes when no signal is aborted', async () => {
+    // Verrou sur la premisse : sans lui, ne jamais ecrire ferait passer les
+    // deux tests precedents sans rien prouver.
+    const harness = rebase({ signal: { aborted: false } });
+    await harness.run();
+
+    expect(harness.applyPatch).toHaveBeenCalledTimes(1);
   });
 });
 
