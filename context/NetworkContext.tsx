@@ -40,6 +40,7 @@ import {
   type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
 import { classifyFailureOutcome } from '@/lib/syncOutcomeClassifier';
+import { computeTimerSlice, normalizeTimerTarget } from '@/lib/syncTimerSlice';
 import type { SupabaseRestMeta } from '@/lib/supabaseRest';
 import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
 import type { SyncFailureClass, SyncRetrySource } from '@/lib/syncRetryPolicy';
@@ -77,6 +78,7 @@ const SYNC_INFRA_BACKOFF_MAX_MS = 5 * 60_000;
 // la file n'est reprise que par le ping natif de 10 s — jamais sur le web, où
 // l'intervalle ne déclenche aucune passe.
 const SYNC_FAILURE_RETRY_DELAY_MS = 30_000;
+
 
 // Borne pour le rafraîchissement du token et le refetch post-sync, afin qu'un
 // appel réseau bloqué en fin de passe ne laisse pas la file verrouillée.
@@ -840,18 +842,32 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   const scheduleSync = useCallback((delayMs = SYNC_KICK_DELAY_MS) => {
     if (!isSupabaseConfigured) return;
-    if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
-    setNextSyncAttemptAt(new Date(Date.now() + delayMs).toISOString());
-    syncKickTimerRef.current = setTimeout(() => {
-      syncKickTimerRef.current = null;
-      if (
-        queueLoadedRef.current &&
-        isOnlineRef.current &&
-        hasReplayableQueuedOperations(queueRef.current)
-      ) {
-        void processSyncQueueRef.current();
-      }
-    }, delayMs);
+
+    const targetMs = normalizeTimerTarget(Date.now() + Number(delayMs), Date.now(), SYNC_KICK_DELAY_MS);
+    // Le diagnostic doit montrer l'échéance réelle, jamais la fin de la tranche.
+    setNextSyncAttemptAt(computeTimerSlice(targetMs, Date.now()).targetIso);
+
+    // Ré-armement par tranches : un seul `setTimeout` couvrant plusieurs
+    // semaines n'est pas fiable, et un réveil intermédiaire ne coûte rien.
+    const arm = () => {
+      if (syncKickTimerRef.current) clearTimeout(syncKickTimerRef.current);
+      const slice = computeTimerSlice(targetMs, Date.now());
+      syncKickTimerRef.current = setTimeout(() => {
+        syncKickTimerRef.current = null;
+        if (!computeTimerSlice(targetMs, Date.now()).due) {
+          arm();
+          return;
+        }
+        if (
+          queueLoadedRef.current &&
+          isOnlineRef.current &&
+          hasReplayableQueuedOperations(queueRef.current)
+        ) {
+          void processSyncQueueRef.current();
+        }
+      }, slice.sliceMs);
+    };
+    arm();
   }, []);
 
   useEffect(() => () => {
