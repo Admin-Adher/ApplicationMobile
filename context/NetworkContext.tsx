@@ -37,10 +37,10 @@ import {
   inventoryOutcomeTranslationKey,
   isInventoryQueuedOperation,
   isReplayableQueuedOperation,
-  syncFailureReachedServer,
   type SyncQueueTerminalOutcome,
 } from '@/lib/syncQueuePolicy';
 import { classifyFailureOutcome } from '@/lib/syncOutcomeClassifier';
+import type { SupabaseRestMeta } from '@/lib/supabaseRest';
 import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
 import type { SyncFailureClass, SyncRetrySource } from '@/lib/syncRetryPolicy';
 import {
@@ -1366,14 +1366,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const fail = (
       op: QueuedOperation,
       err: any,
-      options?: { terminalStatus?: string; terminalOutcome?: SyncQueueTerminalOutcome },
+      options?: {
+        terminalStatus?: string;
+        terminalOutcome?: SyncQueueTerminalOutcome;
+        meta?: SupabaseRestMeta;
+      },
     ): PassOperationOutcome<QueuedOperation> => {
       const verdict = classifyFailureOutcome({
         operation: op,
         error: err,
+        meta: options?.meta,
         terminalStatus: options?.terminalStatus,
         terminalOutcome: options?.terminalOutcome,
-        consecutiveInfraFailures,
+        nowMs: Date.now(),
+        consecutiveServiceFailures: consecutiveInfraFailures,
         circuitAlreadyOpen: circuitOpened,
       });
       console.warn(`[queue] ${op.op} ${op.table} failed:`, verdict.message);
@@ -1395,20 +1401,28 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         attemptCount: verdict.attemptCount,
         lastFailureFingerprint: verdict.fingerprint ?? undefined,
         sameFailureCount: verdict.sameFailureCount,
+        // Metadonnees P5 : persistees des maintenant, exploitees par la passe
+        // dynamique au commit suivant.
+        lastFailureAt: new Date().toISOString(),
+        nextAttemptAt: verdict.nextAttemptAt ?? undefined,
+        failureClass: verdict.failureClass,
+        retrySource: verdict.retrySource ?? undefined,
+        lastHttpStatus: verdict.lastHttpStatus ?? undefined,
+        retryPolicyVersion: 1,
         terminal: verdict.isTerminal,
         terminalStatus: verdict.terminalStatus ?? op.terminalStatus,
         terminalOutcome: resolvedOutcome ?? op.terminalOutcome,
       };
       failedOps.push(failedOperation);
 
-      consecutiveInfraFailures = verdict.infraFailureStreak;
+      consecutiveInfraFailures = verdict.serviceFailureStreak;
 
       if (verdict.opensAuthCircuit) {
         circuitOpened = true;
         circuitDelayMs = SYNC_AUTH_RETRY_DELAY_MS;
         syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
         setSyncAuthBlocked(isSessionExpired());
-      } else if (verdict.opensInfraCircuit) {
+      } else if (verdict.opensServiceCircuit) {
         circuitOpened = true;
         const failures = syncInfrastructureFailureCountRef.current + 1;
         syncInfrastructureFailureCountRef.current = failures;
@@ -1418,7 +1432,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         );
         circuitDelayMs = Math.round(exponential * (0.8 + Math.random() * 0.4));
         syncBackoffUntilRef.current = Date.now() + circuitDelayMs;
-      } else if (verdict.infraFailureStreak === 0 && syncFailureReachedServer(err)) {
+      } else if (verdict.serviceFailureStreak === 0 && verdict.reachedServer) {
         // Refus rendu PAR le serveur : le lien fonctionne, la serie est rompue.
         syncInfrastructureFailureCountRef.current = 0;
       }
@@ -1427,13 +1441,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         return {
           kind: 'abandon',
           operation: failedOperation,
-          reason: verdict.abandonReason === 'authentication' ? 'authentication' : 'backend',
+          reason: verdict.abandonReason ?? 'backend',
+          nextAttemptAt: verdict.nextAttemptAt,
         };
       }
       if (verdict.kind === 'terminal') {
         return { kind: 'terminal', operation: failedOperation };
       }
-      return { kind: 'deferred', operation: failedOperation };
+      return { kind: 'deferred', operation: failedOperation, nextAttemptAt: verdict.nextAttemptAt };
     };
 
     let processed = 0;

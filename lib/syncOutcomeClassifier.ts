@@ -1,43 +1,72 @@
 import {
   assessPermanentFailure,
-  isAuthenticationSyncFailure,
-  isInfrastructureSyncFailure,
   shouldAbandonPassAfterInfrastructureFailure,
   type SyncFailureTrackingLike,
+  type SyncQueueTerminalOutcome,
 } from './syncQueuePolicy';
-import type { SyncQueueTerminalOutcome } from './syncQueuePolicy';
+import {
+  computeRetryDecision,
+  normalizeAttemptCount,
+  normalizeSameFailureCount,
+  type RetryQueueOperationLike,
+  type SyncFailureClass,
+  type SyncFailureTransportMeta,
+  type SyncRetrySource,
+} from './syncRetryPolicy';
 
 /**
- * Classification d'un echec de synchronisation — module PUR.
+ * Traduction d'un echec en issue d'ordonnanceur — module PUR.
  *
- * La decision « rejouable, definitif, ou passe abandonnee » vivait dans une
- * fermeture de 800 lignes, melangee aux effets de bord du moteur. Les 37
- * sorties de la boucle n'avaient donc aucune classification lisible, et rien
- * ne pouvait la tester.
+ * Il ne reconnait PAS les erreurs lui-meme : `computeRetryDecision` est la
+ * seule politique normative. Une premiere version rejouait ici les anciens
+ * classificateurs, ce qui recreait deux definitions concurrentes d'un echec
+ * reseau — `REST_ABORTED` compte comme une tentative d'un cote et pas de
+ * l'autre, un `429` attend trois echecs ici et bloque immediatement la-bas.
  *
- * Elle est ici, une seule fois, sans effet de bord.
+ * Chaine normative :
+ *   syncRetryPolicy      classe l'erreur et calcule le reessai
+ *   syncOutcomeClassifier traduit cette decision en issue
+ *   NetworkContext        applique les effets de bord
  */
 
 export type FailureOutcomeKind = 'deferred' | 'terminal' | 'abandon';
-export type FailureAbandonReason = 'backend' | 'authentication';
+export type FailureAbandonReason = 'backend' | 'authentication' | 'preempted';
+export type SyncCancellationReason = 'preempted' | 'account_changed' | 'unmounted';
 
 export interface FailureClassificationInput {
-  operation: SyncFailureTrackingLike & { attemptCount?: number; terminalStatus?: string; terminal?: boolean };
+  operation: RetryQueueOperationLike & SyncFailureTrackingLike & { terminal?: boolean; terminalStatus?: string };
   error: unknown;
-  /** Refus metier deja etabli par l'appelant, prioritaire sur toute deduction. */
+  meta?: SyncFailureTransportMeta;
+  /** Refus metier deja etabli par l'appelant, a partir d'une ligne serveur. */
   terminalStatus?: string;
   terminalOutcome?: SyncQueueTerminalOutcome;
-  /** Echecs d'infrastructure consecutifs AVANT celui-ci. */
-  consecutiveInfraFailures: number;
+  nowMs: number;
+  /** Compteur propre a la portee : operation, backend ou authentification. */
+  retryOrdinal?: number;
+  jitter?: number;
+  /** Echecs alimentant le circuit AVANT celui-ci. */
+  consecutiveServiceFailures: number;
   circuitAlreadyOpen: boolean;
+  /**
+   * L'appelant sait pourquoi son signal a ete annule ; l'erreur REST seule ne
+   * distingue pas une preemption d'un changement de compte.
+   */
+  cancellationReason?: SyncCancellationReason;
 }
 
 export interface FailureClassification {
   kind: FailureOutcomeKind;
-  /** Renseigne uniquement quand `kind` vaut `abandon`. */
   abandonReason: FailureAbandonReason | null;
-  /** Message technique, conserve dans `lastError`. */
   message: string;
+  failureClass: SyncFailureClass;
+  retrySource: SyncRetrySource | null;
+  nextAttemptAt: string | null;
+  lastHttpStatus: number | null;
+  reachedServer: boolean;
+  contributesToCircuit: boolean;
+  blocksCurrentPass: boolean;
+  /** Faux pour une annulation : elle ne consomme aucune tentative. */
+  incrementAttempt: boolean;
   attemptCount: number;
   fingerprint: string | null;
   sameFailureCount: number;
@@ -45,84 +74,166 @@ export interface FailureClassification {
   terminalStatus: string | null;
   /** Le refus deterministe vient-il d'etre deduit, plutot que fourni ? */
   inferredTerminal: boolean;
-  /** Serie d'echecs d'infrastructure APRES celui-ci. */
-  infraFailureStreak: number;
+  /**
+   * Pourquoi l'appelant a annule, quand il s'agit d'une annulation. Le
+   * diagnostic distingue ainsi une preemption benigne d'une file bloquee
+   * derriere un changement de compte.
+   */
+  cancellationReason: SyncCancellationReason | null;
+  /** Serie d'echecs alimentant le circuit APRES celui-ci. */
+  serviceFailureStreak: number;
   opensAuthCircuit: boolean;
-  opensInfraCircuit: boolean;
+  opensServiceCircuit: boolean;
+}
+
+const MAX_MESSAGE_PART = 500;
+
+function safeText(value: unknown, maxLength: number): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().replace(/\s+/g, ' ');
+  return trimmed ? trimmed.slice(0, maxLength) : null;
+}
+
+function safeCode(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return /^[A-Za-z0-9_.-]{1,48}$/.test(trimmed) ? `[${trimmed}]` : null;
+}
+
+function safeStatus(value: unknown): string | null {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 100 && parsed <= 599 ? `HTTP ${parsed}` : null;
 }
 
 /**
- * Message technique lisible. Le code, les details et l'indice du serveur sont
- * conserves : ils sont la seule piste exploitable dans un rapport de support.
+ * Message technique, sur LISTE BLANCHE.
+ *
+ * `lastError` est persiste dans la file et expose dans le diagnostic. Serialiser
+ * un objet d'erreur arbitraire y ferait entrer ce qu'un SDK y attache :
+ * configuration de requete, URL signee, en-tetes, payload, chemin local.
  */
 export function formatSyncFailureMessage(error: unknown, fallback: string): string {
-  if (!error) return fallback;
-  if (typeof error === 'string') return error;
+  if (typeof error === 'string') return safeText(error, 1000) ?? fallback;
+  if (!error || typeof error !== 'object') return fallback;
 
-  const candidate = error as { message?: string; code?: string; details?: string; hint?: string };
-  if (candidate.message) {
-    let message = candidate.message;
-    if (candidate.code) message = `[${candidate.code}] ${message}`;
-    if (candidate.details) message += ` — ${candidate.details}`;
-    if (candidate.hint) message += ` (${candidate.hint})`;
-    return message;
-  }
+  const candidate = error as Record<string, unknown>;
+  const parts = [
+    safeCode(candidate.code),
+    safeStatus(candidate.status),
+    safeText(candidate.message, MAX_MESSAGE_PART),
+    safeText(candidate.details, 300),
+    safeText(candidate.hint, 300),
+  ].filter((part): part is string => part !== null);
 
-  try {
-    return JSON.stringify(error);
-  } catch {
-    return String(error);
-  }
+  return parts.length > 0 ? parts.join(' — ') : fallback;
 }
 
 export function classifyFailureOutcome(input: FailureClassificationInput): FailureClassification {
-  const { operation, error, consecutiveInfraFailures, circuitAlreadyOpen } = input;
+  const { operation, error, consecutiveServiceFailures, circuitAlreadyOpen } = input;
 
-  const attemptCount = (operation.attemptCount ?? 0) + 1;
+  const decision = computeRetryDecision({
+    failure: { error, meta: input.meta },
+    operation,
+    nowMs: input.nowMs,
+    jitter: input.jitter,
+    retryOrdinal: input.retryOrdinal,
+  });
 
-  // L'evaluation se fait sur l'EMPREINTE, pas sur le nombre total de
-  // tentatives : une sequence timeout -> 503 -> 404 ne doit pas rendre le 404
-  // terminal du premier coup.
-  const assessment = assessPermanentFailure(operation, error);
+  const message = formatSyncFailureMessage(error, 'Erreur inconnue');
+  const currentAttempts = normalizeAttemptCount(operation.attemptCount);
+  const currentSameFailures = normalizeSameFailureCount(operation.sameFailureCount);
+  const lastHttpStatus = typeof input.meta?.status === 'number' ? input.meta.status : null;
+
+  // ── Annulation volontaire ────────────────────────────────────────────────
+  // Elle ne consomme rien : ni tentative, ni serie, ni echeance. La generation
+  // suivante reprendra l'operation telle qu'elle etait.
+  if (decision.failureClass === 'cancelled') {
+    return {
+      kind: 'abandon',
+      abandonReason: 'preempted',
+      message,
+      failureClass: 'cancelled',
+      retrySource: null,
+      nextAttemptAt: operation.nextAttemptAt ?? null,
+      lastHttpStatus,
+      reachedServer: false,
+      contributesToCircuit: false,
+      blocksCurrentPass: false,
+      incrementAttempt: false,
+      attemptCount: currentAttempts,
+      fingerprint: operation.lastFailureFingerprint ?? null,
+      sameFailureCount: currentSameFailures,
+      isTerminal: Boolean(operation.terminal),
+      terminalStatus: operation.terminalStatus ?? null,
+      inferredTerminal: false,
+      cancellationReason: input.cancellationReason ?? 'preempted',
+      serviceFailureStreak: consecutiveServiceFailures,
+      opensAuthCircuit: false,
+      opensServiceCircuit: false,
+    };
+  }
 
   const providedStatus = input.terminalOutcome?.status ?? input.terminalStatus;
-  const inferredTerminal = !providedStatus && assessment.terminal;
-  const terminalStatus = providedStatus ?? (inferredTerminal ? 'server_rejected' : null);
+
+  // Un refus metier vient d'une ligne serveur structuree ; une panne globale
+  // vient du transport. La meme tentative ne peut pas etre les deux, et laisser
+  // l'un masquer l'autre reviendrait a choisir arbitrairement.
+  if (providedStatus && decision.blocksCurrentPass) {
+    throw new Error(
+      'Invariant viole : refus metier terminal et panne de transport globale sur la meme tentative',
+    );
+  }
+
+  const serviceFailureStreak = decision.contributesToCircuit ? consecutiveServiceFailures + 1 : 0;
+  const reachesServiceThreshold = decision.contributesToCircuit
+    && shouldAbandonPassAfterInfrastructureFailure(serviceFailureStreak);
+
+  const authFailure = decision.failureClass === 'authentication';
+  // « Ouvrir le circuit maintenant » et « interrompre cette passe » sont deux
+  // notions distinctes : un circuit deja ouvert ne transforme pas une panne
+  // globale en simple echec local, sinon la passe continuerait d'envoyer.
+  const mustAbandon = decision.blocksCurrentPass || reachesServiceThreshold;
+
+  const assessment = assessPermanentFailure(operation, error);
+  // Un refus deduit est une PRESOMPTION tiree de trois verdicts identiques ; une
+  // panne globale du transport est un FAIT observe. Le fait l'emporte : deduire
+  // un refus definitif alors que le lien vient de tomber condamnerait une
+  // operation que le serveur n'a jamais examinee. Les deux modules classent
+  // aujourd'hui ces cas dans des familles disjointes, mais s'appuyer sur cette
+  // coincidence ferait dependre l'integrite des donnees d'un detail interne a
+  // `syncQueuePolicy`.
+  const inferredTerminal = !providedStatus && assessment.terminal && !mustAbandon;
+  // Sans le repli sur l'operation, une seconde classification rendait
+  // `isTerminal: true` avec un `terminalStatus: null` — un refus sans motif.
+  const terminalStatus = providedStatus
+    ?? (inferredTerminal ? 'server_rejected' : operation.terminalStatus ?? null);
   const isTerminal = Boolean(terminalStatus) || Boolean(input.terminalOutcome) || Boolean(operation.terminal);
 
-  // ── Portee globale ───────────────────────────────────────────────────────
-  // Une authentification inutilisable condamne la passe des le premier refus :
-  // rejouer chaque operation avec le meme jeton ne ferait que bruler des
-  // tentatives et declencher un rafraichissement par ligne.
-  const authFailure = isAuthenticationSyncFailure(error);
-  const infraFailure = !authFailure && isInfrastructureSyncFailure(error);
-  const infraFailureStreak = infraFailure ? consecutiveInfraFailures + 1 : 0;
-
-  const opensAuthCircuit = authFailure && !circuitAlreadyOpen;
-  const opensInfraCircuit = infraFailure
-    && !circuitAlreadyOpen
-    && shouldAbandonPassAfterInfrastructureFailure(infraFailureStreak);
-
-  // Un refus definitif prime sur la portee globale : l'operation ne sera plus
-  // rejouee de toute facon, et la signaler comme abandon masquerait sa cause.
-  const kind: FailureOutcomeKind = isTerminal
-    ? 'terminal'
-    : (opensAuthCircuit || opensInfraCircuit)
-      ? 'abandon'
-      : 'deferred';
+  const kind: FailureOutcomeKind = mustAbandon
+    ? 'abandon'
+    : isTerminal ? 'terminal' : 'deferred';
 
   return {
     kind,
-    abandonReason: kind !== 'abandon' ? null : opensAuthCircuit ? 'authentication' : 'backend',
-    message: formatSyncFailureMessage(error, 'Erreur inconnue'),
-    attemptCount,
+    abandonReason: kind !== 'abandon' ? null : authFailure ? 'authentication' : 'backend',
+    message,
+    failureClass: decision.failureClass,
+    retrySource: decision.retrySource,
+    nextAttemptAt: decision.nextAttemptAt,
+    lastHttpStatus,
+    reachedServer: decision.reachedServer,
+    contributesToCircuit: decision.contributesToCircuit,
+    blocksCurrentPass: decision.blocksCurrentPass,
+    incrementAttempt: decision.incrementAttempt,
+    attemptCount: decision.incrementAttempt ? currentAttempts + 1 : currentAttempts,
     fingerprint: assessment.fingerprint,
     sameFailureCount: assessment.sameFailureCount,
     isTerminal,
     terminalStatus,
     inferredTerminal,
-    infraFailureStreak,
-    opensAuthCircuit,
-    opensInfraCircuit,
+    cancellationReason: null,
+    serviceFailureStreak,
+    opensAuthCircuit: authFailure && !circuitAlreadyOpen,
+    opensServiceCircuit: reachesServiceThreshold && !circuitAlreadyOpen,
   };
 }

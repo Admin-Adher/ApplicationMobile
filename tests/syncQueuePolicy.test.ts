@@ -270,12 +270,12 @@ describe('unstable-network replay policy', () => {
     expect(source).toContain('consecutiveInfraFailures = 0;');
     // Le seuil lui-meme vit desormais dans le classificateur pur, teste
     // directement ; le moteur ne fait qu'appliquer son verdict.
-    expect(source).toContain('consecutiveInfraFailures = verdict.infraFailureStreak;');
+    expect(source).toContain('consecutiveInfraFailures = verdict.serviceFailureStreak;');
     const classifier = readFileSync(
       resolve(import.meta.dirname, '..', 'lib/syncOutcomeClassifier.ts'),
       'utf8',
     );
-    expect(classifier).toContain('shouldAbandonPassAfterInfrastructureFailure(infraFailureStreak)');
+    expect(classifier).toContain('shouldAbandonPassAfterInfrastructureFailure(serviceFailureStreak)');
 
     // La branche web doit rejouer la file comme le ping natif.
     const webBranch = source.slice(

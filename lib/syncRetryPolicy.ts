@@ -187,7 +187,7 @@ export function normalizeSameFailureCount(value: unknown): number {
   return Math.min(999, parsed);
 }
 
-function normalizeAttemptCount(value: unknown): number {
+export function normalizeAttemptCount(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isSafeInteger(parsed) || parsed < 0) return 0;
   return Math.min(10_000, parsed);
