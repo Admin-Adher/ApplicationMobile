@@ -201,6 +201,127 @@ describe('global scopes stop everything', () => {
   });
 });
 
+describe('the entry journal carries physical identity', () => {
+  it('emits exactly one line per snapshot entry, in order', async () => {
+    const operations = [movement('a1', 'A', 10), movement('a2', 'A', 9), movement('b1', 'B', 8)];
+
+    const result = await runSyncPass({
+      operations,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      execute: async operation => (
+        idOf(operation) === 'a1' ? { kind: 'deferred', nextAttemptAt: iso(NOW + 60_000) } : { kind: 'applied' }
+      ),
+    });
+
+    expect(result.entries.map(entry => [entry.token, entry.kind])).toEqual([
+      [0, 'deferred'],
+      [1, 'untouched'],
+      [2, 'applied'],
+    ]);
+    expect(result.entries.map(entry => entry.originalIndex)).toEqual([0, 1, 2]);
+    expect(result.entries[0].nextAttemptAt).toBe(iso(NOW + 60_000));
+  });
+
+  it('keeps the token stable when the operation changes identity', async () => {
+    // Un rebase change volontairement d'identifiant. Retrouver l'entree par son
+    // `id` la manquerait, et la reconstruction insererait un doublon.
+    const operations = [movement('avant', 'A', 10)];
+
+    const result = await runSyncPass({
+      operations,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      execute: async operation => ({
+        kind: 'deferred',
+        operation: { ...operation, id: 'apres-rebase' },
+        nextAttemptAt: null,
+      }),
+    });
+
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0].token).toBe(0);
+    expect(idOf(result.entries[0].resolved)).toBe('apres-rebase');
+    // La version d'AVANT la passe reste celle du snapshot de l'appelant.
+    expect(idOf(operations[0])).toBe('avant');
+  });
+
+  it('separates two entries sharing one identifier', async () => {
+    // LA raison d'etre du jeton : retirer par `id` supprimait les DEUX entrees
+    // apres l'execution d'une seule.
+    const operations = [movement('meme', 'A', 10), movement('meme', 'A', 9)];
+    let first = true;
+
+    const result = await runSyncPass({
+      operations,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      execute: async () => {
+        if (first) { first = false; return { kind: 'applied' }; }
+        return { kind: 'deferred', nextAttemptAt: null };
+      },
+    });
+
+    expect(result.entries.map(entry => entry.kind)).toEqual(['applied', 'deferred']);
+  });
+
+  it('marks the operation that stopped the pass as abandoned, not merely deferred', async () => {
+    const operations = [movement('a1', 'A', 10), movement('b1', 'B', 9)];
+
+    const result = await runSyncPass({
+      operations,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      execute: async () => ({ kind: 'abandon', reason: 'backend', nextAttemptAt: iso(NOW + 120_000) }),
+    });
+
+    expect(result.entries.map(entry => entry.kind)).toEqual(['abandon', 'untouched']);
+    expect(result.entries[0].nextAttemptAt).toBe(iso(NOW + 120_000));
+  });
+
+  it('promises no original version, because execute may mutate in place', async () => {
+    // Un champ `original` serait une promesse que la structure ne tient pas :
+    // l'ordonnanceur transmet l'operation elle-meme, et rien n'empeche
+    // `execute` d'en muter un payload imbrique. Le reconstructeur doit donc
+    // utiliser SON propre snapshot, pris avant la passe.
+    const snapshot = [{ ...movement('a1', 'A', 10), data: { value: 1 } }];
+
+    const result = await runSyncPass({
+      operations: snapshot,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      execute: async operation => {
+        (operation as any).data.value = 2;
+        return { kind: 'deferred', operation, nextAttemptAt: null };
+      },
+    });
+
+    // Demonstration de la mutation possible : c'est bien pour cela qu'aucune
+    // version d'origine n'est promise.
+    expect((snapshot[0] as any).data.value).toBe(2);
+    expect(result.entries[0]).not.toHaveProperty('original');
+    expect(result.entries[0].token).toBe(0);
+  });
+
+  it('skips operations already terminal, leaving no journal line for them', async () => {
+    // Elles ne sont pas transmises a l'ordonnanceur : c'est au snapshot P5 de
+    // les conserver a leur place, pas au journal de les inventer.
+    const operations = [
+      { ...movement('refusee', 'A', 10), terminal: true },
+      movement('a1', 'A', 9),
+    ];
+
+    const result = await runSyncPass({
+      operations,
+      now: frozenClock,
+      onExecuteError: unexpected,
+      execute: async () => ({ kind: 'applied' }),
+    });
+
+    expect(result.entries.map(entry => entry.token)).toEqual([1]);
+  });
+});
+
 describe('convergence and reporting', () => {
   it('lets a conflict leave the working set without a deadline', async () => {
     // Un conflit est rendu a la logique metier de rebase : il ne doit ni

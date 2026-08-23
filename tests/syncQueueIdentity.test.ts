@@ -66,6 +66,39 @@ describe('the business fingerprint ignores retry history', () => {
     expect(queueOperationFingerprint(left)).not.toBe(queueOperationFingerprint(right));
   });
 
+  it.each([
+    ['une Date', { data: { at: new Date('2026-01-01') } }],
+    ['une Map', { data: { m: new Map([['a', 1]]) } }],
+    ['un Set', { data: { s: new Set([1]) } }],
+    ['une RegExp', { data: { r: /x/ } }],
+    ['NaN', { data: { n: Number.NaN } }],
+    ['Infini', { data: { n: Number.POSITIVE_INFINITY } }],
+  ])('refuses to compare %s', (_label, operation) => {
+    // `Object.entries(new Date(...))` rend `{}` : deux dates DIFFERENTES
+    // produiraient la meme empreinte et seraient fusionnees — saisie perdue.
+    // `NaN` et `Infinity` deviennent `null` en JSON, indiscernables d'un vrai
+    // `null`.
+    expect(queueOperationFingerprint(operation as any)).toBeNull();
+  });
+
+  it('accepts everything a JSON round-trip preserves', () => {
+    // Verrou sur la premisse : tout refuser ferait passer le test ci-dessus
+    // sans rien prouver.
+    expect(queueOperationFingerprint({
+      table: 't',
+      op: 'update',
+      data: { texte: 'x', nombre: 4.5, vrai: true, vide: null, liste: [1, 'a', { k: 2 }] },
+      baseVersion: 3,
+    })).not.toBeNull();
+  });
+
+  it('gives up on a payload too large to compare within budget', () => {
+    // Une file corrompue ne doit pas bloquer le fil pendant l'hydratation.
+    const huge = { data: { liste: Array.from({ length: 50_000 }, (_, i) => i) } };
+
+    expect(queueOperationFingerprint(huge as any)).toBeNull();
+  });
+
   it('reports an unreadable payload rather than truncating it', () => {
     // Tronquer rendrait deux payloads DIFFERENTS identiques, donc fusionnables.
     // On rend `null` : l'egalite n'est pas prouvable.
@@ -98,15 +131,93 @@ describe('identical content behind one identifier is deduplicated', () => {
     expect(operations.some(o => o.quarantined)).toBe(false);
   });
 
-  it('keeps the copy carrying the richer history', () => {
-    // Jeter celle qui porte l'historique ferait perdre la trace de ce qui a
-    // deja ete tente, et le compteur repartirait de zero.
-    const bare = movement('op-1');
-    const tried = movement('op-1', { attemptCount: 3, lastError: 'HTTP 503', failureClass: 'server_unavailable' });
+  it('deduplicates two physical entries sharing ONE object reference', () => {
+    // Raisonner par reference annulait la protection physique : les deux
+    // positions portaient la meme cle, donc rien n'etait ni remplace ni retire
+    // et le module annoncait `removed: 1` en rendant deux entrees.
+    const operation = movement('op-1');
+    const { operations, resolutions } = resolve([operation, operation]);
 
-    expect(resolve([bare, tried]).operations[0].attemptCount).toBe(3);
-    // L'ordre d'arrivee ne change pas le choix.
-    expect(resolve([tried, bare]).operations[0].attemptCount).toBe(3);
+    expect(operations).toHaveLength(1);
+    expect(resolutions).toEqual([{ kind: 'deduplicated', id: 'op-1', removed: 1 }]);
+  });
+
+  it('merges the state instead of picking one copy whole', () => {
+    // L'une detient le `queuedAt` le plus ancien, l'autre l'echec le plus
+    // recent : n'en garder qu'une perd la moitie de l'etat.
+    const early = movement('op-1', {
+      queuedAt: '2026-08-23T10:00:00.000Z',
+      attemptCount: 1,
+      nextAttemptAt: '2026-08-23T12:00:00.000Z',
+    });
+    const late = movement('op-1', {
+      queuedAt: '2026-08-23T11:00:00.000Z',
+      attemptCount: 4,
+      lastAttemptAt: '2026-08-23T11:30:00.000Z',
+      lastFailureAt: '2026-08-23T11:30:00.000Z',
+      lastError: 'HTTP 503',
+      failureClass: 'server_unavailable',
+      lastHttpStatus: 503,
+      sameFailureCount: 2,
+      nextAttemptAt: '2026-08-23T12:30:00.000Z',
+    });
+
+    const merged = resolve([early, late]).operations[0];
+
+    expect(merged.queuedAt).toBe('2026-08-23T10:00:00.000Z');
+    expect(merged.attemptCount).toBe(4);
+    expect(merged.lastAttemptAt).toBe('2026-08-23T11:30:00.000Z');
+    // La plus TARDIVE : raccourcir une echeance renverrait trop tot.
+    expect(merged.nextAttemptAt).toBe('2026-08-23T12:30:00.000Z');
+    // Bloc d'erreur coherent, pris d'un seul tenant.
+    expect(merged.lastError).toBe('HTTP 503');
+    expect(merged.failureClass).toBe('server_unavailable');
+    expect(merged.lastHttpStatus).toBe(503);
+    expect(merged.sameFailureCount).toBe(2);
+  });
+
+  it('never mixes a message with another failure class', () => {
+    const older = movement('op-1', {
+      lastFailureAt: '2026-08-23T10:00:00.000Z',
+      lastError: 'timeout',
+      failureClass: 'timeout',
+      lastHttpStatus: undefined,
+    });
+    const newer = movement('op-1', {
+      lastFailureAt: '2026-08-23T11:00:00.000Z',
+      lastError: 'HTTP 403',
+      failureClass: 'permanent_candidate',
+      lastHttpStatus: 403,
+    });
+
+    const merged = resolve([older, newer]).operations[0];
+
+    expect(merged.lastError).toBe('HTTP 403');
+    expect(merged.failureClass).toBe('permanent_candidate');
+    expect(merged.lastHttpStatus).toBe(403);
+  });
+
+  it('propagates terminality and strips the deadline it invalidates', () => {
+    const pending = movement('op-1', { nextAttemptAt: '2026-08-23T12:30:00.000Z', retrySource: 'client_backoff' });
+    const refused = movement('op-1', { terminal: true, terminalStatus: 'insufficient_stock' });
+
+    const merged = resolve([pending, refused]).operations[0];
+
+    expect(merged.terminal).toBe(true);
+    expect(merged.terminalStatus).toBe('insufficient_stock');
+    // Une operation refusee n'a aucune prochaine tentative.
+    expect(merged.nextAttemptAt).toBeUndefined();
+    expect(merged.retrySource).toBeUndefined();
+  });
+
+  it('ignores unparseable timestamps rather than propagating them', () => {
+    const broken = movement('op-1', { queuedAt: 'pas une date', attemptCount: -3 });
+    const sound = movement('op-1', { queuedAt: '2026-08-23T10:00:00.000Z', attemptCount: 2 });
+
+    const merged = resolve([broken, sound]).operations[0];
+
+    expect(merged.queuedAt).toBe('2026-08-23T10:00:00.000Z');
+    expect(merged.attemptCount).toBe(2);
   });
 
   it('keeps the survivor at the position of the first occurrence', () => {

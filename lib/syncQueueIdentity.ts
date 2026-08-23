@@ -12,6 +12,11 @@
  *     entrees sortent de la file apres l'execution d'UNE seule.
  *
  * Dans les deux cas, une saisie utilisateur peut disparaitre sans trace.
+ *
+ * L'identite manipulee ici est la POSITION dans le tableau, jamais la reference
+ * objet : deux positions peuvent parfaitement contenir la MEME reference apres
+ * une fusion de files, et raisonner par reference annulerait la protection
+ * physique que le jeton de l'ordonnanceur apporte.
  */
 
 export interface QueueIdentityLike {
@@ -48,22 +53,58 @@ const BUSINESS_FIELDS = [
   'coalesceKey',
 ] as const;
 
-/** Leve quand le contenu ne peut pas etre compare de facon fiable. */
+/** Leve des qu'une egalite ne peut plus etre PROUVEE. */
 const UNREADABLE = Symbol('empreinte illisible');
 
-/** Serialisation stable : l'ordre des cles d'un objet ne doit rien changer. */
-function stableStringify(value: unknown, depth = 0): string {
-  // Trop profond — souvent une reference circulaire. On ne tronque PAS : une
-  // troncature rendrait deux payloads differents identiques, donc fusionnables.
-  if (depth > 12) throw UNREADABLE;
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
-  if (Array.isArray(value)) return `[${value.map(item => stableStringify(item, depth + 1)).join(',')}]`;
+/**
+ * Budget de calcul. Une file corrompue peut porter un tableau de plusieurs
+ * millions d'elements ; l'hydratation ne doit pas bloquer le fil d'execution.
+ */
+const MAX_DEPTH = 12;
+const MAX_NODES = 20_000;
+const MAX_LENGTH = 200_000;
+
+/**
+ * Serialisation stable et STRICTE.
+ *
+ * N'accepte que ce dont l'egalite est demontrable apres un aller-retour JSON :
+ * `null`, booleen, chaine, nombre fini, tableau, objet plat. Tout le reste leve.
+ *
+ * Ce n'est pas de la pedanterie. `Object.entries(new Date(...))` rend `{}`,
+ * donc deux dates DIFFERENTES produiraient la meme empreinte et seraient
+ * fusionnees — une saisie perdue. Meme piege avec `Map`, `Set`, `RegExp` et
+ * toute instance de classe. `NaN` et `Infinity` deviennent `null` en JSON,
+ * indiscernables d'un vrai `null`.
+ */
+function stableStringify(value: unknown, budget: { nodes: number }, depth = 0): string {
+  if (depth > MAX_DEPTH) throw UNREADABLE;
+  budget.nodes += 1;
+  if (budget.nodes > MAX_NODES) throw UNREADABLE;
+
+  if (value === null) return 'null';
+
+  const type = typeof value;
+  if (type === 'boolean' || type === 'string') return JSON.stringify(value) as string;
+  if (type === 'number') {
+    if (!Number.isFinite(value as number)) throw UNREADABLE;
+    return JSON.stringify(value) as string;
+  }
+  if (type !== 'object') throw UNREADABLE;
+
+  if (Array.isArray(value)) {
+    return `[${value.map(item => stableStringify(item, budget, depth + 1)).join(',')}]`;
+  }
+
+  // Objet PLAT uniquement : un prototype exotique cache un etat que
+  // `Object.entries` ne voit pas.
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) throw UNREADABLE;
 
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, item]) => item !== undefined)
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
 
-  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item, depth + 1)}`).join(',')}}`;
+  return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${stableStringify(item, budget, depth + 1)}`).join(',')}}`;
 }
 
 /**
@@ -73,6 +114,9 @@ function stableStringify(value: unknown, depth = 0): string {
  * n'est pas un detail : on ne peut alors PAS prouver que deux entrees sont
  * identiques, et la politique doit donc les mettre en quarantaine plutot que
  * d'en fusionner deux qui different peut-etre.
+ *
+ * La valeur rendue contient les payloads metier : elle ne doit jamais etre
+ * persistee, journalisee ni exportee.
  */
 export function queueOperationFingerprint(operation: QueueIdentityLike): string | null {
   const business: Record<string, unknown> = {};
@@ -82,7 +126,8 @@ export function queueOperationFingerprint(operation: QueueIdentityLike): string 
   }
 
   try {
-    return stableStringify(business);
+    const serialized = stableStringify(business, { nodes: 0 });
+    return serialized.length > MAX_LENGTH ? null : serialized;
   } catch {
     return null;
   }
@@ -99,19 +144,99 @@ export interface DuplicateReport<T> {
   resolutions: DuplicateResolution[];
 }
 
-/**
- * Combien de metadonnees d'echec une entree porte-t-elle ? A contenu metier
- * identique, on garde la plus informative : jeter celle qui porte l'historique
- * ferait perdre la trace de ce qui a deja ete tente.
- */
-function informationScore(operation: Record<string, unknown>): number {
-  let score = 0;
-  for (const field of ['lastError', 'lastFailureAt', 'lastFailureFingerprint', 'failureClass', 'terminalOutcome']) {
-    if (operation[field] !== undefined && operation[field] !== null) score += 1;
+// ─────────────────────────────────────────────────────────────────────────────
+// Fusion conservatrice
+// ─────────────────────────────────────────────────────────────────────────────
+
+function validTime(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** Rend la plus ancienne, ou la plus recente, des dates VALIDES rencontrees. */
+function pickTime(values: unknown[], mode: 'oldest' | 'latest'): string | undefined {
+  let best: { at: number; raw: string } | null = null;
+  for (const value of values) {
+    const at = validTime(value);
+    if (at === null) continue;
+    if (!best || (mode === 'oldest' ? at < best.at : at > best.at)) {
+      best = { at, raw: value as string };
+    }
   }
-  const attempts = Number(operation.attemptCount);
-  if (Number.isSafeInteger(attempts) && attempts > 0) score += Math.min(attempts, 5);
-  return score;
+  return best?.raw;
+}
+
+function maxCount(values: unknown[]): number | undefined {
+  let best: number | undefined;
+  for (const value of values) {
+    const parsed = Number(value);
+    if (!Number.isSafeInteger(parsed) || parsed < 0) continue;
+    if (best === undefined || parsed > best) best = parsed;
+  }
+  return best;
+}
+
+/** Champs du bloc d'erreur : ils viennent tous de la MEME copie. */
+const FAILURE_BLOCK = [
+  'lastFailureAt',
+  'lastError',
+  'failureClass',
+  'lastHttpStatus',
+  'retrySource',
+  'lastFailureFingerprint',
+  'sameFailureCount',
+] as const;
+
+/**
+ * Fusionne des copies au contenu metier IDENTIQUE.
+ *
+ * Choisir une copie entiere perdrait l'etat porte par l'autre : l'une peut
+ * detenir le `queuedAt` le plus ancien et l'autre l'echec le plus recent. On
+ * retient donc, champ par champ, la valeur la plus conservatrice — sauf le bloc
+ * d'erreur, pris d'un seul tenant sur la copie portant le `lastFailureAt`
+ * retenu. Melanger un message avec la classe d'une AUTRE erreur produirait un
+ * diagnostic faux.
+ */
+function mergeIdenticalCopies<T extends Record<string, unknown>>(copies: T[]): T {
+  const merged: Record<string, unknown> = { ...copies[0] };
+
+  const queuedAt = pickTime(copies.map(copy => copy.queuedAt), 'oldest');
+  if (queuedAt !== undefined) merged.queuedAt = queuedAt;
+
+  const attemptCount = maxCount(copies.map(copy => copy.attemptCount));
+  if (attemptCount !== undefined) merged.attemptCount = attemptCount;
+
+  if (copies.some(copy => copy.terminal === true)) merged.terminal = true;
+  if (copies.some(copy => copy.quarantined === true)) merged.quarantined = true;
+
+  const terminalCopy = copies.find(copy => copy.terminal === true);
+  if (terminalCopy?.terminalStatus !== undefined) merged.terminalStatus = terminalCopy.terminalStatus;
+
+  const withOutcome = copies.find(copy => copy.terminalOutcome !== undefined && copy.terminalOutcome !== null);
+  if (withOutcome) merged.terminalOutcome = withOutcome.terminalOutcome;
+
+  const lastAttemptAt = pickTime(copies.map(copy => copy.lastAttemptAt), 'latest');
+  if (lastAttemptAt !== undefined) merged.lastAttemptAt = lastAttemptAt;
+
+  const nextAttemptAt = pickTime(copies.map(copy => copy.nextAttemptAt), 'latest');
+  if (nextAttemptAt !== undefined) merged.nextAttemptAt = nextAttemptAt;
+
+  const lastFailureAt = pickTime(copies.map(copy => copy.lastFailureAt), 'latest');
+  const source = lastFailureAt === undefined
+    ? copies.find(copy => copy.lastError !== undefined)
+    : copies.find(copy => copy.lastFailureAt === lastFailureAt);
+  if (source) {
+    for (const field of FAILURE_BLOCK) merged[field] = source[field];
+  }
+
+  // Une operation refusee n'a aucune prochaine tentative.
+  if (merged.terminal === true) {
+    merged.nextAttemptAt = undefined;
+    merged.retrySource = undefined;
+  }
+
+  return merged as T;
 }
 
 /**
@@ -125,46 +250,45 @@ export function resolveDuplicateQueueIds<T extends QueueIdentityLike & Record<st
   operations: T[],
   mark: (operation: T, reason: 'duplicate_id_mismatch') => T,
 ): DuplicateReport<T> {
-  const byId = new Map<string, T[]>();
+  const positionsById = new Map<string, number[]>();
 
-  for (const operation of operations) {
+  operations.forEach((operation, index) => {
     // Sans identifiant, rien ne permet d'affirmer qu'il s'agit du meme envoi :
     // ces entrees traversent sans etre regroupees.
     const id = typeof operation.id === 'string' && operation.id ? operation.id : null;
-    if (!id) continue;
-    const bucket = byId.get(id);
-    if (bucket) bucket.push(operation);
-    else byId.set(id, [operation]);
-  }
+    if (!id) return;
+    const positions = positionsById.get(id);
+    if (positions) positions.push(index);
+    else positionsById.set(id, [index]);
+  });
 
   const resolutions: DuplicateResolution[] = [];
-  const replacement = new Map<T, T[]>();
-  const dropped = new Set<T>();
+  const replacementByIndex = new Map<number, T[]>();
+  const droppedIndices = new Set<number>();
 
-  for (const [id, bucket] of byId) {
-    if (bucket.length < 2) continue;
+  for (const [id, positions] of positionsById) {
+    if (positions.length < 2) continue;
 
-    const fingerprints = bucket.map(queueOperationFingerprint);
+    const copies = positions.map(index => operations[index]);
+    const fingerprints = copies.map(queueOperationFingerprint);
     const comparable = fingerprints.every(fingerprint => fingerprint !== null);
+
     if (comparable && new Set(fingerprints).size === 1) {
       // Contenu identique : la duplication est un artefact, pas une donnee.
-      const survivor = bucket.reduce((best, candidate) => (
-        informationScore(candidate) > informationScore(best) ? candidate : best
-      ));
-      for (const entry of bucket) if (entry !== survivor) dropped.add(entry);
-      replacement.set(bucket[0], [survivor]);
-      resolutions.push({ kind: 'deduplicated', id, removed: bucket.length - 1 });
+      replacementByIndex.set(positions[0], [mergeIdenticalCopies(copies)]);
+      for (const index of positions.slice(1)) droppedIndices.add(index);
+      resolutions.push({ kind: 'deduplicated', id, removed: positions.length - 1 });
       continue;
     }
 
     // Contenus divergents — ou incomparables, ce qui revient au meme : on ne
-    // peut pas prouver l'egalite. Deux ecritures reelles se disputent un identifiant
-    // idempotent. En executer une choisirait arbitrairement laquelle perdre, et
-    // en supprimer une detruirait une saisie. On ne fait donc NI l'un NI
-    // l'autre : tout le groupe est mis de cote pour arbitrage humain.
-    replacement.set(bucket[0], bucket.map(entry => mark(entry, 'duplicate_id_mismatch')));
-    for (const entry of bucket.slice(1)) dropped.add(entry);
-    resolutions.push({ kind: 'quarantined', id, entries: bucket.length });
+    // peut pas prouver l'egalite. Deux ecritures reelles se disputent un
+    // identifiant idempotent. En executer une choisirait arbitrairement
+    // laquelle perdre, et en supprimer une detruirait une saisie. On ne fait
+    // donc NI l'un NI l'autre : tout le groupe attend un arbitrage humain.
+    replacementByIndex.set(positions[0], copies.map(copy => mark(copy, 'duplicate_id_mismatch')));
+    for (const index of positions.slice(1)) droppedIndices.add(index);
+    resolutions.push({ kind: 'quarantined', id, entries: positions.length });
   }
 
   if (resolutions.length === 0) {
@@ -172,15 +296,15 @@ export function resolveDuplicateQueueIds<T extends QueueIdentityLike & Record<st
   }
 
   const rebuilt: T[] = [];
-  for (const operation of operations) {
-    const replaced = replacement.get(operation);
+  operations.forEach((operation, index) => {
+    const replaced = replacementByIndex.get(index);
     if (replaced) {
       rebuilt.push(...replaced);
-      continue;
+      return;
     }
-    if (dropped.has(operation)) continue;
+    if (droppedIndices.has(index)) return;
     rebuilt.push(operation);
-  }
+  });
 
   return { operations: rebuilt, resolutions };
 }

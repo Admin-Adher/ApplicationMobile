@@ -36,7 +36,13 @@ export type ReserveRebaseResult =
   | {
     kind: 'retry_transport';
     baseVersion: number | null;
-    operationId: string;
+    /**
+     * Nouvelle identite idempotente, ou `null` quand AUCUNE n'a ete consommee.
+     * Elle n'est utile qu'au second RPC : la generer avant la lecture de version
+     * brulait un identifiant pour une ecriture qui n'a jamais ete envoyee, et
+     * changeait l'identite de l'operation sans contrepartie.
+     */
+    operationId: string | null;
     error: unknown;
     meta: SupabaseRestMeta;
   }
@@ -45,14 +51,23 @@ export type ReserveRebaseResult =
   | { kind: 'terminal'; status: string; message?: string; meta: SupabaseRestMeta };
 
 export interface ReserveRebaseDependencies {
+  /**
+   * Signal de la passe. Il est passe A CHAQUE appel, pas seulement consulte
+   * entre eux : une garde entre les etapes empeche de DEMARRER une requete
+   * apres la preemption, elle n'interrompt pas celle qui est deja en vol.
+   */
+  signal?: AbortSignal;
   /** Lecture de la version courante, quand le conflit n'en porte pas. */
-  selectVersion: (reserveId: string) => Promise<SupabaseRestResult<any>>;
-  applyPatch: (params: {
-    operationId: string;
-    reserveId: string;
-    baseVersion: number | null;
-    patch: Record<string, any>;
-  }) => Promise<SupabaseRestResult<ReserveMutationResult>>;
+  selectVersion: (reserveId: string, signal?: AbortSignal) => Promise<SupabaseRestResult<any>>;
+  applyPatch: (
+    params: {
+      operationId: string;
+      reserveId: string;
+      baseVersion: number | null;
+      patch: Record<string, any>;
+    },
+    signal?: AbortSignal,
+  ) => Promise<SupabaseRestResult<ReserveMutationResult>>;
   /** Injecte : ce module doit rester chargeable hors React Native. */
   newOperationId: () => string;
 }
@@ -65,8 +80,15 @@ export async function rebaseReservePatchOnConflict(
   },
   dependencies: ReserveRebaseDependencies,
 ): Promise<ReserveRebaseResult> {
-  const nextOperationId = dependencies.newOperationId;
-  const operationId = nextOperationId();
+  const cancelled = (): ReserveRebaseResult => ({
+    kind: 'retry_transport',
+    baseVersion: null,
+    operationId: null,
+    error: { code: 'REST_ABORTED', message: 'Rebase annule : passe preemptee.' },
+    meta: { status: null, reachedServer: false, retryAfter: null },
+  });
+
+  if (dependencies.signal?.aborted) return cancelled();
 
   // Version courante la plus fraiche connue : celle renvoyee par le conflit,
   // sinon un SELECT direct — le conflit peut etre un resultat memorise, donc
@@ -75,7 +97,7 @@ export async function rebaseReservePatchOnConflict(
     typeof params.conflict.current_version === 'number' ? params.conflict.current_version : null;
 
   if (currentVersion === null) {
-    const version = await dependencies.selectVersion(params.reserveId);
+    const version = await dependencies.selectVersion(params.reserveId, dependencies.signal);
 
     // Ce SELECT ignorait `error` et `meta` : une limitation, une panne ou une
     // coupure laissait `currentVersion` a null et envoyait QUAND MEME le second
@@ -86,7 +108,8 @@ export async function rebaseReservePatchOnConflict(
       return {
         kind: 'retry_transport',
         baseVersion: null,
-        operationId,
+        // Aucun identifiant consomme : rien n'a ete ecrit.
+        operationId: null,
         error: version.error,
         meta: version.meta,
       };
@@ -96,12 +119,19 @@ export async function rebaseReservePatchOnConflict(
     currentVersion = typeof value === 'number' ? value : null;
   }
 
+  // Annulation entre la lecture et l'ecriture : on ne part pas quand meme.
+  if (dependencies.signal?.aborted) return cancelled();
+
+  // L'identite idempotente n'est consommee qu'ici, juste avant l'ecriture.
+  const nextOperationId = dependencies.newOperationId;
+  const operationId = nextOperationId();
+
   const rpc = await dependencies.applyPatch({
     operationId,
     reserveId: params.reserveId,
     baseVersion: currentVersion,
     patch: params.patch,
-  });
+  }, dependencies.signal);
 
   if (rpc.error) {
     // On reutilise le meme `operation_id` : si l'ecriture a en fait abouti, le

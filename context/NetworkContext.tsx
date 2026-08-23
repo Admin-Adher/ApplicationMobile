@@ -2259,13 +2259,19 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               const rebase = await rebaseReservePatchOnConflict(
                 { reserveId: String(op.filter.value), patch: data!, conflict: outcome },
                 {
-                  selectVersion: reserveId => supabaseRestSelect<any>(
+                  selectVersion: (reserveId, signal) => supabaseRestSelect<any>(
                     'reserves',
                     'version',
                     { column: 'id', value: reserveId },
+                    1,
+                    { signal },
                   ),
-                  applyPatch: applyReservePatchOperation,
+                  applyPatch: (patchParams, signal) => applyReservePatchOperation(patchParams, { signal }),
                   newOperationId,
+                  // Les deux appels du rebase doivent être interruptibles, et
+                  // aucun ne doit démarrer après une préemption : une écriture
+                  // partie ensuite serait rejouée par la génération suivante.
+                  signal: passSignal,
                 },
               );
               if (rebase.kind === 'applied') {
@@ -2279,8 +2285,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 // avec une identité neuve.
                 const retryOperation: QueuedOperation = {
                   ...op,
-                  id: rebase.operationId,
-                  baseVersion: rebase.baseVersion,
+                  // `null` signifie qu'aucune identite idempotente n'a été
+                  // consommée — la lecture de version a échoué avant toute
+                  // écriture, ou la passe a été préemptée.
+                  id: rebase.operationId ?? op.id,
+                  baseVersion: rebase.baseVersion ?? op.baseVersion,
                 };
                 return syncExit('E45', fail(retryOperation, rebase.error, {
                   meta: rebase.meta,
