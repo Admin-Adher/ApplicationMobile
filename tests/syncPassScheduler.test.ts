@@ -19,6 +19,20 @@ function movement(id: string, productId: string, minutesAgo: number): RetryQueue
 /** Horloge figee : l'ordonnanceur ne doit jamais lire l'heure lui-meme. */
 const frozenClock = () => NOW;
 
+/** Horloge qui avance : indispensable pour eprouver la fermeture de groupe. */
+function movingClock(startMs: number) {
+  let current = startMs;
+  return {
+    now: () => current,
+    advance: (ms: number) => { current += ms; },
+  };
+}
+
+/** Aucun test ci-dessous ne doit laisser echapper une exception d'execution. */
+const unexpected = (_operation: RetryQueueOperationLike, error: unknown): never => {
+  throw error;
+};
+
 describe('group throughput', () => {
   it('drains 30 movements on one product within a single pass', async () => {
     // LA garantie. Une photographie unique des tetes n'en traiterait qu'une par
@@ -30,7 +44,7 @@ describe('group throughput', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async operation => {
         executed.push(idOf(operation));
         return { kind: 'applied' };
@@ -47,7 +61,7 @@ describe('group throughput', () => {
     expect(executed).toEqual(operations.map(idOf));
   });
 
-  it('interleaves independent products without starving either', async () => {
+  it('drains independent products without losing either group', async () => {
     const operations = [
       movement('a1', 'A', 10), movement('a2', 'A', 9), movement('a3', 'A', 8),
       movement('b1', 'B', 7), movement('b2', 'B', 6),
@@ -57,13 +71,17 @@ describe('group throughput', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async operation => { executed.push(idOf(operation)); return { kind: 'applied' }; },
     });
 
+    // La politique priorise l anciennete et la priorite metier, PAS un
+    // round-robin equitable : le nom precedent affirmait une alternance que les
+    // assertions ne verifiaient pas.
     expect(result.processed).toBe(5);
-    expect(executed).toHaveLength(5);
     expect(new Set(executed).size).toBe(5);
+    expect(result.applied).toHaveLength(5);
+    expect(result.untouched).toHaveLength(0);
   });
 });
 
@@ -79,7 +97,7 @@ describe('business ordering', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async operation => {
         executed.push(idOf(operation));
         // a1 echoue et repart plus tard : son groupe doit se fermer.
@@ -106,7 +124,7 @@ describe('business ordering', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async () => { calls += 1; return { kind: 'deferred' }; },
     });
 
@@ -122,7 +140,7 @@ describe('business ordering', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async operation => {
         executed.push(idOf(operation));
         // Un refus definitif libere la suite du groupe tout autant qu'un succes.
@@ -147,7 +165,7 @@ describe('global scopes stop everything', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async operation => {
         executed.push(idOf(operation));
         return { kind: 'abandon', reason } as PassOperationOutcome;
@@ -160,6 +178,10 @@ describe('global scopes stop everything', () => {
     expect(result.abandoned).toBe(true);
     expect(result.abandonReason).toBe(reason);
     expect(result.untouched.map(idOf)).toEqual(['b1', 'c1']);
+    // L operation declenchante a bien ete tentee : elle est differee, pas
+    // rangee parmi celles qu on n a jamais touchees.
+    expect(result.deferred).toEqual([{ operation: operations[0], nextAttemptAt: null }]);
+    expect(result.untouched.map(idOf)).not.toContain('a1');
   });
 
   it('stops immediately when a newer pass takes over', async () => {
@@ -169,7 +191,7 @@ describe('global scopes stop everything', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       isCurrentGeneration: () => current,
       execute: async () => { current = false; return { kind: 'applied' }; },
     });
@@ -189,7 +211,7 @@ describe('convergence and reporting', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async operation => {
         executed.push(idOf(operation));
         return idOf(operation) === 'a1' ? { kind: 'conflict' } : { kind: 'applied' };
@@ -227,7 +249,7 @@ describe('convergence and reporting', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       maxOperations: 7,
       execute: async () => ({ kind: 'applied' }),
     });
@@ -247,7 +269,7 @@ describe('convergence and reporting', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async operation => { executed.push(idOf(operation)); return { kind: 'applied' }; },
     });
 
@@ -263,7 +285,7 @@ describe('convergence and reporting', () => {
     const result = await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute: async () => ({ kind: 'deferred' }),
     });
 
@@ -278,7 +300,7 @@ describe('convergence and reporting', () => {
     await runSyncPass({
       operations,
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       onProgress,
       execute: async () => ({ kind: 'applied' }),
     });
@@ -288,7 +310,7 @@ describe('convergence and reporting', () => {
 
   it('does nothing on an empty queue', async () => {
     const execute = vi.fn();
-    const result = await runSyncPass({ operations: [], now: frozenClock, idOf, execute });
+    const result = await runSyncPass({ operations: [], now: frozenClock, onExecuteError: unexpected, execute });
 
     expect(execute).not.toHaveBeenCalled();
     expect(result.processed).toBe(0);
@@ -300,7 +322,7 @@ describe('convergence and reporting', () => {
     const result = await runSyncPass({
       operations: [{ ...movement('a1', 'A', 10), nextAttemptAt: iso(NOW + 60_000) }],
       now: frozenClock,
-      idOf,
+      onExecuteError: unexpected,
       execute,
     });
 
