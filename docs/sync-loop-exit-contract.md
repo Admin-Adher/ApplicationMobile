@@ -19,15 +19,15 @@ aucun.
 
 | Issue | Nombre |
 | --- | ---: |
-| `fail(...)` — verdict rendu par la politique | 31 |
+| `fail(...)` — verdict rendu par la politique | 32 |
 | `applied` | 14 |
 | `terminalLocalOperation(...)` — refus établi localement | 11 |
 | `conflict` | 1 |
 | `deferred` | 1 |
-| **Total** | **58** |
+| **Total** | **59** |
 
 Le premier comptage annonçait 37 sorties, lui-même plus précis que les 46
-`continue` bruts. L'inventaire réel est de 58 : convertir un `continue` unique
+`continue` bruts. L'inventaire est de 59 : convertir un `continue` unique
 placé après une cascade `if / else if` produit plusieurs sorties distinctes, une
 par branche. C'est précisément l'ambiguïté que la conversion supprime — un seul
 `continue` couvrait auparavant « refus », « succès » et « rien à faire ».
@@ -48,9 +48,27 @@ imposées par l'appelant.
 **`terminalLocalOperation`** — refus définitif établi **sans le moindre appel
 réseau**. L'opération est marquée `terminal`, poussée dans la file pour rester
 visible dans le diagnostic et écartable par « rejets », privée de toute échéance
-de réessai. **Aucun rollback de stock n'est déclenché** : seul un
-`terminalOutcome` métier explicite, rendu par le serveur, autorise à annuler une
-écriture optimiste.
+de réessai, et son historique d'échec est effacé — conserver une `failureClass`
+ou un `lastHttpStatus` périmés afficherait « refusée localement » à côté d'un
+« HTTP 503 » et la regrouperait sous le mauvais alias.
+
+**Rollback de stock.** La règle « aucun rollback pour un refus local » était trop
+générale. Une erreur réseau est **ambiguë** — la requête a peut-être abouti, sa
+réponse s'est perdue — et là il ne faut rien annuler. Une validation locale, au
+contraire, prouve qu'**aucune requête n'a été émise** : le serveur ne peut pas
+avoir appliqué l'écriture, et laisser le stock optimiste en place décale
+durablement le cache. La règle exacte est donc :
+
+> Aucun rollback sur un résultat réseau ambigu. Rollback autorisé sur un refus
+> serveur explicite, ou sur une validation locale prouvant qu'aucune requête n'a
+> été émise.
+
+`isInventoryMovementOperation` décide de l'applicabilité. Elle ne peut pas se
+limiter à `rpc.fn === 'record_inventory_movement'` : une opération dont la
+fonction a disparu — le défaut même d'E01 — reste un mouvement, enfilé sous
+`inventory_movements`. La table seule ne suffit pas non plus, une modification de
+produit ne touchant aucun mouvement ; l'élargissement ne vaut donc que lorsque
+**aucune** fonction n'est présente.
 
 ## RPC
 
@@ -68,7 +86,7 @@ de réessai. **Aucun rollback de stock n'est déclenché** : seul un
 | E10 | remplacement de plan sans patch | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
 | E11 | upload fichier plan échoué | — | `op` | `fail` | politique | upload | n.a. |
 | E12 | événement de statut sans `reserve_id` ou `to_status` | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
-| E13 | instantané ou `plan_id` manquant après le RPC | — | `retryRpcOp` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E13 | instantané ou `plan_id` manquant après le RPC | — | `retryRpcOp` | `terminal` local + `provesServerReachable` | `invalid_local_operation` | validation locale, après un RPC réussi | n.a. |
 | E14 | écriture des métadonnées de plan refusée | — | `retryRpcOp` | `fail` | politique | mutation | `metadataMeta` |
 | E15 | repli mutation réserve refusé | — | `retryRpcOp` + `op.data` | `fail` | politique | mutation | `fallbackMeta` |
 | E16 | repli mutation réserve accepté | — | `retryRpcOp` | `applied` | — | mutation | — |
@@ -98,7 +116,7 @@ de réessai. **Aucun rollback de stock n'est déclenché** : seul un
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | E31 | lecture des commentaires refusée | — | `op` | `fail` | politique | select | `fetchMeta` |
 | E32 | ligne absente côté serveur | — | `op` | `applied` | — | select | — |
-| E33 | patch de commentaire malformé | journalisation | `op` | `terminal` local | `invalid_payload` | validation locale | n.a. |
+| E33 | patch de commentaire malformé | journalisation de la FORME seule | `op` | `terminal` local + `provesServerReachable` | `invalid_payload` | validation locale, après un `SELECT` réussi | n.a. |
 | E34 | écriture fusionnée refusée | — | `op` | `fail` | politique | mutation | `writeMeta` |
 | E35 | écriture fusionnée acceptée | — | `op` | `applied` | — | mutation | — |
 
@@ -129,30 +147,31 @@ photo distinct (`deferredPhotoPatch`).
 | Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | E44 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
-| E45 | conflit de version rebasé | nouvelle entrée poussée dans `failedOps` | version rebasée (nouvel `id`, `baseVersion`) | `deferred` + `provesServerReachable` | opération | RPC | — |
-| E46 | rebase impossible | — | `retryOpForCatch` | `fail` | terminal (`terminalStatus`) | RPC | — |
-| E47 | verdict de patch réserve ≠ `ok` | — | `retryOpForCatch` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcResult.meta` |
-| E48 | 0 ligne affectée, ligne déjà absente | — | `retryOpForCatch` | `applied` | — | select de contrôle | — |
-| E49 | 0 ligne affectée, ligne toujours présente | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
+| E45 | second appel du rebase échoué au transport | — | version rebasée (nouvel `id`, `baseVersion`) | `fail` | politique | RPC | `rebase.meta` |
+| E46 | second `version_conflict` rendu par le serveur | nouvelle entrée poussée dans `failedOps` | version rebasée (nouvel `id`, `baseVersion`) | `deferred` + `provesServerReachable` | opération | RPC | — |
+| E47 | rebase impossible | — | `retryOpForCatch` | `fail` | terminal (`terminalStatus`) | RPC | `rebase.meta` |
+| E48 | verdict de patch réserve ≠ `ok` | — | `retryOpForCatch` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcResult.meta` |
+| E49 | 0 ligne affectée, ligne déjà absente | — | `retryOpForCatch` | `applied` | — | select de contrôle | — |
+| E50 | 0 ligne affectée, ligne toujours présente | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
 
 ## Rejeu générique — `delete`
 
 | Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| E50 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
-| E51 | lecture des réserves liées refusée | — | `op` | `fail` | politique | select | `linkedMeta` |
-| E52 | chantier encore porteur de réserves | — | `op` | `fail` | politique | select | n.a. |
-| E53 | 0 ligne supprimée, ligne déjà absente | — | `op` | `applied` | — | select de contrôle | — |
-| E54 | 0 ligne supprimée, ligne toujours présente | — | `op` | `fail` | politique | mutation | `result.meta` |
+| E51 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E52 | lecture des réserves liées refusée | — | `op` | `fail` | politique | select | `linkedMeta` |
+| E53 | chantier encore porteur de réserves | — | `op` | `fail` | politique | select | `linkedMeta` |
+| E54 | 0 ligne supprimée, ligne déjà absente | — | `op` | `applied` | — | select de contrôle | — |
+| E55 | 0 ligne supprimée, ligne toujours présente | — | `op` | `fail` | politique | mutation | `result.meta` |
 
 ## Sorties finales
 
 | Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| E55 | `op.op` inconnu | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
-| E56 | rejeu générique refusé | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
-| E57 | rejeu générique accepté | notifications, patch photo différé empilé | `retryOpForCatch` | `applied` | — | mutation | — |
-| E58 | exception non rattrapée | — | `retryOpForCatch` | `fail` | politique | exception locale | n.a. |
+| E56 | `op.op` inconnu | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E57 | rejeu générique refusé | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
+| E58 | rejeu générique accepté | notifications, patch photo différé empilé | `retryOpForCatch` | `applied` | — | mutation | — |
+| E59 | exception non rattrapée | — | `retryOpForCatch` | `fail` | politique | exception locale | n.a. |
 
 ## Preuve que le backend répond
 
@@ -167,13 +186,31 @@ backend répond, et les compteurs n'ont été touchés par personne d'autre*.
 `fail()` ne le pose jamais — le classificateur est déjà propriétaire des
 compteurs pour les échecs.
 
-Deux sorties le portent :
+Quatre sorties le portent :
 
 - **E28** — le `SELECT` a abouti et le serveur a renvoyé un statut divergent.
-- **E45** — `rebase.kind === 'retry'` recouvre deux causes distinctes : une
-  coupure réseau, et un `version_conflict` rendu par le serveur. Seule la
-  seconde prouve que le backend répond, et le drapeau vient du transport
-  (`rpc.meta.reachedServer`), pas du motif textuel.
+- **E46** — le serveur a rendu un second `version_conflict` : il répond.
+- **E13** — le RPC de remplacement de plan vient d'aboutir ; c'est l'instantané
+  local qui manque ensuite.
+- **E33** — le `SELECT` des commentaires a abouti ; c'est le patch local qui est
+  illisible.
+
+**E45 ne le porte plus, et c'est le correctif central.** `rebase.kind === 'retry'`
+regroupait deux situations opposées : une erreur de transport du second appel, et
+un `version_conflict` rendu par le serveur. L'issue construite à la main
+contournait alors toute la politique P5 — pas de classe d'échec, pas d'échéance,
+pas de portée backend ni authentification. Pire, un `401`, un `429` ou un `503`
+porte `meta.reachedServer = true` : le drapeau valait donc `true` et **remettait
+la série de pannes à zéro pour un `503`**, exactement ce que son nom devait
+empêcher. Le message persisté annonçait de surcroît `version_conflict` alors que
+la vraie cause était une coupure ou une limitation.
+
+Le type distingue désormais `retry_transport` de `retry_conflict`. Le premier
+passe par `fail()` avec sa métadonnée, donc par la politique. Il porte aussi
+`serverAnsweredEarlier` : le rebase n'est atteint qu'**après** un premier
+`version_conflict` rendu par le serveur, si bien que la série de pannes est déjà
+rompue et que cet échec-ci en démarre une nouvelle — série finale `1`, et non
+l'ancienne valeur conservée.
 
 ## Deux poussées directes conservées
 
@@ -192,7 +229,7 @@ nécessaires. Elles disparaîtront quand `runSyncPass` consommera les issues.
 
 ## Limite connue
 
-**E46** ne transmet pas de `meta`. `rebaseReservePatchOnConflict` ne rend pas la
-métadonnée de transport sur sa variante terminale, et le `terminalStatus` fourni
-impose déjà la portée. La seule conséquence est un `lastHttpStatus` absent dans
-le diagnostic pour ce cas précis.
+Aucune sortie construite sur une réponse serveur n'omet plus sa métadonnée.
+`E47` — la variante terminale du rebase — transmet désormais `rebase.meta` : la
+conséquence n'était pas seulement un `lastHttpStatus` absent, mais aussi une
+série de pannes qui n'était pas rompue alors que le serveur avait répondu.
