@@ -36,7 +36,13 @@ export type ReserveRebaseResult =
   | {
     kind: 'retry_transport';
     baseVersion: number | null;
-    operationId: string;
+    /**
+     * Nouvelle identite idempotente, ou `null` quand AUCUNE n'a ete consommee.
+     * Elle n'est utile qu'au second RPC : la generer avant la lecture de version
+     * brulait un identifiant pour une ecriture qui n'a jamais ete envoyee, et
+     * changeait l'identite de l'operation sans contrepartie.
+     */
+    operationId: string | null;
     error: unknown;
     meta: SupabaseRestMeta;
   }
@@ -47,6 +53,12 @@ export type ReserveRebaseResult =
 export interface ReserveRebaseDependencies {
   /** Lecture de la version courante, quand le conflit n'en porte pas. */
   selectVersion: (reserveId: string) => Promise<SupabaseRestResult<any>>;
+  /**
+   * Signal de la passe. Les deux appels doivent etre interruptibles, et aucun
+   * ne doit meme demarrer si la passe a deja ete preemptee : une ecriture
+   * envoyee apres la preemption serait rejouee par la generation suivante.
+   */
+  signal?: { readonly aborted: boolean };
   applyPatch: (params: {
     operationId: string;
     reserveId: string;
@@ -65,8 +77,15 @@ export async function rebaseReservePatchOnConflict(
   },
   dependencies: ReserveRebaseDependencies,
 ): Promise<ReserveRebaseResult> {
-  const nextOperationId = dependencies.newOperationId;
-  const operationId = nextOperationId();
+  const cancelled = (): ReserveRebaseResult => ({
+    kind: 'retry_transport',
+    baseVersion: null,
+    operationId: null,
+    error: { code: 'REST_ABORTED', message: 'Rebase annule : passe preemptee.' },
+    meta: { status: null, reachedServer: false, retryAfter: null },
+  });
+
+  if (dependencies.signal?.aborted) return cancelled();
 
   // Version courante la plus fraiche connue : celle renvoyee par le conflit,
   // sinon un SELECT direct — le conflit peut etre un resultat memorise, donc
@@ -86,7 +105,8 @@ export async function rebaseReservePatchOnConflict(
       return {
         kind: 'retry_transport',
         baseVersion: null,
-        operationId,
+        // Aucun identifiant consomme : rien n'a ete ecrit.
+        operationId: null,
         error: version.error,
         meta: version.meta,
       };
@@ -95,6 +115,13 @@ export async function rebaseReservePatchOnConflict(
     const value = version.data?.[0]?.version;
     currentVersion = typeof value === 'number' ? value : null;
   }
+
+  // Annulation entre la lecture et l'ecriture : on ne part pas quand meme.
+  if (dependencies.signal?.aborted) return cancelled();
+
+  // L'identite idempotente n'est consommee qu'ici, juste avant l'ecriture.
+  const nextOperationId = dependencies.newOperationId;
+  const operationId = nextOperationId();
 
   const rpc = await dependencies.applyPatch({
     operationId,
