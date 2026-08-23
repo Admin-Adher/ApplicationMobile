@@ -35,6 +35,16 @@ export type PassOperationOutcome<T> =
     nextAttemptAt?: string | null;
   };
 
+/**
+ * Issues autorisees apres une EXCEPTION.
+ *
+ * `applied` en est exclu : une exception ne prouve jamais qu'une operation peut
+ * quitter la file. Une reponse perdue apres un commit serveur doit rester
+ * differee avec le meme `operation_id`, et c'est l'idempotence serveur qui
+ * tranchera au rejeu — jamais une supposition du client.
+ */
+export type PassExecutionErrorOutcome<T> = Exclude<PassOperationOutcome<T>, { kind: 'applied' }>;
+
 export type PassAbandonReason = 'backend' | 'authentication' | 'preempted' | 'operation_budget';
 
 export interface RunSyncPassInput<T extends RetryQueueOperationLike> {
@@ -49,7 +59,10 @@ export interface RunSyncPassInput<T extends RetryQueueOperationLike> {
    * la passe : les operations deja appliquees ne seraient plus rapportees, et
    * l'appelant devrait deviner ce qui a ete fait avant de persister.
    */
-  onExecuteError: (operation: T, error: unknown) => PassOperationOutcome<T> | Promise<PassOperationOutcome<T>>;
+  onExecuteError: (
+    operation: T,
+    error: unknown,
+  ) => PassExecutionErrorOutcome<T> | Promise<PassExecutionErrorOutcome<T>>;
   orderingKey?: (operation: T) => string;
   priority?: (operation: T) => number;
   onProgress?: (done: number, total: number) => void;
@@ -165,6 +178,9 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
 
     const token = heads[0].__passToken;
     const operation = currentByToken.get(token) as T;
+    // Retenue AVANT execution : `execute` peut renvoyer une version enrichie, et
+    // rien dans le contrat generique ne garantit que sa cle d'ordre soit stable.
+    const selectedKey = orderingKey(operation);
 
     let outcome: PassOperationOutcome<T>;
     try {
@@ -207,6 +223,10 @@ export async function runSyncPass<T extends RetryQueueOperationLike>(
 
     if (outcome.kind === 'deferred') {
       deferred.push({ operation: resolved, nextAttemptAt: outcome.nextAttemptAt ?? null });
+      // Les DEUX cles : si une transformation deplacait l'operation vers un
+      // autre groupe, celui d'origine serait reste ouvert et son operation
+      // suivante aurait pu passer devant.
+      blockedKeys.add(selectedKey);
       blockedKeys.add(orderingKey(resolved));
       remaining = remaining.map(candidate => (
         candidate.__passToken === token
