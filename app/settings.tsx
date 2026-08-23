@@ -659,8 +659,29 @@ export default function SettingsScreen() {
           text: t('settings.syncQueue.clearAction'),
           style: 'destructive',
           onPress: async () => {
-            await clearQueue();
-            showAlert(t('settings.syncQueue.clearedTitle'), t('settings.syncQueue.clearedText'));
+            // `clearQueue` rejette désormais réellement : disque indisponible,
+            // synchronisation en cours, ou compte changé pendant l'action. Sans
+            // ce `catch`, l'utilisateur n'obtenait aucun message et la promesse
+            // partait en rejet non géré.
+            try {
+              const result = await clearQueue();
+              const kept = result?.kept.length ?? 0;
+              if (kept > 0) {
+                showAlert(
+                  t('settings.syncQueue.clearKeptTitle'),
+                  t('settings.syncQueue.clearKeptText', { count: kept }),
+                );
+                return;
+              }
+              showAlert(t('settings.syncQueue.clearedTitle'), t('settings.syncQueue.clearedText'));
+            } catch {
+              // Message générique : une erreur de stockage ne doit pas être
+              // recopiée brute dans l'interface.
+              showAlert(
+                t('settings.syncQueue.clearFailedTitle'),
+                t('settings.syncQueue.clearFailedText'),
+              );
+            }
           },
         },
       ],

@@ -4333,6 +4333,12 @@ export const resources: Resource = {
           clearAction: 'Vider',
           clearedTitle: 'File vidée',
           clearedText: 'Les opérations en attente ont été supprimées.',
+          clearFailedTitle: 'Suppression impossible',
+          clearFailedText: "La file n'a pas pu être vidée. Aucune opération n'a été supprimée. "
+            + 'Attendez la fin de la synchronisation, puis réessayez.',
+          clearKeptTitle: 'File partiellement vidée',
+          clearKeptText: "{{count}} opération(s) déjà envoyée(s) ont été conservées : leur sort côté "
+            + 'serveur est incertain, les supprimer fausserait votre stock.',
           titleWithCount: 'File de synchronisation ({{count}})',
           rejectedTitleWithCount: 'Opérations refusées ({{count}})',
           mixedTitle: '{{pending}} en attente · {{rejected}} refusée(s)',
@@ -8995,6 +9001,12 @@ export const resources: Resource = {
           clearAction: 'Clear',
           clearedTitle: 'Queue cleared',
           clearedText: 'Pending operations have been deleted.',
+          clearFailedTitle: 'Could not clear the queue',
+          clearFailedText: 'The queue could not be cleared. Nothing was deleted. '
+            + 'Wait for the current sync to finish, then try again.',
+          clearKeptTitle: 'Queue partially cleared',
+          clearKeptText: '{{count}} already-sent operation(s) were kept: their fate on the server '
+            + 'is unknown, and deleting them would skew your stock.',
           titleWithCount: 'Sync queue ({{count}})',
           rejectedTitleWithCount: 'Rejected operations ({{count}})',
           mixedTitle: '{{pending}} pending · {{rejected}} rejected',
@@ -13657,6 +13669,12 @@ export const resources: Resource = {
           clearAction: 'Vaciar',
           clearedTitle: 'Cola vaciada',
           clearedText: 'Las operaciones pendientes se han eliminado.',
+          clearFailedTitle: 'No se pudo vaciar la cola',
+          clearFailedText: 'La cola no se pudo vaciar. No se eliminó nada. '
+            + 'Espere a que termine la sincronización e inténtelo de nuevo.',
+          clearKeptTitle: 'Cola vaciada parcialmente',
+          clearKeptText: '{{count}} operación(es) ya enviada(s) se han conservado: su resultado en el '
+            + 'servidor es incierto y eliminarlas falsearía su stock.',
           titleWithCount: 'Cola de sincronización ({{count}})',
           rejectedTitleWithCount: 'Operaciones rechazadas ({{count}})',
           mixedTitle: '{{pending}} pendiente(s) · {{rejected}} rechazada(s)',

@@ -47,6 +47,11 @@ import { rebaseReservePatchOnConflict, type PreparedRebaseWrite } from '@/lib/re
 import { ensureQueueEntryIdentities } from '@/lib/queueEntryIdentity';
 import { createQueueWriteChain } from '@/lib/queueWriteChain';
 import { publishAfterDurableWrite } from '@/lib/queuePublication';
+import {
+  isUnambiguouslyPurgeableOperation,
+  runManualQueuePurge,
+  type ManualQueuePurgeResult,
+} from '@/lib/manualQueuePurge';
 import { nextServiceFailureStreak } from '@/lib/syncServiceStreak';
 import type { SupabaseRestMeta } from '@/lib/supabaseRest';
 import type { PassOperationOutcome } from '@/lib/syncPassScheduler';
@@ -369,7 +374,12 @@ interface NetworkContextValue {
   resolveConflict: (conflictId: string, chosenStatus: string) => Promise<void>;
   dismissConflicts: () => void;
   registerReloadHandler: (fn: () => void) => void;
-  clearQueue: () => Promise<void>;
+  /**
+   * Rejette reellement : synchronisation en cours, disque indisponible, ou
+   * compte change pendant l'action. Rend ce qui a ete supprime et ce qui a ete
+   * CONSERVE — une ecriture deja tentee reste ambigue.
+   */
+  clearQueue: () => Promise<ManualQueuePurgeResult<QueuedOperation>>;
   dismissRejectedOperations: () => Promise<void>;
   retrySync: () => Promise<void>;
 }
@@ -395,7 +405,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   resolveConflict: async () => {},
   dismissConflicts: () => {},
   registerReloadHandler: () => {},
-  clearQueue: async () => {},
+  clearQueue: async () => ({ removed: [], kept: [] }),
   dismissRejectedOperations: async () => {},
   retrySync: async () => {},
 });
@@ -2908,63 +2918,84 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
    * n'est vidée en mémoire qu'une fois le disque à jour.
    */
   const clearQueue = useCallback(async () => {
-    const purged = queueRef.current;
-    await backupQueue(purged, 'manual-clear');
+    // Capturée AVANT toute attente : une invocation devenue obsolète ne doit
+    // écrire sous la clef d'un compte qui n'est plus le sien, ni libérer le
+    // verrou d'une passe qui ne lui appartient pas.
+    const ownerGeneration = queueHydrationGenerationRef.current;
+    const isOwner = () => queueHydrationGenerationRef.current === ownerGeneration;
+    const anonKey = OFFLINE_QUEUE_PREFIX + 'anon';
 
-    // La purge doit POSSÉDER la file avant de commencer. Sans cela, une passe
-    // déjà lancée garde son propre instantané : elle continuerait d'envoyer les
-    // opérations que l'utilisateur vient de demander de supprimer, et pourrait
-    // en réinsérer en fin de passe.
-    abortCurrentPass('purge manuelle');
-    syncGenerationRef.current += 1;
-    if (syncKickTimerRef.current) {
-      clearTimeout(syncKickTimerRef.current);
-      syncKickTimerRef.current = null;
-    }
-    // La passe devenue obsolète ne relâchera pas forcément le verrou : la purge
-    // le prend, et le rend elle-même.
-    syncingRef.current = true;
-
-    // Les opérations enfilées PENDANT la purge n'en font pas partie : elles
-    // sont postérieures à la demande et doivent survivre.
-    const purgedEntryIds = new Set(
-      purged.map(operation => operation.queueEntryId).filter((value): value is string => Boolean(value)),
-    );
-
-    try {
-      const survivors = await publishAfterDurableWrite<QueuedOperation>({
+    const result = await runManualQueuePurge<QueuedOperation>({
+      // Préempter ne suffirait pas : `AbortController` coupe le transport
+      // client, il n'annule pas une transaction PostgreSQL.
+      isSyncing: () => syncingRef.current,
+      acquire: () => { syncingRef.current = true; },
+      release: () => { syncingRef.current = false; },
+      isOwner,
+      readCurrent: () => queueRef.current,
+      entryIdOf: operation => operation.queueEntryId ?? null,
+      isPurgeable: isUnambiguouslyPurgeableOperation,
+      backup: operations => backupQueue([...operations], 'manual-clear'),
+      persist: compute => publishAfterDurableWrite<QueuedOperation>({
         readCurrent: () => queueRef.current,
-        compute: current => current.filter(operation => (
-          !operation.queueEntryId || !purgedEntryIds.has(operation.queueEntryId)
-        )),
-        // Écriture STRICTE : si elle échoue, l'exception remonte et l'interface
-        // ne prétend pas avoir supprimé quoi que ce soit.
+        compute,
         write: next => writeQueueStrict(next),
         publish: next => {
           queueRef.current = next;
           setQueue(next);
         },
-      });
+        assertCurrent: () => {
+          if (!isOwner()) throw new Error('Purge annulee : le compte actif a change.');
+        },
+      }),
+      reconcile: async removed => {
+        // Seules les entrées jamais envoyées laissent un effet optimiste à
+        // annuler : un refus terminal a déjà été réconcilié à sa réception.
+        for (const operation of removed) {
+          if (operation.terminal === true) continue;
+          if (!isInventoryMovementOperation(operation)) continue;
+          const outcome = normalizeInventoryMovementOutcome(
+            { status: 'invalid_payload', message: 'Opération supprimée avant tout envoi.' },
+            inventoryOutcomeContextFromQueuedOperation(operation),
+          );
+          await reconcileTerminalInventoryOperationCache(operation, outcome, userId).catch(error => {
+            console.warn('[inventory] rollback de purge impossible :', (error as any)?.message ?? error);
+          });
+        }
+      },
+      reset: outcome => {
+        // La passe préemptée ne se nettoie plus elle-même : sa génération n'est
+        // plus courante. Sans cette remise à zéro, l'interface pouvait rester
+        // sur « 3/29 » et un statut `syncing` alors que rien ne tourne.
+        if (syncKickTimerRef.current) {
+          clearTimeout(syncKickTimerRef.current);
+          syncKickTimerRef.current = null;
+        }
+        passAbortRef.current = null;
+        syncProgressAtRef.current = 0;
+        setSyncProgress({ done: 0, total: 0 });
+        setNextSyncAttemptAt(null);
+        if (outcome === 'failed') {
+          setSyncStatus('error');
+          return;
+        }
+        setSyncAuthBlocked(false);
+        setSyncStatus(hasReplayableQueuedOperations(queueRef.current) ? 'idle' : 'done');
+      },
+    });
 
-      // Plus d'opérations en attente → plus rien n'est « bloqué par la session ».
-      if (survivors.length === 0) setSyncAuthBlocked(false);
-
-      // La copie anonyme est VIDÉE, jamais supprimée. Mais seulement si ce
-      // n'est PAS la clef active : sans utilisateur, `offlineQueueKey` EST la
-      // clef anonyme, et cette écriture effacerait les survivantes qu'on vient
-      // de persister.
-      const anonKey = OFFLINE_QUEUE_PREFIX + 'anon';
-      if (offlineQueueKey !== anonKey) {
-        await queueWriteChain.writeBestEffort(anonKey, JSON.stringify([]));
-      }
-    } finally {
-      syncingRef.current = false;
-      // Que la purge ait abouti ou non, la file doit rester reprenable.
-      if (hasReplayableQueuedOperations(queueRef.current)) scheduleSync();
+    // La copie anonyme est VIDÉE, jamais supprimée — et seulement si ce n'est
+    // pas la clef active : sans utilisateur, `offlineQueueKey` EST la clef
+    // anonyme, et cette écriture effacerait les survivantes.
+    if (isOwner() && offlineQueueKey !== anonKey) {
+      await queueWriteChain.writeBestEffort(anonKey, JSON.stringify([]));
     }
+    if (isOwner() && hasReplayableQueuedOperations(queueRef.current)) scheduleSync();
+
+    return result;
   }, [
     backupQueue, writeQueueStrict, queueWriteChain, offlineQueueKey,
-    abortCurrentPass, scheduleSync,
+    scheduleSync, userId,
   ]);
 
   const dismissRejectedOperations = useCallback(async () => {
