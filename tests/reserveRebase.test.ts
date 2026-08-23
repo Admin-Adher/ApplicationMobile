@@ -20,23 +20,27 @@ function rebase(over: {
   applyPatch?: (params: any, signal?: AbortSignal) => Promise<SupabaseRestResult<any>>;
   conflict?: Record<string, unknown>;
   signal?: AbortSignal;
+  beforeApply?: (prepared: any) => Promise<void>;
 } = {}) {
   const selectVersion = vi.fn(over.selectVersion ?? (async () => restResult({ data: [{ version: 7 }] })));
   const applyPatch = vi.fn(over.applyPatch ?? (async () => restResult({ data: [{ status: 'ok' }] })));
+  const beforeApply = vi.fn(over.beforeApply ?? (async () => {}));
   let counter = 0;
   const newOperationId = vi.fn(() => `op-${(counter += 1)}`);
 
   return {
     selectVersion,
     applyPatch,
+    beforeApply,
     newOperationId,
     run: () => rebaseReservePatchOnConflict(
       {
         reserveId: 'r-1',
         patch: { title: 'x' },
         conflict: (over.conflict ?? CONFLICT_WITHOUT_VERSION) as never,
+        queueEntryId: 'entry-1',
       },
-      { selectVersion, applyPatch, newOperationId, signal: over.signal },
+      { selectVersion, applyPatch, newOperationId, beforeApply, signal: over.signal },
     ),
   };
 }
@@ -256,6 +260,90 @@ describe('a preempted pass sends nothing', () => {
     // Meme identifiant : si l'ecriture a malgre tout abouti, le serveur rendra
     // son resultat memorise.
     expect(result.operationId).toBe('op-1');
+  });
+});
+
+describe('the prepared identity is durable before the write leaves', () => {
+  it('persists the preparation BEFORE calling the write', async () => {
+    // Sans cet ordre : le serveur applique le patch sous `op-1`, la reponse se
+    // perd, et la generation suivante repart de l'ancien identifiant. Elle en
+    // genere un troisieme et rejoue la MEME ecriture metier — un mouvement de
+    // stock compte deux fois.
+    const order: string[] = [];
+    const harness = rebase({
+      // La persistance rend la main APRES un tour de boucle : sans `await`, le
+      // corps synchrone d'une fonction async s'executerait quand meme en
+      // premier, et le test ne prouverait rien.
+      beforeApply: async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+        order.push('persist');
+      },
+      applyPatch: async () => { order.push('write'); return restResult({ data: [{ status: 'ok' }] }); },
+    });
+
+    await harness.run();
+
+    expect(order).toEqual(['persist', 'write']);
+    expect(harness.beforeApply.mock.calls[0][0]).toEqual({
+      queueEntryId: 'entry-1',
+      operationId: 'op-1',
+      baseVersion: 7,
+    });
+  });
+
+  it('sends nothing when the preparation cannot be persisted', async () => {
+    // Mieux vaut rejouer le conflit que perdre la trace d'une ecriture partie.
+    const harness = rebase({
+      beforeApply: async () => { throw new Error('AsyncStorage indisponible'); },
+    });
+
+    const result = await harness.run();
+
+    expect(harness.applyPatch).not.toHaveBeenCalled();
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    // Rien n'a ete ecrit NI persiste : l'operation garde son identite.
+    expect(result.operationId).toBeNull();
+    expect((result.error as Error).message).toContain('AsyncStorage');
+  });
+
+  it('sends nothing when the pass is preempted after the preparation', async () => {
+    const controller = new AbortController();
+    const harness = rebase({
+      signal: controller.signal,
+      beforeApply: async () => { controller.abort(); },
+    });
+
+    const result = await harness.run();
+
+    expect(harness.beforeApply).toHaveBeenCalledTimes(1);
+    expect(harness.applyPatch).not.toHaveBeenCalled();
+    expect(result.kind).toBe('retry_transport');
+    if (result.kind !== 'retry_transport') throw new Error('issue inattendue');
+    // Annulation SAINE : l'identite preparee est deja durable, la generation
+    // suivante la retrouvera au lieu d'en fabriquer une troisieme.
+    expect(result.operationId).toBe('op-1');
+    expect((result.error as any).code).toBe('REST_ABORTED');
+  });
+
+  it('consumes one identity per preparation, never more', async () => {
+    const harness = rebase();
+    await harness.run();
+
+    expect(harness.newOperationId).toHaveBeenCalledTimes(1);
+    expect(harness.beforeApply).toHaveBeenCalledTimes(1);
+  });
+
+  it('prepares nothing when the version read already failed', async () => {
+    const harness = rebase({
+      selectVersion: async () => restResult({ error: { status: 503 }, meta: OK_META }),
+    });
+
+    await harness.run();
+
+    expect(harness.beforeApply).not.toHaveBeenCalled();
+    expect(harness.newOperationId).not.toHaveBeenCalled();
   });
 });
 

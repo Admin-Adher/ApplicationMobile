@@ -211,6 +211,52 @@ describe('transport metadata reaches the policy, exit by exit', () => {
   });
 });
 
+describe('a prepared rebase identity is durable before the write', () => {
+  const helper = source.slice(
+    source.indexOf('const persistPreparedRebase = async'),
+    source.indexOf('let processed = 0;'),
+  );
+
+  it('locates the entry by its local identity, never by the business id', () => {
+    // `id` est precisement ce que le rebase remplace, et deux entrees peuvent
+    // le partager. Le contenu ne convient pas davantage : une operation peut
+    // avoir ete enrichie pendant la passe.
+    expect(helper).toContain('entry.queueEntryId === prepared.queueEntryId');
+    expect(helper).not.toContain('entry.id === ');
+  });
+
+  it('fails closed when the target entry is not unique', () => {
+    // Sans entree cible unique, la preparation ne serait pas retrouvable apres
+    // une preemption : l'ecriture ne doit pas partir.
+    expect(helper).toContain('if (matches.length !== 1)');
+    expect(helper).toContain('throw new Error(');
+  });
+
+  it('persists through the queue write chain, and awaits it', () => {
+    expect(helper).toContain('await saveQueue(next);');
+  });
+
+  it('migrates local identities before any network call', () => {
+    // La migration doit precéder la premiere passe : une file persistee avant
+    // l'existence du champ n'en porte aucune, et la preparation deviendrait
+    // introuvable.
+    const hydration = source.slice(
+      source.indexOf('const loadQueue = useCallback'),
+      source.indexOf('lastLoadedKeyRef.current = userKey ?? anonKey;'),
+    );
+
+    expect(hydration).toContain('ensureQueueEntryIdentities(coalesced, genQueueId)');
+    expect(hydration.indexOf('ensureQueueEntryIdentities'))
+      .toBeLessThan(hydration.indexOf('await saveQueue('));
+  });
+
+  it('stamps a local identity on every operation it creates', () => {
+    // Enqueue utilisateur et patch photo differe : deux entrees nees pendant
+    // l'execution, qui doivent etre localisables comme les autres.
+    expect(source.split('queueEntryId: genQueueId(),').length - 1).toBe(2);
+  });
+});
+
 describe('logs never carry business payloads', () => {
   it('reports the shape of a malformed comment patch, not its content', () => {
     // Le patch porte le texte du commentaire, parfois un nom : la discipline
