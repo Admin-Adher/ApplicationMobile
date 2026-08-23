@@ -316,7 +316,7 @@ describe('strict verdict parsing', () => {
   ])('refuses to read a verdict from %s', (_label, data) => {
     // Le fallback `status ?? 'server_rejected'` transformait une ABSENCE DE
     // PREUVE en PREUVE DE REFUS, donc en rollback du stock optimiste.
-    const parsed = parseInventoryMovementOutcome(data, context);
+    const parsed = parseInventoryMovementOutcome(data, context, 'record_inventory_movement');
 
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.error.code).toBe('REST_RESULT_INVALID');
@@ -326,7 +326,7 @@ describe('strict verdict parsing', () => {
     // `server_rejected` est fabrique par le moteur apres trois refus
     // deterministes identiques, jamais emis par les RPC. L accepter laisserait
     // une reponse artificielle autoriser un rollback hors contrat SQL.
-    const parsed = parseInventoryMovementOutcome([{ status: 'server_rejected' }], context);
+    const parsed = parseInventoryMovementOutcome([{ status: 'server_rejected' }], context, 'record_inventory_movement');
 
     expect(parsed.ok).toBe(false);
     if (!parsed.ok) expect(parsed.error.code).toBe('REST_RESULT_INVALID');
@@ -393,7 +393,9 @@ describe('strict verdict parsing', () => {
     'duplicate_operation_mismatch',
   ])('accepts the real server verdict %s', status => {
     // Sans `kind`, seul `product_id` est exige sur un succes.
-    const parsed = parseInventoryMovementOutcome([{ status, product_id: 'P1' }], context);
+    const parsed = parseInventoryMovementOutcome(
+      [{ status, product_id: 'P1' }], context, 'update_inventory_product',
+    );
 
     expect(parsed.ok).toBe(true);
     if (parsed.ok) expect(parsed.outcome.status).toBe(status);
@@ -403,6 +405,7 @@ describe('strict verdict parsing', () => {
     const refused = parseInventoryMovementOutcome(
       [{ status: 'insufficient_stock', stock_before: 5 }],
       context,
+      'record_inventory_movement',
     );
     expect(refused.ok).toBe(true);
     if (refused.ok) {
@@ -410,7 +413,9 @@ describe('strict verdict parsing', () => {
       expect(refused.outcome.stockBefore).toBe(5);
     }
 
-    const accepted = parseInventoryMovementOutcome([{ status: 'ok', product_id: 'P1', stock_after: 12 }], context);
+    const accepted = parseInventoryMovementOutcome(
+      [{ status: 'ok', product_id: 'P1', stock_after: 12 }], context, 'update_inventory_product',
+    );
     expect(accepted.ok).toBe(true);
     if (accepted.ok) expect(isTerminalInventoryMovementOutcome(accepted.outcome)).toBe(false);
   });

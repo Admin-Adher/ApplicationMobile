@@ -203,10 +203,15 @@ export type InventoryOutcomeParseResult =
  * serveur explicite et correctement structure, jamais sur un resultat absent
  * ou malforme.
  */
+/**
+ * `kind` est OBLIGATOIRE : omis, un appelant beneficierait silencieusement
+ * d'une validation plus faible du succes, alors que chaque RPC promet des
+ * champs differents.
+ */
 export function parseInventoryMovementOutcome(
   data: unknown,
-  context: InventoryMovementOutcomeContext = {},
-  kind?: InventoryRpcKind,
+  context: InventoryMovementOutcomeContext,
+  kind: InventoryRpcKind,
 ): InventoryOutcomeParseResult {
   const row = firstOutcomeRow(data);
   if (!row) {
