@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 function source(relative: string) {
   return readFileSync(
-    fileURLToPath(new URL(`../${relative}`, import.meta.url)),
+    fileURLToPath(new URL(`../${relative}`, import.meta.url).href),
     'utf8',
   );
 }

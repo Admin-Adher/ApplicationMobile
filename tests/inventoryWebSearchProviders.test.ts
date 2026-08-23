@@ -30,7 +30,7 @@ describe('inventory web search provider fallback', () => {
       code,
       tavilyApiKey: 'tvly-test',
       serpApiKey: 'serp-test',
-      fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
     expect(result.provider).toBe('tavily');
@@ -57,13 +57,13 @@ describe('inventory web search provider fallback', () => {
           thumbnail: 'https://images.example/407970.jpg',
         }],
       });
-    }) as unknown as typeof fetch;
+    });
 
     const result = await searchInventoryBarcodeWeb({
       code,
       tavilyApiKey: 'tvly-test',
       serpApiKey: 'serp-test',
-      fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: () => Date.UTC(2026, 7, 10),
     });
 
@@ -77,7 +77,7 @@ describe('inventory web search provider fallback', () => {
       code,
       tavilyApiKey: 'tvly-test',
       serpApiKey: 'serp-test',
-      fetchImpl,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: () => Date.UTC(2026, 7, 11),
     });
     expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -89,14 +89,14 @@ describe('inventory web search provider fallback', () => {
       return String(input).includes('api.tavily.com')
         ? jsonResponse({ detail: { error: 'Unavailable' } }, 500)
         : jsonResponse({ error: 'Out of searches' }, 429);
-    }) as unknown as typeof fetch;
+    });
 
     await expect(searchInventoryBarcodeWeb({
       code,
       tavilyApiKey: 'tvly-test',
       serpApiKey: 'serp-test',
-      fetchImpl,
-    })).rejects.toMatchObject<InventoryWebSearchError>({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    })).rejects.toMatchObject({
       providerStatuses: { tavily: 500, serpapi: 429 },
     });
   });

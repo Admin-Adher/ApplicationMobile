@@ -2,7 +2,16 @@ import { describe, expect, it } from 'vitest';
 import {
   coalesceQueuedOperations,
   migrateAndCoalesceSitePlanSnapshots,
+  type CoalescibleQueuedOperation,
+  type MigratableQueuedOperation,
 } from '../lib/offlineQueueCoalescing';
+
+// Les fonctions sont generiques : `id` n'appartient pas au contrat de la
+// bibliotheque, mais une vraie operation en file en porte un, et les assertions
+// s'en servent pour identifier les entrees. On l'ajoute donc localement plutot
+// que d'elargir l'interface publique pour les besoins des tests.
+type TestCoalescible = CoalescibleQueuedOperation & { id: string };
+type TestMigratable = MigratableQueuedOperation & { id: string };
 
 describe('offline queue coalescing', () => {
   it('keeps only the latest keyed plan snapshot without reordering unrelated operations', () => {
@@ -31,7 +40,7 @@ describe('offline queue coalescing', () => {
   });
 
   it('preserves every unkeyed RPC, insert and delete', () => {
-    const operations = [
+    const operations: TestCoalescible[] = [
       { id: 'rpc-1' },
       { id: 'insert-1' },
       { id: 'delete-1' },
@@ -63,7 +72,7 @@ describe('offline queue coalescing', () => {
   });
 
   it('keeps guarded file replacement sticky while upgrading the newest legacy payload', () => {
-    const operations = [
+    const operations: TestMigratable[] = [
       {
         id: 'file-a',
         table: 'site_plans',
@@ -101,7 +110,7 @@ describe('offline queue coalescing', () => {
   });
 
   it('migrates the older guarded-update marker without sending it to the RPC patch', () => {
-    const operations = [
+    const operations: TestMigratable[] = [
       {
         id: 'legacy-file',
         table: 'site_plans',

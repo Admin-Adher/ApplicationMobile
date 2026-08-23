@@ -1,4 +1,6 @@
-import type { SupportedLang } from '@/lib/i18n';
+// Chemin relatif : `@/` designe des racines differentes selon l'application,
+// et ce module est aussi type-checke depuis la suite de tests racine.
+import type { SupportedLang } from '../../../lib/i18n';
 
 export type MessageChannelKind = 'dm' | 'company' | 'building' | 'channel';
 export type MessageChannelFilter = 'all' | 'unread' | 'company' | 'dm' | 'site';

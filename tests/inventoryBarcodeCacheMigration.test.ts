@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 const migrationPath = fileURLToPath(new URL(
   '../supabase/migrations/20260810094152_add_inventory_barcode_catalog.sql',
   import.meta.url,
-));
+).href);
 const migration = readFileSync(migrationPath, 'utf8').toLowerCase();
 
 describe('inventory barcode cache migration security contract', () => {

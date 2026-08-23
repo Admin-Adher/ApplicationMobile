@@ -6,7 +6,7 @@ import { ROLE_PERMISSIONS, resolvePermissions } from '../lib/permissions';
 const migrationPath = fileURLToPath(new URL(
   '../supabase/migrations/20260810121326_expand_magasinier_inventory_permissions.sql',
   import.meta.url,
-));
+).href);
 const migration = readFileSync(migrationPath, 'utf8').toLowerCase();
 
 describe('inventory role permissions', () => {

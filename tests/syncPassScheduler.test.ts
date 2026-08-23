@@ -168,7 +168,7 @@ describe('global scopes stop everything', () => {
       onExecuteError: unexpected,
       execute: async operation => {
         executed.push(idOf(operation));
-        return { kind: 'abandon', reason } as PassOperationOutcome;
+        return { kind: 'abandon', reason } as PassOperationOutcome<RetryQueueOperationLike>;
       },
     });
 
@@ -233,8 +233,9 @@ describe('convergence and reporting', () => {
       const result = await runSyncPass({
         operations: [movement('a1', 'A', 10)],
         now: frozenClock,
-          maxOperations: 3,
-        execute: async () => ({ kind } as PassOperationOutcome),
+        onExecuteError: unexpected,
+        maxOperations: 3,
+        execute: async () => ({ kind } as PassOperationOutcome<RetryQueueOperationLike>),
       });
 
       expect(result.processed, kind).toBe(1);
