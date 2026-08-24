@@ -9,11 +9,16 @@ const markStarted = (operation: Op): Op => ({ ...operation, dispatchState: 'star
 
 /** Ecriture dont on choisit le moment de resolution. */
 function controllableWrite() {
-  const pending: { settle: (error?: unknown) => void }[] = [];
-  const writeStrict = vi.fn(() => new Promise<void>((resolve, reject) => {
-    pending.push({ settle: error => (error ? reject(error) : resolve()) });
+  const pending: { next: Op[]; settle: (error?: unknown) => void }[] = [];
+  const writeStrict = vi.fn((next: Op[]) => new Promise<void>((resolve, reject) => {
+    pending.push({ next, settle: error => (error ? reject(error) : resolve()) });
   }));
   return { writeStrict, pending };
+}
+
+/** Laisse la boucle de recalcul avancer sans horloge factice. */
+async function flush() {
+  for (let turn = 0; turn < 8; turn += 1) await Promise.resolve();
 }
 
 describe('no request may leave before the proof is durable', () => {
@@ -70,7 +75,7 @@ describe('no request may leave before the proof is durable', () => {
     // lecture ferait croire a un changement permanent.
     const current: Op[] = [{ id: 'a', dispatchState: 'started' }];
 
-    const outcome = await prepareQueueForDispatch<Op>({
+    const prepared = await prepareQueueForDispatch<Op>({
       readCurrent: () => current,
       needsProof,
       markStarted,
@@ -78,7 +83,7 @@ describe('no request may leave before the proof is durable', () => {
       publish: () => {},
     });
 
-    expect(outcome).toBe('nothing-to-do');
+    expect(prepared.proofWritten).toBe(false);
     expect(writeStrict).not.toHaveBeenCalled();
   });
 
@@ -90,7 +95,7 @@ describe('no request may leave before the proof is durable', () => {
     const writeStrict = vi.fn(async () => {});
     let current: Op[] = [{ id: 'a', dispatchState }];
 
-    const outcome = await prepareQueueForDispatch<Op>({
+    const prepared = await prepareQueueForDispatch<Op>({
       readCurrent: () => current,
       needsProof,
       markStarted,
@@ -98,7 +103,7 @@ describe('no request may leave before the proof is durable', () => {
       publish: next => { current = next; },
     });
 
-    expect(outcome).toBe('ready');
+    expect(prepared.proofWritten).toBe(true);
     expect(writeStrict).toHaveBeenCalledTimes(1);
   });
 
@@ -117,6 +122,127 @@ describe('no request may leave before the proof is durable', () => {
     })).rejects.toThrow('Passe obsolete.');
 
     expect(writeStrict).not.toHaveBeenCalled();
+  });
+
+  it('refuses to hand back a snapshot for an obsolete generation, even with nothing to write', async () => {
+    // Sans ecriture a faire, la barriere rendait autrefois son verdict sans
+    // rien verifier : une passe preemptee repartait avec la file du compte
+    // suivant.
+    const current: Op[] = [{ id: 'a', dispatchState: 'started' }];
+
+    await expect(prepareQueueForDispatch<Op>({
+      readCurrent: () => current,
+      needsProof,
+      markStarted,
+      writeStrict: async () => {},
+      publish: () => {},
+      assertCurrent: () => { throw new Error('Passe obsolete.'); },
+    })).rejects.toThrow('Passe obsolete.');
+  });
+});
+
+describe('the pass runs the queue whose durability was just established', () => {
+  /**
+   * Reproduit la composition reelle : barriere -> snapshot -> boucle.
+   *
+   * `enqueueOperation` publie en memoire et ne lance qu'une sauvegarde
+   * best-effort, ni attendue ni garantie. Relire l'etat courant apres la
+   * barriere transmettait donc au moteur des entrees dont rien n'assurait la
+   * presence sur le disque.
+   */
+  async function runPass(input: { initial: Op[]; enqueuedAfterBarrier?: Op }) {
+    let current: Op[] = input.initial;
+
+    const prepared = await prepareQueueForDispatch<Op>({
+      readCurrent: () => current,
+      needsProof,
+      markStarted,
+      writeStrict: async () => {},
+      publish: next => { current = next; },
+    });
+
+    if (input.enqueuedAfterBarrier) current = [...current, input.enqueuedAfterBarrier];
+
+    return { prepared, executed: prepared.operations.map(operation => operation.id), current };
+  }
+
+  it('leaves out an entry enqueued after a barrier that had nothing to write', async () => {
+    const { prepared, executed, current } = await runPass({
+      initial: [{ id: 'a', dispatchState: 'started' }],
+      enqueuedAfterBarrier: { id: 'b', dispatchState: 'unknown' },
+    });
+
+    expect(prepared.proofWritten).toBe(false);
+    expect(executed).toEqual(['a']);
+    // B n'est pas perdue : elle reste dans l'etat courant, sera conservee comme
+    // ajout concurrent, et franchira la barriere a la passe suivante.
+    expect(current.map(operation => operation.id)).toEqual(['a', 'b']);
+  });
+
+  it('leaves out an entry enqueued right after a successful strict write', async () => {
+    const { prepared, executed, current } = await runPass({
+      initial: [{ id: 'a', dispatchState: 'unknown' }],
+      enqueuedAfterBarrier: { id: 'b', dispatchState: 'unknown' },
+    });
+
+    expect(prepared.proofWritten).toBe(true);
+    expect(executed).toEqual(['a']);
+    expect(prepared.operations[0].dispatchState).toBe('started');
+    expect(current.find(operation => operation.id === 'b')?.dispatchState).toBe('unknown');
+  });
+
+  it('carries the proof for every entry it hands to the pass', async () => {
+    // L'invariant final : rien de ce que la boucle recoit ne peut partir sans
+    // qu'une ecriture stricte l'ait precede.
+    const { prepared } = await runPass({
+      initial: [
+        { id: 'a', dispatchState: 'unknown' },
+        { id: 'b', dispatchState: 'never_started' },
+        { id: 'c', dispatchState: 'started' },
+      ],
+    });
+
+    for (const operation of prepared.operations) {
+      expect(operation.dispatchState).toBe('started');
+    }
+  });
+
+  it('includes an entry enqueued DURING the strict write, once its own proof is written', async () => {
+    // Le cas limite oppose : arrivee avant la fin de l'ecriture, B entre dans le
+    // recalcul, donc sa preuve est persistee avec celle de A. Elle a le droit de
+    // partir dans cette passe-ci.
+    const { writeStrict, pending } = controllableWrite();
+    let current: Op[] = [{ id: 'a', dispatchState: 'unknown' }];
+
+    const running = prepareQueueForDispatch<Op>({
+      readCurrent: () => current,
+      needsProof,
+      markStarted,
+      writeStrict,
+      publish: next => { current = next; },
+    });
+
+    await flush();
+    expect(writeStrict).toHaveBeenCalledTimes(1);
+
+    // Nouvelle REFERENCE : c'est ce que le helper compare pour detecter la
+    // saisie concurrente.
+    current = [...current, { id: 'b', dispatchState: 'unknown' }];
+    pending[0].settle();
+    await flush();
+
+    expect(pending).toHaveLength(2);
+    pending[1].settle();
+    const prepared = await running;
+
+    expect(pending[1].next).toEqual([
+      { id: 'a', dispatchState: 'started' },
+      { id: 'b', dispatchState: 'started' },
+    ]);
+    expect(prepared.operations.map(operation => operation.id)).toEqual(['a', 'b']);
+    for (const operation of prepared.operations) {
+      expect(operation.dispatchState).toBe('started');
+    }
   });
 });
 
@@ -143,7 +269,7 @@ describe('the three states say three different things', () => {
 
     expect(isUnambiguouslyPurgeableOperation(current[0])).toBe(true);
 
-    await prepareQueueForDispatch<Op>({
+    const prepared = await prepareQueueForDispatch<Op>({
       readCurrent: () => current,
       needsProof,
       markStarted,
@@ -152,5 +278,7 @@ describe('the three states say three different things', () => {
     });
 
     expect(isUnambiguouslyPurgeableOperation(current[0])).toBe(false);
+    // Et c'est bien l'exemplaire marque que la passe recoit.
+    expect(isUnambiguouslyPurgeableOperation(prepared.operations[0])).toBe(false);
   });
 });

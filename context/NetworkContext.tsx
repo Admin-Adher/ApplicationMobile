@@ -48,7 +48,10 @@ import { rebaseReservePatchOnConflict, type PreparedRebaseWrite } from '@/lib/re
 import { ensureQueueEntryIdentities } from '@/lib/queueEntryIdentity';
 import { createQueueWriteChain } from '@/lib/queueWriteChain';
 import { publishAfterDurableWrite } from '@/lib/queuePublication';
-import { prepareQueueForDispatch } from '@/lib/queueDispatchPreparation';
+import {
+  prepareQueueForDispatch,
+  type PreparedQueueForDispatch,
+} from '@/lib/queueDispatchPreparation';
 import {
   PURGE_PENDING_RECONCILIATION,
   isUnambiguouslyPurgeableOperation,
@@ -1610,8 +1613,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // l'écriture, recalcul si la file bouge, refus si la passe est obsolète —
     // vit dans `lib/queueDispatchPreparation.ts`, où elle est prouvée avec des
     // promesses contrôlées.
+    let prepared: PreparedQueueForDispatch<QueuedOperation>;
     try {
-      await prepareQueueForDispatch<QueuedOperation>({
+      prepared = await prepareQueueForDispatch<QueuedOperation>({
         readCurrent: () => queueRef.current,
         needsProof: operation => (
           isReplayableQueuedOperation(operation) && operation.dispatchState !== 'started'
@@ -1640,9 +1644,19 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Snapshot de travail construit APRÈS le marquage : ses objets portent donc
-    // déjà l'état durable, et `fail()` ne peut plus le faire régresser.
-    const currentQueue = queueRef.current.filter(isReplayableQueuedOperation).sort((a, b) => {
+    // Snapshot de travail : EXACTEMENT la file dont la barrière vient d'établir
+    // la durabilité, jamais une relecture de `queueRef.current`.
+    //
+    // Relire ici rouvrait la fenêtre que la barrière ferme : entre son retour et
+    // cette lecture, `enqueueOperation` peut publier une entrée `unknown` en
+    // mémoire — sa sauvegarde n'étant que best-effort et non attendue. Elle
+    // serait alors partie vers le serveur sans qu'aucune écriture stricte ne
+    // l'ait précédée.
+    //
+    // Une entrée arrivée après la barrière reste dans `queueRef`, y est
+    // conservée comme ajout concurrent en fin de passe, et franchit la barrière
+    // à la passe suivante.
+    const currentQueue = prepared.operations.filter(isReplayableQueuedOperation).sort((a, b) => {
       const priorityDiff = queueReplayPriority(a) - queueReplayPriority(b);
       if (priorityDiff !== 0) return priorityDiff;
       return (a.queuedAt ?? '').localeCompare(b.queuedAt ?? '');

@@ -13,9 +13,33 @@ import { publishAfterDurableWrite } from './queuePublication';
  * tentee » et « la preuve correspondante est durable ». La condition de la
  * passe la verrait deja marquee et sauterait l'ecriture stricte, supprimant
  * precisement la barriere. D'ou le troisieme etat, `unknown`.
+ *
+ * La barriere RENVOIE la file qu'elle vient de securiser. Rendre un simple
+ * verdict — « pret » — ne suffisait pas : l'appelant relisait alors l'etat
+ * courant pour construire sa passe, et entre les deux lectures une saisie
+ * pouvait s'inserer.
+ *
+ *   file = [A started] ; la barriere n'a rien a ecrire, elle rend « pret »
+ *   B est enfilee en `unknown`, publiee en memoire, sauvegarde best-effort
+ *   l'appelant relit l'etat courant : [A, B]
+ *   B part vers le serveur sans etre jamais passee par l'ecriture stricte
+ *
+ * La meme fenetre existe apres une ecriture reussie. Le seul remede est que la
+ * file transmise au moteur SOIT celle dont la durabilite vient d'etre etablie,
+ * et aucune autre.
  */
 
-export type PrepareQueueForDispatchOutcome = 'nothing-to-do' | 'ready';
+export interface PreparedQueueForDispatch<T> {
+  /**
+   * La file EXACTE dont la durabilite vient d'etre etablie. C'est la seule
+   * source autorisee pour la passe : toute entree apparue ensuite reste dans
+   * l'etat courant, sera conservee comme ajout concurrent, et franchira
+   * elle-meme la barriere a la passe suivante.
+   */
+  operations: readonly T[];
+  /** Une ecriture stricte a-t-elle ete necessaire ? */
+  proofWritten: boolean;
+}
 
 export interface PrepareQueueForDispatchInput<T> {
   readCurrent: () => readonly T[];
@@ -30,17 +54,25 @@ export interface PrepareQueueForDispatchInput<T> {
 }
 
 /**
- * Rend `'ready'` quand aucune requete ne peut plus partir sans preuve durable.
+ * Rend la file dont plus aucune entree ne peut partir sans preuve durable.
  *
  * Toute erreur REMONTE : l'appelant doit renoncer a la passe, jamais poursuivre
  * en esperant que la preuve suivra.
  */
 export async function prepareQueueForDispatch<T>(
   input: PrepareQueueForDispatchInput<T>,
-): Promise<PrepareQueueForDispatchOutcome> {
-  if (!input.readCurrent().some(input.needsProof)) return 'nothing-to-do';
+): Promise<PreparedQueueForDispatch<T>> {
+  // Verifie AVANT la lecture, y compris quand il n'y a rien a ecrire : une
+  // passe devenue obsolete ne doit pas repartir avec la file d'un autre compte.
+  input.assertCurrent?.();
 
-  await publishAfterDurableWrite<T>({
+  const initial = input.readCurrent();
+
+  if (!initial.some(input.needsProof)) {
+    return { operations: initial, proofWritten: false };
+  }
+
+  const durable = await publishAfterDurableWrite<T>({
     readCurrent: input.readCurrent,
     compute: current => current.map(operation => (
       input.needsProof(operation) ? input.markStarted(operation) : operation
@@ -50,5 +82,5 @@ export async function prepareQueueForDispatch<T>(
     assertCurrent: input.assertCurrent,
   });
 
-  return 'ready';
+  return { operations: durable, proofWritten: true };
 }

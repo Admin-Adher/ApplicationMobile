@@ -389,7 +389,7 @@ describe('the queue purge is durable and keeps what came after it', () => {
     // `never_started`. Une operation reellement envoyee redevenait « jamais
     // tentee », donc supprimable par la purge.
     const marking = source.indexOf('await prepareQueueForDispatch<QueuedOperation>({');
-    const snapshot = source.indexOf('const currentQueue = queueRef.current.filter(isReplayableQueuedOperation)');
+    const snapshot = source.indexOf('const currentQueue = prepared.operations.filter(isReplayableQueuedOperation)');
 
     expect(marking).toBeGreaterThan(-1);
     expect(marking).toBeLessThan(snapshot);
@@ -398,7 +398,7 @@ describe('the queue purge is durable and keeps what came after it', () => {
   it('sends nothing when that proof cannot be persisted', () => {
     const pass = source.slice(
       source.indexOf('await prepareQueueForDispatch<QueuedOperation>({'),
-      source.indexOf('const currentQueue = queueRef.current.filter(isReplayableQueuedOperation)'),
+      source.indexOf('const currentQueue = prepared.operations.filter(isReplayableQueuedOperation)'),
     );
 
     expect(pass).toContain('writeStrict: next => writeQueueStrict(next),');
@@ -406,6 +406,38 @@ describe('the queue purge is durable and keeps what came after it', () => {
     expect(pass).toContain('return;');
     // Une passe preemptee ne doit pas reecrire la file du compte suivant.
     expect(pass).toContain("throw new Error('Passe de synchronisation obsolete.')");
+  });
+
+  it('runs the queue the barrier secured, never a fresh read', () => {
+    // La barriere rendait un simple verdict, et l'appelant relisait l'etat
+    // courant pour construire sa passe. Entre les deux, `enqueueOperation`
+    // peut publier une entree `unknown` en memoire — sa sauvegarde n'etant
+    // que best-effort. Elle partait alors vers le serveur sans qu'aucune
+    // ecriture stricte ne l'ait precedee.
+    expect(source).toContain(
+      'const currentQueue = prepared.operations.filter(isReplayableQueuedOperation)',
+    );
+    expect(source).not.toContain('const currentQueue = queueRef.current');
+
+    const betweenBarrierAndSnapshot = source.slice(
+      source.indexOf('await prepareQueueForDispatch<QueuedOperation>({'),
+      source.indexOf('const currentQueue = prepared.operations.filter(isReplayableQueuedOperation)'),
+    );
+
+    expect(betweenBarrierAndSnapshot).not.toContain('queueRef.current.filter');
+  });
+
+  it('hands the loop nothing but that snapshot', () => {
+    const loop = source.slice(
+      source.indexOf('const currentQueue = prepared.operations.filter(isReplayableQueuedOperation)'),
+      source.indexOf('queueRef.current = nextQueue;'),
+    );
+
+    expect(loop).toContain('for (const op of currentQueue) {');
+    // Les ajouts concurrents sont relus APRES la boucle, pour etre conserves
+    // en fin de passe — jamais pour etre executes.
+    expect(loop).not.toContain('for (const op of queueRef.current');
+    expect(loop).not.toContain('await executeQueuedOperation(queueRef.current');
   });
 
   it('guards the purge resume with the hydration generation', () => {
