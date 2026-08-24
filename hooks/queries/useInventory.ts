@@ -468,8 +468,6 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
       pendingSync: pending,
     };
 
-    const previousProducts = currentProducts;
-    const previousMovements = queryClient.getQueryData<InventoryMovement[]>(movementsKey) ?? [];
     queryClient.setQueryData<InventoryProduct[]>(productsKey, old => {
       const list = old ?? [];
       return list.some(product => product.id === productId)
@@ -582,8 +580,6 @@ export function useInventory(chantierId: string | null | undefined, chantierOrga
     const reconciled = reconcileInventoryMovementCache({
       currentProducts: queryClient.getQueryData<InventoryProduct[]>(productsKey) ?? [],
       currentMovements: queryClient.getQueryData<InventoryMovement[]>(movementsKey) ?? [],
-      previousProducts,
-      previousMovements,
       optimisticProductId: productId,
       optimisticMovementId: movementId,
       outcome,

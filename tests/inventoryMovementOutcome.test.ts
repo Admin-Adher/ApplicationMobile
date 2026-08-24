@@ -116,8 +116,6 @@ describe('inventory movement outcomes', () => {
     const reconciled = reconcileInventoryMovementCache({
       currentProducts: [currentProduct],
       currentMovements: [currentMovement],
-      previousProducts: [product()],
-      previousMovements: [],
       optimisticProductId: currentProduct.id,
       optimisticMovementId: currentMovement.id,
       outcome,
@@ -133,29 +131,209 @@ describe('inventory movement outcomes', () => {
     });
   });
 
-  it('restores pre-mutation history and authoritative stock_before on refusal', () => {
-    const previousProduct = product({ currentStock: 4, pendingSync: true });
-    const previousMovement = movement({ id: 'movement-existing', quantity: 1 });
+
+  it('corrects the stock as a DELTA, keeping a movement queued since', () => {
+    // 10 en cache ; A +5 -> 15 ; B +3 -> 18. Le serveur applique A et rend 25,
+    // un autre appareil etant passe entre-temps. En absolu le cache tombait a 25
+    // et les +3 de B disparaissaient ; en delta, 25 - 15 = +10, donc 28.
+    const productBoth = product({ currentStock: 18, pendingSync: true });
+    const movementA = movement({
+      id: 'movement-a',
+      operationId: 'operation-a',
+      movementType: 'in',
+      quantity: 5,
+      stockBefore: 10,
+      stockAfter: 15,
+      pendingSync: true,
+    });
+    const movementB = movement({
+      id: 'movement-b',
+      operationId: 'operation-b',
+      movementType: 'in',
+      quantity: 3,
+      stockBefore: 15,
+      stockAfter: 18,
+      pendingSync: true,
+    });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'ok',
+      product_id: 'product-local',
+      movement_id: 'movement-a-server',
+      stock_before: 20,
+      stock_after: 25,
+    }, { operationId: 'operation-a', productId: 'product-local', movementId: 'movement-a' });
+
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: [productBoth],
+      currentMovements: [movementA, movementB],
+      optimisticProductId: 'product-local',
+      optimisticMovementId: 'movement-a',
+      outcome,
+    });
+
+    expect(reconciled.product?.currentStock).toBe(28);
+    expect(reconciled.movements).toContainEqual(movementB);
+    // Le produit reste « en attente » tant que B l'est.
+    expect(reconciled.product?.pendingSync).toBe(true);
+  });
+
+  it('marks the product synced once none of its movements is left pending', () => {
+    const single = product({ currentStock: 15, pendingSync: true });
+    const only = movement({
+      id: 'movement-a',
+      operationId: 'operation-a',
+      movementType: 'in',
+      quantity: 5,
+      stockBefore: 10,
+      stockAfter: 15,
+      pendingSync: true,
+    });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'ok',
+      product_id: 'product-local',
+      movement_id: 'movement-a-server',
+      stock_before: 10,
+      stock_after: 15,
+    }, { operationId: 'operation-a', productId: 'product-local', movementId: 'movement-a' });
+
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: [single],
+      currentMovements: [only],
+      optimisticProductId: 'product-local',
+      optimisticMovementId: 'movement-a',
+      outcome,
+    });
+
+    expect(reconciled.product).toMatchObject({ currentStock: 15, pendingSync: false });
+  });
+
+  it('leaves a movement on another product untouched', () => {
+    const target = product({ currentStock: 15, pendingSync: true });
+    const other = product({ id: 'product-other', currentStock: 42, pendingSync: true });
+    const mine = movement({
+      id: 'movement-a',
+      operationId: 'operation-a',
+      movementType: 'in',
+      quantity: 5,
+      stockBefore: 10,
+      stockAfter: 15,
+      pendingSync: true,
+    });
+    const theirs = movement({
+      id: 'movement-other',
+      operationId: 'operation-other',
+      productId: 'product-other',
+      pendingSync: true,
+    });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'ok',
+      product_id: 'product-local',
+      movement_id: 'movement-a-server',
+      stock_before: 10,
+      stock_after: 15,
+    }, { operationId: 'operation-a', productId: 'product-local', movementId: 'movement-a' });
+
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: [target, other],
+      currentMovements: [mine, theirs],
+      optimisticProductId: 'product-local',
+      optimisticMovementId: 'movement-a',
+      outcome,
+    });
+
+    expect(reconciled.products).toContainEqual(other);
+    expect(reconciled.movements).toContainEqual(theirs);
+  });
+
+  it('rolls back only the refused delta, keeping a movement queued since', () => {
+    // 10 ; A -3 -> 7 ; B -2 -> 5. A est refusee : le cache doit remonter a 8, et
+    // non revenir a un instantane d'avant A, qui effacerait B.
+    const productBoth = product({ currentStock: 5, totalExits: 5, pendingSync: true });
+    const movementA = movement({
+      id: 'movement-a',
+      operationId: 'operation-a',
+      movementType: 'out',
+      quantity: 3,
+      stockBefore: 10,
+      stockAfter: 7,
+      pendingSync: true,
+    });
+    const movementB = movement({
+      id: 'movement-b',
+      operationId: 'operation-b',
+      movementType: 'out',
+      quantity: 2,
+      stockBefore: 7,
+      stockAfter: 5,
+      pendingSync: true,
+    });
     const outcome = normalizeInventoryMovementOutcome({
       status: 'insufficient_stock',
-      product_id: previousProduct.id,
+      product_id: 'product-local',
+      stock_before: 2,
+      stock_after: -1,
+    }, { operationId: 'operation-a', productId: 'product-local', movementId: 'movement-a' });
+
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: [productBoth],
+      currentMovements: [movementA, movementB],
+      optimisticProductId: 'product-local',
+      optimisticMovementId: 'movement-a',
+      outcome,
+    });
+
+    expect(isTerminalInventoryMovementOutcome(outcome)).toBe(true);
+    expect(reconciled.product?.currentStock).toBe(8);
+    expect(reconciled.product?.totalExits).toBe(2);
+    expect(reconciled.movements).toEqual([movementB]);
+  });
+
+  it('corrects nothing when the optimistic movement is gone from the cache', () => {
+    // Sans lui le delta n'est pas calculable. Poser le stock absolu du serveur
+    // serait definitif ; ne rien corriger laisse le refetch trancher.
+    const stale = product({ currentStock: 18, pendingSync: true });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'ok',
+      product_id: 'product-local',
+      movement_id: 'movement-a-server',
+      stock_before: 20,
+      stock_after: 25,
+    }, { operationId: 'operation-a', productId: 'product-local', movementId: 'movement-a' });
+
+    const reconciled = reconcileInventoryMovementCache({
+      currentProducts: [stale],
+      currentMovements: [],
+      optimisticProductId: 'product-local',
+      optimisticMovementId: 'movement-a',
+      outcome,
+    });
+
+    expect(reconciled.product?.currentStock).toBe(18);
+  });
+
+  it('removes the refused movement and reverses its own delta', () => {
+    // L'ancienne version restaurait `previousProducts` et posait le
+    // `stock_before` serveur en absolu. Le cache local vaut 1 apres un -3 ;
+    // inverser ce seul delta rend 4, et preserve l'historique conserve.
+    const untouched = movement({ id: 'movement-existing', quantity: 1 });
+    const outcome = normalizeInventoryMovementOutcome({
+      status: 'insufficient_stock',
+      product_id: 'product-local',
       stock_before: 2,
       stock_after: -1,
     }, { movementId: 'movement-local' });
 
     const reconciled = reconcileInventoryMovementCache({
       currentProducts: [product({ currentStock: 1, pendingSync: true })],
-      currentMovements: [movement({ pendingSync: true }), previousMovement],
-      previousProducts: [previousProduct],
-      previousMovements: [previousMovement],
-      optimisticProductId: previousProduct.id,
+      currentMovements: [movement({ pendingSync: true }), untouched],
+      optimisticProductId: 'product-local',
       optimisticMovementId: 'movement-local',
       outcome,
     });
 
     expect(isTerminalInventoryMovementOutcome(outcome)).toBe(true);
-    expect(reconciled.products).toEqual([expect.objectContaining({ currentStock: 2, pendingSync: true })]);
-    expect(reconciled.movements).toEqual([previousMovement]);
+    expect(reconciled.products).toEqual([expect.objectContaining({ currentStock: 4, pendingSync: true })]);
+    expect(reconciled.movements).toEqual([untouched]);
   });
 
   it('rolls back a replay refusal before refetch and remains idempotent', () => {

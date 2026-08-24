@@ -279,11 +279,26 @@ export function shouldBlockInventoryMovementForInsufficientStock(input: {
  * optimistic rich fields while replacing identifiers and stock values with the
  * server's authoritative result.
  */
+/**
+ * Applique le verdict autoritaire au cache optimiste.
+ *
+ * La correction est un DELTA, jamais un stock absolu. Ecrire
+ * `currentStock = outcome.stockAfter` effacait l'effet des mouvements enfiles
+ * depuis l'intention :
+ *
+ *   cache 10 ; A +5 -> 15 ; B +3 -> 18
+ *   le serveur applique A et rend stock_after 25
+ *   en absolu : 25, et les +3 de B ont disparu
+ *   en delta  : 25 - 15 = +10, donc 18 + 10 = 28
+ *
+ * Le cache finissait par se reparer quand B aboutissait a son tour, mais restait
+ * faux entre les deux — et durablement faux si B etait differee. Le chemin
+ * terminal documentait deja ce danger et n'inversait que son propre delta ; le
+ * chemin succes, lui, le realisait.
+ */
 export function reconcileInventoryMovementCache(input: {
   currentProducts: InventoryProduct[];
   currentMovements: InventoryMovement[];
-  previousProducts: InventoryProduct[];
-  previousMovements: InventoryMovement[];
   optimisticProductId: string;
   optimisticMovementId: string;
   outcome: InventoryMovementOutcome;
@@ -291,34 +306,45 @@ export function reconcileInventoryMovementCache(input: {
   const {
     currentProducts,
     currentMovements,
-    previousProducts,
-    previousMovements,
     optimisticProductId,
     optimisticMovementId,
     outcome,
   } = input;
-  const successful = isSuccessfulInventoryMovementOutcome(outcome);
-  const productSource = successful ? currentProducts : previousProducts;
-  const movementSource = successful ? currentMovements : previousMovements;
-  const authoritativeProductId = outcome.productId ?? optimisticProductId;
 
-  const products = productSource.map(product => {
-    const matches = product.id === optimisticProductId || product.id === outcome.productId;
-    if (!matches) return product;
+  if (!isSuccessfulInventoryMovementOutcome(outcome)) {
+    // Un refus suit exactement la regle du rejeu terminal : retirer le mouvement
+    // refuse et inverser SON delta. Restaurer un instantane d'avant l'intention
+    // — ce que faisait ce chemin — supprimait aussi les mouvements enfiles
+    // depuis, y compris ceux d'un autre produit.
+    const rolledBack = reconcileTerminalInventoryMovementCache({
+      currentProducts,
+      currentMovements,
+      outcome,
+    });
+    const refusedProductId = outcome.productId ?? optimisticProductId;
     return {
-      ...product,
-      id: successful ? authoritativeProductId : product.id,
-      ...(successful && outcome.stockAfter !== undefined ? { currentStock: outcome.stockAfter } : {}),
-      ...(!successful && outcome.stockBefore !== undefined ? { currentStock: outcome.stockBefore } : {}),
-      ...(successful ? { pendingSync: false } : {}),
+      products: rolledBack.products,
+      movements: rolledBack.movements,
+      product: rolledBack.products.find(item => item.id === refusedProductId),
     };
-  });
+  }
 
-  const movements = movementSource.map(movement => {
-    if (!successful || movement.id !== optimisticMovementId) return movement;
+  const authoritativeProductId = outcome.productId ?? optimisticProductId;
+  const optimisticMovement = currentMovements.find(item => item.id === optimisticMovementId);
+  // Sans le mouvement optimiste, le delta n'est pas calculable. On ne corrige
+  // alors RIEN plutot que de deviner : le refetch qui suit un succes rendra
+  // l'etat autoritaire, alors qu'un stock absolu pose ici serait definitif.
+  const correction = optimisticMovement !== undefined
+    && outcome.stockAfter !== undefined
+    && Number.isFinite(optimisticMovement.stockAfter)
+    ? outcome.stockAfter - optimisticMovement.stockAfter
+    : 0;
+
+  const movements = currentMovements.map(item => {
+    if (item.id !== optimisticMovementId) return item;
     return {
-      ...movement,
-      id: outcome.movementId ?? movement.id,
+      ...item,
+      id: outcome.movementId ?? item.id,
       productId: authoritativeProductId,
       ...(outcome.stockBefore !== undefined ? { stockBefore: outcome.stockBefore } : {}),
       ...(outcome.stockAfter !== undefined ? { stockAfter: outcome.stockAfter } : {}),
@@ -326,7 +352,27 @@ export function reconcileInventoryMovementCache(input: {
     };
   });
 
-  const product = products.find(item => item.id === authoritativeProductId || item.id === optimisticProductId);
+  // Le produit ne cesse d'etre « en attente » que si PLUS AUCUN mouvement ne
+  // l'est. Le declarer synchronise sur le seul succes de celui-ci masquait les
+  // suivants dans l'interface.
+  const productStillPending = movements.some(item => (
+    item.pendingSync === true
+    && (item.productId === authoritativeProductId || item.productId === optimisticProductId)
+  ));
+
+  const products = currentProducts.map(item => {
+    if (item.id !== optimisticProductId && item.id !== outcome.productId) return item;
+    return {
+      ...item,
+      id: authoritativeProductId,
+      currentStock: item.currentStock + correction,
+      pendingSync: productStillPending,
+    };
+  });
+
+  const product = products.find(item => (
+    item.id === authoritativeProductId || item.id === optimisticProductId
+  ));
   const authoritativeMovementId = outcome.movementId ?? optimisticMovementId;
   const movement = movements.find(item => item.id === authoritativeMovementId);
   return { products, movements, product, movement };
