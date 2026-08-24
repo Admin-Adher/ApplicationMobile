@@ -10,6 +10,11 @@ valeurs, et l'identité de qui les pose, ne soient écrites. `unknown` n'a pas �
 une découverte tardive : c'était la conséquence mécanique de poser la table.
 Elle est donc posée d'abord cette fois.
 
+**Révision 2** — intègre les quatre exigences bloquantes de la revue :
+projection locale complète (§3), écritures de cache strictes (§4), rebase après
+verdict autoritaire (§5), exclusion réelle de `pending` du moteur (§6). Les
+arbitrages 5.1 à 5.3 sont arrêtés et reportés en §8.
+
 ---
 
 ## 1. Le chemin actuel et la fenêtre qu'il laisse
@@ -48,21 +53,13 @@ disque.
 
 ---
 
-## 2. Ce que la table doit être : des axes, pas un enum
+## 2. Des axes, pas un enum — et les combinaisons interdites
 
-La table proposée en revue range `never_started`, `terminal`,
-`awaiting_conflict_resolution`, `quarantined` et `purge_pending_reconciliation`
-dans une colonne unique. Le code ne peut pas suivre : ces valeurs ne sont pas
-exclusives.
-
-Une entrée `started` **devient** `terminal` quand le serveur la refuse. Les
-fondre en un seul état effacerait le fait qu'une requête est partie — c'est
-précisément ce que la purge doit savoir. Elle pose deux questions indépendantes :
-
-- « quelque chose est-il parti ? » → axe **envoi** ;
-- « reste-t-il un effet local à défaire ? » → axe **effet local**.
-
-Chaque axe garde donc son champ.
+`never_started`, `terminal`, `awaiting_conflict_resolution`, `quarantined` et
+`purge_pending_reconciliation` ne sont pas des valeurs exclusives. Une entrée
+`started` **devient** `terminal` quand le serveur la refuse ; les fondre en une
+colonne unique effacerait le fait qu'une requête est partie, ce que la purge doit
+précisément savoir.
 
 ### Axe 1 — Envoi (`dispatchState`) — existe
 
@@ -77,7 +74,7 @@ Chaque axe garde donc son champ.
 | Valeur | Signification | Qui la pose |
 |---|---|---|
 | `pending` | Outbox durable ; le cache optimiste peut être absent, partiel ou complet | écriture de l'outbox |
-| `applied` | L'effet optimiste est durable et connu | après persistance du cache |
+| `applied` | La projection locale est durable et connue | après le commit journalisé du cache |
 | `reconciled` | Le verdict autoritaire a remplacé l'effet optimiste ; plus rien à défaire | réconciliation, succès comme refus terminal |
 
 ### Axe 3 — Verdict serveur (`terminal`, `terminalStatus`, `terminalOutcome`) — existe
@@ -86,15 +83,11 @@ Chaque axe garde donc son champ.
 
 ### Axes 5 et 6 — Conflit durable et quarantaine — **n'existent pas encore**
 
-Ce sont les points 6 de l'ordre convenu. Cette PR ne doit ni les créer ni les
-préempter. Un mouvement de stock ne produit pas de `version_conflict` : la ligne
-`awaiting_conflict_resolution` de la table est hors périmètre ici et sera écrite
-avec la réserve.
+Points 6 de l'ordre convenu. Cette PR ne doit ni les créer ni les préempter. Un
+mouvement de stock ne produit pas de `version_conflict` : la ligne
+`awaiting_conflict_resolution` sera écrite avec la réserve.
 
 ### Droits dérivés, pas déclarés
-
-« Réseau autorisé » et « purge autorisée » ne sont pas des colonnes d'un état :
-ce sont des **fonctions** des axes.
 
 ```text
 réseau autorisé   ⟺  dispatchState === 'started'
@@ -107,85 +100,242 @@ purge autorisée   ⟺  dispatchState === 'never_started'
                       ∧ (localEffectState !== 'applied' ∨ un compensateur existe)
 ```
 
-La condition `localEffectState !== 'pending'` avant tout réseau est le cœur du
-point suivant.
+### Matrice d'invariants
+
+Des axes indépendants créent des combinaisons qui n'ont aucun sens. Elles sont
+interdites explicitement, et chacune est vérifiée :
+
+| Invariant | Raison |
+|---|---|
+| `localEffectState === 'pending'` ⇒ `dispatchState !== 'started'` | aucun réseau avant que l'effet local soit durable |
+| `dispatchState === 'started'` ⇒ `localEffectState ∈ {applied, reconciled}` | la barrière n'est franchissable qu'après §6 |
+| `terminal === true` avec verdict serveur ⇒ `dispatchState === 'started'` | le serveur a nécessairement répondu |
+| `purgeState === 'pending_reconciliation'` ⇒ aucun réseau | la suppression est déjà engagée |
+| `localEffectState === 'reconciled' ∧ !terminal` ⇒ nettoyage seulement | un succès ne doit plus repartir |
+| champ absent ou version inconnue ⇒ chemin legacy conservateur | aucune déduction depuis une file ancienne |
+
+### Versionnement
+
+```ts
+/** Absent sur toute file persistée avant cette migration. */
+outboxSchemaVersion?: 1;
+```
+
+Les files de production ne portent aucun de ces champs. Leur absence ne doit
+**jamais** valoir « entrée outbox-first valide » : c'est la même faute que
+déduire `never_started` de l'absence de compteurs. Une entrée sans
+`outboxSchemaVersion` suit le chemin actuel — `unknown`, pas de `localEffect`,
+pas de rebase, pas de reprise de projection.
 
 ---
 
-## 3. Le plantage entre l'outbox et le cache optimiste
+## 3. La projection locale doit être complète, pas seulement le stock
 
-L'ordre outbox → cache est le bon : l'inverse perd l'écriture. Mais il crée le
-cas à traiter explicitement :
+La révision 1 proposait `{ productId, movementId, stockAfter }`. C'est
+insuffisant, et la revue a raison de le bloquer : le mouvement optimiste porte
+l'organisation, le chantier, le type, la quantité, `stockBefore`, la référence,
+la désignation, le fournisseur, l'emplacement, le bâtiment, la zone,
+l'entreprise, la personne, le commentaire, l'auteur et la date. Le produit peut
+en outre être **créé intégralement**, et porte des totaux d'entrée/sortie, un
+seuil, une version et `pendingSync`.
 
-```text
-outbox durable
-→ plantage avant la mise à jour du cache optimiste
-```
-
-`persistCurrent` écrit **deux clés** AsyncStorage —
-[`useInventory.ts:307`](../hooks/queries/useInventory.ts#L307), produits et
-mouvements, via `Promise.all`. Un plantage entre les deux laisse un effet à
-moitié appliqué. `pending` doit donc signifier « le cache peut être dans
-n'importe quel état », et non « le cache n'a pas été touché ».
-
-### Pourquoi rejouer un delta ne marche pas
-
-La charge utile enfilée porte `quantity` et `movement_type` — un **delta**.
-Réappliquer un delta sur un cache dont on ignore s'il l'a déjà reçu double le
-mouvement. C'est exactement la faute « absence de preuve traitée comme preuve
-d'absence » sous une autre forme.
-
-### La correction : l'entrée porte l'état attendu, en absolu
-
-L'entrée outbox transporte l'**état post-attendu**, déjà calculé au moment de
-l'intention (`after`, `movementId`) :
+Reconstruire tout cela depuis trois champs est impossible. La charge est donc un
+snapshot de projection complet et versionné :
 
 ```ts
-localEffect: {
-  productId: string;
-  movementId: string;
-  /** Stock ABSOLU attendu après cette opération. Jamais un delta. */
-  stockAfter: number;
+interface InventoryMovementLocalEffectV1 {
+  version: 1;
+  kind: 'inventory_movement';
+  /** Le produit tel que l'intention l'a rendu visible, en entier. */
+  productAfter: InventoryProduct;
+  /** Le mouvement tel que l'intention l'a rendu visible, en entier. */
+  movementAfter: InventoryMovement;
 }
 ```
 
-La reprise à l'hydratation devient déterministe et idempotente :
+Réutiliser les types de domaine plutôt que de les recopier évite qu'un champ
+ajouté à `InventoryProduct` soit silencieusement absent de la projection : le
+compilateur le réclame.
+
+### Pourquoi un delta ne peut pas remplacer ce snapshot
+
+La charge utile RPC porte `quantity` et `movement_type` — un delta. Réappliquer
+un delta sur un cache dont on ignore s'il l'a déjà reçu double le mouvement.
+C'est « absence de preuve traitée comme preuve d'absence » sous une autre forme.
+
+### Reprise depuis `pending`
 
 ```text
-pour chaque entrée outbox de ce produit, dans l'ordre de la file :
-  upsert du mouvement par movementId
-  product.currentStock := entry.localEffect.stockAfter
+pour chaque entrée outbox non terminale du produit, dans l'ordre de la file :
+  upsert de movementAfter par son id
+  remplacement de productAfter par son id
+commit journalisé du couple de caches
 puis localEffectState := 'applied'
 ```
 
-Rejouer deux fois donne le même résultat. Deux mouvements enfilés sur le même
-produit convergent vers le `stockAfter` du dernier, ce qui est correct. Le cas
-« à moitié écrit » se résout sans avoir à le distinguer du cas « pas écrit ».
-
-### Où cela mène, et pourquoi le dire maintenant
-
-Une fois l'effet optimiste exprimé en absolu et porté par l'entrée, le cache
-durable cesse d'être une source de vérité indépendante : il devient la
-**projection** de « dernier état serveur connu » + « entrées outbox dans
-l'ordre ». Ce modèle supprime une classe entière de problèmes — la purge n'a plus
-besoin d'un compensateur par type d'opération, elle recalcule la projection sans
-l'entrée retirée.
-
-Ce n'est pas le périmètre de cette PR et je ne propose pas de l'y faire entrer.
-Mais la forme absolue de `localEffect` est choisie pour que ce chemin reste
-ouvert sans avoir à défaire ce qui sera écrit maintenant.
+Rejouer deux fois donne le même résultat. Le cas « à moitié écrit » se résout
+sans avoir à le distinguer du cas « pas écrit ».
 
 ---
 
-## 4. Séquence nominale et points de plantage
+## 4. Le cache doit être écrit strictement
+
+`persistCurrent` ([`useInventory.ts:303`](../hooks/queries/useInventory.ts#L303))
+appelle deux `writeCache()` en parallèle. Or `writeCache`
+([`lib/offlineCache.ts:285`](../lib/offlineCache.ts#L285)) **avale** l'erreur de
+stockage :
+
+```ts
+try { await writeCacheStrict(key, data, userId); }
+catch { /* Storage full or unavailable — silently ignore */ }
+```
+
+La séquence dangereuse est donc réelle :
+
+```text
+écriture produits échoue silencieusement
+écriture mouvements réussit
+persistCurrent résout
+→ localEffectState passerait à applied
+→ réseau autorisé
+alors que la projection n'est pas durable
+```
+
+`localEffectState` reste `pending` tant que **les deux** snapshots n'ont pas été
+écrits strictement.
+
+Le dépôt possède déjà le bon outil :
+[`commitCachePairWithJournalStrict`](../lib/offlineCache.ts#L331) — un journal
+d'écriture anticipée qui rend récupérable une écriture sur deux clés, écrit le
+journal, puis les deux cibles **séquentiellement**, puis supprime le journal ;
+une reprise rejoue les cibles d'origine même si une seule des deux a abouti.
+
+Ce n'est pas un mécanisme à construire : `reconcileTerminalInventoryOperationCache`
+l'utilise déjà sur exactement ce couple de clés
+([`NetworkContext.tsx:340`](../context/NetworkContext.tsx#L340)). L'écriture
+optimiste passe par le même chemin.
+
+---
+
+## 5. Rebase après un verdict autoritaire
+
+L'état absolu règle le plantage **avant** l'envoi. Il ne suffit pas quand le
+serveur rend un stock différent de la prédiction locale :
+
+```text
+cache local 10 ; A +5 → 15 ; B +3 → 18
+un autre appareil porte le serveur à 20
+le serveur applique A : stock_before 20, stock_after 25
+→ le stock local attendu n'est ni 18 ni 25, mais 28
+```
+
+### Ce que le code fait aujourd'hui — deux règles qui se contredisent
+
+En vérifiant ce point j'ai trouvé une incohérence **déjà en production**, sans
+rapport avec l'outbox :
+
+- refus terminal —
+  [`reconcileTerminalInventoryMovementCache`](../lib/inventoryMovementOutcome.ts#L341)
+  inverse **uniquement le delta** du mouvement rejeté, avec le commentaire
+  explicite qu'un `stock_before` absolu effacerait les mouvements suivants ;
+- succès —
+  [`reconcileInventoryMovementCache`](../lib/inventoryMovementOutcome.ts#L282)
+  écrit `currentStock: outcome.stockAfter`, **en absolu**.
+
+Le chemin succès efface donc déjà l'effet des mouvements encore en attente sur le
+même produit. Avec 10 en local, A +5 et B +3, un succès de A ramène l'affichage à
+15 alors que B reste enfilée. Le cache se répare quand B aboutit à son tour, mais
+reste faux entre les deux — et durablement faux si B est différée. Le danger que
+le chemin terminal documente est réel sur le chemin succès.
+
+### La règle retenue
+
+Un produit portant au moins une entrée outbox non terminale a un cache **dérivé**,
+plus autoritaire :
+
+```text
+base   := dernier stock serveur connu pour ce produit
+cache  := projection de base par les entrées outbox, dans l'ordre physique
+```
+
+Après chaque verdict autoritaire :
+
+```text
+base := outcome.stockAfter   en cas de succès
+base := outcome.stockBefore  en cas de refus terminal
+pour chaque mouvement suivant non terminal du même produit, dans l'ordre :
+  stockBefore := base courant
+  stockAfter  := base courant ± quantity selon movementType
+  localEffect mis à jour avec ces valeurs absolues
+persister, dans cet ordre :
+  1. l'outbox rebasée (écriture stricte)
+  2. le couple de caches projeté (commit journalisé)
+```
+
+L'ordre importe : un plantage entre 1 et 2 laisse une outbox correcte et un cache
+périmé, que l'hydratation reprojette. L'ordre inverse laisserait un cache que
+plus rien ne justifie.
+
+Un produit sans aucune entrée outbox garde le comportement actuel. Les deux
+règles ne coexistent donc pas sur le même produit — c'est la condition pour que
+l'incohérence ci-dessus ne soit pas simplement déplacée.
+
+### Test obligatoire
+
+```text
+stock local initial 10, serveur initial 20
+deux commandes locales +5 puis +3
+premier verdict autoritaire : stock_after 25
+seconde encore en attente
+→ stock local projeté = 28
+→ localEffect de la seconde rebasé à stockBefore 25 / stockAfter 28
+```
+
+---
+
+## 6. `pending` doit être réellement exclu du moteur
+
+Le prédicat de §2 ne vaut que s'il est appliqué. La barrière marque aujourd'hui
+`started` **toute** entrée rejouable qui ne l'est pas déjà
+([`NetworkContext.tsx:1620`](../context/NetworkContext.tsx#L1620)) : elle ignore
+`localEffectState`. Sans changement :
+
+```text
+outbox durable pending → cache pas encore réparé → barrière started → RPC
+```
+
+ce qui viole la séquence de §7.
+
+Une entrée `pending` doit donc :
+
+```text
+ne pas être marquée started
+ne pas entrer dans le snapshot de passe
+déclencher la reprise de sa projection locale, puis redevenir éligible
+```
+
+Le point d'application est `isReplayableQueuedOperation`, qui alimente à la fois
+`needsProof` et le filtre du snapshot : y ajouter `localEffectState !== 'pending'`
+ferme les deux portes d'un seul prédicat, comme c'est déjà le cas pour
+`purgeState` et `terminal`. La reprise elle-même appartient à l'hydratation, au
+même titre que `resumePendingQueuePurge`.
+
+**Conséquence à ne pas manquer** : une entrée `pending` dont la reprise échoue
+n'est plus rejouable. Elle ne doit pas pour autant devenir supprimable — la
+projection est incertaine, pas absente. Le prédicat de purge de §2 la conserve
+déjà, puisqu'il exige `never_started` **et** un compensateur.
+
+---
+
+## 7. Séquence nominale et points de plantage
 
 ```text
 intention utilisateur
  1. validation locale (stock suffisant, permissions)
  2. génération UNIQUE : operationId, movementId, productId, queueEntryId
- 3. ÉCRITURE STRICTE de l'outbox   → never_started, localEffectState=pending
- 4. application + persistance de l'effet optimiste
- 5. ÉCRITURE STRICTE               → localEffectState=applied
+ 3. ÉCRITURE STRICTE de l'outbox   → never_started, pending, localEffect complet
+ 4. commit journalisé du couple de caches
+ 5. ÉCRITURE STRICTE               → applied
  6. barrière stricte               → started
  7. RPC avec le même operation_id
 ```
@@ -193,19 +343,19 @@ intention utilisateur
 | Plantage après | État sur disque | Reprise |
 |---|---|---|
 | 2 | rien | l'intention est perdue ; aucune écriture serveur n'a pu partir |
-| 3 | outbox `never_started` / `pending` | l'hydratation réapplique l'effet absolu, passe à `applied` |
-| 4 | outbox `pending`, cache partiel ou complet | idem — la réapplication absolue converge |
-| 5 | outbox `never_started` / `applied` | l'entrée part normalement à la passe suivante |
-| 6 | outbox `started` / `applied` | rejeu avec le **même** `operation_id` ; l'idempotence serveur tranche |
-| 7 | outbox `started` / `applied` | idem |
+| 3 | outbox `never_started` / `pending` | l'hydratation reprojette depuis `localEffect`, puis `applied` |
+| 4 | outbox `pending`, cache complet ou journal ouvert | le journal rejoue ses cibles ; la reprojection converge |
+| 5 | outbox `never_started` / `applied` | l'entrée part à la passe suivante |
+| 6 | outbox `started` / `applied` | rejeu avec le **même** `operation_id` |
+| 7 | outbox `started` / `applied` | idem — l'idempotence serveur tranche |
 
 Verdicts :
 
 ```text
-succès explicite      → réconciliation autoritaire → localEffectState=reconciled
-                      → SUPPRESSION STRICTE de l'outbox
-refus terminal        → terminalOutcome persisté → réconciliation locale
-                      → localEffectState=reconciled, entrée conservée pour acquittement
+succès explicite      → réconciliation autoritaire → rebase des suivants (§5)
+                      → reconciled → SUPPRESSION STRICTE de l'outbox
+refus terminal        → terminalOutcome persisté → réconciliation → rebase
+                      → reconciled, entrée conservée pour acquittement
 timeout / corps illisible / réponse perdue
                       → started conservé, même operation_id, retry planifié
 annulation client     → aucune conclusion sur le serveur → started conservé
@@ -215,95 +365,144 @@ Aucun de ces chemins ne conclut à un refus depuis une absence de réponse.
 
 ---
 
-## 5. Trois arbitrages que je ne tranche pas seul
+## 8. Arbitrages arrêtés
 
-### 5.1 Le hook garde-t-il un envoi en ligne ?
+### 8.1 Un seul émetteur ; l'observateur ne porte aucune sûreté
 
-Le critère « le hook ne possède plus de chemin direct » admet deux lectures.
+Le moteur est le **seul émetteur réseau**. Le hook n'appelle plus
+`record_inventory_movement`.
 
-**(a) Le hook envoie lui-même, après l'outbox.** L'UX synchrone est conservée :
-un refus serveur remonte encore par `throw new InventoryOperationError(...)`
-([`useInventory.ts:600`](../hooks/queries/useInventory.ts#L600)). Coût : deux
-émetteurs pour la même entrée. Un passe de synchronisation déclenchée en
-parallèle peut envoyer la même opération — sans dommage métier, l'idempotence
-serveur étant la garantie, mais avec deux réconciliations locales concurrentes.
-Il faudrait un bail en mémoire, donc un cinquième axe non durable.
+L'attente du premier résultat est une couche UX **optionnelle et bornée**, jamais
+une garantie :
 
-**(b) Le hook n'écrit que l'outbox ; le moteur envoie.** Un seul émetteur.
-Environ 75 lignes de `useInventory.ts` — upload, parsing de verdict,
-réconciliation, refus terminal — disparaissent au profit du chemin déjà testé de
-`executeQueuedOperation`, qui les fait toutes. Coût : le refus serveur devient
-asynchrone.
+```ts
+type InventoryFirstAttemptResult =
+  | { kind: 'applied'; outcome: InventoryMovementOutcome }
+  | { kind: 'terminal'; outcome: InventoryMovementOutcome }
+  | { kind: 'deferred' }
+  | { kind: 'cancelled' }
+  | { kind: 'ownership_lost' };
+```
 
-**(b′) Le hook n'écrit que l'outbox, et attend le verdict de *cette* entrée.**
-Un seul émetteur, UX identique, au prix d'une promesse par entrée exposée par le
-contexte.
+Contrat : l'observateur se termine au **premier résultat de tentative**, pas à la
+sortie de file. Indexé par `queueEntryId`, enregistré **avant** de programmer la
+passe, annulé au changement de compte, borné dans le temps. Exclusivement en
+mémoire : après un redémarrage, la garantie est l'outbox, jamais la promesse.
 
-Je recommande **(b′)**. À noter que le chemin asynchrone existe déjà et tourne :
-hors-ligne, le refus passe aujourd'hui par la réconciliation terminale et
-`rejectedInventorySignature`
-([`useInventory.ts:319`](../hooks/queries/useInventory.ts#L319)). (b′) supprime
-un doublon plutôt qu'une capacité.
+```text
+en ligne + opération immédiatement admissible → attendre le premier résultat
+hors-ligne, derrière une précédente du même produit, auth indisponible,
+  ou délai dépassé                            → { queued: true } immédiat
+succès                                        → retour autoritaire
+refus terminal                                → InventoryOperationError
+timeout / erreur réseau                       → { queued: true }, jamais d'attente indéfinie
+```
 
-### 5.2 `enqueueOperation` ne peut pas servir d'écriture d'outbox
+### 8.2 Méthode stricte distincte, spécialisée d'abord
 
-Elle publie puis sauvegarde en best-effort. Les critères 2 et 3 — durable avant
-tout RPC, zéro appel réseau si la persistance échoue — exigent une écriture
-**stricte** qui rejette. Cela demande une nouvelle méthode de contexte, pas un
-paramètre de plus sur l'existante ; et `enqueueOperation` doit rester en place
-pour les 160 autres sites tant qu'ils ne sont pas convertis.
+`enqueueOperation` publie puis sauvegarde en best-effort : incompatible avec
+« échec de persistance ⇒ zéro RPC ». Une API métier plutôt qu'un outil générique
+prématuré :
 
-### 5.3 Le mode sans serveur est une exception à nommer
+```ts
+submitInventoryMovementOutboxStrict(command)
+```
 
-Quand `isSupabaseConfigured` est faux
-([`useInventory.ts:540`](../hooks/queries/useInventory.ts#L540)), rien n'est
-enfilé et `pendingSync` passe à `false`. Il n'y a pas de serveur, donc pas
-d'écriture à rejouer et pas d'`operation_id` à protéger. Je propose de **ne pas**
-écrire d'outbox dans ce mode, et d'inscrire l'exception dans le contrat plutôt
-que de la laisser tacite.
+Elle enchaîne comme une seule procédure : création stricte de l'entrée → effet
+local durable → passage strict à `applied` → programmation de la passe →
+observateur éventuel. Les autres sites conservent `enqueueOperation`.
+
+### 8.3 Mode sans serveur — aucune outbox
+
+```text
+isSupabaseConfigured === false
+→ mutation purement locale, pendingSync=false, aucune outbox, aucun observateur
+```
+
+Test dédié, pour qu'une refactorisation future ne rende pas ce chemin dépendant
+de la file.
 
 ---
 
-## 6. Les douze critères, et comment chacun est prouvé
+## 9. Les médias sont déjà dans ce chemin
+
+`recordMovement` téléverse aujourd'hui la photo produit avant son RPC
+([`useInventory.ts:553`](../hooks/queries/useInventory.ts#L553)), et le produit
+optimiste peut porter une URI locale. Reporter « les médias » sans trancher
+laisserait le cas ouvert.
+
+**Politique retenue : conserver l'upload dans l'exécuteur.**
+
+L'exécuteur le fait déjà pour les rejeux
+([`NetworkContext.tsx:2064`](../context/NetworkContext.tsx#L2064)), et le
+registre serveur exclut délibérément `photo_url` de son hash
+([migration `20260814102326`](../supabase/migrations/20260814102326_harden_inventory_operation_idempotency.sql#L77))
+précisément pour qu'un rejeu puisse téléverser le même fichier vers une autre URL
+sans produire de `duplicate_operation_mismatch`. Conditions :
+
+- l'URL distante remplace **strictement** l'URI locale dans l'opération ;
+- `localEffect.productAfter.photoUrl` est mis à jour dans la même écriture ;
+- un plantage entre upload et RPC peut re-téléverser — le hash serveur le tolère.
+
+**Je m'écarte ici de la recommandation de la revue**, qui préférait un RPC
+indépendant de l'upload avec une opération média distincte. Cette voie exige
+l'opération média, qui est le point 4 de l'ordre convenu : l'adopter maintenant
+obligerait soit à la construire dans cette PR, soit à livrer un produit dont la
+photo ne part jamais. À arbitrer en revue — c'est le seul point du document où je
+propose autre chose que ce qui a été demandé.
+
+---
+
+## 10. L'adaptateur serveur existe déjà
+
+La révision 1 disait « construire l'adaptateur en premier ». À corriger : la
+logique de production ne doit pas être reconstruite côté client. La base tient
+déjà la clé `(organization_id, operation_id)`, le hash de commande, le registre
+durable des succès et refus, la restitution du même verdict au rejeu, et
+`duplicate_operation_mismatch` quand le même identifiant porte une autre
+commande.
+
+Deux couches de preuve, sans qu'aucune ne devienne une seconde spécification :
+
+```text
+tests unitaires rapides → faux adaptateur à état reproduisant ce contrat
+test SQL / Supabase     → supabase/tests/inventory_operation_idempotency.sql
+```
+
+Le faux adaptateur ne vaut que tant que le test SQL le contredit s'il dérive.
+
+---
+
+## 11. Les douze critères et leur preuve
 
 | # | Critère | Preuve |
 |---|---|---|
-| 1 | `operation_id` généré une seule fois | test : deux tentatives, même identifiant ; mutation : régénérer à chaque essai |
-| 2 | Entrée strictement durable avant tout RPC | promesse contrôlée : le RPC n'est pas appelé tant que l'écriture n'a pas résolu |
-| 3 | Échec de persistance ⇒ zéro appel réseau | écriture qui rejette ; l'espion RPC doit rester à zéro appel |
+| 1 | `operation_id` généré une seule fois | deux tentatives, même identifiant ; mutation : régénérer à chaque essai |
+| 2 | Entrée strictement durable avant tout RPC | promesse contrôlée : aucun RPC tant que l'écriture n'a pas résolu |
+| 3 | Échec de persistance ⇒ zéro appel réseau | écriture qui rejette ; l'espion RPC reste à zéro |
 | 4 | Aucun chemin direct avant l'outbox | assertion comportementale sur l'ordre, pas sur la source |
 | 5 | Timeout ⇒ même `operation_id` | rejeu après timeout, comparaison de l'argument |
 | 6 | Redémarrage ⇒ identifiant conservé | hydratation depuis un disque simulé |
-| 7 | Succès puis plantage avant suppression ⇒ rejeu, un seul mouvement | adaptateur serveur idempotent comptant les mouvements distincts |
+| 7 | Succès puis plantage avant suppression ⇒ un seul mouvement | faux adaptateur idempotent + test SQL |
 | 8 | Refus terminal ⇒ stock optimiste annulé | réconciliation vérifiée sur le cache durable |
-| 9 | Plantage entre outbox et cache repris proprement | reprise depuis `pending`, avec cache absent **et** cache à moitié écrit |
+| 9 | Plantage entre outbox et cache repris proprement | cache absent **et** cache à moitié écrit, journal ouvert |
 | 10 | 30 mouvements drainés en une passe | test d'adaptateur réel |
 | 11 | Mouvements serveur = `operation_id` uniques | même test |
-| 12 | Stock final local = stock serveur | même test |
+| 12 | Stock final local = stock serveur | même test, avec le rebase de §5 |
 
-Le test déterminant reste celui que vous avez formulé :
+Test déterminant :
 
 ```text
-outbox op-1 durable
-serveur applique op-1
-réponse perdue
-redémarrage
-rejeu op-1
-→ un seul mouvement serveur
-→ file vidée
-→ stock cohérent
+outbox op-1 durable ; le serveur applique op-1 ; réponse perdue ; redémarrage ;
+rejeu op-1 → un seul mouvement serveur, file vidée, stock cohérent
 ```
-
-Il ne peut pas être écrit contre un `vi.fn()` : il exige un adaptateur serveur
-qui tienne réellement `(organization_id, operation_id)` et rende le même verdict
-au second appel. Cet adaptateur est aussi celui des critères 10 à 12 ; il est
-donc construit en premier.
 
 ---
 
-## 7. Ce que la première PR ne fera pas
+## 12. Hors périmètre de la première PR
 
-- `update_inventory_product`, réserves, médias — points 2 à 4 de l'ordre convenu.
+- `update_inventory_product`, réserves, opérations média — points 2 à 4.
 - Conflit durable et quarantaine — point 6.
-- Le modèle par projection de la section 3.
-- Les 160 autres appels d'`enqueueOperation`, qui gardent le chemin actuel.
+- Le modèle par projection généralisé : §5 l'applique aux produits sous outbox,
+  et à eux seuls.
+- Les autres appels d'`enqueueOperation`, qui gardent le chemin actuel.
