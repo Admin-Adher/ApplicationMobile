@@ -31,7 +31,7 @@ const executor = source.slice(
   source.indexOf('for (const op of currentQueue) {'),
 );
 
-const EXPECTED_IDS = Array.from({ length: 59 }, (_, i) => `E${String(i + 1).padStart(2, '0')}`);
+const EXPECTED_IDS = Array.from({ length: 62 }, (_, i) => `E${String(i + 1).padStart(2, '0')}`);
 
 /** Expression rendue par une sortie, parenthèses équilibrées comprises. */
 function exitExpression(id: string): string {
@@ -62,7 +62,7 @@ describe('the contract table covers every exit, one for one', () => {
     expect(executor).toContain('Promise<QueuedOperationOutcome>');
   });
 
-  it('numbers the exits E01 to E59, each exactly once', () => {
+  it('numbers the exits E01 to E62, each exactly once', () => {
     expect(idsInCode).toEqual(EXPECTED_IDS);
   });
 
@@ -105,7 +105,7 @@ describe('each exit declares the right kind', () => {
     const local = EXPECTED_IDS.filter(id => kindOf(id) === 'terminalLocal');
 
     expect(local).toEqual([
-      'E01', 'E02', 'E08', 'E10', 'E12', 'E13', 'E33', 'E36', 'E44', 'E51', 'E56',
+      'E01', 'E02', 'E08', 'E10', 'E12', 'E13', 'E33', 'E36', 'E47', 'E54', 'E59',
     ]);
   });
 
@@ -164,8 +164,8 @@ describe('each exit declares the right kind', () => {
     }, {});
 
     expect(byKind.conflict).toEqual(['E28']);
-    expect(byKind.deferred).toEqual(['E46']);
-    expect(byKind.fail).toHaveLength(32);
+    expect(byKind.deferred).toEqual(['E49']);
+    expect(byKind.fail).toHaveLength(35);
     expect(byKind.applied).toHaveLength(14);
     expect(byKind.inconnu).toBeUndefined();
   });
@@ -180,7 +180,8 @@ describe('transport metadata reaches the policy, exit by exit', () => {
     // qu'un autre site citait la même variable.
     const expected = [
       'E14', 'E15', 'E17', 'E18', 'E19', 'E22', 'E23', 'E26', 'E29', 'E31',
-      'E34', 'E40', 'E42', 'E45', 'E47', 'E48', 'E50', 'E52', 'E53', 'E55', 'E57',
+      'E34', 'E40', 'E42', 'E44', 'E45', 'E46', 'E48', 'E50', 'E51', 'E53', 'E55',
+      'E56', 'E58', 'E60',
     ];
 
     expect(EXPECTED_IDS.filter(forwardsMeta)).toEqual(expected);
@@ -189,7 +190,7 @@ describe('transport metadata reaches the policy, exit by exit', () => {
   it('omits it exactly where no response exists to carry it', () => {
     // Échec d'upload, validation locale, exception, refus métier construit
     // localement : aucune réponse HTTP n'a été reçue.
-    const expected = ['E03', 'E04', 'E05', 'E06', 'E07', 'E09', 'E11', 'E37', 'E38', 'E39', 'E59'];
+    const expected = ['E03', 'E04', 'E05', 'E06', 'E07', 'E09', 'E11', 'E37', 'E38', 'E39', 'E62'];
     const failuresWithoutMeta = EXPECTED_IDS
       .filter(id => exitExpression(id).includes('fail(') && !forwardsMeta(id));
 
@@ -627,7 +628,7 @@ describe('logs never carry business payloads', () => {
 describe('proof that the backend answers breaks the failure streak', () => {
   it('carries it on every non-failure outcome that already got an answer', () => {
     expect(exitExpression('E28')).toContain('provesServerReachable: true');
-    expect(exitExpression('E46')).toContain('provesServerReachable: true');
+    expect(exitExpression('E49')).toContain('provesServerReachable: true');
     // E13 et E33 refusent localement, mais APRES une reponse serveur.
     expect(exitExpression('E13')).toContain('provesServerReachable: true');
     expect(exitExpression('E33')).toContain('provesServerReachable: true');
@@ -637,7 +638,7 @@ describe('proof that the backend answers breaks the failure streak', () => {
     // Le defaut central : `rebase.reachedServer` valait `true` pour un 503 —
     // qui doit precisement alimenter la serie. L'echec passe desormais par la
     // politique, qui sait qu'un 503 compte et qu'un 429 arrete la passe.
-    const rebaseTransport = exitExpression('E45');
+    const rebaseTransport = exitExpression('E48');
 
     expect(rebaseTransport).toContain('fail(');
     expect(rebaseTransport).toContain('meta: rebase.meta');

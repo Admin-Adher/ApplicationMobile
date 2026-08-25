@@ -69,6 +69,10 @@ import {
   migrateAndCoalesceSitePlanSnapshots,
 } from '@/lib/offlineQueueCoalescing';
 import {
+  queueReplayPriority,
+  queuedInsertMatchesPersistedRow,
+} from '@/lib/syncQueueDependencies';
+import {
   inventoryMovementsCacheKey,
   inventoryOutcomeContextFromQueuedOperation,
   inventoryProductsCacheKey,
@@ -735,16 +739,6 @@ function uploadStepTimeoutMs(data: Record<string, any> | null | undefined): numb
   return UPLOAD_STEP_TIMEOUT_MS * Math.max(1, countLocalPhotoUris(data));
 }
 
-function queueReplayPriority(op: QueuedOperation): number {
-  if (op.op === 'rpc' && op.rpc?.fn === 'create_reserve_with_photos') return 10;
-  if (op.op === 'rpc' && op.rpc?.fn === 'record_inventory_movement') return 12;
-  if (op.op === 'rpc' && op.rpc?.fn === 'update_inventory_product') return 13;
-  if (op.op === 'rpc' && op.rpc?.fn === 'create_site_plan_revision_with_reserve_migration') return 15;
-  if (op.table === 'reserves' && op.op === 'insert') return 10;
-  if (op.table === 'photos' && op.op === 'insert') return 20;
-  return 30;
-}
-
 /**
  * Issue rendue par l'executeur legacy.
  *
@@ -775,7 +769,7 @@ type QueuedOperationOutcome = PassOperationOutcome<QueuedOperation> & {
  * seule fois. Les numeros de ligne, eux, deviennent faux au premier changement.
  */
 type SyncExitId =
-  'E01' | 'E02' | 'E03' | 'E04' | 'E05' | 'E06' | 'E07' | 'E08' | 'E09' | 'E10' | 'E11' | 'E12' | 'E13' | 'E14' | 'E15' | 'E16' | 'E17' | 'E18' | 'E19' | 'E20' | 'E21' | 'E22' | 'E23' | 'E24' | 'E25' | 'E26' | 'E27' | 'E28' | 'E29' | 'E30' | 'E31' | 'E32' | 'E33' | 'E34' | 'E35' | 'E36' | 'E37' | 'E38' | 'E39' | 'E40' | 'E41' | 'E42' | 'E43' | 'E44' | 'E45' | 'E46' | 'E47' | 'E48' | 'E49' | 'E50' | 'E51' | 'E52' | 'E53' | 'E54' | 'E55' | 'E56' | 'E57' | 'E58' | 'E59';
+  'E01' | 'E02' | 'E03' | 'E04' | 'E05' | 'E06' | 'E07' | 'E08' | 'E09' | 'E10' | 'E11' | 'E12' | 'E13' | 'E14' | 'E15' | 'E16' | 'E17' | 'E18' | 'E19' | 'E20' | 'E21' | 'E22' | 'E23' | 'E24' | 'E25' | 'E26' | 'E27' | 'E28' | 'E29' | 'E30' | 'E31' | 'E32' | 'E33' | 'E34' | 'E35' | 'E36' | 'E37' | 'E38' | 'E39' | 'E40' | 'E41' | 'E42' | 'E43' | 'E44' | 'E45' | 'E46' | 'E47' | 'E48' | 'E49' | 'E50' | 'E51' | 'E52' | 'E53' | 'E54' | 'E55' | 'E56' | 'E57' | 'E58' | 'E59' | 'E60' | 'E61' | 'E62';
 
 /**
  * Marqueur d'identite d'une sortie. Ne transforme rien : l'issue traverse
@@ -2592,13 +2586,48 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               console.log(`[SYNC:site_plans] SUCCÈS INSERT ✓`);
             }
           }
-          if (result.error?.code === '23505') result = { error: null };
+          if (result.error?.code === '23505') {
+            const originalDuplicate = result;
+            const entityId = data?.id;
+            if (!entityId) {
+              return syncExit('E44', fail(
+                retryOpForCatch,
+                { code: 'DUPLICATE_INSERT_UNVERIFIED', status: 409, message: `INSERT ${op.table} en conflit sans identifiant vérifiable.` },
+                { terminalStatus: 'duplicate_insert_mismatch', meta: originalDuplicate.meta },
+              ));
+            }
+
+            const existing = await supabaseRestSelect<Record<string, unknown>>(
+              op.table,
+              '*',
+              { column: 'id', value: String(entityId) },
+              1,
+            );
+            if (existing.error) {
+              return syncExit('E45', fail(retryOpForCatch, existing.error, { meta: existing.meta }));
+            }
+
+            if (!queuedInsertMatchesPersistedRow(data, existing.data?.[0])) {
+              return syncExit('E46', fail(
+                retryOpForCatch,
+                {
+                  code: 'DUPLICATE_INSERT_MISMATCH',
+                  status: 409,
+                  message: `Identifiant ${String(entityId)} déjà utilisé par une autre ligne ${op.table}; insertion non appliquée.`,
+                },
+                { terminalStatus: 'duplicate_insert_mismatch', meta: originalDuplicate.meta },
+              ));
+            }
+
+            // Only a byte-for-business-field match proves an idempotent replay.
+            result = { error: null, data: existing.data, meta: existing.meta };
+          }
         } else if (op.op === 'upsert') {
           result = await supabaseRestMutation(op.table, 'upsert', data!);
         } else if (op.op === 'update') {
           if (!op.filter) {
             // Aucune tentative possible : rejouer sans filtre écraserait la table.
-            return syncExit('E44', terminalLocalOperation(op, 'invalid_local_operation', `UPDATE ${op.table} refusé: filtre manquant.`));
+            return syncExit('E47', terminalLocalOperation(op, 'invalid_local_operation', `UPDATE ${op.table} refusé: filtre manquant.`));
           }
           if (op.table === 'site_plans' && data?.__replace_file_safely && op.filter.column === 'id') {
             const patch = { ...data };
@@ -2667,7 +2696,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   id: rebase.operationId ?? op.id,
                   baseVersion: rebase.baseVersion ?? op.baseVersion,
                 };
-                return syncExit('E45', fail(retryOperation, rebase.error, {
+                return syncExit('E48', fail(retryOperation, rebase.error, {
                   meta: rebase.meta,
                   // Le rebase n'est atteint qu'APRÈS un premier
                   // `version_conflict` rendu par le serveur : la série de
@@ -2686,21 +2715,21 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                   attemptCount: normalizeAttemptCount(op.attemptCount) + 1,
                 };
                 failedOps.push(rebasedOperation);
-                return syncExit('E46', {
+                return syncExit('E49', {
                   kind: 'deferred',
                   operation: rebasedOperation,
                   nextAttemptAt: null,
                   provesServerReachable: true,
                 });
               } else {
-                return syncExit('E47', fail(retryOpForCatch, rebase.message ?? rebase.status, {
+                return syncExit('E50', fail(retryOpForCatch, rebase.message ?? rebase.status, {
                   terminalStatus: rebase.status,
                   meta: rebase.meta,
                 }));
               }
             } else {
               const terminal = ['deleted', 'forbidden', 'not_found', 'duplicate_operation_mismatch', 'invalid_payload'].includes(outcome.status);
-              return syncExit('E48', fail(
+              return syncExit('E51', fail(
                 retryOpForCatch,
                 outcome.message ?? outcome.status,
                 terminal
@@ -2721,16 +2750,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 );
                 // Ligne disparue côté serveur : la mise à jour n'a plus d'objet.
                 if (!existsErr && !exists?.[0]) {
-                  return syncExit('E49', { kind: 'applied', operation: retryOpForCatch });
+                  return syncExit('E52', { kind: 'applied', operation: retryOpForCatch });
                 }
               } catch {}
             }
-            return syncExit('E50', fail(retryOpForCatch, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`, { meta: result.meta }));
+            return syncExit('E53', fail(retryOpForCatch, `UPDATE sur ${op.table} a affecté 0 ligne. Probablement bloqué par une policy RLS, ou l'élément ne vous appartient plus.`, { meta: result.meta }));
           }
         } else if (op.op === 'delete') {
           if (!op.filter) {
             // Sans filtre, un DELETE viderait la table : refus définitif.
-            return syncExit('E51', terminalLocalOperation(op, 'invalid_local_operation', `DELETE ${op.table} refusé: filtre manquant.`));
+            return syncExit('E54', terminalLocalOperation(op, 'invalid_local_operation', `DELETE ${op.table} refusé: filtre manquant.`));
           }
           const criticalDeleteRpc = CRITICAL_SOFT_DELETE_RPCS[op.table];
           if (criticalDeleteRpc && op.filter.column === 'id') {
@@ -2746,13 +2775,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               { column: 'chantier_id', value: op.filter.value },
             );
             if (linkedErr) {
-              return syncExit('E52', fail(op, linkedErr, { meta: linkedMeta }));
+              return syncExit('E55', fail(op, linkedErr, { meta: linkedMeta }));
             }
             if (linkedReserves?.[0]) {
               // Le SELECT a répondu : l'opération reste différée — les
               // réserves peuvent être supprimées plus tard — mais le backend
               // est prouvé joignable.
-              return syncExit('E53', fail(op, i18n.t('networkQueue.deleteProjectHasReserves'), { meta: linkedMeta }));
+              return syncExit('E56', fail(op, i18n.t('networkQueue.deleteProjectHasReserves'), { meta: linkedMeta }));
             }
           }
           if (op.table === 'reserves') {
@@ -2776,18 +2805,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
                 );
                 if (!existsErr && !exists?.[0]) {
                   // Row is already gone server-side — consider the delete successful
-                  return syncExit('E54', { kind: 'applied', operation: op });
+                  return syncExit('E57', { kind: 'applied', operation: op });
                 }
               } catch {}
             }
-            return syncExit('E55', fail(op, `DELETE sur ${op.table} bloqué par une policy RLS (0 ligne supprimée).`, { meta: result.meta }));
+            return syncExit('E58', fail(op, `DELETE sur ${op.table} bloqué par une policy RLS (0 ligne supprimée).`, { meta: result.meta }));
           }
         } else {
           // Opération illisible : aucune tentative ne la rendra valide.
-          return syncExit('E56', terminalLocalOperation(op, 'invalid_local_operation', `Opération inconnue: ${(op as any).op}`));
+          return syncExit('E59', terminalLocalOperation(op, 'invalid_local_operation', `Opération inconnue: ${(op as any).op}`));
         }
 
-        if (result.error) return syncExit('E57', fail(retryOpForCatch, result.error, { meta: result.meta }));
+        if (result.error) return syncExit('E60', fail(retryOpForCatch, result.error, { meta: result.meta }));
 
         if (op.op === 'insert' && op.table === 'messages' && data?.id && data?.channel_id) {
           triggerMessagePush(String(data.id), String(data.channel_id));
@@ -2799,9 +2828,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         // été écrite, ses photos partent séparément. Elle reste poussée
         // directement tant que la reconstruction legacy lit `failedOps`.
         if (deferredPhotoPatch) failedOps.push(deferredPhotoPatch);
-        return syncExit('E58', { kind: 'applied', operation: retryOpForCatch });
+        return syncExit('E61', { kind: 'applied', operation: retryOpForCatch });
       } catch (e) {
-        return syncExit('E59', fail(retryOpForCatch, e));
+        return syncExit('E62', fail(retryOpForCatch, e));
       }
     };
 
