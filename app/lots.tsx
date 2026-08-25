@@ -9,7 +9,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Lot } from '@/constants/types';
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
-import { genId } from '@/lib/utils';
+import { genEntityId } from '@/lib/utils';
 
 const LOT_COLORS = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6', '#EC4899',
@@ -76,7 +76,7 @@ export default function LotsScreen() {
       return;
     }
     const lot: Lot = {
-      id: 'lot-custom-' + genId().slice(0, 8),
+      id: genEntityId('lot-custom'),
       code: newCode.trim().toUpperCase(),
       name: newName.trim(),
       color: newColor,

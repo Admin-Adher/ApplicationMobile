@@ -3,6 +3,19 @@ export function genId(prefix?: string): string {
   return prefix ? `${prefix}-${id}` : id;
 }
 
+/**
+ * Generates a client-owned entity id without discarding the random suffix.
+ *
+ * Do not shorten `genId()` from the left: its leading characters come from the
+ * timestamp, so `slice(0, 8)` made every entity created during the same long
+ * time window share one id. Keeping the full timestamp + random suffix makes
+ * offline creations safe to replay before the server can allocate anything.
+ */
+export function genEntityId(prefix: string): string {
+  const normalizedPrefix = prefix.trim().replace(/-+$/g, '').toUpperCase();
+  return genId(normalizedPrefix);
+}
+
 export function formatSize(bytes: number | undefined): string {
   if (!bytes) return '?';
   if (bytes < 1024) return `${bytes} o`;

@@ -142,36 +142,44 @@ photo distinct (`deferredPhotoPatch`).
 | E42 | écriture de la galerie refusée | — | `op` + `nextPayload` | `fail` | politique | mutation | `writeMeta` |
 | E43 | écriture de la galerie acceptée | — | `op` + `nextPayload` | `applied` | — | mutation | — |
 
+## Rejeu générique — `insert`
+
+| Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| E44 | doublon sans identifiant vérifiable | — | `retryOpForCatch` | `fail` | terminal `duplicate_insert_mismatch` | mutation | doublon `meta` |
+| E45 | lecture de preuve du doublon refusée | — | `retryOpForCatch` | `fail` | politique | select | `existing.meta` |
+| E46 | ligne derrière le doublon différente ou invisible | — | `retryOpForCatch` | `fail` | terminal `duplicate_insert_mismatch` | mutation | doublon `meta` |
+
 ## Rejeu générique — `update`
 
 | Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| E44 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
-| E45 | second appel du rebase échoué au transport | — | version rebasée (nouvel `id`, `baseVersion`) | `fail` | politique | RPC | `rebase.meta` |
-| E46 | second `version_conflict` rendu par le serveur | nouvelle entrée poussée dans `failedOps` | version rebasée (nouvel `id`, `baseVersion`) | `deferred` + `provesServerReachable` | opération | RPC | — |
-| E47 | rebase impossible | — | `retryOpForCatch` | `fail` | terminal (`terminalStatus`) | RPC | `rebase.meta` |
-| E48 | verdict de patch réserve ≠ `ok` | — | `retryOpForCatch` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcResult.meta` |
-| E49 | 0 ligne affectée, ligne déjà absente | — | `retryOpForCatch` | `applied` | — | select de contrôle | — |
-| E50 | 0 ligne affectée, ligne toujours présente | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
+| E47 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E48 | second appel du rebase échoué au transport | — | version rebasée (nouvel `id`, `baseVersion`) | `fail` | politique | RPC | `rebase.meta` |
+| E49 | second `version_conflict` rendu par le serveur | nouvelle entrée poussée dans `failedOps` | version rebasée (nouvel `id`, `baseVersion`) | `deferred` + `provesServerReachable` | opération | RPC | — |
+| E50 | rebase impossible | — | `retryOpForCatch` | `fail` | terminal (`terminalStatus`) | RPC | `rebase.meta` |
+| E51 | verdict de patch réserve ≠ `ok` | — | `retryOpForCatch` | `fail` | terminal si statut listé, sinon politique | RPC | `rpcResult.meta` |
+| E52 | 0 ligne affectée, ligne déjà absente | — | `retryOpForCatch` | `applied` | — | select de contrôle | — |
+| E53 | 0 ligne affectée, ligne toujours présente | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
 
 ## Rejeu générique — `delete`
 
 | Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| E51 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
-| E52 | lecture des réserves liées refusée | — | `op` | `fail` | politique | select | `linkedMeta` |
-| E53 | chantier encore porteur de réserves | — | `op` | `fail` | politique | select | `linkedMeta` |
-| E54 | 0 ligne supprimée, ligne déjà absente | — | `op` | `applied` | — | select de contrôle | — |
-| E55 | 0 ligne supprimée, ligne toujours présente | — | `op` | `fail` | politique | mutation | `result.meta` |
+| E54 | filtre absent | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E55 | lecture des réserves liées refusée | — | `op` | `fail` | politique | select | `linkedMeta` |
+| E56 | chantier encore porteur de réserves | — | `op` | `fail` | politique | select | `linkedMeta` |
+| E57 | 0 ligne supprimée, ligne déjà absente | — | `op` | `applied` | — | select de contrôle | — |
+| E58 | 0 ligne supprimée, ligne toujours présente | — | `op` | `fail` | politique | mutation | `result.meta` |
 
 ## Sorties finales
 
 | Id | Condition | Effets locaux | Version rendue | Issue | Portée | Source | `meta` |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| E56 | `op.op` inconnu | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
-| E57 | rejeu générique refusé | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
-| E58 | rejeu générique accepté | notifications, patch photo différé empilé | `retryOpForCatch` | `applied` | — | mutation | — |
-| E59 | exception non rattrapée | — | `retryOpForCatch` | `fail` | politique | exception locale | n.a. |
+| E59 | `op.op` inconnu | — | `op` | `terminal` local | `invalid_local_operation` | validation locale | n.a. |
+| E60 | rejeu générique refusé | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
+| E61 | rejeu générique accepté | notifications, patch photo différé empilé | `retryOpForCatch` | `applied` | — | mutation | — |
+| E62 | exception non rattrapée | — | `retryOpForCatch` | `fail` | politique | exception locale | n.a. |
 
 ## Preuve que le backend répond
 
@@ -189,13 +197,13 @@ compteurs pour les échecs.
 Quatre sorties le portent :
 
 - **E28** — le `SELECT` a abouti et le serveur a renvoyé un statut divergent.
-- **E46** — le serveur a rendu un second `version_conflict` : il répond.
+- **E49** — le serveur a rendu un second `version_conflict` : il répond.
 - **E13** — le RPC de remplacement de plan vient d'aboutir ; c'est l'instantané
   local qui manque ensuite.
 - **E33** — le `SELECT` des commentaires a abouti ; c'est le patch local qui est
   illisible.
 
-**E45 ne le porte plus, et c'est le correctif central.** `rebase.kind === 'retry'`
+**E48 ne le porte plus, et c'est le correctif central.** `rebase.kind === 'retry'`
 regroupait deux situations opposées : une erreur de transport du second appel, et
 un `version_conflict` rendu par le serveur. L'issue construite à la main
 contournait alors toute la politique P5 — pas de classe d'échec, pas d'échéance,
@@ -216,9 +224,9 @@ l'ancienne valeur conservée.
 
 `failedOps.push(...)` subsiste en dehors de `fail()` :
 
-- **E45** — l'entrée rebasée porte un nouvel `id` ; elle est à la fois l'issue de
+- **E48** — l'entrée rebasée porte un nouvel `id` ; elle est à la fois l'issue de
   l'opération courante et l'entrée qui la remplace dans la file.
-- **E57** — `deferredPhotoPatch` est une **nouvelle** entrée de file, pas l'issue
+- **E60** — `deferredPhotoPatch` est une **nouvelle** entrée de file, pas l'issue
   de l'opération courante : la réserve a bien été écrite, ses photos partent
   séparément.
 - `terminalLocalOperation` pousse également son opération refusée, pour la même
@@ -230,6 +238,6 @@ nécessaires. Elles disparaîtront quand `runSyncPass` consommera les issues.
 ## Limite connue
 
 Aucune sortie construite sur une réponse serveur n'omet plus sa métadonnée.
-`E47` — la variante terminale du rebase — transmet désormais `rebase.meta` : la
+`E50` — la variante terminale du rebase — transmet désormais `rebase.meta` : la
 conséquence n'était pas seulement un `lastHttpStatus` absent, mais aussi une
 série de pannes qui n'était pas rompue alors que le serveur avait répondu.

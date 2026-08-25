@@ -36,7 +36,7 @@ import BottomNavBar from '@/components/BottomNavBar';
 import PageContainer from '@/components/PageContainer';
 import { showAlert } from '@/lib/appAlert';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
-import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { genEntityId, genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { visitDateValue } from '@/lib/conducteurToday';
 import { formatDate } from '@/lib/reserveUtils';
 import { getExportTranslator } from '@/lib/exportLanguage';
@@ -832,7 +832,7 @@ export default function OprScreen() {
       entreprise: lot.entreprise.trim() || undefined,
     }));
     const opr: Opr = {
-      id: 'OPR-' + genId().slice(0, 8).toUpperCase(),
+      id: genEntityId('OPR'),
       chantierId: activeChantierId,
       title: title.trim(),
       date,

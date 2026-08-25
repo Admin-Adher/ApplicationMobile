@@ -23,7 +23,7 @@ import {
 } from '@/constants/types';
 import Header from '@/components/Header';
 import DateInput from '@/components/DateInput';
-import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
+import { genEntityId, genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import LocationPicker from '@/components/LocationPicker';
 import CompanySelector from '@/components/CompanySelector';
 import DictationTextInput from '@/components/DictationTextInput';
@@ -559,7 +559,7 @@ export default function NewVisiteScreen() {
         : title.trim();
 
       const visite: Visite = {
-        id: 'VIS-' + genId().slice(0, 8).toUpperCase(),
+        id: genEntityId('VIS'),
         chantierId: activeChantierId,
         title: visitTitle,
         date: visitDate,
