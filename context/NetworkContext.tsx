@@ -12,6 +12,7 @@ import {
   commitCachePairWithJournalStrict,
   forceRefreshSession,
   getSessionFromStorage,
+  readCache,
   readCacheStrict,
   writeCache,
 } from '@/lib/offlineCache';
@@ -19,9 +20,9 @@ import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
-import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
+import { RESERVES_CACHE_KEY, VISITES_CACHE_KEY } from '@/lib/cacheKeys';
 import { triggerMessagePush, triggerReserveCreatedPush } from '@/lib/push/client';
-import type { Comment, InventoryMovement, InventoryProduct, Reserve } from '@/constants/types';
+import type { Comment, InventoryMovement, InventoryProduct, Reserve, Visite } from '@/constants/types';
 import {
   applyReservePatchOperation,
   buildRequestHash,
@@ -72,6 +73,12 @@ import {
   queueReplayPriority,
   queuedInsertMatchesPersistedRow,
 } from '@/lib/syncQueueDependencies';
+import {
+  HISTORICAL_VISIT_RECOVERY_INTENT,
+  planHistoricalVisitRecovery,
+  recoveredVisitMatchesPersistedIdentity,
+  reviveRecoveredVisitDependencies,
+} from '@/lib/historicalVisitRecovery';
 import {
   inventoryMovementsCacheKey,
   inventoryOutcomeContextFromQueuedOperation,
@@ -277,6 +284,8 @@ export interface QueuedOperation {
   terminalStatus?: string;
   /** Structured server result persisted for domain-aware acknowledgement UX. */
   terminalOutcome?: SyncQueueTerminalOutcome;
+  /** Insert-if-missing repair for a legacy visit parent lost by an old client. */
+  recoveryIntent?: typeof HISTORICAL_VISIT_RECOVERY_INTENT;
 }
 
 /**
@@ -788,6 +797,8 @@ function syncExit<T extends QueuedOperationOutcome>(_id: SyncExitId, outcome: T)
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const userId = user?.id;
+  const userOrganizationId = user?.organizationId ?? null;
+  const recoveryUserName = user?.name ?? user?.email ?? null;
   const offlineQueueKey = OFFLINE_QUEUE_PREFIX + (userId ?? 'anon');
   const offlineQueueBackupKey = OFFLINE_QUEUE_BACKUP_PREFIX + (userId ?? 'anon');
   const [isOnline, setIsOnline] = useState(true);
@@ -1101,10 +1112,51 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
       }
       const coalesced = migrateAndCoalesceSitePlanSnapshots(combined, userId);
+      let repairedQueue = coalesced;
+      if (userId && userOrganizationId) {
+        const [cachedVisits, cachedReserves] = await Promise.all([
+          readCache<Visite>(VISITES_CACHE_KEY, userId),
+          readCache<Reserve>(RESERVES_CACHE_KEY, userId),
+        ]);
+        assertHydrationOwner();
+        const recovery = planHistoricalVisitRecovery({
+          queue: coalesced,
+          cachedVisits: cachedVisits ?? [],
+          cachedReserves: cachedReserves ?? [],
+          organizationId: userOrganizationId,
+          userName: recoveryUserName,
+          recoveryTitle: i18n.t('networkQueue.recoveredVisitTitle'),
+          recoveryNotes: i18n.t('networkQueue.recoveredVisitNotes'),
+        });
+        if (recovery.repairs.length > 0) {
+          const revivedDependencies = reviveRecoveredVisitDependencies(
+            coalesced,
+            recovery.repairs,
+          );
+          const recoveryOperations: QueuedOperation[] = recovery.repairs.map(repair => ({
+            id: genQueueId(),
+            dispatchState: 'never_started',
+            queuedAt: new Date().toISOString(),
+            table: 'visites',
+            op: 'insert',
+            data: repair.payload,
+            recoveryIntent: HISTORICAL_VISIT_RECOVERY_INTENT,
+          }));
+          repairedQueue = [...revivedDependencies, ...recoveryOperations];
+          console.warn(
+            `[queue] visites historiques reconstruites : ${recovery.repairs.map(repair => `${repair.visitId}:${repair.source}`).join(', ')}`,
+          );
+        }
+        if (recovery.skipped.length > 0) {
+          console.warn(
+            `[queue] reconstruction visite refusée : ${recovery.skipped.map(item => `${item.visitId}:${item.reason}`).join(', ')}`,
+          );
+        }
+      }
       // Identité locale garantie AVANT le premier appel réseau : une opération
       // préparée pendant une passe doit pouvoir être retrouvée exactement, et
       // une file persistée avant l'existence du champ n'en porte aucune.
-      const identified = ensureQueueEntryIdentities(coalesced, genQueueId);
+      const identified = ensureQueueEntryIdentities(repairedQueue, genQueueId);
       if (identified.assigned > 0 || identified.repaired > 0) {
         console.warn(
           `[queue] identités locales : ${identified.assigned} attribuée(s), ${identified.repaired} réparée(s)`,
@@ -1211,7 +1263,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
       }
     }
-  }, [userId, writeQueueStrict, scheduleSync, scheduleHydrationRetry, schedulePurgeResumeRetry]);
+  }, [userId, userOrganizationId, recoveryUserName, writeQueueStrict, scheduleSync, scheduleHydrationRetry, schedulePurgeResumeRetry]);
 
   // `loadQueue` se rappelle lui-même après un échec de migration : la référence
   // évite une dépendance circulaire entre les deux `useCallback`.
@@ -2607,7 +2659,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
               return syncExit('E45', fail(retryOpForCatch, existing.error, { meta: existing.meta }));
             }
 
-            if (!queuedInsertMatchesPersistedRow(data, existing.data?.[0])) {
+            const duplicateMatches = op.recoveryIntent === HISTORICAL_VISIT_RECOVERY_INTENT
+              ? recoveredVisitMatchesPersistedIdentity(data, existing.data?.[0])
+              : queuedInsertMatchesPersistedRow(data, existing.data?.[0]);
+            if (!duplicateMatches) {
               return syncExit('E46', fail(
                 retryOpForCatch,
                 {

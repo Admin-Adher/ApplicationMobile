@@ -999,6 +999,8 @@ export const resources: Resource = {
       networkQueue: {
         unknownError: 'Erreur inconnue',
         missingRpc: 'RPC manquante.',
+        recoveredVisitTitle: 'Visite récupérée',
+        recoveredVisitNotes: 'Visite reconstruite automatiquement depuis la file hors ligne.',
         createReserveMissingPayload: 'RPC create_reserve_with_photos refusée : payload réserve manquant.',
         uploadReservePhotosFailed: 'Échec upload photos réserve avant création atomique.',
         replacePlanMissingPatch: 'RPC replace_site_plan_file_safely refusée : plan ou patch manquant.',
@@ -5672,6 +5674,8 @@ export const resources: Resource = {
       networkQueue: {
         unknownError: 'Unknown error',
         missingRpc: 'Missing RPC.',
+        recoveredVisitTitle: 'Recovered visit',
+        recoveredVisitNotes: 'Visit automatically rebuilt from the offline queue.',
         createReserveMissingPayload: 'RPC create_reserve_with_photos rejected: missing reserve payload.',
         uploadReservePhotosFailed: 'Failed to upload reserve photos before atomic creation.',
         replacePlanMissingPatch: 'RPC replace_site_plan_file_safely rejected: missing plan or patch.',
@@ -10344,6 +10348,8 @@ export const resources: Resource = {
       networkQueue: {
         unknownError: 'Error desconocido',
         missingRpc: 'RPC ausente.',
+        recoveredVisitTitle: 'Visita recuperada',
+        recoveredVisitNotes: 'Visita reconstruida automáticamente desde la cola sin conexión.',
         createReserveMissingPayload: 'RPC create_reserve_with_photos rechazada: falta el payload de incidencia.',
         uploadReservePhotosFailed: 'Error al subir fotos de la incidencia antes de la creación atómica.',
         replacePlanMissingPatch: 'RPC replace_site_plan_file_safely rechazada: falta el plano o el patch.',
