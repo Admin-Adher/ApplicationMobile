@@ -40,7 +40,7 @@ describe('historical visit recovery', () => {
         title: 'Visite façade',
         date: '2026-08-23',
         conducteur: 'Adrien',
-        status: 'open',
+        status: 'planned',
         reserveIds: ['RES-1'],
         createdAt: '2026-08-23T16:00:00.000Z',
       }],
