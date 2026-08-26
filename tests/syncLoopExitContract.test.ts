@@ -252,7 +252,9 @@ describe('a prepared rebase identity is durable before the write', () => {
       source.indexOf('lastLoadedKeyRef.current = userKey ?? anonKey;'),
     );
 
-    expect(hydration).toContain('ensureQueueEntryIdentities(coalesced, genQueueId)');
+    expect(hydration).toContain('ensureQueueEntryIdentities(repairedQueue, genQueueId)');
+    expect(hydration.indexOf('planHistoricalVisitRecovery'))
+      .toBeLessThan(hydration.indexOf('ensureQueueEntryIdentities'));
     expect(hydration).toContain('await writeQueueStrict(identified.operations);');
     expect(hydration.indexOf('ensureQueueEntryIdentities'))
       .toBeLessThan(hydration.indexOf('await writeQueueStrict('));
