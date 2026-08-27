@@ -18,6 +18,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSubscription } from '@/context/SubscriptionContext';
 import { AttendanceRecord, NotificationPreferences } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
+import OtaUpdateControl from '@/components/OtaUpdateControl';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { getSessionFromStorage } from '@/lib/offlineCache';
 import { supabaseRestSelect } from '@/lib/supabaseRest';
@@ -996,6 +997,8 @@ export default function SettingsScreen() {
                 })}
               </View>
             </View>
+
+            <OtaUpdateControl />
 
             <View style={styles.profileCard}>
               <View style={[styles.avatar, { backgroundColor: roleColor + '22' }]}>
