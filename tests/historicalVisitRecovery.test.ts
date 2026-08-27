@@ -3,6 +3,7 @@ import {
   planHistoricalVisitRecovery,
   recoveredVisitMatchesPersistedIdentity,
   reviveRecoveredVisitDependencies,
+  summarizeHistoricalVisitRecovery,
 } from '../lib/historicalVisitRecovery';
 import { queueReplayPriority } from '../lib/syncQueueDependencies';
 
@@ -84,6 +85,70 @@ describe('historical visit recovery', () => {
     });
   });
 
+  it('uses the authenticated profile tenant when an old reserve payload omitted it', () => {
+    const plan = planHistoricalVisitRecovery({
+      queue: [reserveFailure({ organization_id: null })],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: orgId,
+    });
+
+    expect(plan.skipped).toEqual([]);
+    expect(plan.repairs[0]).toMatchObject({
+      organizationSource: 'active_profile',
+      payload: { organization_id: orgId },
+    });
+  });
+
+  it('uses a unique queued tenant when the authenticated profile has none', () => {
+    const plan = planHistoricalVisitRecovery({
+      queue: [reserveFailure()],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: null,
+    });
+
+    expect(plan.skipped).toEqual([]);
+    expect(plan.repairs[0]).toMatchObject({
+      organizationSource: 'queue_payload',
+      payload: { organization_id: orgId },
+    });
+    expect(summarizeHistoricalVisitRecovery(plan, false)).toMatchObject({
+      evaluated: true,
+      candidateCount: 1,
+      plannedCount: 1,
+      profileOrganizationAvailable: false,
+      queuedOrganizationFallbackCount: 1,
+      skippedReasons: {},
+    });
+  });
+
+  it('merges the persisted reserve payload with incomplete legacy RPC args', () => {
+    const operation: any = reserveFailure();
+    operation.data = {
+      id: 'RES-1',
+      visite_id: 'VIS-17875223',
+      chantier_id: 'CHANTIER-1',
+      organization_id: orgId,
+    };
+    operation.rpc.args.p_reserve = { id: 'RES-1', visite_id: 'VIS-17875223' };
+
+    const plan = planHistoricalVisitRecovery({
+      queue: [operation],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: null,
+    });
+
+    expect(plan.repairs[0]).toMatchObject({
+      organizationSource: 'queue_payload',
+      payload: {
+        organization_id: orgId,
+        chantier_id: 'CHANTIER-1',
+      },
+    });
+  });
+
   it('refuses a link-only recovery when no queued payload proves the tenant', () => {
     const plan = planHistoricalVisitRecovery({
       queue: [{
@@ -120,6 +185,18 @@ describe('historical visit recovery', () => {
     });
     expect(wrongTenant.repairs).toEqual([]);
     expect(wrongTenant.skipped[0]?.reason).toBe('organization_mismatch');
+
+    const ambiguousTenant = planHistoricalVisitRecovery({
+      queue: [
+        reserveFailure(),
+        { ...reserveFailure({ organization_id: '22222222-2222-4222-8222-222222222222' }), id: 'queue-reserve-2' },
+      ],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: null,
+    });
+    expect(ambiguousTenant.repairs).toEqual([]);
+    expect(ambiguousTenant.skipped[0]?.reason).toBe('organization_ambiguous');
 
     const ambiguousChantier = planHistoricalVisitRecovery({
       queue: [
@@ -207,7 +284,9 @@ describe('historical visit recovery', () => {
         fn: 'link_reserves_to_visite',
         args: { p_visite_id: 'VIS-17875223', p_reserve_ids: ['RES-1'] },
       },
-      lastError: '[P0002] — HTTP 500 — Visite introuvable: VIS-17875223',
+      // Apres plusieurs essais, l'erreur du lien a evolue : la creation de
+      // reserve reste la preuve que la visite parente manque.
+      lastError: '[42501] — HTTP 403 — Reserves introuvables ou hors perimetre',
       terminal: true,
       sameFailureCount: 151,
     };

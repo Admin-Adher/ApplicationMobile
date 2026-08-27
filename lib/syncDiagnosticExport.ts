@@ -3,6 +3,11 @@ import {
   getSyncQueueOperationDomain,
   type SyncQueueOperationLike,
 } from './syncQueuePolicy';
+import {
+  HISTORICAL_VISIT_RECOVERY_SKIP_REASONS,
+  type HistoricalVisitRecoveryAudit,
+  type HistoricalVisitRecoverySkipReason,
+} from './historicalVisitRecovery';
 
 /**
  * Export de diagnostic destine au support.
@@ -68,6 +73,8 @@ export interface DiagnosticEnvironment extends DiagnosticBundleIdentity {
   /** Derniere fois que la file s'est videe entierement. */
   lastQueueDrainedAt?: string | null;
   nextAttemptAt?: string | null;
+  /** Audit enumere uniquement : aucun payload ni identifiant de visite. */
+  historicalVisitRecovery?: Partial<HistoricalVisitRecoveryAudit> | null;
 }
 
 export interface DiagnosticOperationLine {
@@ -119,6 +126,7 @@ export interface SyncDiagnosticReport {
     lastQueueDrainedAt: string | null;
     nextAttemptAt: string | null;
   };
+  historicalVisitRecovery: HistoricalVisitRecoveryAudit;
   operations: DiagnosticOperationLine[];
   /** Operations non detaillees a cause du plafond ; les compteurs les incluent. */
   omittedOperations: number;
@@ -149,6 +157,29 @@ function safeCount(value: unknown): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return Math.min(Math.floor(parsed), 1_000_000);
+}
+
+function safeHistoricalVisitRecovery(
+  value: Partial<HistoricalVisitRecoveryAudit> | null | undefined,
+): HistoricalVisitRecoveryAudit {
+  const candidateCount = safeCount(value?.candidateCount);
+  const plannedCount = Math.min(candidateCount, safeCount(value?.plannedCount));
+  const skippedReasons: Partial<Record<HistoricalVisitRecoverySkipReason, number>> = {};
+  for (const reason of HISTORICAL_VISIT_RECOVERY_SKIP_REASONS) {
+    const count = safeCount(value?.skippedReasons?.[reason]);
+    if (count > 0) skippedReasons[reason] = count;
+  }
+  return {
+    evaluated: value?.evaluated === true,
+    candidateCount,
+    plannedCount,
+    profileOrganizationAvailable: value?.profileOrganizationAvailable === true,
+    queuedOrganizationFallbackCount: Math.min(
+      plannedCount,
+      safeCount(value?.queuedOrganizationFallbackCount),
+    ),
+    skippedReasons,
+  };
 }
 
 /**
@@ -289,6 +320,7 @@ export function buildSyncDiagnosticReport(
       lastQueueDrainedAt: environment.lastQueueDrainedAt ?? null,
       nextAttemptAt: environment.nextAttemptAt ?? null,
     },
+    historicalVisitRecovery: safeHistoricalVisitRecovery(environment.historicalVisitRecovery),
     operations,
     omittedOperations: Math.max(0, queue.length - operations.length),
   };
@@ -313,6 +345,11 @@ export function formatSyncDiagnosticReport(report: SyncDiagnosticReport): string
     `Connectivite         : ${report.connectivity.online ? 'en ligne' : 'hors connexion'} | backend ${backend}`,
     `Etat sync            : ${report.connectivity.syncStatus}`
       + (report.connectivity.authBlocked ? ' (authentification bloquee)' : ''),
+    `Recuperation visite  : ${report.historicalVisitRecovery.evaluated
+      ? `${report.historicalVisitRecovery.candidateCount} candidate(s), ${report.historicalVisitRecovery.plannedCount} planifiee(s)`
+        + ` | org profil ${report.historicalVisitRecovery.profileOrganizationAvailable ? 'oui' : 'non'}`
+        + ` | secours file ${report.historicalVisitRecovery.queuedOrganizationFallbackCount}`
+      : 'non evaluee'}`,
     '',
     `File                 : ${report.queue.pending} en attente, ${report.queue.rejected} refusees,`
       + ` ${report.queue.stuck} bloquees`,
@@ -326,6 +363,18 @@ export function formatSyncDiagnosticReport(report: SyncDiagnosticReport): string
     '',
     'Operations :',
   ];
+
+  const recoveryBlocks = HISTORICAL_VISIT_RECOVERY_SKIP_REASONS
+    .map(reason => ({ reason, count: report.historicalVisitRecovery.skippedReasons[reason] ?? 0 }))
+    .filter(item => item.count > 0);
+  if (recoveryBlocks.length > 0) {
+    lines.splice(
+      lines.indexOf('Operations :'),
+      0,
+      `Blocages recuperation: ${recoveryBlocks.map(item => `${item.reason} x${item.count}`).join(', ')}`,
+      '',
+    );
+  }
 
   if (report.operations.length === 0) {
     lines.push('  (aucune)');

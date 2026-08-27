@@ -156,6 +156,7 @@ export default function SettingsScreen() {
     backendReachable,
     isOnline,
     syncStatus,
+    historicalVisitRecovery,
     queueLoaded,
     syncProgress,
     syncAuthBlocked,
@@ -219,6 +220,7 @@ export default function SettingsScreen() {
         lastOperationSuccessAt,
         lastQueueDrainedAt,
         nextAttemptAt: nextSyncAttemptAt,
+        historicalVisitRecovery,
       });
       await Clipboard.setStringAsync(formatSyncDiagnosticReport(report));
       showAlert(

@@ -6,6 +6,17 @@ const MISSING_VISIT_ERROR = /(?:reserves_tenant_visite_fkey|visite\s+introuvable
 
 export const HISTORICAL_VISIT_RECOVERY_INTENT = 'insert_missing_historical_visit' as const;
 
+export const HISTORICAL_VISIT_RECOVERY_SKIP_REASONS = [
+  'organization_unproven',
+  'organization_mismatch',
+  'organization_ambiguous',
+  'chantier_missing',
+  'chantier_ambiguous',
+] as const;
+
+export type HistoricalVisitRecoverySkipReason = typeof HISTORICAL_VISIT_RECOVERY_SKIP_REASONS[number];
+export type HistoricalVisitRecoveryOrganizationSource = 'active_profile' | 'queue_payload';
+
 export interface HistoricalVisitQueueOperation {
   id?: string;
   queueEntryId?: string;
@@ -30,19 +41,29 @@ export interface HistoricalVisitRepair {
   visitId: string;
   payload: Record<string, any>;
   source: 'visit_cache' | 'dependent_reserves';
+  organizationSource: HistoricalVisitRecoveryOrganizationSource;
   dependencyKeys: string[];
 }
 
 export interface HistoricalVisitRecoveryPlan {
   repairs: HistoricalVisitRepair[];
-  skipped: { visitId: string; reason: string }[];
+  skipped: { visitId: string; reason: HistoricalVisitRecoverySkipReason }[];
+}
+
+export interface HistoricalVisitRecoveryAudit {
+  evaluated: boolean;
+  candidateCount: number;
+  plannedCount: number;
+  profileOrganizationAvailable: boolean;
+  queuedOrganizationFallbackCount: number;
+  skippedReasons: Partial<Record<HistoricalVisitRecoverySkipReason, number>>;
 }
 
 function referencedVisitId(operation: HistoricalVisitQueueOperation): string | null {
   if (operation.op !== 'rpc') return null;
 
   if (operation.rpc?.fn === 'create_reserve_with_photos') {
-    const reserve = operation.rpc.args?.p_reserve ?? operation.data;
+    const reserve = reservePayload(operation);
     return typeof reserve?.visite_id === 'string' ? reserve.visite_id : null;
   }
 
@@ -56,8 +77,28 @@ function referencedVisitId(operation: HistoricalVisitQueueOperation): string | n
 
 function reservePayload(operation: HistoricalVisitQueueOperation): Record<string, any> | null {
   if (operation.op !== 'rpc' || operation.rpc?.fn !== 'create_reserve_with_photos') return null;
-  const payload = operation.rpc.args?.p_reserve ?? operation.data;
-  return payload && typeof payload === 'object' ? payload : null;
+  const persisted = operation.data && typeof operation.data === 'object' ? operation.data : null;
+  const rpcPayload = operation.rpc.args?.p_reserve;
+  if (rpcPayload && typeof rpcPayload === 'object') {
+    // Les anciennes files ont parfois ete enrichies dans `data` apres un
+    // upload, sans que tous les champs aient ete recopies dans `p_reserve`.
+    // Fusionner les deux representations conserve la version RPC prioritaire
+    // tout en recuperant les preuves tenant/chantier manquantes.
+    if (!persisted) return rpcPayload;
+    const merged = { ...persisted, ...rpcPayload };
+    for (const key of ['id', 'visite_id', 'chantier_id', 'organization_id']) {
+      const rpcValue = rpcPayload[key];
+      if (
+        (typeof rpcValue !== 'string' || rpcValue.trim().length === 0)
+        && typeof persisted[key] === 'string'
+        && persisted[key].trim().length > 0
+      ) {
+        merged[key] = persisted[key];
+      }
+    }
+    return merged;
+  }
+  return persisted;
 }
 
 function validIso(value: string | undefined): string | null {
@@ -87,21 +128,32 @@ export function planHistoricalVisitRecovery(input: {
   now?: string;
 }): HistoricalVisitRecoveryPlan {
   const repairs: HistoricalVisitRepair[] = [];
-  const skipped: { visitId: string; reason: string }[] = [];
-  const organizationId = input.organizationId?.trim() || null;
-  if (!organizationId) return { repairs, skipped };
+  const skipped: { visitId: string; reason: HistoricalVisitRecoverySkipReason }[] = [];
+  const profileOrganizationId = input.organizationId?.trim() || null;
 
   const queuedParents = new Set(input.queue
     .filter(operation => operation.table === 'visites' && operation.op === 'insert')
     .map(operation => operation.data?.id)
     .filter((value): value is string => typeof value === 'string'));
 
-  const dependencies = new Map<string, HistoricalVisitQueueOperation[]>();
+  const recoveryCandidates = new Set<string>();
   for (const operation of input.queue) {
     if (operation.purgeState) continue;
     if (!MISSING_VISIT_ERROR.test(operation.lastError ?? '')) continue;
     const visitId = referencedVisitId(operation);
     if (!visitId || !LEGACY_VISIT_ID.test(visitId) || queuedParents.has(visitId)) continue;
+    recoveryCandidates.add(visitId);
+  }
+
+  const dependencies = new Map<string, HistoricalVisitQueueOperation[]>();
+  for (const operation of input.queue) {
+    if (operation.purgeState) continue;
+    const visitId = referencedVisitId(operation);
+    // Une fois la visite manquante prouvee par au moins une operation, inclure
+    // tous ses enfants encore conserves. Le lien peut avoir evolue d'une erreur
+    // "visite introuvable" vers "reserve introuvable" apres plusieurs essais :
+    // il doit etre reactive avec la creation qu'il suit, pas rester refuse.
+    if (!visitId || !recoveryCandidates.has(visitId)) continue;
     const existing = dependencies.get(visitId) ?? [];
     existing.push(operation);
     dependencies.set(visitId, existing);
@@ -123,14 +175,40 @@ export function planHistoricalVisitRecovery(input: {
     ));
 
     const queuedOrganizations = uniqueNonEmpty(queuedReserves.map(reserve => reserve.organization_id));
-    if (queuedOrganizations.length === 0) {
+    // Une dependance link-only ne suffit pas a inventer un tenant. Il faut le
+    // payload exact d'au moins une creation de reserve ayant deja atteint le
+    // serveur et echoue sur la FK de cette visite.
+    if (queuedReserves.length === 0) {
       skipped.push({ visitId, reason: 'organization_unproven' });
       continue;
     }
-    if (queuedOrganizations.some(value => value !== organizationId)) {
+    if (queuedOrganizations.length > 1) {
+      skipped.push({ visitId, reason: 'organization_ambiguous' });
+      continue;
+    }
+    const queuedOrganizationId = queuedOrganizations[0] ?? null;
+    if (
+      profileOrganizationId
+      && queuedOrganizationId
+      && queuedOrganizationId !== profileOrganizationId
+    ) {
       skipped.push({ visitId, reason: 'organization_mismatch' });
       continue;
     }
+    // Le profil authentifie reste la source prioritaire. Pour les anciennes
+    // files creees avant l'hydratation du profil, son tenant peut manquer du
+    // payload : la presence de la creation RPC prouve alors la dependance et
+    // le tenant actif suffit. A l'inverse, un profil sans tenant (notamment un
+    // super-admin) peut reprendre le tenant UNIQUE deja porte par le payload.
+    // L'INSERT reste SECURITY INVOKER et soumis aux RLS cote Supabase.
+    const organizationId = profileOrganizationId ?? queuedOrganizationId;
+    if (!organizationId) {
+      skipped.push({ visitId, reason: 'organization_unproven' });
+      continue;
+    }
+    const organizationSource: HistoricalVisitRecoveryOrganizationSource = profileOrganizationId
+      ? 'active_profile'
+      : 'queue_payload';
 
     const dependentChantierIds = uniqueNonEmpty([
       ...queuedReserves.map(reserve => reserve.chantier_id),
@@ -146,6 +224,7 @@ export function planHistoricalVisitRecovery(input: {
         visitId,
         payload: fromVisite(cachedVisit, organizationId),
         source: 'visit_cache',
+        organizationSource,
         dependencyKeys,
       });
       continue;
@@ -170,6 +249,7 @@ export function planHistoricalVisitRecovery(input: {
     repairs.push({
       visitId,
       source: 'dependent_reserves',
+      organizationSource,
       dependencyKeys,
       payload: fromVisite({
         id: visitId,
@@ -187,6 +267,27 @@ export function planHistoricalVisitRecovery(input: {
   }
 
   return { repairs, skipped };
+}
+
+/** Resume strictement enumere, exportable sans payload ni identifiant metier. */
+export function summarizeHistoricalVisitRecovery(
+  plan: HistoricalVisitRecoveryPlan,
+  profileOrganizationAvailable: boolean,
+): HistoricalVisitRecoveryAudit {
+  const skippedReasons: HistoricalVisitRecoveryAudit['skippedReasons'] = {};
+  for (const item of plan.skipped) {
+    skippedReasons[item.reason] = (skippedReasons[item.reason] ?? 0) + 1;
+  }
+  return {
+    evaluated: true,
+    candidateCount: plan.repairs.length + plan.skipped.length,
+    plannedCount: plan.repairs.length,
+    profileOrganizationAvailable,
+    queuedOrganizationFallbackCount: plan.repairs.filter(
+      repair => repair.organizationSource === 'queue_payload',
+    ).length,
+    skippedReasons,
+  };
 }
 
 /**

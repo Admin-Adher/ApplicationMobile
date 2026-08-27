@@ -79,6 +79,8 @@ import {
   planHistoricalVisitRecovery,
   recoveredVisitMatchesPersistedIdentity,
   reviveRecoveredVisitDependencies,
+  summarizeHistoricalVisitRecovery,
+  type HistoricalVisitRecoveryAudit,
 } from '@/lib/historicalVisitRecovery';
 import {
   inventoryMovementsCacheKey,
@@ -93,6 +95,17 @@ import {
 
 const OFFLINE_QUEUE_PREFIX = 'buildtrack_offline_queue_v3_';
 const OFFLINE_QUEUE_BACKUP_PREFIX = 'buildtrack_offline_queue_backup_v1_';
+
+function emptyHistoricalVisitRecoveryAudit(): HistoricalVisitRecoveryAudit {
+  return {
+    evaluated: false,
+    candidateCount: 0,
+    plannedCount: 0,
+    profileOrganizationAvailable: false,
+    queuedOrganizationFallbackCount: 0,
+    skippedReasons: {},
+  };
+}
 
 // Délai max pour l'étape d'upload de fichiers (photos / plan) d'UNE opération.
 // Chaque fichier a déjà sa propre borne (120 s photo/document) côté storage.ts,
@@ -418,6 +431,8 @@ interface NetworkContextValue {
   backendReachable: boolean | null;
   /** Prochaine passe planifiee, quand un backoff est actif. */
   nextSyncAttemptAt: string | null;
+  /** Resume non sensible de la derniere tentative de reconstruction de visite. */
+  historicalVisitRecovery: HistoricalVisitRecoveryAudit;
   conflicts: StatusConflict[];
   enqueueOperation: (
     op: EnqueueOperationInput,
@@ -452,6 +467,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   lastQueueDrainedAt: null,
   backendReachable: null,
   nextSyncAttemptAt: null,
+  historicalVisitRecovery: emptyHistoricalVisitRecoveryAudit(),
   conflicts: [],
   enqueueOperation: () => {},
   resolveConflict: async () => {},
@@ -826,6 +842,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const [lastQueueDrainedAt, setLastQueueDrainedAt] = useState<string | null>(null);
   const [backendReachable, setBackendReachable] = useState<boolean | null>(null);
   const [nextSyncAttemptAt, setNextSyncAttemptAt] = useState<string | null>(null);
+  const [historicalVisitRecovery, setHistoricalVisitRecovery] = useState<HistoricalVisitRecoveryAudit>(
+    emptyHistoricalVisitRecoveryAudit,
+  );
   // Contrôleur de la passe en cours. Abandonner une passe ne suffisait pas à
   // arrêter ses transferts : un upload préempté continuait à consommer le lien
   // que la passe suivante allait réclamer, et pouvait aboutir après son réessai.
@@ -1052,8 +1071,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // l'écriture définitive n'a pas abouti, la copie anonyme reste la seule
     // trace de ces saisies : mieux vaut un doublon temporaire qu'une perte.
     let anonQueueToClear: string | null = null;
+    let nextHistoricalVisitRecovery = emptyHistoricalVisitRecoveryAudit();
     setQueueLoaded(false);
     queueLoadedRef.current = false;
+    setHistoricalVisitRecovery(nextHistoricalVisitRecovery);
     const userKey = userId ? OFFLINE_QUEUE_PREFIX + userId : null;
     const anonKey = OFFLINE_QUEUE_PREFIX + 'anon';
     try {
@@ -1118,7 +1139,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
       const coalesced = migrateAndCoalesceSitePlanSnapshots(combined, userId);
       let repairedQueue = coalesced;
-      if (userId && userOrganizationId) {
+      if (userId) {
         const [cachedVisits, cachedReserves] = await Promise.all([
           readCache<Visite>(VISITES_CACHE_KEY, userId),
           readCache<Reserve>(RESERVES_CACHE_KEY, userId),
@@ -1133,6 +1154,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           recoveryTitle: i18n.t('networkQueue.recoveredVisitTitle'),
           recoveryNotes: i18n.t('networkQueue.recoveredVisitNotes'),
         });
+        nextHistoricalVisitRecovery = summarizeHistoricalVisitRecovery(
+          recovery,
+          Boolean(userOrganizationId),
+        );
         if (recovery.repairs.length > 0) {
           const revivedDependencies = reviveRecoveredVisitDependencies(
             coalesced,
@@ -1189,6 +1214,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         await writeQueueStrict(identified.operations);
       }
       assertHydrationOwner();
+      // Ne publier l'audit qu'avec la file qu'il decrit, apres sa durabilite.
+      // Un plan non ecrit ne doit jamais etre annonce au support comme actif.
+      setHistoricalVisitRecovery(nextHistoricalVisitRecovery);
 
       // Seulement MAINTENANT : la file utilisateur porte ces opérations de
       // façon durable, la copie anonyme peut être vidée. Par la chaîne, et sans
@@ -3377,6 +3405,13 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(syncKickTimerRef.current);
       syncKickTimerRef.current = null;
     }
+    // Rejouer d'abord les migrations/reparations sur la DERNIERE version
+    // durable de la file. Une ancienne operation peut avoir ete enrichie en
+    // organisation lors d'un essai precedent ; sans cette rehydratation, le
+    // bouton manuel ne reevaluait jamais la reconstruction de sa visite.
+    if (!syncingRef.current) {
+      await loadQueueRef.current?.();
+    }
     await processSyncQueueRef.current();
   }, []);
 
@@ -3399,6 +3434,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       lastQueueDrainedAt,
       backendReachable,
       nextSyncAttemptAt,
+      historicalVisitRecovery,
       conflicts,
       enqueueOperation,
       resolveConflict,
