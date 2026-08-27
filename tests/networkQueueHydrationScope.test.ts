@@ -23,4 +23,14 @@ describe('tenant-aware queue hydration', () => {
     expect(ownershipCheck).toBeGreaterThan(recovery);
     expect(completedScope).toBeGreaterThan(ownershipCheck);
   });
+
+  it('reevaluates durable recovery evidence before a manual retry', () => {
+    const retry = source.indexOf('const retrySync = useCallback(async () => {');
+    const rehydrate = source.indexOf('await loadQueueRef.current?.();', retry);
+    const replay = source.indexOf('await processSyncQueueRef.current();', retry);
+
+    expect(retry).toBeGreaterThan(-1);
+    expect(rehydrate).toBeGreaterThan(retry);
+    expect(replay).toBeGreaterThan(rehydrate);
+  });
 });

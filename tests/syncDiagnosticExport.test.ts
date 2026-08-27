@@ -224,6 +224,37 @@ describe('sync diagnostic export', () => {
     expect(operation.state).toBe('pending');
   });
 
+  it('exports only enumerated historical-recovery evidence', () => {
+    const report = buildSyncDiagnosticReport([], {
+      ...environment,
+      historicalVisitRecovery: {
+        evaluated: true,
+        candidateCount: 2,
+        plannedCount: 1,
+        profileOrganizationAvailable: false,
+        queuedOrganizationFallbackCount: 1,
+        skippedReasons: {
+          organization_unproven: 1,
+          'chantier Jean Dupont <jean@example.com>': 99,
+        },
+      } as any,
+    });
+    const text = formatSyncDiagnosticReport(report);
+
+    expect(report.historicalVisitRecovery).toEqual({
+      evaluated: true,
+      candidateCount: 2,
+      plannedCount: 1,
+      profileOrganizationAvailable: false,
+      queuedOrganizationFallbackCount: 1,
+      skippedReasons: { organization_unproven: 1 },
+    });
+    expect(text).toContain('2 candidate(s), 1 planifiee(s)');
+    expect(text).toContain('organization_unproven x1');
+    expect(text).not.toContain('Jean Dupont');
+    expect(text).not.toContain('jean@example.com');
+  });
+
   it('degrades gracefully on an empty or malformed queue', () => {
     const empty = buildSyncDiagnosticReport([], environment);
     expect(empty.queue.pending).toBe(0);
