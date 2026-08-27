@@ -6,6 +6,18 @@ export interface DependencyQueuedOperation {
 }
 
 /**
+ * Queue hydration is tenant-sensitive even though its AsyncStorage key is
+ * user-scoped. Auth can expose the user id before the profile organization;
+ * treating that first partial load as final skips tenant-aware migrations.
+ */
+export function queueHydrationScopeKey(
+  storageKey: string,
+  organizationId: string | null | undefined,
+): string {
+  return `${storageKey}::organization=${organizationId?.trim() || 'pending'}`;
+}
+
+/**
  * Parents must be durable before children that carry their foreign keys.
  * Values intentionally leave gaps so new dependency levels can be inserted.
  */

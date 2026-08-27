@@ -70,6 +70,7 @@ import {
   migrateAndCoalesceSitePlanSnapshots,
 } from '@/lib/offlineQueueCoalescing';
 import {
+  queueHydrationScopeKey,
   queueReplayPriority,
   queuedInsertMatchesPersistedRow,
 } from '@/lib/syncQueueDependencies';
@@ -837,6 +838,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   }, []);
   const reloadHandlerRef = useRef<(() => void) | null>(null);
   const lastLoadedKeyRef = useRef<string | null>(null);
+  // La cle AsyncStorage est par utilisateur, mais les migrations de file sont
+  // aussi dependantes de l'organisation. Au demarrage, Auth peut fournir l'id
+  // avant le profil : ce second marqueur force alors une nouvelle hydratation.
+  const lastLoadedScopeRef = useRef<string | null>(null);
   const wakeInFlightRef = useRef(false);
   const wakeAgainRef = useRef(false);
   const offlineProbeFailuresRef = useRef(0);
@@ -1153,6 +1158,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           );
         }
       }
+      // L'organisation peut arriver pendant les lectures de cache ci-dessus.
+      // Une hydratation partie sous le scope incomplet ne doit jamais publier
+      // par-dessus celle que le nouvel effet vient de lancer.
+      assertHydrationOwner();
       // Identité locale garantie AVANT le premier appel réseau : une opération
       // préparée pendant une passe doit pouvoir être retrouvée exactement, et
       // une file persistée avant l'existence du champ n'en porte aucune.
@@ -1179,6 +1188,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       if (!nothingToPersist && serialized !== persistedSnapshot) {
         await writeQueueStrict(identified.operations);
       }
+      assertHydrationOwner();
 
       // Seulement MAINTENANT : la file utilisateur porte ces opérations de
       // façon durable, la copie anonyme peut être vidée. Par la chaîne, et sans
@@ -1227,6 +1237,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
 
       lastLoadedKeyRef.current = userKey ?? anonKey;
+      lastLoadedScopeRef.current = queueHydrationScopeKey(
+        userKey ?? anonKey,
+        userId ? userOrganizationId : null,
+      );
       identitiesAreDurable = true;
       if (hydrationRetryTimerRef.current) {
         clearTimeout(hydrationRetryTimerRef.current);
@@ -1272,7 +1286,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   // ── Hydrate queue when user.id changes (cold start, login, switch) ─────────
   useEffect(() => {
     const targetKey = userId ? OFFLINE_QUEUE_PREFIX + userId : OFFLINE_QUEUE_PREFIX + 'anon';
-    if (lastLoadedKeyRef.current === targetKey) return;
+    const targetScope = queueHydrationScopeKey(
+      targetKey,
+      userId ? userOrganizationId : null,
+    );
+    if (lastLoadedScopeRef.current === targetScope) return;
     // Une passe lancée pour le compte précédent ne doit jamais repeupler l'état
     // React du compte suivant lorsqu'un upload réseau se termine en retard.
     syncGenerationRef.current += 1;
@@ -1296,7 +1314,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     queueRef.current = [];
     setQueue([]);
     void loadQueue();
-  }, [userId, loadQueue]);
+  }, [userId, userOrganizationId, loadQueue]);
 
   // Changement d'utilisateur (déconnexion / re-connexion) : repartir d'un état
   // « non bloqué ». Sans cela le drapeau ne serait réinitialisé que par une

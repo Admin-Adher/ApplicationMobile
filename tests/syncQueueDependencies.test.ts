@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import {
+  queueHydrationScopeKey,
   queueReplayPriority,
   queuedInsertMatchesPersistedRow,
 } from '../lib/syncQueueDependencies';
+
+describe('queue hydration scope', () => {
+  const storageKey = 'buildtrack_offline_queue_v3_user-1';
+
+  it('reloads the same user queue when the authenticated organization arrives', () => {
+    expect(queueHydrationScopeKey(storageKey, null)).not.toBe(
+      queueHydrationScopeKey(storageKey, 'org-1'),
+    );
+  });
+
+  it('keeps stable scopes stable and separates organization switches', () => {
+    expect(queueHydrationScopeKey(storageKey, ' org-1 ')).toBe(
+      queueHydrationScopeKey(storageKey, 'org-1'),
+    );
+    expect(queueHydrationScopeKey(storageKey, 'org-1')).not.toBe(
+      queueHydrationScopeKey(storageKey, 'org-2'),
+    );
+  });
+});
 
 describe('sync queue dependency order', () => {
   it('persists a visit before its reserve and links the two last', () => {
