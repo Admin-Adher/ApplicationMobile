@@ -22,6 +22,13 @@ describe('queue hydration scope', () => {
       queueHydrationScopeKey(storageKey, 'org-2'),
     );
   });
+
+  it('does not reload a normal queue when profile organization arrives', () => {
+    expect(queueHydrationScopeKey(storageKey, null, false)).toBe(
+      queueHydrationScopeKey(storageKey, 'org-1', false),
+    );
+    expect(queueHydrationScopeKey(storageKey, 'org-1', false)).toContain('not-required');
+  });
 });
 
 describe('sync queue dependency order', () => {

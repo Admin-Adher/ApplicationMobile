@@ -13,7 +13,9 @@ export interface DependencyQueuedOperation {
 export function queueHydrationScopeKey(
   storageKey: string,
   organizationId: string | null | undefined,
+  organizationSensitive = true,
 ): string {
+  if (!organizationSensitive) return `${storageKey}::organization=not-required`;
   return `${storageKey}::organization=${organizationId?.trim() || 'pending'}`;
 }
 

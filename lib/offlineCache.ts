@@ -1,5 +1,12 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
+import {
+  clearSupabaseStoredAuthCache,
+  isSupabaseConfigured,
+  resetAuthLock,
+  supabase,
+  SUPABASE_KEY,
+  SUPABASE_URL,
+} from './supabase';
 import { notifySessionExpired, notifySessionRecovered } from './sessionExpiry';
 export { pendingIdsForTable } from './offlineQueuePendingIds';
 export { mergeWithCache } from './offlineCacheMerge';
@@ -12,11 +19,13 @@ export { mergeWithCache } from './offlineCacheMerge';
 // AsyncStorage — this handles devices where the Supabase auth-server network
 // call hangs (e.g. slow DNS, restrictive firewall) even when local WiFi is fine.
 const SESSION_CHECK_TIMEOUT_MS = 6_000;
+const SESSION_INITIALIZATION_GRACE_MS = 2_500;
 const SESSION_VALIDATION_CACHE_MS = 4_000;
 
 let sessionValidationPromise: Promise<boolean> | null = null;
 let sessionValidationCachedValue: boolean | null = null;
 let sessionValidationCachedUntil = 0;
+let forceRefreshPromise: Promise<string | null> | null = null;
 
 /**
  * Derive the AsyncStorage key supabase-js v2 uses for the persisted session.
@@ -74,7 +83,7 @@ export async function getSessionFromStorage(): Promise<{
  *
  * @returns new access_token string, or null if the refresh failed.
  */
-export async function forceRefreshSession(): Promise<string | null> {
+async function runForceRefreshSession(): Promise<string | null> {
   const REFRESH_TIMEOUT_MS = 10_000;
   const tag = '[forceRefresh]';
   try {
@@ -147,6 +156,10 @@ export async function forceRefreshSession(): Promise<string | null> {
         user: newSession.user ?? cached.user,
       };
       await AsyncStorage.setItem(key, JSON.stringify(toStore));
+      clearSupabaseStoredAuthCache();
+      // The raw fallback has just made a newer session durable. New auth work
+      // must not queue behind the stale lease that forced this fallback.
+      resetAuthLock('raw session refresh persisted');
       console.warn(
         `${tag} JWT renouvelé ✓ — expire ${new Date(toStore.expires_at * 1000).toISOString()}`,
       );
@@ -160,6 +173,15 @@ export async function forceRefreshSession(): Promise<string | null> {
     }
     return null;
   }
+}
+
+/** One refresh request per process, even when reads and queue replay wake together. */
+export function forceRefreshSession(): Promise<string | null> {
+  if (forceRefreshPromise) return forceRefreshPromise;
+  forceRefreshPromise = runForceRefreshSession().finally(() => {
+    forceRefreshPromise = null;
+  });
+  return forceRefreshPromise;
 }
 
 /**
@@ -180,62 +202,63 @@ export async function forceRefreshSession(): Promise<string | null> {
  *    If the stored JWT is still valid we return true so queries can proceed
  *    — the app remains functional even if the auth server is unreachable.
  */
+function sessionIsFresh(session: { expires_at?: number } | null | undefined): boolean {
+  return typeof session?.expires_at === 'number'
+    && session.expires_at - 10 > Math.floor(Date.now() / 1000);
+}
+
+function getClientSessionWithin(timeoutMs: number): Promise<any | null> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('session-check-timeout')), timeoutMs);
+    supabase.auth.getSession().then(
+      result => {
+        clearTimeout(timer);
+        resolve(result.data.session);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function runSupabaseSessionValidation(): Promise<boolean> {
   if (!isSupabaseConfigured) return false;
-  const hasValidCachedSession = async () => {
-    const cached = await getSessionFromStorage();
-    if (cached?.access_token && typeof cached.expires_at === 'number') {
-      const nowSec = Math.floor(Date.now() / 1000);
-      if (cached.expires_at - 10 > nowSec) {
-        console.log('[offlineCache] AsyncStorage session valid, proceeding');
-        return true;
-      }
-      console.warn('[offlineCache] AsyncStorage fallback: JWT expired — forceRefreshSession()');
-      const newToken = await forceRefreshSession();
-      if (newToken) {
-        console.warn('[offlineCache] forceRefresh succeeded — session renouvelée');
-        return true;
-      }
-      console.warn('[offlineCache] forceRefresh échoué — retour au cache local');
-    }
-    return false;
-  };
 
-  // Fast path: on mobile cold start, supabase-js can spend several seconds
-  // recovering/refreshing auth state. A still-valid persisted JWT is enough to
-  // let live RLS-protected queries run instead of showing stale cache or empty
-  // screens while getSession() catches up.
-  if (await hasValidCachedSession()) return true;
-
-  try {
-    const timeoutPromise = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error('session-check-timeout')), SESSION_CHECK_TIMEOUT_MS)
-    );
-    const sessionPromise = supabase.auth.getSession().then(r => r.data.session);
-    const session = await Promise.race([sessionPromise, timeoutPromise]);
-    if (!session?.user?.id) return hasValidCachedSession();
-    if (typeof session.expires_at === 'number') {
-      const nowSec = Math.floor(Date.now() / 1000);
-      // 10-second margin: avoid the race where the token is technically valid
-      // but supabase-js is mid-refresh and about to swap it out.
-      if (session.expires_at - 10 < nowSec) {
-        const newToken = await forceRefreshSession();
-        return !!newToken;
-      }
-    }
+  const stored = await getSessionFromStorage();
+  if (stored?.access_token && sessionIsFresh(stored)) {
+    console.log('[offlineCache] AsyncStorage session valid, proceeding');
     return true;
-  } catch {
-    // getSession() timed out (auth lock stuck or JWT-refresh network call hanging).
-    // Fallback: read the persisted JWT from AsyncStorage without waiting for the
-    // network. If it hasn't expired the app can still make authenticated requests.
-    console.warn('[offlineCache] getSession() timeout — trying AsyncStorage fallback');
-    try {
-      return await hasValidCachedSession();
-    } catch {
-      // AsyncStorage read failed — truly offline/locked
-    }
-    return false;
   }
+
+  // When the persisted JWT is expired, supabase-js is already recovering it
+  // during client initialization. Give that single owner a short bounded head
+  // start instead of immediately racing the same one-time refresh token with
+  // our raw fallback. The physical-device regression showed that race holding
+  // the auth initialization lock for several extra seconds.
+  const initializationTimeout = stored?.refresh_token
+    ? SESSION_INITIALIZATION_GRACE_MS
+    : SESSION_CHECK_TIMEOUT_MS;
+  try {
+    const session = await getClientSessionWithin(initializationTimeout);
+    if (session?.user?.id && sessionIsFresh(session)) return true;
+  } catch {
+    console.warn(
+      `[offlineCache] initialisation Supabase > ${initializationTimeout}ms — secours AsyncStorage`,
+    );
+  }
+
+  if (!stored?.refresh_token) return false;
+
+  console.warn('[offlineCache] JWT expiré — forceRefreshSession() après délai de grâce');
+  const newToken = await forceRefreshSession();
+  if (newToken) {
+    console.warn('[offlineCache] forceRefresh succeeded — session renouvelée');
+    return true;
+  }
+  console.warn('[offlineCache] forceRefresh échoué — retour au cache local');
+  return false;
 }
 
 export async function isSupabaseSessionValid(): Promise<boolean> {

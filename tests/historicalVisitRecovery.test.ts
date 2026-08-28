@@ -4,6 +4,7 @@ import {
   blockRecoveredVisitDependencies,
   planHistoricalVisitRecovery,
   prepareRecoveredVisitQueue,
+  queueNeedsHistoricalVisitRecoveryEvaluation,
   recoveredVisitMatchesPersistedIdentity,
   releaseRecoveredVisitDependencies,
   reviveRecoveredVisitDependencies,
@@ -34,6 +35,40 @@ function reserveFailure(overrides: Record<string, any> = {}) {
     lastError: '[23503] reserves_tenant_visite_fkey — Key is not present in table "visites".',
   };
 }
+
+describe('historical recovery performance gate', () => {
+  it('skips empty and modern UUID-backed queues', () => {
+    expect(queueNeedsHistoricalVisitRecoveryEvaluation([])).toBe(false);
+    expect(queueNeedsHistoricalVisitRecoveryEvaluation([{
+      table: 'reserves',
+      op: 'rpc',
+      rpc: {
+        fn: 'create_reserve_with_photos',
+        args: { p_reserve: { id: 'reserve-1', visite_id: '4fae4df9-a5e7-4cc5-9cd1-f707fb84b80f' } },
+      },
+    }])).toBe(false);
+  });
+
+  it('keeps every legacy reference and persisted recovery barrier eligible', () => {
+    expect(queueNeedsHistoricalVisitRecoveryEvaluation([reserveFailure()])).toBe(true);
+    expect(queueNeedsHistoricalVisitRecoveryEvaluation([{
+      table: 'visites',
+      op: 'insert',
+      data: { id: 'VIS-17875223' },
+      recoveryIntent: HISTORICAL_VISIT_RECOVERY_INTENT,
+    }])).toBe(true);
+    expect(queueNeedsHistoricalVisitRecoveryEvaluation([{
+      recoveryBlockedByVisitId: 'VIS-17875223',
+    }])).toBe(true);
+  });
+
+  it('ignores an entry already owned by a pending purge', () => {
+    expect(queueNeedsHistoricalVisitRecoveryEvaluation([{
+      ...reserveFailure(),
+      purgeState: 'pending_reconciliation',
+    }])).toBe(false);
+  });
+});
 
 describe('historical visit recovery', () => {
   it('recreates the exact cached visit before its dependent reserves', () => {
