@@ -833,7 +833,7 @@ function syncExit<T extends QueuedOperationOutcome>(_id: SyncExitId, outcome: T)
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function NetworkProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, isLoading: isAuthLoading } = useAuth();
   const userId = user?.id;
   const userOrganizationId = user?.organizationId ?? null;
   const recoveryUserName = user?.name ?? user?.email ?? null;
@@ -1361,6 +1361,15 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
 
   // ── Hydrate queue when user.id changes (cold start, login, switch) ─────────
   useEffect(() => {
+    // During cold-start authentication, `user` is transiently null while the
+    // cached profile/session is restored. Hydrating the anonymous outbox in
+    // that window publishes queueLoaded=true, then the real user hydration
+    // publishes it again a few milliseconds later. Every transition refetches
+    // all active queries, which doubled the visible data-loading delay on the
+    // physical Android device. A genuinely signed-out state still hydrates the
+    // anonymous outbox as soon as AuthContext finishes loading.
+    if (!userId && isAuthLoading) return;
+
     const targetKey = userId ? OFFLINE_QUEUE_PREFIX + userId : OFFLINE_QUEUE_PREFIX + 'anon';
     const targetScope = queueHydrationScopeKey(
       targetKey,
@@ -1391,7 +1400,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     queueRef.current = [];
     setQueue([]);
     void loadQueue();
-  }, [userId, userOrganizationId, loadQueue]);
+  }, [userId, userOrganizationId, isAuthLoading, loadQueue]);
 
   // Changement d'utilisateur (déconnexion / re-connexion) : repartir d'un état
   // « non bloqué ». Sans cela le drapeau ne serait réinitialisé que par une
