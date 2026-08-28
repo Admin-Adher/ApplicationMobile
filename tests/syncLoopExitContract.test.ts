@@ -443,6 +443,30 @@ describe('the queue purge is durable and keeps what came after it', () => {
     expect(loop).not.toContain('await executeQueuedOperation(queueRef.current');
   });
 
+  it('releases historical children only after their exact parent was applied', () => {
+    const hydration = source.slice(
+      source.indexOf('const recovery = planHistoricalVisitRecovery({'),
+      source.indexOf('// L\'organisation peut arriver pendant les lectures de cache ci-dessus.'),
+    );
+    expect(hydration).toContain('prepareRecoveredVisitQueue(');
+    expect(hydration).toContain('recoveryDependencyKeys: repair.dependencyKeys');
+    expect(hydration).toContain('.filter(repair => !repair.reuseQueuedParent)');
+    expect(hydration).not.toContain('reviveRecoveredVisitDependencies(');
+
+    const loop = source.slice(
+      source.indexOf('for (const op of currentQueue) {'),
+      source.indexOf('const nextQueue = coalesceQueuedOperations(queueAfterRecovery);'),
+    );
+    const appliedBranch = loop.indexOf("if (outcome.kind === 'applied') {");
+    const parentAcknowledgement = loop.indexOf('appliedHistoricalVisitRecoveries.push({');
+    const childRelease = loop.indexOf('queueAfterRecovery = releaseRecoveredVisitDependencies(');
+    expect(appliedBranch).toBeGreaterThan(-1);
+    expect(parentAcknowledgement).toBeGreaterThan(appliedBranch);
+    expect(childRelease).toBeGreaterThan(parentAcknowledgement);
+    expect(loop).toContain("op.table === 'visites'");
+    expect(loop).toContain("op.op === 'insert'");
+  });
+
   it('guards the purge resume with the hydration generation', () => {
     const hydration = source.slice(
       source.indexOf('const loadQueue = useCallback'),
