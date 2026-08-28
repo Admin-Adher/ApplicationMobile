@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, AppState } from 'react-native';
 import { createSupabaseSessionReadCoordinator } from './supabaseSessionReads';
+import { runTimedIdempotentRetry, selectFirstAttemptTimeout } from './supabaseFetchRetry';
 
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 export const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY;
@@ -108,6 +109,10 @@ const LOCK_MAX_MS = 5_000;
 const FETCH_TIMEOUT_AUTH_MS = 12_000;     // /auth/v1/* — petits payloads, retry interne auth-js
 const FETCH_TIMEOUT_REST_MS = 15_000;     // /rest/v1/* — requêtes JSON, + 1 retry si GET
 const FETCH_TIMEOUT_STORAGE_MS = 120_000; // /storage/v1/* — uploads de photos sur réseau lent
+// A dead Android HTTP/2 socket made every concurrent startup GET wait for the
+// full 15 s deadline before the already-safe retry. Probe native PostgREST
+// reads sooner, then keep the original 15 s budget for the recovery request.
+const FETCH_STALE_SOCKET_PROBE_MS = 5_000;
 
 type StoredAuthSnapshot = {
   token: string;
@@ -236,10 +241,17 @@ function timeoutForUrl(url: string): number {
 function fetchWithTimeout(input: any, init?: any): Promise<Response> {
   const url = typeof input === 'string' ? input : (input?.url ?? String(input));
   const method = String(init?.method ?? input?.method ?? 'GET').toUpperCase();
-  const timeoutMs = timeoutForUrl(url);
+  const retryTimeoutMs = timeoutForUrl(url);
+  const firstTimeoutMs = selectFirstAttemptTimeout({
+    method,
+    url,
+    isNative: Platform.OS !== 'web',
+    fullTimeoutMs: retryTimeoutMs,
+    staleSocketProbeMs: FETCH_STALE_SOCKET_PROBE_MS,
+  });
   const upstream: AbortSignal | undefined = init?.signal;
 
-  const attempt = async (): Promise<Response> => {
+  const attempt = async (timeoutMs: number): Promise<Response> => {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     if (upstream) {
@@ -251,14 +263,15 @@ function fetchWithTimeout(input: any, init?: any): Promise<Response> {
       .finally(() => clearTimeout(timer));
   };
 
-  return attempt().catch((err: any) => {
-    const timedOut = err?.name === 'AbortError' && !upstream?.aborted;
-    const idempotent = method === 'GET' || method === 'HEAD';
-    if (timedOut && idempotent) {
-      console.warn(`[supabase-fetch] timeout ${timeoutMs}ms (socket mort probable) — retry sur connexion neuve: ${method} ${url.split('?')[0]}`);
-      return attempt();
-    }
-    throw err;
+  return runTimedIdempotentRetry({
+    method,
+    firstTimeoutMs,
+    retryTimeoutMs,
+    attempt,
+    isUpstreamAborted: () => Boolean(upstream?.aborted),
+    onRetry: (elapsedMs, recoveryMs) => {
+      console.warn(`[supabase-fetch] timeout ${elapsedMs}ms (socket mort probable) — retry ${recoveryMs}ms sur connexion neuve: ${method} ${url.split('?')[0]}`);
+    },
   });
 }
 
