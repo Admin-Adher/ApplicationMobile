@@ -543,10 +543,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured) return;
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+    let authListenerDisposed = false;
+    let authEventGeneration = 0;
+    const deferredAuthTimers = new Set<ReturnType<typeof setTimeout>>();
+
+    const deferAuthWork = (work: () => void | Promise<void>) => {
+      const timer = setTimeout(() => {
+        deferredAuthTimers.delete(timer);
+        if (authListenerDisposed) return;
+        void Promise.resolve(work()).catch(() => {});
+      }, 0);
+      deferredAuthTimers.add(timer);
+    };
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
       // INITIAL_SESSION fires on app restart with existing session — must also
       // load lastReadByChannel from Supabase so unread state is correct.
       if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session) {
+        const generation = ++authEventGeneration;
         if (globalSeedingRef.current) return;
         if (registerInProgressRef.current) return;
         if (loginInProgressRef.current) return;
@@ -558,19 +572,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         hasCachedProfileRef.current = true; // profile exists now
 
         // Fix 3: try Supabase first, fallback to AsyncStorage if offline
-        try {
-          const { data: prof } = await (supabase as any)
-            .from('profiles').select('last_read_by_channel')
-            .eq('id', session.user.id).single();
-          if (prof?.last_read_by_channel) {
-            setLastReadByChannel(prof.last_read_by_channel);
-            lastReadByChannelRef.current = prof.last_read_by_channel;
+        // Supabase awaits auth callbacks while holding its session lock, so
+        // the profile request must begin only after this callback returns.
+        deferAuthWork(async () => {
+          try {
+            const { data: prof } = await (supabase as any)
+              .from('profiles').select('last_read_by_channel')
+              .eq('id', session.user.id).single();
+            if (
+              !authListenerDisposed &&
+              generation === authEventGeneration &&
+              prof?.last_read_by_channel
+            ) {
+              setLastReadByChannel(prof.last_read_by_channel);
+              lastReadByChannelRef.current = prof.last_read_by_channel;
+            }
+          } catch {
+            // Offline fallback: lastReadByChannel already loaded from AsyncStorage by the effect above
           }
-        } catch {
-          // Offline fallback: lastReadByChannel already loaded from AsyncStorage by the effect above
-        }
+        });
       }
       if (event === 'SIGNED_OUT') {
+        authEventGeneration += 1;
         // Distinguish an intentional logout (the user tapped "Logout") from
         // an automatic SIGNED_OUT fired by supabase-js when a token refresh
         // fails or the session is invalidated. Only the intentional one
@@ -602,7 +625,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Fix 2: removed duplicate getSession() call — onAuthStateChange already fires INITIAL_SESSION at mount
 
-    return () => authListener.subscription.unsubscribe();
+    return () => {
+      authListenerDisposed = true;
+      authEventGeneration += 1;
+      deferredAuthTimers.forEach(timer => clearTimeout(timer));
+      deferredAuthTimers.clear();
+      authListener.subscription.unsubscribe();
+    };
   }, [queryClient]);
 
   // Fix 11: Use refs for channel arrays so the handler registration is stable (no re-register on every channel change)

@@ -524,32 +524,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       resolveLoading();
     });
 
-    const fetchingProfileRef = { current: false };
-    // Reset stuck guard after 8s so returning to the app always works
-    let fetchingProfileTimer: ReturnType<typeof setTimeout> | null = null;
+    let authListenerDisposed = false;
+    let authEventGeneration = 0;
+    let activeProfileRefresh: Promise<void> | null = null;
+    let pendingProfileRefresh: { event: any; session: any; generation: number } | null = null;
+    const deferredAuthTimers = new Set<ReturnType<typeof setTimeout>>();
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event: any, session: any) => {
-      // Never reuse a REST bearer token across logout/login, token refresh, or
-      // account-switch events.
-      clearSupabaseRestTokenCache();
-      clearSupabaseStoredAuthCache();
-      debugLog(`[AuthContext] onAuthStateChange → event=${_event} session=${session ? session.user?.email : 'null'}`);
+    const isCurrentAuthEvent = (generation: number) => (
+      !authListenerDisposed && generation === authEventGeneration
+    );
+
+    const deferAuthWork = (work: () => void | Promise<void>) => {
+      const timer = setTimeout(() => {
+        deferredAuthTimers.delete(timer);
+        if (authListenerDisposed) return;
+        void Promise.resolve(work()).catch((err: any) => {
+          debugLogError(`[AuthContext] travail auth differe rejete: ${err?.message ?? err}`);
+        });
+      }, 0);
+      deferredAuthTimers.add(timer);
+    };
+
+    const processAuthStateChange = async (_event: any, session: any, generation: number): Promise<void> => {
+      if (!isCurrentAuthEvent(generation)) return;
       if (isSeedingRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (seeding en cours)'); return; }
       if (isRegisteringRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (register en cours)'); return; }
-      if (fetchingProfileRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (fetchProfile déjà en cours)'); return; }
       // login() manages setUser() directly and calls fetchProfile() itself.
       // Skipping here avoids a concurrent duplicate fetchProfile() and the
       // fire-and-forget signOut() that could clear queries after login succeeds.
       if (loginInProgressRef.current) { debugLogWarn('[AuthContext] onAuthStateChange ignoré (login en cours)'); return; }
+
       if (session?.user) {
-        fetchingProfileRef.current = true;
-        if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
-        fetchingProfileTimer = setTimeout(() => {
-          fetchingProfileRef.current = false;
-        }, 8_000);
-        try {
+        if (activeProfileRefresh) {
+          // Coalesce rapid SIGNED_IN / TOKEN_REFRESHED events. Once the active
+          // read finishes, only the newest session is allowed to update state.
+          pendingProfileRefresh = { event: _event, session, generation };
+          return;
+        }
+
+        activeProfileRefresh = (async () => {
           debugLog(`[AuthContext] onAuthStateChange → fetchProfile() pour ${session.user.email}`);
           const profile = await fetchProfile(session.user.id);
+          if (!isCurrentAuthEvent(generation)) return;
           if (profile) {
             debugLogOk(`[AuthContext] onAuthStateChange → fetchProfile OK (role=${profile.role})`);
             setUser(profile);
@@ -558,6 +574,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           } else {
             // fetchProfile null — likely offline, use cached profile
             const cached = await readCachedProfile();
+            if (!isCurrentAuthEvent(generation)) return;
             if (cached) {
               debugLogWarn('[AuthContext] onAuthStateChange → fetchProfile null (hors ligne?) → profil en cache restauré');
               setUser(cached);
@@ -565,33 +582,62 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
               debugLogError('[AuthContext] onAuthStateChange → fetchProfile null → signOut()');
               supabase.auth.signOut().catch(() => {});
-              setUser(null);
+              if (isCurrentAuthEvent(generation)) setUser(null);
             }
           }
-        } finally {
-          if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
-          fetchingProfileRef.current = false;
-        }
-      } else {
-        // Session null — likely TOKEN_REFRESH_FAILED while offline
-        // Use cached profile instead of disconnecting the user
-        const cached = await readCachedProfile();
-        if (cached) {
-          debugLogWarn('[AuthContext] onAuthStateChange → session null (hors ligne?) → profil en cache restauré');
-          setUser(cached);
-          setIsOfflineSession(true);
-        } else {
-          debugLogWarn('[AuthContext] onAuthStateChange → session null → user = null');
-          setUser(null);
-        }
+        })().finally(() => {
+          activeProfileRefresh = null;
+          const pending = pendingProfileRefresh;
+          pendingProfileRefresh = null;
+          if (pending && isCurrentAuthEvent(pending.generation)) {
+            deferAuthWork(() => processAuthStateChange(
+              pending.event,
+              pending.session,
+              pending.generation,
+            ));
+          }
+        });
+
+        await activeProfileRefresh;
+        return;
       }
+
+      pendingProfileRefresh = null;
+      // Session null — likely TOKEN_REFRESH_FAILED while offline
+      // Use cached profile instead of disconnecting the user
+      const cached = await readCachedProfile();
+      if (!isCurrentAuthEvent(generation)) return;
+      if (cached) {
+        debugLogWarn('[AuthContext] onAuthStateChange → session null (hors ligne?) → profil en cache restauré');
+        setUser(cached);
+        setIsOfflineSession(true);
+      } else {
+        debugLogWarn('[AuthContext] onAuthStateChange → session null → user = null');
+        setUser(null);
+      }
+    };
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
+      // Never reuse a REST bearer token across logout/login, token refresh, or
+      // account-switch events.
+      clearSupabaseRestTokenCache();
+      clearSupabaseStoredAuthCache();
+      debugLog(`[AuthContext] onAuthStateChange → event=${_event} session=${session ? session.user?.email : 'null'}`);
+      const generation = ++authEventGeneration;
+      // Supabase awaits auth callbacks while holding its session lock. Defer
+      // profile reads so the callback returns before any Supabase request.
+      deferAuthWork(() => processAuthStateChange(_event, session, generation));
     });
 
     return () => {
+      authListenerDisposed = true;
+      authEventGeneration += 1;
+      pendingProfileRefresh = null;
+      deferredAuthTimers.forEach(timer => clearTimeout(timer));
+      deferredAuthTimers.clear();
       subscription.unsubscribe();
       clearTimeout(safetyTimer);
       clearTimeout(validationTimer);
-      if (fetchingProfileTimer) clearTimeout(fetchingProfileTimer);
       loadingResolved = true; // prevent stale setState after unmount
     };
   }, []);

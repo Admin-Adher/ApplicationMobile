@@ -10,6 +10,14 @@ const offlineCacheSource = readFileSync(
   fileURLToPath(new URL('../lib/offlineCache.ts', import.meta.url).href),
   'utf8',
 );
+const authContextSource = readFileSync(
+  fileURLToPath(new URL('../context/AuthContext.tsx', import.meta.url).href),
+  'utf8',
+);
+const appContextSource = readFileSync(
+  fileURLToPath(new URL('../context/AppContext.tsx', import.meta.url).href),
+  'utf8',
+);
 
 describe('Supabase cold-start performance contract', () => {
   it('does not restart auto-refresh on a redundant initial active event', () => {
@@ -41,5 +49,22 @@ describe('Supabase cold-start performance contract', () => {
     expect(grace).toBeGreaterThan(-1);
     expect(client).toBeGreaterThan(grace);
     expect(raw).toBeGreaterThan(client);
+  });
+
+  it('returns from auth listeners before starting Supabase-backed profile work', () => {
+    expect(authContextSource).not.toMatch(/onAuthStateChange\s*\(\s*async\s*\(/);
+    expect(appContextSource).not.toMatch(/onAuthStateChange\s*\(\s*async\s*\(/);
+
+    const authListener = authContextSource.indexOf('supabase.auth.onAuthStateChange((_event');
+    const authDeferral = authContextSource.indexOf('deferAuthWork(() => processAuthStateChange', authListener);
+    const appListener = appContextSource.indexOf('supabase.auth.onAuthStateChange((event, session)');
+    const appDeferral = appContextSource.indexOf('deferAuthWork(async () => {', appListener);
+    const appProfileRead = appContextSource.indexOf(".from('profiles').select('last_read_by_channel')", appDeferral);
+
+    expect(authListener).toBeGreaterThan(-1);
+    expect(authDeferral).toBeGreaterThan(authListener);
+    expect(appListener).toBeGreaterThan(-1);
+    expect(appDeferral).toBeGreaterThan(appListener);
+    expect(appProfileRead).toBeGreaterThan(appDeferral);
   });
 });
