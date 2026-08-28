@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform, AppState } from 'react-native';
+import { createSupabaseSessionReadCoordinator } from './supabaseSessionReads';
 
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL;
 export const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY;
@@ -315,7 +316,7 @@ function safeLock<R>(_name: string, acquireTimeoutMs: number, fn: () => Promise<
   });
 }
 
-export const supabase: SupabaseClientType = isSupabaseConfigured
+const configuredSupabase: SupabaseClientType | null = isSupabaseConfigured
   ? createClient(SUPABASE_URL!, SUPABASE_KEY!, {
       auth: {
         storage: SsrSafeStorage,
@@ -330,7 +331,31 @@ export const supabase: SupabaseClientType = isSupabaseConfigured
         fetch: fetchWithTimeout,
       },
     })
-  : (null as unknown as SupabaseClientType);
+  : null;
+
+let sessionReadCoordinator: ReturnType<
+  typeof createSupabaseSessionReadCoordinator<any, any>
+> | null = null;
+
+if (configuredSupabase && Platform.OS !== 'web') {
+  const auth = configuredSupabase.auth as any;
+  const originalGetSession = auth.getSession.bind(auth);
+  sessionReadCoordinator = createSupabaseSessionReadCoordinator<any, any>(
+    originalGetSession,
+  );
+  // SupabaseClient's PostgREST/Storage fetch path calls auth.getSession() for
+  // every request. Route those calls through one short-lived, account-aware
+  // coordinator so a cold-start query burst does not serialize hundreds of
+  // AsyncStorage reads through the auth lock.
+  auth.getSession = sessionReadCoordinator.getSession;
+}
+
+export function primeSupabaseSessionReadCache(session: any | null): void {
+  sessionReadCoordinator?.prime(session);
+}
+
+export const supabase: SupabaseClientType = configuredSupabase
+  ?? (null as unknown as SupabaseClientType);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Démarrage / arrêt du auto-refresh selon l'état de l'app (React Native)

@@ -6,6 +6,7 @@ import {
   isSupabaseConfigured,
   resetAuthLock,
   clearSupabaseStoredAuthCache,
+  primeSupabaseSessionReadCache,
 } from '@/lib/supabase';
 import { User, UserRole, UserPermissions, PermissionsOverride } from '@/constants/types';
 import type { AppLanguage } from '@/constants/language';
@@ -622,6 +623,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // account-switch events.
       clearSupabaseRestTokenCache();
       clearSupabaseStoredAuthCache();
+      primeSupabaseSessionReadCache(session ?? null);
       debugLog(`[AuthContext] onAuthStateChange → event=${_event} session=${session ? session.user?.email : 'null'}`);
       const generation = ++authEventGeneration;
       // Supabase awaits auth callbacks while holding its session lock. Defer

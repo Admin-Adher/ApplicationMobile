@@ -67,4 +67,20 @@ describe('Supabase cold-start performance contract', () => {
     expect(appDeferral).toBeGreaterThan(appListener);
     expect(appProfileRead).toBeGreaterThan(appDeferral);
   });
+
+  it('coalesces native client session reads and primes them from auth events', () => {
+    const coordinator = supabaseSource.indexOf('createSupabaseSessionReadCoordinator<any, any>');
+    const nativeGuard = supabaseSource.indexOf("configuredSupabase && Platform.OS !== 'web'");
+    const assignment = supabaseSource.indexOf('auth.getSession = sessionReadCoordinator.getSession');
+    const authListener = authContextSource.indexOf('supabase.auth.onAuthStateChange((_event');
+    const prime = authContextSource.indexOf('primeSupabaseSessionReadCache(session ?? null)', authListener);
+    const deferredProfile = authContextSource.indexOf('deferAuthWork(() => processAuthStateChange', prime);
+
+    expect(coordinator).toBeGreaterThan(-1);
+    expect(nativeGuard).toBeGreaterThan(coordinator);
+    expect(assignment).toBeGreaterThan(nativeGuard);
+    expect(authListener).toBeGreaterThan(-1);
+    expect(prime).toBeGreaterThan(authListener);
+    expect(deferredProfile).toBeGreaterThan(prime);
+  });
 });
