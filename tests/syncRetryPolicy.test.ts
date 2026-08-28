@@ -53,6 +53,7 @@ describe('failure classification', () => {
     expect(classifySyncFailure({ error: { code: 'PGRST301' } })).toBe('authentication');
     expect(classifySyncFailure({ error: { status: 409 } })).toBe('conflict');
     expect(classifySyncFailure({ error: { code: '23505' } })).toBe('conflict');
+    expect(classifySyncFailure({ error: { code: '23503', status: 409 } })).toBe('permanent_candidate');
     expect(classifySyncFailure({ error: { code: 'PGRST202' } })).toBe('permanent_candidate');
     expect(classifySyncFailure({ error: { message: 'quelque chose d inattendu' } })).toBe('unknown');
   });

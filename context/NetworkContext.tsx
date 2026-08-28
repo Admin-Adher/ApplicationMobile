@@ -104,6 +104,15 @@ function emptyHistoricalVisitRecoveryAudit(): HistoricalVisitRecoveryAudit {
     profileOrganizationAvailable: false,
     queuedOrganizationFallbackCount: 0,
     skippedReasons: {},
+    evidence: {
+      createReserveOperationCount: 0,
+      linkOperationCount: 0,
+      legacyVisitReferenceCount: 0,
+      missingVisitFailureCount: 0,
+      foreignKeyFailureCount: 0,
+      reserveLinkCorrelationCount: 0,
+      ambiguousReserveLinkCount: 0,
+    },
   };
 }
 

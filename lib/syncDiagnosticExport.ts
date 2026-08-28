@@ -179,6 +179,15 @@ function safeHistoricalVisitRecovery(
       safeCount(value?.queuedOrganizationFallbackCount),
     ),
     skippedReasons,
+    evidence: {
+      createReserveOperationCount: safeCount(value?.evidence?.createReserveOperationCount),
+      linkOperationCount: safeCount(value?.evidence?.linkOperationCount),
+      legacyVisitReferenceCount: safeCount(value?.evidence?.legacyVisitReferenceCount),
+      missingVisitFailureCount: safeCount(value?.evidence?.missingVisitFailureCount),
+      foreignKeyFailureCount: safeCount(value?.evidence?.foreignKeyFailureCount),
+      reserveLinkCorrelationCount: safeCount(value?.evidence?.reserveLinkCorrelationCount),
+      ambiguousReserveLinkCount: safeCount(value?.evidence?.ambiguousReserveLinkCount),
+    },
   };
 }
 
@@ -350,6 +359,12 @@ export function formatSyncDiagnosticReport(report: SyncDiagnosticReport): string
         + ` | org profil ${report.historicalVisitRecovery.profileOrganizationAvailable ? 'oui' : 'non'}`
         + ` | secours file ${report.historicalVisitRecovery.queuedOrganizationFallbackCount}`
       : 'non evaluee'}`,
+    `Preuves recuperation : ${report.historicalVisitRecovery.evaluated
+      ? `creations ${report.historicalVisitRecovery.evidence.createReserveOperationCount}, liens ${report.historicalVisitRecovery.evidence.linkOperationCount}`
+        + ` | refs historiques ${report.historicalVisitRecovery.evidence.legacyVisitReferenceCount}`
+        + ` | erreurs visite ${report.historicalVisitRecovery.evidence.missingVisitFailureCount}, FK 23503 ${report.historicalVisitRecovery.evidence.foreignKeyFailureCount}`
+        + ` | correlations ${report.historicalVisitRecovery.evidence.reserveLinkCorrelationCount}, ambigues ${report.historicalVisitRecovery.evidence.ambiguousReserveLinkCount}`
+      : 'n/a'}`,
     '',
     `File                 : ${report.queue.pending} en attente, ${report.queue.rejected} refusees,`
       + ` ${report.queue.stuck} bloquees`,
