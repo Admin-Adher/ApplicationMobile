@@ -1416,13 +1416,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     }
   }, [userId]);
 
-  // Once the queue finishes loading, force every gated query to re-evaluate
-  // its queryFn so they can finally fetch from the server safely.
-  useEffect(() => {
-    if (queueLoaded) {
-      void refetchActiveQueries('queue-loaded');
-    }
-  }, [queueLoaded]);
+  // AppProvider owns cold-start server freshness once queueLoaded becomes true:
+  // it refreshes the six startup-critical keys first with cancelRefetch=false,
+  // then defers the remaining active queries. A second global refetch here used
+  // to cancel/restart those requests and doubled production startup traffic.
+  // NetworkContext still refetches after real queue processing, reconnection,
+  // foreground wake-up and explicit terminal-operation acknowledgement.
 
   // ── Network detection ──────────────────────────────────────────────────────
   //

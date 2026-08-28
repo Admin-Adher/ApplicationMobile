@@ -6,6 +6,10 @@ const source = readFileSync(
   fileURLToPath(new URL('../context/NetworkContext.tsx', import.meta.url).href),
   'utf8',
 );
+const appContextSource = readFileSync(
+  fileURLToPath(new URL('../context/AppContext.tsx', import.meta.url).href),
+  'utf8',
+);
 
 describe('tenant-aware queue hydration', () => {
   it('defers anonymous hydration while cold-start authentication is unresolved', () => {
@@ -21,6 +25,31 @@ describe('tenant-aware queue hydration', () => {
     expect(source).toContain(
       '}, [userId, userOrganizationId, isAuthLoading, loadQueue]);',
     );
+  });
+
+  it('leaves queue-loaded server freshness to the staged AppProvider owner', () => {
+    expect(source).not.toContain("refetchActiveQueries('queue-loaded')");
+
+    const queueGate = appContextSource.indexOf(
+      'if (!queueLoaded || !serverFreshnessKey) return;',
+    );
+    const criticalRefresh = appContextSource.indexOf(
+      'STARTUP_BLOCKING_QUERY_KEYS.map(queryKey =>',
+      queueGate,
+    );
+    const noCancellation = appContextSource.indexOf(
+      '{ cancelRefetch: false }',
+      criticalRefresh,
+    );
+    const deferredRefresh = appContextSource.indexOf(
+      'predicate: query => !isStartupBlockingQueryKey(query.queryKey)',
+      noCancellation,
+    );
+
+    expect(queueGate).toBeGreaterThan(-1);
+    expect(criticalRefresh).toBeGreaterThan(queueGate);
+    expect(noCancellation).toBeGreaterThan(criticalRefresh);
+    expect(deferredRefresh).toBeGreaterThan(noCancellation);
   });
 
   it('reloads on organization arrival only for a legacy recovery queue', () => {
