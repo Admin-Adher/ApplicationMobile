@@ -76,6 +76,10 @@ import {
   queuedInsertMatchesPersistedRow,
 } from '@/lib/syncQueueDependencies';
 import {
+  hasPendingReserveCreateOperation,
+  rebasePendingReservePhotoPayload,
+} from '@/lib/reservePhotoIntegrity';
+import {
   HISTORICAL_VISIT_RECOVERY_INTENT,
   planHistoricalVisitRecovery,
   prepareRecoveredVisitQueue,
@@ -2524,6 +2528,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         data = hydrateQueuedOrganizationId(op.table, data, user?.organizationId ?? null, user?.role ?? null);
         let retryData = data;
         let deferredPhotoPatch: QueuedOperation | null = null;
+        let liveReserveForPhotoPatch: Record<string, any> | null | undefined;
+        let photoPatchGalleryFetchFailure: { error: any; meta?: SupabaseRestMeta } | null = null;
         if (data) {
           if (op.table === 'visites') {
             data = normalizeVisitePayloadForSupabase(data);
@@ -2532,6 +2538,23 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           if (op.table === 'reserves') {
             if (data.deadline === '—' || data.deadline === '') {
               data.deadline = null;
+            }
+          }
+          if (op.photoPatch && op.table === 'reserves' && op.filter?.column === 'id') {
+            const reserveId = op.filter.value;
+            const { data: reserveRows, error: fetchErr, meta: fetchMeta } = await supabaseRestSelect<any>(
+              'reserves',
+              'photos,photo_uri',
+              { column: 'id', value: reserveId },
+            );
+            if (fetchErr) {
+              photoPatchGalleryFetchFailure = { error: fetchErr, meta: fetchMeta };
+            } else {
+              liveReserveForPhotoPatch = reserveRows?.[0] ?? null;
+              if (liveReserveForPhotoPatch) {
+                data = rebasePendingReservePhotoPayload(data, liveReserveForPhotoPatch);
+                retryData = data;
+              }
             }
           }
           // ── Logs détaillés pour site_plans ──────────────────────────────
@@ -2543,7 +2566,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
             console.log(`[SYNC:site_plans] uri    : ${typeof data.uri === 'string' ? (data.uri.slice(0, 100)) : '(absent)'}`);
             console.log(`[SYNC:site_plans] uri locale : ${hasLocalUri ? 'OUI → upload requis' : 'NON (déjà remote ou null)'}`);
           }
-          try {
+          // Si la galerie distante n'a pas pu être lue (ou si la création
+          // parente n'a pas encore produit sa ligne), ne téléverser aucun
+          // fichier. E40/E41 rendent le verdict explicite plus bas.
+          if (!photoPatchGalleryFetchFailure && liveReserveForPhotoPatch !== null) try {
             const prep = await withTimeoutMs(
               uploadLocalPhotosInPayload(op.table, data),
               uploadStepTimeoutMs(data),
@@ -2669,14 +2695,12 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         // live gallery, merge/delete by photo ID, then write the merged result.
         if (op.photoPatch && op.table === 'reserves' && op.filter?.column === 'id') {
           const reserveId = op.filter.value;
-          const { data: reserveRows, error: fetchErr, meta: fetchMeta } = await supabaseRestSelect<any>(
-            'reserves',
-            'photos,photo_uri',
-            { column: 'id', value: reserveId },
-          );
-          if (fetchErr) return syncExit('E40', fail(op, fetchErr, { meta: fetchMeta }));
-
-          const serverReserve = reserveRows?.[0] ?? null;
+          if (photoPatchGalleryFetchFailure) {
+            return syncExit('E40', fail(op, photoPatchGalleryFetchFailure.error, {
+              meta: photoPatchGalleryFetchFailure.meta,
+            }));
+          }
+          const serverReserve = liveReserveForPhotoPatch ?? null;
           // Réserve supprimée entre-temps : la galerie n'a plus de destinataire.
           if (!serverReserve) return syncExit('E41', { kind: 'applied', operation: op });
 
@@ -2996,6 +3020,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
+    const appliedReserveCreateIds = new Set<string>();
+
     for (const op of currentQueue) {
       // Le disjoncteur ne s'ouvre qu'après plusieurs échecs d'infrastructure
       // consécutifs : à ce stade les opérations restantes échoueraient pour la
@@ -3005,6 +3031,43 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // réveillés), on cesse immédiatement tout travail : la passe courante
       // possède la file et a déjà rejoué (ou est en train de rejouer) ces ops.
       if (!isCurrentGeneration()) break;
+
+      // Une annotation enregistrée pendant l'upload local-first d'une réserve
+      // ne doit jamais partir avant sa création parente. Sinon la même URI
+      // locale est téléversée une deuxième fois, ou le patch disparaît sur une
+      // ligne qui n'existe pas encore. La priorité place le parent avant
+      // l'enfant ; si le parent n'a pas été appliqué durant cette passe, on
+      // conserve l'enfant sans incrémenter ses tentatives.
+      const photoPatchReserveId = op.photoPatch
+        && op.table === 'reserves'
+        && op.filter?.column === 'id'
+        ? String(op.filter.value ?? '')
+        : '';
+      const queuedCreateParent = photoPatchReserveId
+        ? prepared.operations.find(candidate => (
+            hasPendingReserveCreateOperation([candidate], photoPatchReserveId)
+          ))
+        : null;
+      if (
+        photoPatchReserveId
+        && queuedCreateParent
+        && !appliedReserveCreateIds.has(photoPatchReserveId)
+      ) {
+        const failedParent = failedOps.find(candidate => (
+          hasPendingReserveCreateOperation([candidate], photoPatchReserveId)
+        ));
+        failedOps.push({
+          ...op,
+          nextAttemptAt: failedParent?.nextAttemptAt
+            ?? queuedCreateParent.nextAttemptAt
+            ?? new Date(Date.now() + 1_000).toISOString(),
+        });
+        processed += 1;
+        if (op.queueEntryId) processedEntryIds.add(op.queueEntryId);
+        syncProgressAtRef.current = Date.now();
+        setSyncProgress({ done: processed, total: currentQueue.length });
+        continue;
+      }
 
       const outcome = await executeQueuedOperation(op);
       processed += 1;
@@ -3034,6 +3097,11 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
       if (outcome.kind === 'applied') {
         setLastOperationSuccessAt(new Date().toISOString());
+        const createdReserveId = op.op === 'rpc'
+          && op.rpc?.fn === 'create_reserve_with_photos'
+          ? String(op.rpc.args?.p_reserve?.id ?? '')
+          : '';
+        if (createdReserveId) appliedReserveCreateIds.add(createdReserveId);
         if (
           op.recoveryIntent === HISTORICAL_VISIT_RECOVERY_INTENT
           && op.table === 'visites'

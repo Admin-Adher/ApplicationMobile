@@ -12,6 +12,29 @@ const nextConfig: NextConfig = {
   },
   outputFileTracingRoot: repositoryRoot,
   serverExternalPackages: ['@sparticuz/chromium', '@sparticuz/chromium-min', 'puppeteer-core'],
+  images: {
+    // Private-media URLs are short-lived signed URLs. Keep the allow-list
+    // exact, resize them server-side, and do not cache longer than the signing
+    // window. This prevents a 1868x4000 original from being downloaded into a
+    // 168x128 reserve thumbnail.
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: '5da3d4bc18c3d1e7b668366b5fb0408b.r2.cloudflarestorage.com',
+        pathname: '/buildtrack-files/**',
+      },
+      {
+        protocol: 'https',
+        hostname: 'jzeojdpgglbxjdasjgta.supabase.co',
+        pathname: '/storage/v1/**',
+      },
+    ],
+    formats: ['image/avif', 'image/webp'],
+    qualities: [70, 82],
+    minimumCacheTTL: 60,
+    maximumRedirects: 0,
+    dangerouslyAllowLocalIP: false,
+  },
   outputFileTracingIncludes: {
     '/api/generate-pdf': [
       './node_modules/@sparticuz/chromium/bin/**/*',

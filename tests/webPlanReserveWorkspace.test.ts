@@ -225,11 +225,39 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(assetNormalizers).not.toMatch(/privateMedia(?:Access|Url)|requestPrivateMedia|fetch\(/);
     expect(reservePhotoItems).toContain("assetUrl(photo, 'photos')");
     expect(reservePhotoItems).not.toMatch(/privateMedia(?:Access|Url)|requestPrivateMedia|fetch\(/);
-    expect(page).toContain('<PrivatePhotoFrame photo={photo} compact fit="cover" />');
+    expect(page).toContain('<PrivatePhotoFrame photo={photo} compact fit="cover" immediate={index < 2} />');
     expect(mediaHook).toContain('new IntersectionObserver');
     expect(mediaHook).toContain("rootMargin = '280px'");
     expect(page).toContain("priority: 'critical',");
     expect(page).toContain('navigator.clipboard.writeText(lightboxPhotoMedia.url)');
+  });
+
+  it('opens direct reserve links before secondary modules and serves resized private photos', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+    const nextConfig = read('vercel-app/next.config.ts');
+    const css = read('vercel-app/app/web/web.module.css');
+    const privateFrame = page.slice(
+      page.indexOf('function PrivatePhotoFrame'),
+      page.indexOf('function PrivateMediaLink'),
+    );
+
+    expect(page).toContain("import NextImage from 'next/image'");
+    expect(privateFrame).toContain('<NextImage');
+    expect(privateFrame).toContain('fill');
+    expect(privateFrame).toContain("quality={compact ? 70 : 82}");
+    expect(privateFrame).toContain("sizes={compact ? '(max-width: 760px) 46vw, 176px'");
+    expect(privateFrame).toContain('imageNaturalSize={naturalSize}');
+    expect(privateFrame).not.toMatch(/<img\b/);
+    expect(page).toContain('const photosByReserve = buildReservePhotoIndex(photos)');
+    expect(page).toContain('Promise.all([chantiersPromise, reservesPromise, companiesPromise])');
+    expect(page).toContain('const requestedReserveId = reserveIdFromHref(window.location.href)');
+    expect(page).toContain('openReserveDetailTab(requestedReserveId, target)');
+    expect(page).toContain("(supabaseBrowser as any).rpc('soft_delete_photo'");
+    expect(nextConfig).toContain("formats: ['image/avif', 'image/webp']");
+    expect(nextConfig).toContain('minimumCacheTTL: 60');
+    expect(nextConfig).toContain("pathname: '/buildtrack-files/**'");
+    expect(css).toContain(".photoAnnotationFrame[data-image-ready='false']");
+    expect(css).toContain('@media (prefers-reduced-motion: reduce)');
   });
 
   it('shows an account-scoped cached first page before signed media is ready', () => {
