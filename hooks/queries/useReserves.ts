@@ -13,6 +13,7 @@ import { genReserveId, toIsoDeadline } from '@/lib/reserveUtils';
 import { getReserveDescriptionText } from '@/lib/reserveDescription';
 import { mergeWithCache, readCache, writeCache, pendingIdsForTable, isSupabaseSessionValid } from '@/lib/offlineCache';
 import { isLocalUri, uploadLocalPhotosInPayload } from '@/lib/storage';
+import { hasPendingReserveCreateOperation } from '@/lib/reservePhotoIntegrity';
 import { triggerReserveCreatedPush } from '@/lib/push/client';
 import { RESERVES_CACHE_KEY } from '@/lib/cacheKeys';
 import i18n from '@/lib/i18n';
@@ -762,6 +763,41 @@ export function useReserves() {
     persist(queryClient.getQueryData<Reserve[]>(queryKeys.reserves()) ?? []);
     const payload = reserveUpdatePayload(reserve);
     const previousPayload = previousReserve ? reserveUpdatePayload(previousReserve) : null;
+    const queuePendingCreatePatch = (patch: Record<string, any>) => {
+      const changedPatch = previousPayload
+        ? Object.fromEntries(Object.entries(patch).filter(([key, value]) =>
+            !patchValueEquals(value, previousPayload[key])
+          ))
+        : patch;
+      const photoPatch = photoPatchFromPayload(changedPatch);
+      const scalarPatch = { ...changedPatch };
+      delete scalarPatch.photos;
+      delete scalarPatch.photo_uri;
+
+      if (hasPatchFields(scalarPatch)) {
+        enqueueOperation({
+          table: 'reserves',
+          op: 'update',
+          filter: { column: 'id', value: reserve.id },
+          data: scalarPatch,
+          baseVersion: reserve.version ?? null,
+        }, { proveNeverStarted: true });
+      }
+      if (photoPatch) {
+        enqueueOperation({
+          table: 'reserves',
+          op: 'update',
+          filter: { column: 'id', value: reserve.id },
+          data: photoPatch,
+          coalesceKey: `reserve-photo-snapshot:${userId ?? 'anonymous'}:${reserve.id}`,
+          photoPatch: {
+            action: 'upsert',
+            photos: Array.isArray(photoPatch.photos) ? photoPatch.photos : undefined,
+            photoUri: typeof photoPatch.photo_uri === 'string' ? photoPatch.photo_uri : null,
+          },
+        }, { proveNeverStarted: true });
+      }
+    };
     const queuePatch = (patch: Record<string, any>) => {
       const versioned = typeof reserve.version === 'number';
       const scalarPatch = versioned ? reserveScalarPatchSince(patch, previousPayload) : patch;
@@ -789,6 +825,14 @@ export function useReserves() {
         });
       }
     };
+    // A local-first create can still be uploading while the user annotates the
+    // photo from the detail screen. Never start a second upload in parallel:
+    // queue the delta behind the create, then NetworkContext rebases it on the
+    // remote URI produced by that create.
+    if (isSupabaseConfigured && hasPendingReserveCreateOperation(queueRef.current, reserve.id)) {
+      queuePendingCreatePatch(payload);
+      return;
+    }
     if (!isOnlineRef.current && isSupabaseConfigured) {
       queuePatch(payload);
       return;
@@ -855,7 +899,7 @@ export function useReserves() {
         queuePatch(prep.data!);
       }
     }
-  }, [queryClient, isOnlineRef, enqueueOperation, persist, applyUploadedPhotoPayload]);
+  }, [queryClient, userId, isOnlineRef, enqueueOperation, persist, applyUploadedPhotoPayload]);
 
   const updateReserveFields = useCallback(async (r: Reserve) => {
     return updateReserve(r);

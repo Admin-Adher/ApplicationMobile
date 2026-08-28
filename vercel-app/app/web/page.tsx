@@ -1,5 +1,6 @@
 'use client';
 
+import NextImage from 'next/image';
 import { createContext, useCallback, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
@@ -65,6 +66,7 @@ import {
 } from './plan-reserve-workspace/pdfjs-client';
 import { useResponsiveWorkspaceNavigation } from './plan-reserve-workspace/useResponsiveWorkspace';
 import { usePrivateMediaAccess, useVisiblePrivateMedia } from './plan-reserve-workspace/usePrivateMedia';
+import { hrefWithReserveId, reserveIdFromHref } from './plan-reserve-workspace/reserve-deep-link';
 import {
   clearPlanPreviewsForUser,
   rasterizePlanPreview,
@@ -99,6 +101,10 @@ import {
   type PendingPlanAnnotationSnapshot,
 } from '../../../lib/plan-annotations/pending-snapshots';
 import { renderPlanAnnotationsToCanvas } from '../../../lib/plan-annotations/canvas-renderer';
+import {
+  buildReservePhotoIndex,
+  planReservePhotoRowReconciliation,
+} from '../../../lib/reservePhotoIntegrity';
 import {
   PlanAnnotationRasterizationError,
   renderPlanImageWithAnnotationsToDataUrl,
@@ -1677,31 +1683,47 @@ function photoAnnotationsFrom(photo: any) {
   return normalizePhotoAnnotations(photo?.annotations ?? photo?.photo_annotations ?? photo?.photoAnnotations);
 }
 
-function reservePhotoItems(reserve: any, photos: any[]) {
+function reservePhotoItems(
+  reserve: any,
+  photos: any[],
+  indexedPhotos?: ReadonlyMap<string, any[]>,
+) {
   if (!reserve) return [];
   const fromReserve = Array.isArray(reserve.photos) ? reserve.photos : [];
   const legacyPhotoUri = reserve.photo_uri ?? reserve.photoUri;
   const legacyReservePhotos = legacyPhotoUri
     ? [{ id: `${reserve.id}-legacy`, uri: legacyPhotoUri, comment: 'Photo' }]
     : [];
-  const fromTable = photos.filter(photo => {
+  const fromTable = indexedPhotos?.get(String(reserve.id)) ?? photos.filter(photo => {
     const reserveId = photo.reserve_id ?? photo.reserveId;
     return reserveId && String(reserveId) === String(reserve.id);
   });
-  const byKey = new Map<string, any>();
+  const normalizedPhotos: any[] = [];
+  const byStableId = new Map<string, number>();
+  const byMediaRef = new Map<string, number>();
   [...fromReserve, ...legacyReservePhotos, ...fromTable].forEach(photo => {
     const uri = assetUrl(photo, 'photos');
     if (!uri) return;
-    const key = assetDedupeKey(uri) || String(photo.id ?? uri);
+    const stableId = String(photo.id ?? '').trim();
+    const mediaRef = assetDedupeKey(uri);
     const normalizedPhoto = { ...photo, uri, annotations: photoAnnotationsFrom(photo) };
-    const existingPhoto = byKey.get(key);
-    if (!existingPhoto) {
-      byKey.set(key, normalizedPhoto);
-    } else if (!photoAnnotationsFrom(existingPhoto).length && normalizedPhoto.annotations.length) {
-      byKey.set(key, { ...existingPhoto, annotations: normalizedPhoto.annotations });
+    const existingIndex = (stableId ? byStableId.get(stableId) : undefined)
+      ?? (mediaRef ? byMediaRef.get(mediaRef) : undefined);
+    if (existingIndex === undefined) {
+      const nextIndex = normalizedPhotos.length;
+      normalizedPhotos.push(normalizedPhoto);
+      if (stableId) byStableId.set(stableId, nextIndex);
+      if (mediaRef) byMediaRef.set(mediaRef, nextIndex);
+    } else {
+      const existingPhoto = normalizedPhotos[existingIndex];
+      if (!photoAnnotationsFrom(existingPhoto).length && normalizedPhoto.annotations.length) {
+        normalizedPhotos[existingIndex] = { ...existingPhoto, annotations: normalizedPhoto.annotations };
+      }
+      if (stableId) byStableId.set(stableId, existingIndex);
+      if (mediaRef) byMediaRef.set(mediaRef, existingIndex);
     }
   });
-  return Array.from(byKey.values());
+  return normalizedPhotos;
 }
 
 const EMPTY_MEDIA_IMAGE = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
@@ -1747,26 +1769,53 @@ function PrivatePhotoFrame({
   immediate?: boolean;
 }) {
   const { access, observe, requestNow } = useVisiblePrivateMedia(photo?.uri, { immediate });
+  const [loadedUrl, setLoadedUrl] = useState('');
+  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const imageFit = fit ?? (compact ? 'cover' : 'contain');
+  const imageReady = Boolean(access.url && loadedUrl === access.url);
+
+  useEffect(() => {
+    setLoadedUrl('');
+    setNaturalSize(null);
+  }, [access.url]);
+
   return (
     <span
       ref={observe}
       className={className ?? styles.photoAnnotationFrame}
       data-private-media-status={access.status}
+      data-image-ready={imageReady ? 'true' : 'false'}
       onMouseEnter={requestNow}
     >
-      <img
-        src={access.url || EMPTY_MEDIA_IMAGE}
-        alt={photo?.comment ?? photo?.name ?? 'Photo réserve'}
-        loading={immediate ? 'eager' : 'lazy'}
-        decoding="async"
-        aria-busy={access.status === 'resolving' || access.status === 'idle'}
-      />
+      {access.url ? (
+        <NextImage
+          key={access.url}
+          src={access.url}
+          alt={photo?.comment ?? photo?.name ?? 'Photo réserve'}
+          fill
+          sizes={compact ? '(max-width: 760px) 46vw, 176px' : '(max-width: 760px) 100vw, 1100px'}
+          quality={compact ? 70 : 82}
+          loading={immediate ? 'eager' : 'lazy'}
+          fetchPriority={immediate ? 'high' : 'auto'}
+          style={{ objectFit: imageFit }}
+          aria-busy={!imageReady}
+          onLoad={event => {
+            setLoadedUrl(access.url);
+            if (event.currentTarget.naturalWidth > 0 && event.currentTarget.naturalHeight > 0) {
+              setNaturalSize({
+                width: event.currentTarget.naturalWidth,
+                height: event.currentTarget.naturalHeight,
+              });
+            }
+          }}
+        />
+      ) : null}
       {access.url ? (
         <PhotoAnnotationLayer
           annotations={photoAnnotationsFrom(photo)}
           compact={compact}
           fit={fit}
-          imageSrc={access.url}
+          imageNaturalSize={naturalSize}
         />
       ) : null}
     </span>
@@ -2922,6 +2971,7 @@ export default function BuildTrackWebPage() {
   });
   const previousActiveTabRef = useRef<TabId>('dashboard');
   const reserveHistoryNavigationRef = useRef(false);
+  const initialReserveDeepLinkHandledRef = useRef(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
   const [reserveDetailRequest, setReserveDetailRequest] = useState<{ id: string; token: number } | null>(null);
@@ -3428,6 +3478,30 @@ export default function BuildTrackWebPage() {
         },
       );
       const companiesPromise = fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError });
+      void publishWhenCurrent(
+        Promise.all([chantiersPromise, reservesPromise, companiesPromise]),
+        loadLease,
+        ([chantiers, reserves, companies]) => {
+          // La liste et le deep-link d'une réserve ne doivent pas attendre les
+          // modules secondaires (messages, journal, stock, documents...).
+          const visible = visibleReservesForProfile(reserves, loadedProfile, companies);
+          setData(previous => ({
+            ...previous,
+            companies,
+            reserves: visible.filter((reserve: any) => !isReserveDeleted(reserve)),
+            deletedReserves: visible.filter((reserve: any) => isReserveDeleted(reserve)),
+          }));
+          setSelectedProjectId(previous => previous !== 'all' && chantiers.some((chantier: any) => chantier.id === previous)
+            ? previous
+            : chantiers[0]?.id ?? 'all');
+          const canRevealReserveCore = typeof window !== 'undefined'
+            && (activeTab === 'reserves' || new URL(window.location.href).searchParams.has('reserve'));
+          if (!opts.background && canRevealReserveCore) {
+            setLoading(false);
+            setSyncing(true);
+          }
+        },
+      );
       const organizationsPromise = fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError });
       const visitesPromise = fetchScopedTable('visites', loadedProfile, { order: 'created_at', onError });
       const messagesPromise = fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800, onError });
@@ -3539,7 +3613,18 @@ export default function BuildTrackWebPage() {
         inventoryProducts,
         inventoryMovements,
       };
-      setData(nextData);
+      setData(previous => opts.background
+        ? nextData
+        : {
+            ...nextData,
+            // Le noyau visible a déjà été publié. Le conserver empêche la
+            // photographie finale, démarrée quelques secondes plus tôt,
+            // d'écraser un événement realtime reçu entre-temps.
+            chantiers: previous.chantiers,
+            companies: previous.companies,
+            reserves: previous.reserves,
+            deletedReserves: previous.deletedReserves,
+          });
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
       setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : null);
       setSelectedPlanId(prev => prev && protectedSitePlans.some((p: any) => p.id === prev) ? prev : protectedSitePlans[0]?.id ?? null);
@@ -4282,7 +4367,6 @@ export default function BuildTrackWebPage() {
   async function buildReservePhotoPatch(
     reserveId: string,
     draft: ReserveDraft,
-    options: { insertPhotoRows?: boolean } = {},
   ) {
     const existingPhotos = draft.photos
       .filter(photo => photo.existing && photo.uri)
@@ -4329,11 +4413,6 @@ export default function BuildTrackWebPage() {
         reserve_id: reserveId,
         organization_id: profile?.organization_id ?? null,
       });
-    }
-    if (photoRows.length && options.insertPhotoRows !== false) {
-      const { error: photoInsertError } = await supabaseBrowser.from('photos').insert(photoRows);
-      if (photoInsertError) throw photoInsertError;
-      setData(prev => ({ ...prev, photos: [...photoRows, ...prev.photos] }));
     }
     const photos = [...existingPhotos, ...uploadedPhotos];
     return {
@@ -4414,24 +4493,67 @@ export default function BuildTrackWebPage() {
     };
 
     if (reserveModalMode === 'edit' && editingReserveId) {
-      let photoPatch: { photos: any[] | null; photo_uri: string | null } | null = null;
+      let photoPatch: Awaited<ReturnType<typeof buildReservePhotoPatch>>;
+      let photoRowPlan: ReturnType<typeof planReservePhotoRowReconciliation>;
       try {
         photoPatch = await buildReservePhotoPatch(editingReserveId, reserveDraft);
+        photoRowPlan = planReservePhotoRowReconciliation(
+          data.photos,
+          editingReserveId,
+          photoPatch.photos ?? [],
+        );
+        const rowsWithoutId = [...photoRowPlan.rowsToUpdate.map(item => item.row), ...photoRowPlan.staleRows]
+          .filter(row => !String(row.id ?? '').trim());
+        if (rowsWithoutId.length) {
+          throw new Error('Une ligne photo sans identifiant empêche la réconciliation de la galerie.');
+        }
+        const reconciliationResults = await Promise.all([
+          ...photoRowPlan.rowsToUpdate.map(item => supabaseBrowser
+            .from('photos')
+            .update(item.patch)
+            .eq('id', String(item.row.id))
+            .eq('reserve_id', editingReserveId)),
+          ...photoRowPlan.staleRows.map(row => (supabaseBrowser as any).rpc('soft_delete_photo', {
+            p_photo_id: String(row.id),
+            p_reason: 'reserve_gallery_reconciliation_web',
+          })),
+        ]);
+        const reconciliationError = reconciliationResults.find(result => result?.error)?.error;
+        if (reconciliationError) throw reconciliationError;
       } catch (photoError: any) {
-        setError(photoError?.message ?? 'Upload des photos impossible.');
+        setError(photoError?.message ?? 'Réconciliation des photos impossible.');
+        setSaving(false);
+        return;
       }
       const { data: updated, error: updateError } = await supabaseBrowser
         .from('reserves')
-        .update({ ...basePayload, ...(photoPatch ?? {}) })
+        .update({ ...basePayload, photos: photoPatch.photos, photo_uri: photoPatch.photo_uri })
         .eq('id', editingReserveId)
         .select()
         .single();
       if (updateError) {
         setError(updateError.message);
       } else {
+        let photoRowInsertError: any = null;
+        if (photoPatch.photoRows.length) {
+          const insertResult = await supabaseBrowser.from('photos').insert(photoPatch.photoRows);
+          photoRowInsertError = insertResult.error;
+        }
+        const stalePhotoRowIds = new Set(photoRowPlan.staleRows.map(row => String(row.id)));
+        const updatedPhotoRows = new Map(photoRowPlan.rowsToUpdate.map(item => [String(item.row.id), item.patch]));
         setData(prev => ({
           ...prev,
-          reserves: prev.reserves.map(r => r.id === editingReserveId ? (updated ?? { ...r, ...basePayload, ...(photoPatch ?? {}) }) : r),
+          reserves: prev.reserves.map(r => r.id === editingReserveId
+            ? (updated ?? { ...r, ...basePayload, photos: photoPatch.photos, photo_uri: photoPatch.photo_uri })
+            : r),
+          photos: [
+            ...(photoRowInsertError ? [] : photoPatch.photoRows),
+            ...prev.photos
+              .filter(row => !stalePhotoRowIds.has(String(row.id)))
+              .map(row => updatedPhotoRows.has(String(row.id))
+                ? { ...row, ...updatedPhotoRows.get(String(row.id)) }
+                : row),
+          ],
         }));
         await syncVisitReserveLink(editingReserveId, reserveDraft.visiteId || null, existing?.visite_id ?? null);
         const previousStatus = String(existing?.status ?? '');
@@ -4439,7 +4561,11 @@ export default function BuildTrackWebPage() {
           triggerWebPush({ type: 'reserve-status-changed', reserveId: String(editingReserveId), newStatus: basePayload.status, previousStatus });
         }
         closeReserveModal();
-        setNotice('Réserve mise à jour.');
+        if (photoRowInsertError) {
+          setError(`Réserve enregistrée, mais l'index photo n'a pas pu être complété : ${photoRowInsertError.message ?? 'erreur inconnue'}`);
+        } else {
+          setNotice('Réserve mise à jour.');
+        }
       }
     } else {
       const id = generateReserveId(data.reserves, data.lots, reserveDraft.lotId);
@@ -4452,7 +4578,7 @@ export default function BuildTrackWebPage() {
         photo_annotations: null,
       };
       try {
-        const photoPatch = await buildReservePhotoPatch(id, reserveDraft, { insertPhotoRows: false });
+        const photoPatch = await buildReservePhotoPatch(id, reserveDraft);
         const reservePayload = { ...insertPayload, photos: photoPatch.photos, photo_uri: photoPatch.photo_uri };
         const { data: inserted, error: insertError } = await (supabaseBrowser as any).rpc('create_reserve_with_photos', {
           p_reserve: reservePayload,
@@ -5868,6 +5994,55 @@ export default function BuildTrackWebPage() {
     setReserveDetailRequest(current => current?.token === token ? null : current);
   }, []);
 
+  useEffect(() => {
+    initialReserveDeepLinkHandledRef.current = false;
+  }, [authUser?.id]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || initialReserveDeepLinkHandledRef.current) return;
+    const currentUrl = new URL(window.location.href);
+    const hasReserveParameter = currentUrl.searchParams.has('reserve');
+    if (!hasReserveParameter) {
+      initialReserveDeepLinkHandledRef.current = true;
+      return;
+    }
+
+    const requestedReserveId = reserveIdFromHref(window.location.href);
+    const target = requestedReserveId
+      ? [...data.reserves, ...data.deletedReserves]
+        .find((reserve: any) => String(reserve.id) === requestedReserveId)
+      : null;
+    if (requestedReserveId && target) {
+      const currentState = window.history.state ?? {};
+      if (
+        !currentState[WEB_RESERVE_HISTORY_STATE]
+        || String(currentState.reserveId ?? '') !== requestedReserveId
+      ) {
+        const baseState = { ...currentState };
+        delete baseState[WEB_RESERVE_HISTORY_STATE];
+        delete baseState.reserveId;
+        window.history.replaceState(baseState, '', hrefWithReserveId(window.location.href, null));
+        window.history.pushState(
+          { ...baseState, [WEB_RESERVE_HISTORY_STATE]: true, reserveId: requestedReserveId },
+          '',
+          hrefWithReserveId(window.location.href, requestedReserveId),
+        );
+      }
+      initialReserveDeepLinkHandledRef.current = true;
+      openReserveDetailTab(requestedReserveId, target);
+      return;
+    }
+
+    // Attendre la fin du chargement complet avant de déclarer le lien absent :
+    // la publication progressive peut arriver avant le dernier lot de tables.
+    if (loading || syncing) return;
+    initialReserveDeepLinkHandledRef.current = true;
+    window.history.replaceState(window.history.state ?? {}, '', hrefWithReserveId(window.location.href, null));
+    setError(requestedReserveId
+      ? `La réserve ${requestedReserveId} est introuvable ou hors de votre périmètre.`
+      : 'Le lien de réserve est invalide.');
+  }, [data.deletedReserves, data.reserves, loading, openReserveDetailTab, syncing]);
+
   const closeRootReserveHistory = useCallback(() => {
     if (
       typeof window !== 'undefined'
@@ -5885,10 +6060,16 @@ export default function BuildTrackWebPage() {
       reserveHistoryNavigationRef.current = false;
       const state = event.state ?? {};
       const reserveId = state[WEB_RESERVE_HISTORY_STATE] ? String(state.reserveId ?? '') : '';
-      if (!reserveId) return;
       const compactReservesOwnEvent = activeTab === 'reserves'
         && window.matchMedia('(max-width: 1180px)').matches;
       if (compactReservesOwnEvent) return;
+      if (!reserveId) {
+        if (activeTab === 'reserves') {
+          setSelectedReserveId(null);
+          setReserveDetailRequest(null);
+        }
+        return;
+      }
       const target = [...data.reserves, ...data.deletedReserves]
         .find((reserve: any) => String(reserve.id) === reserveId);
       if (target) openReserveDetailTab(reserveId);
@@ -5937,13 +6118,14 @@ export default function BuildTrackWebPage() {
       if (profile?.role === 'sous_traitant') return reserveId && visibleReserveIds.has(String(reserveId));
       return byProject(photo) || (reserveId && reserveIds.has(String(reserveId)));
     });
+    const photosByReserve = buildReservePhotoIndex(photos);
     return {
       reserves: reserves.map((reserve: any) => {
-        const reservePhotos = reservePhotoItems(reserve, photos);
+        const reservePhotos = reservePhotoItems(reserve, photos, photosByReserve);
         return reservePhotos.length ? { ...reserve, photos: reservePhotos, photo_uri: reserve.photo_uri ?? reservePhotos[0]?.uri ?? null } : reserve;
       }),
       deletedReserves: deletedReserves.map((reserve: any) => {
-        const reservePhotos = reservePhotoItems(reserve, photos);
+        const reservePhotos = reservePhotoItems(reserve, photos, photosByReserve);
         return reservePhotos.length ? { ...reserve, photos: reservePhotos, photo_uri: reserve.photo_uri ?? reservePhotos[0]?.uri ?? null } : reserve;
       }),
       plans: data.sitePlans.filter(byProject),
@@ -6461,15 +6643,15 @@ export default function BuildTrackWebPage() {
                 defaultReportLanguage={reportLanguage}
                 onReportLanguageChange={setReportLanguage}
                  canUseAssistant={isAdmin(profile) || isConducteur(profile)}
-                editable={canEdit(profile)}
-                canCreateReserve={canCreate(profile)}
+                editable={canEdit(profile) && !syncing}
+                canCreateReserve={canCreate(profile) && !syncing}
                 canDeleteReserve={canDelete(profile)}
                 canPermanentlyDeleteReserve={canPermanentlyDeleteReserve(profile)}
                 canExport={canExport(profile)}
                 canMovePins={canMovePins(profile)}
                 onLocateOnPlan={locateReserveOnPlanWeb}
                 canViewTrash={canViewReserveTrash}
-                saving={saving}
+                saving={saving || syncing}
               />
             )}
             {activeTab === 'plans' && (
@@ -8096,7 +8278,7 @@ function ReservesView(props: {
                       onClick={() => setPhotoLightboxIndex(index)}
                       aria-label={`Ouvrir la photo ${index + 1} sur ${selectedPhotos.length}`}
                     >
-                      <PrivatePhotoFrame photo={photo} compact fit="cover" />
+                      <PrivatePhotoFrame photo={photo} compact fit="cover" immediate={index < 2} />
                       <span className={styles.reservePhotoKindBadge}>{photo.kind === 'resolution' ? 'Levée' : 'Constat'}</span>
                     </button>
                   ))}
@@ -8219,6 +8401,7 @@ function ReservesView(props: {
               <PrivatePhotoFrame
                 photo={lightboxPhoto}
                 className={styles.reservePhotoLightboxImageFrame}
+                fit="contain"
                 immediate
               />
               {selectedPhotos.length > 1 && (
@@ -14883,6 +15066,7 @@ function PhotoAnnotationLayer({
   compact = false,
   fit = 'stretch',
   imageSrc,
+  imageNaturalSize,
 }: {
   annotations?: WebPhotoAnnotation[];
   compact?: boolean;
@@ -14891,9 +15075,10 @@ function PhotoAnnotationLayer({
   // dans le rectangle réel de l'image du cadre.
   fit?: PhotoAnnotationLayerFit;
   imageSrc?: string;
+  imageNaturalSize?: { width: number; height: number } | null;
 }) {
   const layerRef = useRef<HTMLSpanElement | null>(null);
-  const [naturalSize, setNaturalSize] = useState<{ width: number; height: number } | null>(null);
+  const [resolvedNaturalSize, setResolvedNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const [boxSize, setBoxSize] = useState<{ width: number; height: number } | null>(null);
   const normalized = normalizePhotoAnnotations(annotations);
   // Seules les annotations coordSpace 'image' nécessitent le rectangle réel de
@@ -14902,19 +15087,19 @@ function PhotoAnnotationLayer({
   const needsImageRect = fit !== 'stretch' && normalized.some(annotation => annotation.coordSpace === 'image');
 
   useEffect(() => {
-    if (!needsImageRect || !imageSrc) return;
+    if (!needsImageRect || !imageSrc || imageNaturalSize) return;
     let cancelled = false;
     const image = new Image();
     image.onload = () => {
       if (!cancelled && image.naturalWidth > 0 && image.naturalHeight > 0) {
-        setNaturalSize({ width: image.naturalWidth, height: image.naturalHeight });
+        setResolvedNaturalSize({ width: image.naturalWidth, height: image.naturalHeight });
       }
     };
     image.src = imageSrc;
     return () => {
       cancelled = true;
     };
-  }, [needsImageRect, imageSrc]);
+  }, [needsImageRect, imageNaturalSize, imageSrc]);
 
   useEffect(() => {
     if (!needsImageRect || typeof ResizeObserver === 'undefined') return;
@@ -14930,6 +15115,7 @@ function PhotoAnnotationLayer({
 
   if (!normalized.length) return null;
 
+  const naturalSize = imageNaturalSize ?? resolvedNaturalSize;
   const imageRect = needsImageRect && naturalSize && boxSize && boxSize.width > 0 && boxSize.height > 0
     ? computePhotoImageRect(fit, naturalSize, boxSize)
     : null;

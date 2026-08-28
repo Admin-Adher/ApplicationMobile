@@ -3729,6 +3729,8 @@
 .reservePhotoLightboxImageFrame {
   position: relative;
   display: block;
+  width: min(1100px, calc(100vw - 180px));
+  height: min(74vh, calc(94vh - 160px));
   max-width: 100%;
   max-height: calc(94vh - 160px);
   overflow: hidden;
@@ -3739,8 +3741,8 @@
 
 .reservePhotoLightboxImageFrame img {
   display: block;
-  width: auto;
-  height: auto;
+  width: 100%;
+  height: 100%;
   max-width: 100%;
   max-height: calc(94vh - 160px);
   object-fit: contain;
@@ -3923,6 +3925,8 @@
 
   .reservePhotoLightboxImageFrame,
   .reservePhotoLightboxImageFrame img {
+    width: 100%;
+    height: calc(96vh - 210px);
     max-height: calc(96vh - 210px);
   }
 
@@ -7323,6 +7327,23 @@
   overflow: hidden;
   aspect-ratio: 4 / 3;
   background: #e5e7eb;
+}
+
+.photoAnnotationFrame[data-image-ready='false'] {
+  background:
+    linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.72) 48%, transparent 66%) 200% 0 / 200% 100%,
+    #e5e7eb;
+  animation: reservePhotoLoading 1.15s ease-in-out infinite;
+}
+
+@keyframes reservePhotoLoading {
+  to { background-position: -200% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .photoAnnotationFrame[data-image-ready='false'] {
+    animation: none;
+  }
 }
 
 .photoAnnotationFrame img {
