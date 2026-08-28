@@ -2,7 +2,9 @@ import type { Reserve, Visite } from '../constants/types';
 import { fromVisite } from './mappers';
 
 const LEGACY_VISIT_ID = /^VIS-\d{8}$/;
-const MISSING_VISIT_ERROR = /(?:reserves_tenant_visite_fkey|visite\s+introuvable|visit\s+not\s+found|23503[^\n]*(?:visite|visit)|key\s+is\s+not\s+present\s+in\s+table\s+["']?visites?["']?)/i;
+const MISSING_VISIT_ERROR = /(?:reserves_tenant_visite_fkey|visite\s+introuvable|visita\s+(?:introuvable|no\s+encontrada)|visit\s+not\s+found|key\s+is\s+not\s+present\s+in\s+table\s+["']?visites?["']?)/i;
+const FOREIGN_KEY_23503_ERROR = /^\s*\[?23503\]?(?:\s|—|-|$)/i;
+const BARE_FOREIGN_KEY_23503_ERROR = /^\s*\[?23503\]?(?:(?:\s*—\s*|\s+)HTTP\s+409)*\s*$/i;
 
 export const HISTORICAL_VISIT_RECOVERY_INTENT = 'insert_missing_historical_visit' as const;
 
@@ -48,6 +50,21 @@ export interface HistoricalVisitRepair {
 export interface HistoricalVisitRecoveryPlan {
   repairs: HistoricalVisitRepair[];
   skipped: { visitId: string; reason: HistoricalVisitRecoverySkipReason }[];
+  evidence: HistoricalVisitRecoveryEvidence;
+}
+
+/**
+ * Compteurs strictement enumeres : ils expliquent quelle porte du filtre a
+ * ete franchie sans exporter les identifiants, payloads ou messages serveur.
+ */
+export interface HistoricalVisitRecoveryEvidence {
+  createReserveOperationCount: number;
+  linkOperationCount: number;
+  legacyVisitReferenceCount: number;
+  missingVisitFailureCount: number;
+  foreignKeyFailureCount: number;
+  reserveLinkCorrelationCount: number;
+  ambiguousReserveLinkCount: number;
 }
 
 export interface HistoricalVisitRecoveryAudit {
@@ -57,6 +74,15 @@ export interface HistoricalVisitRecoveryAudit {
   profileOrganizationAvailable: boolean;
   queuedOrganizationFallbackCount: number;
   skippedReasons: Partial<Record<HistoricalVisitRecoverySkipReason, number>>;
+  evidence: HistoricalVisitRecoveryEvidence;
+}
+
+function exactNonEmptyIdentifier(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  // Ne jamais reparer un identifiant en le normalisant silencieusement : le
+  // parent cree avec la valeur tronquee ne satisferait pas la FK de l'enfant.
+  return trimmed.length > 0 && trimmed === value ? value : null;
 }
 
 function referencedVisitId(operation: HistoricalVisitQueueOperation): string | null {
@@ -64,15 +90,29 @@ function referencedVisitId(operation: HistoricalVisitQueueOperation): string | n
 
   if (operation.rpc?.fn === 'create_reserve_with_photos') {
     const reserve = reservePayload(operation);
-    return typeof reserve?.visite_id === 'string' ? reserve.visite_id : null;
+    return exactNonEmptyIdentifier(reserve?.visite_id);
   }
 
   if (operation.rpc?.fn === 'link_reserves_to_visite') {
     const value = operation.rpc.args?.p_visite_id ?? operation.data?.visite_id;
-    return typeof value === 'string' ? value : null;
+    return exactNonEmptyIdentifier(value);
   }
 
   return null;
+}
+
+function referencedReserveId(operation: HistoricalVisitQueueOperation): string | null {
+  return exactNonEmptyIdentifier(reservePayload(operation)?.id);
+}
+
+function linkedReserveIds(operation: HistoricalVisitQueueOperation): string[] {
+  if (operation.op !== 'rpc' || operation.rpc?.fn !== 'link_reserves_to_visite') return [];
+  const values = Array.isArray(operation.rpc.args?.p_reserve_ids)
+    ? operation.rpc.args!.p_reserve_ids
+    : Array.isArray(operation.data?.reserve_ids) ? operation.data!.reserve_ids : [];
+  return [...new Set(values
+    .map(exactNonEmptyIdentifier)
+    .filter((value): value is string => value !== null))];
 }
 
 function reservePayload(operation: HistoricalVisitQueueOperation): Record<string, any> | null {
@@ -131,24 +171,105 @@ export function planHistoricalVisitRecovery(input: {
   const skipped: { visitId: string; reason: HistoricalVisitRecoverySkipReason }[] = [];
   const profileOrganizationId = input.organizationId?.trim() || null;
 
-  const queuedParents = new Set(input.queue
+  const activeQueue = input.queue.filter(operation => !operation.purgeState);
+  const queuedParents = new Set(activeQueue
     .filter(operation => operation.table === 'visites' && operation.op === 'insert')
-    .map(operation => operation.data?.id)
-    .filter((value): value is string => typeof value === 'string'));
+    .map(operation => exactNonEmptyIdentifier(operation.data?.id))
+    .filter((value): value is string => value !== null));
+
+  const evidence: HistoricalVisitRecoveryEvidence = {
+    createReserveOperationCount: 0,
+    linkOperationCount: 0,
+    legacyVisitReferenceCount: 0,
+    missingVisitFailureCount: 0,
+    foreignKeyFailureCount: 0,
+    reserveLinkCorrelationCount: 0,
+    ambiguousReserveLinkCount: 0,
+  };
+  const directVisitIds = new Map<HistoricalVisitQueueOperation, string>();
+  const linkedVisitIdsByReserve = new Map<string, Set<string>>();
+
+  for (const operation of activeQueue) {
+    const rpcName = operation.op === 'rpc' ? operation.rpc?.fn : null;
+    if (rpcName === 'create_reserve_with_photos') evidence.createReserveOperationCount += 1;
+    if (rpcName === 'link_reserves_to_visite') evidence.linkOperationCount += 1;
+
+    const visitId = referencedVisitId(operation);
+    if (visitId) directVisitIds.set(operation, visitId);
+    if (visitId && LEGACY_VISIT_ID.test(visitId)) {
+      evidence.legacyVisitReferenceCount += 1;
+    }
+    if (MISSING_VISIT_ERROR.test(operation.lastError ?? '')) {
+      evidence.missingVisitFailureCount += 1;
+    }
+    if (FOREIGN_KEY_23503_ERROR.test(operation.lastError ?? '')) {
+      evidence.foreignKeyFailureCount += 1;
+    }
+
+    if (rpcName !== 'link_reserves_to_visite' || !visitId || !LEGACY_VISIT_ID.test(visitId)) {
+      continue;
+    }
+    for (const reserveId of linkedReserveIds(operation)) {
+      const linkedVisitIds = linkedVisitIdsByReserve.get(reserveId) ?? new Set<string>();
+      linkedVisitIds.add(visitId);
+      linkedVisitIdsByReserve.set(reserveId, linkedVisitIds);
+    }
+  }
+
+  // Les anciennes files peuvent avoir perdu `visite_id` dans la copie de la
+  // creation de reserve alors que l'operation de liaison conserve encore la
+  // relation exacte reserve -> visite. Une correlation UNIQUE restaure cette
+  // preuve ; plusieurs visites possibles restent volontairement bloquees.
+  const resolvedVisitIds = new Map<HistoricalVisitQueueOperation, string>();
+  const corroboratedCreateOperations = new Set<HistoricalVisitQueueOperation>();
+  for (const operation of activeQueue) {
+    const directVisitId = directVisitIds.get(operation) ?? null;
+    if (directVisitId && LEGACY_VISIT_ID.test(directVisitId)) {
+      resolvedVisitIds.set(operation, directVisitId);
+    }
+    if (operation.op !== 'rpc' || operation.rpc?.fn !== 'create_reserve_with_photos') continue;
+    const reserveId = referencedReserveId(operation);
+    if (!reserveId) continue;
+    const linkedVisitIds = linkedVisitIdsByReserve.get(reserveId);
+    if (!linkedVisitIds || linkedVisitIds.size === 0) continue;
+    if (linkedVisitIds.size > 1) {
+      evidence.ambiguousReserveLinkCount += 1;
+      continue;
+    }
+    const [correlatedVisitId] = linkedVisitIds;
+    if (directVisitId && directVisitId !== correlatedVisitId) {
+      evidence.ambiguousReserveLinkCount += 1;
+      continue;
+    }
+    evidence.reserveLinkCorrelationCount += 1;
+    corroboratedCreateOperations.add(operation);
+    resolvedVisitIds.set(operation, correlatedVisitId);
+  }
 
   const recoveryCandidates = new Set<string>();
-  for (const operation of input.queue) {
-    if (operation.purgeState) continue;
-    if (!MISSING_VISIT_ERROR.test(operation.lastError ?? '')) continue;
-    const visitId = referencedVisitId(operation);
+  for (const operation of activeQueue) {
+    const messageProvesMissingVisit = MISSING_VISIT_ERROR.test(operation.lastError ?? '');
+    const directVisitId = directVisitIds.get(operation) ?? null;
+    const isCorroboratedReserveForeignKey = (
+      operation.op === 'rpc'
+      && operation.rpc?.fn === 'create_reserve_with_photos'
+      // Un 23503 detaille qui nomme une AUTRE FK ne doit jamais fabriquer une
+      // visite. Le repli ne vaut que si PostgREST n'a conserve que le code et
+      // si le payload ET le lien nomment deja la meme visite historique.
+      && BARE_FOREIGN_KEY_23503_ERROR.test(operation.lastError ?? '')
+      && directVisitId !== null
+      && LEGACY_VISIT_ID.test(directVisitId)
+      && corroboratedCreateOperations.has(operation)
+    );
+    if (!messageProvesMissingVisit && !isCorroboratedReserveForeignKey) continue;
+    const visitId = resolvedVisitIds.get(operation) ?? null;
     if (!visitId || !LEGACY_VISIT_ID.test(visitId) || queuedParents.has(visitId)) continue;
     recoveryCandidates.add(visitId);
   }
 
   const dependencies = new Map<string, HistoricalVisitQueueOperation[]>();
-  for (const operation of input.queue) {
-    if (operation.purgeState) continue;
-    const visitId = referencedVisitId(operation);
+  for (const operation of activeQueue) {
+    const visitId = resolvedVisitIds.get(operation) ?? null;
     // Une fois la visite manquante prouvee par au moins une operation, inclure
     // tous ses enfants encore conserves. Le lien peut avoir evolue d'une erreur
     // "visite introuvable" vers "reserve introuvable" apres plusieurs essais :
@@ -266,7 +387,7 @@ export function planHistoricalVisitRecovery(input: {
     });
   }
 
-  return { repairs, skipped };
+  return { repairs, skipped, evidence };
 }
 
 /** Resume strictement enumere, exportable sans payload ni identifiant metier. */
@@ -287,6 +408,7 @@ export function summarizeHistoricalVisitRecovery(
       repair => repair.organizationSource === 'queue_payload',
     ).length,
     skippedReasons,
+    evidence: plan.evidence,
   };
 }
 

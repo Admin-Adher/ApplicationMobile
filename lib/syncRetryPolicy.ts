@@ -300,16 +300,21 @@ export function classifySyncFailure(failure: SyncFailureContext): SyncFailureCla
     }
   }
 
-  // 7. Conflit metier.
-  if (status === 409 || code === '23505' || /version_conflict/.test(message)) return 'conflict';
+  // 7. Conflit metier STRUCTURE. PostgREST emploie aussi HTTP 409 pour les
+  // violations de FK (`23503`) : laisser le statut generique gagner masquait
+  // alors le code SQLSTATE et reessayait une erreur deterministe a l'infini.
+  if (code === '23505' || /version_conflict/.test(message)) return 'conflict';
 
-  // 8. Refus deterministe candidat.
+  // 8. Refus deterministe candidat. Le code structure prime sur le statut HTTP
+  // generique ; un 409 sans code reste un conflit juste apres cette porte.
   // Signature brute : l'ordre ci-dessus a deja ecarte auth, debit, panne
   // serveur, timeout et coupure. La version gardee de syncQueuePolicy
   // renverrait false ici, a cause de sa propre reconnaissance de « aborted ».
   // Le statut normalise est reinjecte : le helper ne lit que l'objet erreur et
   // ne verrait pas un `meta.status` fourni par la couche transport.
   if (hasDeterministicRefusalSignature({ code, status })) return 'permanent_candidate';
+
+  if (status === 409) return 'conflict';
 
   return 'unknown';
 }

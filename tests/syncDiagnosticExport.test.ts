@@ -237,6 +237,16 @@ describe('sync diagnostic export', () => {
           organization_unproven: 1,
           'chantier Jean Dupont <jean@example.com>': 99,
         },
+        evidence: {
+          createReserveOperationCount: 1,
+          linkOperationCount: 1,
+          legacyVisitReferenceCount: 1,
+          missingVisitFailureCount: 1,
+          foreignKeyFailureCount: 1,
+          reserveLinkCorrelationCount: 1,
+          ambiguousReserveLinkCount: 0,
+          'chantier Jean Dupont <jean@example.com>': 99,
+        },
       } as any,
     });
     const text = formatSyncDiagnosticReport(report);
@@ -248,8 +258,19 @@ describe('sync diagnostic export', () => {
       profileOrganizationAvailable: false,
       queuedOrganizationFallbackCount: 1,
       skippedReasons: { organization_unproven: 1 },
+      evidence: {
+        createReserveOperationCount: 1,
+        linkOperationCount: 1,
+        legacyVisitReferenceCount: 1,
+        missingVisitFailureCount: 1,
+        foreignKeyFailureCount: 1,
+        reserveLinkCorrelationCount: 1,
+        ambiguousReserveLinkCount: 0,
+      },
     });
     expect(text).toContain('2 candidate(s), 1 planifiee(s)');
+    expect(text).toContain('creations 1, liens 1');
+    expect(text).toContain('correlations 1, ambigues 0');
     expect(text).toContain('organization_unproven x1');
     expect(text).not.toContain('Jean Dupont');
     expect(text).not.toContain('jean@example.com');

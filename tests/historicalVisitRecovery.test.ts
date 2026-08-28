@@ -215,15 +215,187 @@ describe('historical visit recovery', () => {
     const noFailure = reserveFailure();
     noFailure.lastError = 'timeout';
     const modernId = reserveFailure({ visite_id: 'VIS-1787522300000-random' });
+    const whitespaceId = reserveFailure({ visite_id: 'VIS-17875223 ' });
     const unrelatedForeignKey = reserveFailure();
     unrelatedForeignKey.lastError = '[23503] chantier_id violates a foreign key constraint';
 
     expect(planHistoricalVisitRecovery({
-      queue: [noFailure, modernId, unrelatedForeignKey],
+      queue: [noFailure, modernId, whitespaceId, unrelatedForeignKey],
       cachedVisits: [],
       cachedReserves: [],
       organizationId: orgId,
     }).repairs).toEqual([]);
+  });
+
+  it('recovers a legacy visit when the reserve payload lost visite_id but its queued link corroborates it', () => {
+    const create = reserveFailure({ visite_id: undefined });
+    create.lastError = '[23503] — HTTP 409 — insert on reserves violates reserves_tenant_visite_fkey';
+    const link = {
+      id: 'queue-link',
+      queuedAt: '2026-08-23T16:06:21.000Z',
+      table: 'visite_reserve_links',
+      op: 'rpc',
+      rpc: {
+        fn: 'link_reserves_to_visite',
+        args: { p_visite_id: 'VIS-17875223', p_reserve_ids: ['RES-1'] },
+      },
+      lastError: '[42501] — HTTP 403 — Reserves introuvables ou hors perimetre',
+      terminal: true,
+    };
+
+    const plan = planHistoricalVisitRecovery({
+      queue: [create, link],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: orgId,
+    });
+
+    expect(plan.repairs).toHaveLength(1);
+    expect(plan.repairs[0]).toMatchObject({
+      visitId: 'VIS-17875223',
+      dependencyKeys: ['queue-reserve', 'queue-link'],
+      payload: {
+        id: 'VIS-17875223',
+        chantier_id: 'CHANTIER-1',
+        organization_id: orgId,
+      },
+    });
+    expect(plan.evidence).toEqual({
+      createReserveOperationCount: 1,
+      linkOperationCount: 1,
+      legacyVisitReferenceCount: 1,
+      missingVisitFailureCount: 1,
+      foreignKeyFailureCount: 1,
+      reserveLinkCorrelationCount: 1,
+      ambiguousReserveLinkCount: 0,
+    });
+  });
+
+  it('uses an exact reserve/link correlation when PostgREST retained only SQLSTATE 23503', () => {
+    const create = reserveFailure();
+    create.lastError = '[23503] — HTTP 409';
+    const link = {
+      id: 'queue-link',
+      table: 'visite_reserve_links',
+      op: 'rpc',
+      rpc: {
+        fn: 'link_reserves_to_visite',
+        args: { p_visite_id: 'VIS-17875223', p_reserve_ids: ['RES-1'] },
+      },
+      lastError: '[42501] — HTTP 403',
+    };
+
+    const plan = planHistoricalVisitRecovery({
+      queue: [create, link],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: orgId,
+    });
+
+    expect(plan.repairs).toHaveLength(1);
+    expect(plan.evidence.missingVisitFailureCount).toBe(0);
+    expect(plan.evidence.foreignKeyFailureCount).toBe(1);
+    expect(plan.evidence.reserveLinkCorrelationCount).toBe(1);
+  });
+
+  it('does not infer a visit from a code-only 23503 when the create payload lost its visit reference', () => {
+    const create = reserveFailure({ visite_id: undefined });
+    create.lastError = '[23503] — HTTP 409';
+    const link = {
+      id: 'queue-link',
+      table: 'visite_reserve_links',
+      op: 'rpc',
+      rpc: {
+        fn: 'link_reserves_to_visite',
+        args: { p_visite_id: 'VIS-17875223', p_reserve_ids: ['RES-1'] },
+      },
+      lastError: '[42501] — HTTP 403',
+    };
+
+    const plan = planHistoricalVisitRecovery({
+      queue: [create, link],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: orgId,
+    });
+
+    expect(plan.repairs).toEqual([]);
+    expect(plan.evidence.reserveLinkCorrelationCount).toBe(1);
+  });
+
+  it('does not let a different named foreign key borrow a matching visit link', () => {
+    const create = reserveFailure();
+    create.lastError = '[23503] — HTTP 409 — chantier_id violates a foreign key constraint';
+    const link = {
+      id: 'queue-link',
+      table: 'visite_reserve_links',
+      op: 'rpc',
+      rpc: {
+        fn: 'link_reserves_to_visite',
+        args: { p_visite_id: 'VIS-17875223', p_reserve_ids: ['RES-1'] },
+      },
+      lastError: '[42501] — HTTP 403',
+    };
+
+    const plan = planHistoricalVisitRecovery({
+      queue: [create, link],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: orgId,
+    });
+
+    expect(plan.repairs).toEqual([]);
+  });
+
+  it('keeps a generic 23503 fail-closed when no link names the same reserve', () => {
+    const create = reserveFailure({ visite_id: undefined });
+    create.lastError = '[23503] — HTTP 409';
+    const unrelatedLink = {
+      id: 'queue-link',
+      table: 'visite_reserve_links',
+      op: 'rpc',
+      rpc: {
+        fn: 'link_reserves_to_visite',
+        args: { p_visite_id: 'VIS-17875223', p_reserve_ids: ['RES-OTHER'] },
+      },
+      lastError: '[42501] — HTTP 403',
+    };
+
+    const plan = planHistoricalVisitRecovery({
+      queue: [create, unrelatedLink],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: orgId,
+    });
+
+    expect(plan.repairs).toEqual([]);
+    expect(plan.evidence.reserveLinkCorrelationCount).toBe(0);
+  });
+
+  it('refuses an ambiguous reserve linked to two distinct historical visits', () => {
+    const create = reserveFailure({ visite_id: undefined });
+    create.lastError = '[23503] — HTTP 409 — reserves_tenant_visite_fkey';
+    const link = (id: string, visitId: string) => ({
+      id,
+      table: 'visite_reserve_links',
+      op: 'rpc',
+      rpc: {
+        fn: 'link_reserves_to_visite',
+        args: { p_visite_id: visitId, p_reserve_ids: ['RES-1'] },
+      },
+      lastError: '[42501] — HTTP 403',
+    });
+
+    const plan = planHistoricalVisitRecovery({
+      queue: [create, link('queue-link-a', 'VIS-17875223'), link('queue-link-b', 'VIS-17875224')],
+      cachedVisits: [],
+      cachedReserves: [],
+      organizationId: orgId,
+    });
+
+    expect(plan.repairs).toEqual([]);
+    expect(plan.evidence.reserveLinkCorrelationCount).toBe(0);
+    expect(plan.evidence.ambiguousReserveLinkCount).toBe(1);
   });
 
   it('does not duplicate a visit insert already present in the queue', () => {
