@@ -8,11 +8,28 @@ const source = readFileSync(
 );
 
 describe('tenant-aware queue hydration', () => {
+  it('defers anonymous hydration while cold-start authentication is unresolved', () => {
+    expect(source).toContain('const { user, isLoading: isAuthLoading } = useAuth();');
+
+    const hydrationEffect = source.indexOf('// ── Hydrate queue when user.id changes');
+    const authGuard = source.indexOf('if (!userId && isAuthLoading) return;', hydrationEffect);
+    const targetKey = source.indexOf('const targetKey = userId ?', authGuard);
+
+    expect(hydrationEffect).toBeGreaterThan(-1);
+    expect(authGuard).toBeGreaterThan(hydrationEffect);
+    expect(targetKey).toBeGreaterThan(authGuard);
+    expect(source).toContain(
+      '}, [userId, userOrganizationId, isAuthLoading, loadQueue]);',
+    );
+  });
+
   it('reloads on organization arrival only for a legacy recovery queue', () => {
     expect(source).toContain('const targetScope = queueHydrationScopeKey(');
     expect(source).toContain('queueNeedsHistoricalVisitRecoveryEvaluation(queueRef.current)');
     expect(source).toContain('if (lastLoadedScopeRef.current === targetScope) return;');
-    expect(source).toContain('}, [userId, userOrganizationId, loadQueue]);');
+    expect(source).toContain(
+      '}, [userId, userOrganizationId, isAuthLoading, loadQueue]);',
+    );
   });
 
   it('does not read the large visit and reserve caches for normal mutations', () => {
