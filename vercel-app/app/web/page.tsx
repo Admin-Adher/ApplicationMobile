@@ -1921,14 +1921,8 @@ function planCoordinateToPercent(value: any, ratioMode = false) {
   return clampPercent(ratioMode ? num * 100 : num);
 }
 
-function toBase64Download(pdfBase64: string, filename: string) {
+function downloadBlobFile(blob: Blob, filename: string) {
   if (typeof window === 'undefined') return;
-  const byteChars = atob(pdfBase64);
-  const bytes = new Uint8Array(byteChars.length);
-  for (let i = 0; i < byteChars.length; i += 1) {
-    bytes[i] = byteChars.charCodeAt(i);
-  }
-  const blob = new Blob([bytes], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -1936,7 +1930,17 @@ function toBase64Download(pdfBase64: string, filename: string) {
   document.body.appendChild(link);
   link.click();
   link.remove();
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+function toBase64Download(pdfBase64: string, filename: string) {
+  if (typeof window === 'undefined') return;
+  const byteChars = atob(pdfBase64);
+  const bytes = new Uint8Array(byteChars.length);
+  for (let i = 0; i < byteChars.length; i += 1) {
+    bytes[i] = byteChars.charCodeAt(i);
+  }
+  downloadBlobFile(new Blob([bytes], { type: 'application/pdf' }), filename);
 }
 
 function pdfBase64ToObjectUrl(pdfBase64: string) {
@@ -2118,7 +2122,33 @@ const REPORT_MAX_PHOTOS_PER_RESERVE = 3;
 const INDIVIDUAL_RESERVE_MAX_PHOTOS = 3;
 const PLAN_REPORT_PHOTO_RENDER_WIDTH = 800;
 const PLAN_REPORT_PHOTO_QUALITY = 0.55;
+const PDF_PHOTO_CACHE_LIMIT = 32;
+const PDF_PLAN_CACHE_LIMIT = 24;
+const PDF_PLAN_RENDER_CONCURRENCY = 6;
 const pdfPhotoDataUrlCache = new Map<string, Promise<string | null>>();
+const pdfPlanDataUrlCache = new Map<string, Promise<string | null>>();
+
+function evictOldestPdfCacheEntry<T>(cache: Map<string, T>, limit: number) {
+  while (cache.size >= limit) {
+    const oldest = cache.keys().next().value;
+    if (oldest == null) return;
+    cache.delete(oldest);
+  }
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, mapper: (item: T, index: number) => Promise<R>) {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(Math.max(1, concurrency), items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 
 function isPdfReportRemoteAsset(uri: string) {
   return /^https?:\/\//i.test(String(uri ?? '').trim());
@@ -2156,6 +2186,7 @@ async function imageUrlToPdfDataUrl(uri: string) {
   if (typeof document === 'undefined' || typeof window === 'undefined') return value;
 
   if (!pdfPhotoDataUrlCache.has(value)) {
+    evictOldestPdfCacheEntry(pdfPhotoDataUrlCache, PDF_PHOTO_CACHE_LIMIT);
     pdfPhotoDataUrlCache.set(value, (async () => {
       try {
         const response = await fetch(value, { credentials: 'omit', mode: 'cors' });
@@ -2340,28 +2371,19 @@ async function toPdfPlanItemsForReport(plans: any[], reserves: any[]) {
     planItems.map(({ item }) => item.uri).filter(Boolean),
     { priority: 'background' },
   );
-  const items: any[] = [];
-  for (const { plan, item } of planItems) {
+  return await mapWithConcurrency(planItems, PDF_PLAN_RENDER_CONCURRENCY, async ({ plan, item }) => {
     if (!activePlanIds.has(item.id) || !item.uri) {
-      items.push(item);
-      continue;
+      return item;
     }
 
     const clientUri = resolvedUris.get(item.uri) || (!isRegistryBackedRef(item.uri) ? item.uri : '');
-    let renderedUri: string | null = null;
-    if (clientUri && isPdfPlan(plan, item.uri)) {
-      renderedUri = await preRenderPdfPageToDataUrl(clientUri, 720, plan?.annotations);
-    } else if (clientUri && String(item.fileType).toLowerCase() !== 'dxf') {
-      const embeddedImage = await imageUrlToPdfDataUrl(clientUri);
-      renderedUri = embeddedImage && (plan?.annotations?.length ?? 0) > 0
-        ? await renderPlanImageWithAnnotationsToDataUrl(embeddedImage, 720, plan.annotations) ?? embeddedImage
-        : embeddedImage;
-    }
-    items.push(renderedUri
+    const renderedUri = clientUri && String(item.fileType).toLowerCase() !== 'dxf'
+      ? await getCachedPlanImageForReport(plan, item.uri, clientUri, 720)
+      : null;
+    return renderedUri
       ? { ...item, uri: renderedUri, fileType: 'image' }
-      : item);
-  }
-  return items;
+      : item;
+  });
 }
 
 function getPlanReportUri(plan: any) {
@@ -2426,19 +2448,59 @@ async function preRenderPdfPageToDataUrl(
   }
 }
 
+function getPlanReportCacheKey(plan: any, sourceUri: string, renderWidth: number) {
+  let annotations = '';
+  try {
+    annotations = JSON.stringify(sanitizePlanDrawings(plan?.annotations ?? []));
+  } catch {
+    annotations = String(plan?.annotations ?? '');
+  }
+  return [
+    String(plan?.id ?? sourceUri),
+    sourceUri,
+    String(plan?.updated_at ?? plan?.updatedAt ?? plan?.version ?? ''),
+    String(renderWidth),
+    annotations,
+  ].join('|');
+}
+
+async function getCachedPlanImageForReport(plan: any, sourceUri: string, clientUri: string, renderWidth: number) {
+  const cacheKey = getPlanReportCacheKey(plan, sourceUri, renderWidth);
+  const cached = pdfPlanDataUrlCache.get(cacheKey);
+  if (cached) return await cached;
+
+  evictOldestPdfCacheEntry(pdfPlanDataUrlCache, PDF_PLAN_CACHE_LIMIT);
+  const renderPromise = (async () => {
+    if (isPdfPlan(plan, sourceUri)) {
+      return await preRenderPdfPageToDataUrl(clientUri, renderWidth, plan?.annotations);
+    }
+    const embeddedImage = await imageUrlToPdfDataUrl(clientUri);
+    if (!embeddedImage || (plan?.annotations?.length ?? 0) === 0) return embeddedImage;
+    return await renderPlanImageWithAnnotationsToDataUrl(embeddedImage, renderWidth, plan.annotations)
+      ?? embeddedImage;
+  })();
+  pdfPlanDataUrlCache.set(cacheKey, renderPromise);
+  try {
+    const rendered = await renderPromise;
+    if (!rendered && pdfPlanDataUrlCache.get(cacheKey) === renderPromise) {
+      pdfPlanDataUrlCache.delete(cacheKey);
+    }
+    return rendered;
+  } catch (error) {
+    if (pdfPlanDataUrlCache.get(cacheKey) === renderPromise) {
+      pdfPlanDataUrlCache.delete(cacheKey);
+    }
+    throw error;
+  }
+}
+
 async function getPlanImageForReserveReport(plan: any) {
   const uri = getPlanReportUri(plan);
   if (!uri) return null;
   const resolved = await resolvePrivateMediaRefs([uri]);
   const clientUri = resolved.get(uri) || (!isRegistryBackedRef(uri) ? uri : '');
   if (!clientUri) return null;
-  if (!isPdfPlan(plan, clientUri)) {
-    const embeddedImage = await imageUrlToPdfDataUrl(clientUri);
-    if (!embeddedImage || (plan?.annotations?.length ?? 0) === 0) return embeddedImage;
-    return await renderPlanImageWithAnnotationsToDataUrl(embeddedImage, 720, plan.annotations)
-      ?? embeddedImage;
-  }
-  return await preRenderPdfPageToDataUrl(clientUri, 720, plan?.annotations);
+  return await getCachedPlanImageForReport(plan, uri, clientUri, 720);
 }
 
 function makeHistory(action: string, author: string, oldValue?: string, newValue?: string) {
@@ -5880,15 +5942,27 @@ export default function BuildTrackWebPage() {
         setError('Selectionnez une visite avant de generer son compte rendu.');
         return;
       }
+      const filePart = selectedProjectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
+      const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : type === 'visit_report' ? 'visite' : 'reserve';
+      const filename = `BuildTrack_${typePart}_${filePart}_${language}.pdf`;
       const { data: pdfAuthData } = await supabaseBrowser.auth.getSession();
       const response = await fetch('/api/generate-pdf', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          Accept: 'application/pdf, application/json',
           ...(pdfAuthData.session?.access_token ? { Authorization: `Bearer ${pdfAuthData.session.access_token}` } : {}),
         },
         body: JSON.stringify(payload),
       });
+      const responseType = response.headers.get('content-type')?.toLowerCase() ?? '';
+      if (response.ok && responseType.includes('application/pdf')) {
+        const pdfBlob = await response.blob();
+        if (pdfBlob.size <= 0) throw new Error('Le serveur a renvoyé un PDF vide.');
+        downloadBlobFile(pdfBlob, filename);
+        setNotice('PDF généré.');
+        return;
+      }
       const rawResult = await response.text();
       let result: any = {};
       try {
@@ -5896,16 +5970,18 @@ export default function BuildTrackWebPage() {
       } catch {
         const rawPreview = rawResult.slice(0, 240);
         const isTooLarge = response.status === 413 || /request entity too large|payload too large/i.test(rawResult);
-        throw new Error(isTooLarge
-          ? 'Export PDF trop volumineux. Réduisez le périmètre ou filtrez par entreprise, puis réessayez.'
-          : rawPreview || 'Réponse PDF invalide.');
+        const timedOut = response.status === 504 || /FUNCTION_INVOCATION_TIMEOUT|gateway timeout|timed?\s*out/i.test(rawResult);
+        throw new Error(
+          isTooLarge
+            ? 'Export PDF trop volumineux. Réduisez le périmètre ou filtrez par entreprise, puis réessayez.'
+            : timedOut
+              ? 'Le rapport a dépassé le délai de génération. Réduisez le périmètre ou filtrez les réserves, puis réessayez.'
+              : rawPreview || 'Réponse PDF invalide.',
+        );
       }
       if (!response.ok || !result.success) {
         throw new Error(result.error ?? 'Génération PDF impossible.');
       }
-      const filePart = selectedProjectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
-      const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : type === 'visit_report' ? 'visite' : 'reserve';
-      const filename = `BuildTrack_${typePart}_${filePart}_${language}.pdf`;
       if (result.pdfBase64) {
         toBase64Download(result.pdfBase64, filename);
       } else if (result.printHtml) {
