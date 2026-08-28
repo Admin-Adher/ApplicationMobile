@@ -6006,6 +6006,11 @@ export default function BuildTrackWebPage() {
       initialReserveDeepLinkHandledRef.current = true;
       return;
     }
+    // La session est restaurée de façon asynchrone. Avant ce point, `loading`
+    // peut brièvement repasser à false avec une liste vide : déclarer alors le
+    // lien introuvable supprimerait le paramètre avant même le chargement du
+    // profil et des réserves.
+    if (!authUser || !profile) return;
 
     const requestedReserveId = reserveIdFromHref(window.location.href);
     const target = requestedReserveId
@@ -6041,7 +6046,7 @@ export default function BuildTrackWebPage() {
     setError(requestedReserveId
       ? `La réserve ${requestedReserveId} est introuvable ou hors de votre périmètre.`
       : 'Le lien de réserve est invalide.');
-  }, [data.deletedReserves, data.reserves, loading, openReserveDetailTab, syncing]);
+  }, [authUser, data.deletedReserves, data.reserves, loading, openReserveDetailTab, profile, syncing]);
 
   const closeRootReserveHistory = useCallback(() => {
     if (
