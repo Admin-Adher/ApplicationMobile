@@ -23,6 +23,7 @@ import {
 } from '../../../../lib/inventoryDestinationModel';
 import { isSameInventoryScanCode, nextInventoryScanPhase } from '../../../../lib/inventoryLocationScan';
 import { collectInventoryLabels, preferInventoryLabel } from '../../../../lib/inventoryScanMemory';
+import { localDateStamp } from '../../../../lib/localDateStamp';
 import { InventoryIcon } from './InventoryIcon';
 import {
   lookupInventoryBarcode,
@@ -76,7 +77,7 @@ type ProductEditState = {
 };
 
 type LookupState = 'idle' | 'searching' | 'found' | 'incomplete' | 'notFound' | 'unavailable';
-type ExportKind = 'xlsx' | 'docx' | 'pdf';
+type ExportKind = 'csv' | 'xlsx' | 'docx' | 'pdf';
 
 const EMPTY_FORM: FormState = {
   reference: '',
@@ -756,7 +757,30 @@ export default function InventoryWorkspace({
     const projectName = projection.isAggregate
       ? copy.allProjects
       : inventoryProjectName(selectedScopeProject, copy.allProjects);
-    return { projectName, date: new Date().toISOString().slice(0, 10) };
+    return { projectName, date: localDateStamp() };
+  }
+
+  async function exportInventoryCsv() {
+    setExporting('csv');
+    try {
+      setError('');
+      const { downloadInventoryCsv } = await import('@/lib/inventory-csv');
+      const { projectName, date } = exportContext();
+      const kind = mode === 'history' ? 'history' : 'stock';
+      downloadInventoryCsv({
+        kind,
+        language: reportLanguage,
+        filename: `buildtrack-${kind === 'history' ? 'mouvements-stock' : 'stock'}-${safeFilename(projectName)}-${reportLanguage}-${date}.csv`,
+        products: (kind === 'history' ? projection.scopedProducts : projection.filteredProducts).map(normalizeExportProduct),
+        movements: projection.filteredMovements.map(normalizeExportMovement),
+      });
+      setNotice(copy.exportDone);
+      setExportOpen(false);
+    } catch (exportError: any) {
+      setError(exportError?.message ?? copy.exportError);
+    } finally {
+      setExporting(null);
+    }
   }
 
   async function exportWorkbook() {
@@ -1245,6 +1269,7 @@ export default function InventoryWorkspace({
                       <div className={styles.languageSelector} role="radiogroup" aria-label={copy.documentLanguage}>
                         {(['fr', 'en', 'es'] as const).map(reportCode => <button key={reportCode} type="button" role="radio" aria-checked={reportLanguage === reportCode} className={reportLanguage === reportCode ? styles.languageActive : ''} onClick={() => onReportLanguageChange(reportCode)}>{reportCode.toUpperCase()}</button>)}
                       </div>
+                      <button type="button" onClick={() => void exportInventoryCsv()} disabled={!!exporting}><InventoryIcon name="file" /><span><strong>{copy.csv}</strong><small>.csv</small></span>{exporting === 'csv' ? <InventoryIcon name="refresh" className={styles.spinning} /> : null}</button>
                       <button type="button" onClick={() => void exportWorkbook()} disabled={!!exporting}><InventoryIcon name="file" /><span><strong>{copy.workbook}</strong><small>.xlsx</small></span>{exporting === 'xlsx' ? <InventoryIcon name="refresh" className={styles.spinning} /> : null}</button>
                       <button type="button" onClick={() => void exportInventoryWord()} disabled={!!exporting}><InventoryIcon name="file" /><span><strong>{copy.word}</strong><small>.docx</small></span>{exporting === 'docx' ? <InventoryIcon name="refresh" className={styles.spinning} /> : null}</button>
                       <button type="button" onClick={() => void printInventoryPdf()} disabled={!!exporting}><InventoryIcon name="file" /><span><strong>{copy.pdf}</strong><small>.pdf</small></span>{exporting === 'pdf' ? <InventoryIcon name="refresh" className={styles.spinning} /> : null}</button>

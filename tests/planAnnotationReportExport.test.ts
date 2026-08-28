@@ -43,8 +43,8 @@ describe('annotated plan report exports', () => {
 
     expect(page).toContain("from '../../../lib/plan-annotations/canvas-renderer'");
     expect(page).toContain("from '../../../lib/plan-annotations/image-rasterizer'");
-    expect(page).toContain('preRenderPdfPageToDataUrl(clientUri, 720, plan?.annotations)');
-    expect(page).toContain('renderPlanImageWithAnnotationsToDataUrl(embeddedImage, 720, plan.annotations)');
+    expect(page).toContain('preRenderPdfPageToDataUrl(clientUri, renderWidth, plan?.annotations)');
+    expect(page).toContain('renderPlanImageWithAnnotationsToDataUrl(embeddedImage, renderWidth, plan.annotations)');
     expect(page).toContain('renderPlanAnnotationsToCanvas(context, canvas.width, canvas.height, annotations, 1);');
   });
 });

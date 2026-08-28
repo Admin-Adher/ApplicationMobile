@@ -48,6 +48,7 @@ function corsHeaders(origin: string) {
     'Access-Control-Allow-Origin': o,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Expose-Headers': 'Content-Disposition, Server-Timing, X-BuildTrack-PDF-Transfer',
   };
 }
 
@@ -188,6 +189,8 @@ const PDF_REMOTE_IMAGE_LIMIT = 160;
 const PDF_REMOTE_IMAGE_TIMEOUT_MS = 10000;
 const PDF_REMOTE_IMAGE_SOURCE_MAX_BYTES = 24 * 1024 * 1024;
 const PDF_REMOTE_IMAGE_TOTAL_MAX_BYTES = 40 * 1024 * 1024;
+const PDF_REMOTE_IMAGE_PER_ITEM_MAX_BYTES = 6 * 1024 * 1024;
+const PDF_REMOTE_IMAGE_CONCURRENCY = 6;
 const PDF_REMOTE_IMAGE_RENDER_WIDTH = 900;
 const PDF_SET_CONTENT_TIMEOUT_MS = 15000;
 const PDF_IMAGE_WAIT_TIMEOUT_MS = 12000;
@@ -403,13 +406,20 @@ async function inlineRemoteImagesForPdf(html: string) {
   const replacements = new Map<string, string>();
   let budget = PDF_REMOTE_IMAGE_TOTAL_MAX_BYTES;
 
-  for (const attrValue of attributes) {
-    const url = decodeHtmlAttribute(attrValue);
-    const result = await fetchRemoteImageAsDataUrl(url, budget);
-    if (!result) continue;
-    replacements.set(attrValue, result.dataUrl);
-    budget -= result.byteLength;
-    if (budget <= 0) break;
+  for (let index = 0; index < attributes.length && budget > 0; index += PDF_REMOTE_IMAGE_CONCURRENCY) {
+    const batch = attributes.slice(index, index + PDF_REMOTE_IMAGE_CONCURRENCY);
+    const itemBudget = Math.min(budget, PDF_REMOTE_IMAGE_PER_ITEM_MAX_BYTES);
+    const results = await Promise.all(batch.map(async attrValue => ({
+      attrValue,
+      result: await fetchRemoteImageAsDataUrl(decodeHtmlAttribute(attrValue), itemBudget),
+    })));
+
+    for (const { attrValue, result } of results) {
+      if (!result || result.byteLength > budget) continue;
+      replacements.set(attrValue, result.dataUrl);
+      budget -= result.byteLength;
+      if (budget <= 0) break;
+    }
   }
 
   if (replacements.size === 0 && disallowed.size === 0) return html;
@@ -549,8 +559,108 @@ async function resolvePuppeteerExecutablePath(chromium: any, bundled: boolean) {
   };
 }
 
+let pdfBrowserPromise: Promise<any> | null = null;
+
+async function launchPdfBrowser(diagnostic: Record<string, any>) {
+  let puppeteer: typeof import('puppeteer-core');
+  let chromium: any;
+  let bundledChromium = false;
+
+  try {
+    diagnostic.stage = 'load-runtime';
+    const chromiumRuntime = await loadChromiumRuntime();
+    chromium = chromiumRuntime.chromium;
+    bundledChromium = chromiumRuntime.bundled;
+    diagnostic.chromiumPackage = chromiumRuntime.packageName;
+    diagnostic.bundledChromium = chromiumRuntime.bundled;
+    diagnostic.chromiumImportAttempts = chromiumRuntime.attempts;
+    puppeteer = (await import('puppeteer-core')).default as any;
+    diagnostic.puppeteerLoaded = true;
+  } catch (importErr: any) {
+    console.error('[generate-pdf] Import error:', importErr?.message);
+    diagnostic.importAttempts = importErr?.chromiumImportAttempts ?? null;
+    throw enrichPdfError(new Error('Puppeteer non disponible sur ce runtime'), diagnostic);
+  }
+
+  diagnostic.stage = 'configure-chromium';
+  if ('setHeadlessMode' in chromium) {
+    chromium.setHeadlessMode = 'shell';
+  }
+  if ('setGraphicsMode' in chromium) {
+    chromium.setGraphicsMode = false;
+  }
+
+  diagnostic.stage = 'resolve-executable';
+  const runtime = await resolvePuppeteerExecutablePath(chromium, bundledChromium);
+  diagnostic.executableSource = runtime.source;
+  diagnostic.executablePath = runtime.executablePath;
+  diagnostic.usesLocalBrowser = runtime.local;
+  diagnostic.chromiumUrl = runtime.chromiumUrl ?? null;
+  diagnostic.chromiumTmpExists = process.platform === 'linux' ? existsSync('/tmp/chromium') : null;
+  diagnostic.al2023LibPath = process.platform === 'linux' ? CHROMIUM_AL2023_LIB_PATH : null;
+  diagnostic.al2023LibExists = process.platform === 'linux' ? existsSync(CHROMIUM_AL2023_LIB_SENTINEL) : null;
+  diagnostic.ldLibraryPathAfterResolve = process.env.LD_LIBRARY_PATH ?? null;
+
+  diagnostic.stage = 'launch-browser';
+  const headlessMode = runtime.local ? true : 'shell';
+  const chromiumArgs = runtime.local
+    ? ['--disable-dev-shm-usage', '--disable-gpu', '--no-sandbox']
+    : await (puppeteer as any).defaultArgs({
+        args: (chromium as any).args ?? [],
+        headless: headlessMode,
+      });
+  const launchArgs = Array.from(new Set([
+    ...chromiumArgs,
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--no-sandbox',
+  ]));
+  diagnostic.headlessMode = headlessMode;
+  diagnostic.launchArgCount = launchArgs.length;
+  const browser = await (puppeteer as any).launch({
+    args: launchArgs,
+    defaultViewport: runtime.local
+      ? { width: 1280, height: 720 }
+      : ((chromium as any).defaultViewport ?? { width: 1920, height: 1080 }),
+    executablePath: runtime.executablePath,
+    headless: headlessMode,
+  });
+  diagnostic.browserLaunched = true;
+  diagnostic.browserReused = false;
+  return browser;
+}
+
+async function acquirePdfBrowser(diagnostic: Record<string, any>) {
+  if (pdfBrowserPromise) {
+    try {
+      const browser = await pdfBrowserPromise;
+      if (browser?.isConnected?.()) {
+        diagnostic.browserReused = true;
+        return browser;
+      }
+    } catch {
+      // La promesse de lancement défaillante sera remplacée ci-dessous.
+    }
+    pdfBrowserPromise = null;
+  }
+
+  const launchPromise = launchPdfBrowser(diagnostic);
+  pdfBrowserPromise = launchPromise;
+  try {
+    const browser = await launchPromise;
+    browser.once?.('disconnected', () => {
+      if (pdfBrowserPromise === launchPromise) pdfBrowserPromise = null;
+    });
+    return browser;
+  } catch (error) {
+    if (pdfBrowserPromise === launchPromise) pdfBrowserPromise = null;
+    throw error;
+  }
+}
+
 async function renderPdfBuffer(html: string): Promise<Buffer> {
   let browser: any = null;
+  let page: any = null;
   const chromiumEnvironment = prepareServerlessChromiumEnvironment();
   const diagnostic: Record<string, any> = {
     ...basePdfDiagnostic(),
@@ -559,73 +669,18 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
   };
 
   try {
-    let puppeteer: typeof import('puppeteer-core');
-    let chromium: any;
-    let bundledChromium = false;
-
-    try {
-      diagnostic.stage = 'load-runtime';
-      const runtime = await loadChromiumRuntime();
-      chromium = runtime.chromium;
-      bundledChromium = runtime.bundled;
-      diagnostic.chromiumPackage = runtime.packageName;
-      diagnostic.bundledChromium = runtime.bundled;
-      diagnostic.chromiumImportAttempts = runtime.attempts;
-      puppeteer = (await import('puppeteer-core')).default as any;
-      diagnostic.puppeteerLoaded = true;
-    } catch (importErr: any) {
-      console.error('[generate-pdf] Import error:', importErr?.message);
-      diagnostic.importAttempts = importErr?.chromiumImportAttempts ?? null;
-      throw enrichPdfError(new Error('Puppeteer non disponible sur ce runtime'), diagnostic);
-    }
-
-    diagnostic.stage = 'configure-chromium';
-    if ('setHeadlessMode' in chromium) {
-      chromium.setHeadlessMode = 'shell';
-    }
-    if ('setGraphicsMode' in chromium) {
-      chromium.setGraphicsMode = false;
-    }
-
-    diagnostic.stage = 'resolve-executable';
-    const runtime = await resolvePuppeteerExecutablePath(chromium, bundledChromium);
-    diagnostic.executableSource = runtime.source;
-    diagnostic.executablePath = runtime.executablePath;
-    diagnostic.usesLocalBrowser = runtime.local;
-    diagnostic.chromiumUrl = runtime.chromiumUrl ?? null;
-    diagnostic.chromiumTmpExists = process.platform === 'linux' ? existsSync('/tmp/chromium') : null;
-    diagnostic.al2023LibPath = process.platform === 'linux' ? CHROMIUM_AL2023_LIB_PATH : null;
-    diagnostic.al2023LibExists = process.platform === 'linux' ? existsSync(CHROMIUM_AL2023_LIB_SENTINEL) : null;
-    diagnostic.ldLibraryPathAfterResolve = process.env.LD_LIBRARY_PATH ?? null;
-
-    diagnostic.stage = 'launch-browser';
-    const headlessMode = runtime.local ? true : 'shell';
-    const chromiumArgs = runtime.local
-      ? ['--disable-dev-shm-usage', '--disable-gpu', '--no-sandbox']
-      : await (puppeteer as any).defaultArgs({
-          args: (chromium as any).args ?? [],
-          headless: headlessMode,
-        });
-    const launchArgs = Array.from(new Set([
-      ...chromiumArgs,
-      '--disable-dev-shm-usage',
-      '--disable-gpu',
-      '--no-sandbox',
-    ]));
-    diagnostic.headlessMode = headlessMode;
-    diagnostic.launchArgCount = launchArgs.length;
-    browser = await (puppeteer as any).launch({
-      args: launchArgs,
-      defaultViewport: runtime.local
-        ? { width: 1280, height: 720 }
-        : ((chromium as any).defaultViewport ?? { width: 1920, height: 1080 }),
-      executablePath: runtime.executablePath,
-      headless: headlessMode,
+    diagnostic.stage = 'prepare-renderer';
+    const browserPromise = acquirePdfBrowser(diagnostic);
+    const inlineStartedAt = Date.now();
+    const htmlPromise = inlineRemoteImagesForPdf(html).then(pdfHtml => {
+      diagnostic.remoteImageInliningMs = Date.now() - inlineStartedAt;
+      return pdfHtml;
     });
-    diagnostic.browserLaunched = true;
+    [browser, html] = await Promise.all([browserPromise, htmlPromise]);
+    diagnostic.inlinedHtmlLength = html.length;
 
     diagnostic.stage = 'new-page';
-    const page = await browser.newPage();
+    page = await browser.newPage();
     const blockedExternalRequests: string[] = [];
     await page.setRequestInterception(true);
     page.on('request', (request: any) => {
@@ -640,11 +695,8 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
       request.continue().catch(() => undefined);
     });
     diagnostic.externalRequestBlocking = 'http-and-https';
-    diagnostic.stage = 'inline-images';
-    const pdfHtml = await inlineRemoteImagesForPdf(html);
-    diagnostic.inlinedHtmlLength = pdfHtml.length;
     diagnostic.stage = 'set-content';
-    await page.setContent(pdfHtml, { waitUntil: 'domcontentloaded', timeout: PDF_SET_CONTENT_TIMEOUT_MS });
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: PDF_SET_CONTENT_TIMEOUT_MS });
     diagnostic.blockedExternalRequestCount = blockedExternalRequests.length;
     diagnostic.blockedExternalRequestSample = blockedExternalRequests;
     diagnostic.stage = 'wait-images';
@@ -660,15 +712,16 @@ async function renderPdfBuffer(html: string): Promise<Buffer> {
     diagnostic.pdfBytes = pdfBuffer.length;
     return pdfBuffer;
   } catch (error: any) {
+    if (browser && !browser.isConnected?.()) pdfBrowserPromise = null;
     console.error('[generate-pdf] PDF diagnostic:', {
       ...diagnostic,
       error: compactPdfError(error),
     });
     throw enrichPdfError(error, diagnostic);
   } finally {
-    if (browser) {
-      await browser.close().catch((closeError: any) => {
-        console.warn('[generate-pdf] Browser close error:', closeError?.message ?? closeError);
+    if (page) {
+      await page.close().catch((closeError: any) => {
+        console.warn('[generate-pdf] Page close error:', closeError?.message ?? closeError);
       });
     }
   }
@@ -766,6 +819,9 @@ export async function OPTIONS(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const origin = req.headers.get('origin') ?? '';
   const headers = corsHeaders(origin);
+  const acceptsBinaryPdf = req.headers.get('accept')
+    ?.split(',')
+    .some(value => value.trim().toLowerCase().startsWith('application/pdf')) ?? false;
 
   const supabase = getServiceClient();
   if (!supabase) {
@@ -856,6 +912,7 @@ export async function POST(req: NextRequest) {
     }
 
     let pdfBuffer: Buffer;
+    const pdfStartedAt = Date.now();
     try {
       pdfBuffer = await renderPdfBuffer(html);
     } catch (pdfError: any) {
@@ -990,8 +1047,30 @@ export async function POST(req: NextRequest) {
         })
       );
     }
+    const responseHeaders = {
+      ...headers,
+      'Cache-Control': 'private, no-store',
+      'Server-Timing': `generate-pdf;dur=${Date.now() - pdfStartedAt}`,
+    };
+    if (!payload.sendByEmail && acceptsBinaryPdf) {
+      const filename = type === 'individual_reserve'
+        ? buildPdfFilename('BuildTrack_reserve', [payload.reserve?.id, payload.chantierName])
+        : buildPdfFilename('BuildTrack', [type, payload.chantierName]);
+      return new NextResponse(new Uint8Array(pdfBuffer), {
+        status: 200,
+        headers: {
+          ...responseHeaders,
+          'Content-Type': 'application/pdf',
+          'Content-Disposition': `attachment; filename="${filename}"`,
+          'X-BuildTrack-PDF-Transfer': 'binary',
+          'X-Content-Type-Options': 'nosniff',
+        },
+      });
+    }
     const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
-    return NextResponse.json({ success: true, pdfBase64 }, { headers });
+    return NextResponse.json({ success: true, pdfBase64 }, {
+      headers: { ...responseHeaders, 'X-BuildTrack-PDF-Transfer': 'base64' },
+    });
   } catch (err: any) {
     console.error('[generate-pdf] Erreur:', err?.stack ?? err?.message ?? err);
     return NextResponse.json(
