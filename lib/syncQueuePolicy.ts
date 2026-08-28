@@ -7,6 +7,8 @@ export interface SyncQueueOperationLike {
   purgeState?: string;
   /** Deux ecritures divergentes derriere un identifiant idempotent. */
   quarantined?: boolean;
+  /** Enfant conserve jusqu'a confirmation durable de sa visite parente. */
+  recoveryBlockedByVisitId?: string;
   terminalStatus?: string;
   terminalOutcome?: SyncQueueTerminalOutcome;
   attemptCount?: number;
@@ -358,7 +360,8 @@ export function shouldAbandonPassAfterInfrastructureFailure(consecutiveFailures:
 export function mustSurviveCoalescing(operation: SyncQueueOperationLike): boolean {
   return operation.purgeState === 'pending_reconciliation'
     || operation.terminal === true
-    || operation.quarantined === true;
+    || operation.quarantined === true
+    || Boolean(operation.recoveryBlockedByVisitId);
 }
 
 export function isReplayableQueuedOperation(operation: SyncQueueOperationLike): boolean {
@@ -366,6 +369,7 @@ export function isReplayableQueuedOperation(operation: SyncQueueOperationLike): 
   // rejouer enverrait au serveur une ecriture que l'utilisateur vient de
   // demander de supprimer.
   if (operation.purgeState === 'pending_reconciliation') return false;
+  if (operation.recoveryBlockedByVisitId) return false;
   return operation.terminal !== true;
 }
 

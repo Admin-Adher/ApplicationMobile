@@ -185,6 +185,8 @@ function safeHistoricalVisitRecovery(
       legacyVisitReferenceCount: safeCount(value?.evidence?.legacyVisitReferenceCount),
       missingVisitFailureCount: safeCount(value?.evidence?.missingVisitFailureCount),
       foreignKeyFailureCount: safeCount(value?.evidence?.foreignKeyFailureCount),
+      terminalForeignKeyRecoveryCount: safeCount(value?.evidence?.terminalForeignKeyRecoveryCount),
+      foreignKeyContradictionCount: safeCount(value?.evidence?.foreignKeyContradictionCount),
       reserveLinkCorrelationCount: safeCount(value?.evidence?.reserveLinkCorrelationCount),
       ambiguousReserveLinkCount: safeCount(value?.evidence?.ambiguousReserveLinkCount),
     },
@@ -363,6 +365,7 @@ export function formatSyncDiagnosticReport(report: SyncDiagnosticReport): string
       ? `creations ${report.historicalVisitRecovery.evidence.createReserveOperationCount}, liens ${report.historicalVisitRecovery.evidence.linkOperationCount}`
         + ` | refs historiques ${report.historicalVisitRecovery.evidence.legacyVisitReferenceCount}`
         + ` | erreurs visite ${report.historicalVisitRecovery.evidence.missingVisitFailureCount}, FK 23503 ${report.historicalVisitRecovery.evidence.foreignKeyFailureCount}`
+        + ` | FK terminales ${report.historicalVisitRecovery.evidence.terminalForeignKeyRecoveryCount}, contradictoires ${report.historicalVisitRecovery.evidence.foreignKeyContradictionCount}`
         + ` | correlations ${report.historicalVisitRecovery.evidence.reserveLinkCorrelationCount}, ambigues ${report.historicalVisitRecovery.evidence.ambiguousReserveLinkCount}`
       : 'n/a'}`,
     '',

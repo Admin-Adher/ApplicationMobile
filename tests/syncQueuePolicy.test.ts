@@ -17,6 +17,7 @@ import {
   isInventoryMovementOperation,
   isInventoryQueuedOperation,
   isPermanentSyncFailure,
+  mustSurviveCoalescing,
   assessRepeatedPermanentFailure,
   shouldAbandonPassAfterInfrastructureFailure,
   syncFailureFingerprint,
@@ -50,6 +51,12 @@ describe('sync queue policy', () => {
       { terminal: true },
       { attemptCount: 4 },
     ])).toBe(true);
+  });
+
+  it('does not dispatch or coalesce away a child waiting for its recovered parent', () => {
+    const blocked = { recoveryBlockedByVisitId: 'VIS-17875223' };
+    expect(hasReplayableQueuedOperations([blocked])).toBe(false);
+    expect(mustSurviveCoalescing(blocked)).toBe(true);
   });
 
   it('recognizes operation domains and only localizes inventory outcomes', () => {

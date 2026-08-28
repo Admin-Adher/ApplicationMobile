@@ -77,8 +77,9 @@ import {
 import {
   HISTORICAL_VISIT_RECOVERY_INTENT,
   planHistoricalVisitRecovery,
+  prepareRecoveredVisitQueue,
   recoveredVisitMatchesPersistedIdentity,
-  reviveRecoveredVisitDependencies,
+  releaseRecoveredVisitDependencies,
   summarizeHistoricalVisitRecovery,
   type HistoricalVisitRecoveryAudit,
 } from '@/lib/historicalVisitRecovery';
@@ -110,6 +111,8 @@ function emptyHistoricalVisitRecoveryAudit(): HistoricalVisitRecoveryAudit {
       legacyVisitReferenceCount: 0,
       missingVisitFailureCount: 0,
       foreignKeyFailureCount: 0,
+      terminalForeignKeyRecoveryCount: 0,
+      foreignKeyContradictionCount: 0,
       reserveLinkCorrelationCount: 0,
       ambiguousReserveLinkCount: 0,
     },
@@ -309,6 +312,10 @@ export interface QueuedOperation {
   terminalOutcome?: SyncQueueTerminalOutcome;
   /** Insert-if-missing repair for a legacy visit parent lost by an old client. */
   recoveryIntent?: typeof HISTORICAL_VISIT_RECOVERY_INTENT;
+  /** Enfant suspendu jusqu'au succes verifie de la visite reconstruite. */
+  recoveryBlockedByVisitId?: string;
+  /** Identites locales des enfants que ce parent peut seul reactiver. */
+  recoveryDependencyKeys?: string[];
 }
 
 /**
@@ -1168,20 +1175,23 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           Boolean(userOrganizationId),
         );
         if (recovery.repairs.length > 0) {
-          const revivedDependencies = reviveRecoveredVisitDependencies(
+          const preparedRecoveryQueue = prepareRecoveredVisitQueue(
             coalesced,
             recovery.repairs,
           );
-          const recoveryOperations: QueuedOperation[] = recovery.repairs.map(repair => ({
-            id: genQueueId(),
-            dispatchState: 'never_started',
-            queuedAt: new Date().toISOString(),
-            table: 'visites',
-            op: 'insert',
-            data: repair.payload,
-            recoveryIntent: HISTORICAL_VISIT_RECOVERY_INTENT,
-          }));
-          repairedQueue = [...revivedDependencies, ...recoveryOperations];
+          const recoveryOperations: QueuedOperation[] = recovery.repairs
+            .filter(repair => !repair.reuseQueuedParent)
+            .map(repair => ({
+              id: genQueueId(),
+              dispatchState: 'never_started',
+              queuedAt: new Date().toISOString(),
+              table: 'visites',
+              op: 'insert',
+              data: repair.payload,
+              recoveryIntent: HISTORICAL_VISIT_RECOVERY_INTENT,
+              recoveryDependencyKeys: repair.dependencyKeys,
+            }));
+          repairedQueue = [...preparedRecoveryQueue, ...recoveryOperations];
           console.warn(
             `[queue] visites historiques reconstruites : ${recovery.repairs.map(repair => `${repair.visitId}:${repair.source}`).join(', ')}`,
           );
@@ -1697,6 +1707,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // Rejets définitifs détectés pendant la passe : la réconciliation de cache
     // est asynchrone alors que `fail` est synchrone, on la rejoue après boucle.
     const terminalReconciliations: { op: QueuedOperation; outcome: SyncQueueTerminalOutcome }[] = [];
+    const appliedHistoricalVisitRecoveries: {
+      visitId: string;
+      dependencyKeys: string[];
+    }[] = [];
     let circuitOpened = false;
     let circuitDelayMs = 0;
     // Portee globale rendue par la politique P5. Un 429, ou un 503 porteur d'un
@@ -2982,6 +2996,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
       if (outcome.kind === 'applied') {
         setLastOperationSuccessAt(new Date().toISOString());
+        if (
+          op.recoveryIntent === HISTORICAL_VISIT_RECOVERY_INTENT
+          && op.table === 'visites'
+          && op.op === 'insert'
+          && typeof op.data?.id === 'string'
+          && Array.isArray(op.recoveryDependencyKeys)
+        ) {
+          appliedHistoricalVisitRecoveries.push({
+            visitId: op.data.id,
+            dependencyKeys: op.recoveryDependencyKeys,
+          });
+        }
       }
       // Marque le progrès : tant qu'une opération est traitée régulièrement,
       // la passe n'est jamais considérée comme gelée par le garde-fou.
@@ -3031,10 +3057,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const additionsDuringPass = queueRef.current.filter(operation => (
       !operation.queueEntryId || !processedEntryIds.has(operation.queueEntryId)
     ));
-    const nextQueue = coalesceQueuedOperations([
+    let queueAfterRecovery = [
       ...remaining,
       ...additionsDuringPass,
-    ]);
+    ];
+    for (const recovery of appliedHistoricalVisitRecoveries) {
+      queueAfterRecovery = releaseRecoveredVisitDependencies(
+        queueAfterRecovery,
+        recovery.visitId,
+        recovery.dependencyKeys,
+      );
+    }
+    const nextQueue = coalesceQueuedOperations(queueAfterRecovery);
     queueRef.current = nextQueue;
     setQueue(nextQueue);
     await saveQueue(nextQueue);

@@ -243,6 +243,8 @@ describe('sync diagnostic export', () => {
           legacyVisitReferenceCount: 1,
           missingVisitFailureCount: 1,
           foreignKeyFailureCount: 1,
+          terminalForeignKeyRecoveryCount: 1,
+          foreignKeyContradictionCount: 0,
           reserveLinkCorrelationCount: 1,
           ambiguousReserveLinkCount: 0,
           'chantier Jean Dupont <jean@example.com>': 99,
@@ -264,6 +266,8 @@ describe('sync diagnostic export', () => {
         legacyVisitReferenceCount: 1,
         missingVisitFailureCount: 1,
         foreignKeyFailureCount: 1,
+        terminalForeignKeyRecoveryCount: 1,
+        foreignKeyContradictionCount: 0,
         reserveLinkCorrelationCount: 1,
         ambiguousReserveLinkCount: 0,
       },
@@ -271,6 +275,7 @@ describe('sync diagnostic export', () => {
     expect(text).toContain('2 candidate(s), 1 planifiee(s)');
     expect(text).toContain('creations 1, liens 1');
     expect(text).toContain('correlations 1, ambigues 0');
+    expect(text).toContain('FK terminales 1, contradictoires 0');
     expect(text).toContain('organization_unproven x1');
     expect(text).not.toContain('Jean Dupont');
     expect(text).not.toContain('jean@example.com');

@@ -5,6 +5,10 @@ const LEGACY_VISIT_ID = /^VIS-\d{8}$/;
 const MISSING_VISIT_ERROR = /(?:reserves_tenant_visite_fkey|visite\s+introuvable|visita\s+(?:introuvable|no\s+encontrada)|visit\s+not\s+found|key\s+is\s+not\s+present\s+in\s+table\s+["']?visites?["']?)/i;
 const FOREIGN_KEY_23503_ERROR = /^\s*\[?23503\]?(?:\s|—|-|$)/i;
 const BARE_FOREIGN_KEY_23503_ERROR = /^\s*\[?23503\]?(?:(?:\s*—\s*|\s+)HTTP\s+409)*\s*$/i;
+const VISIT_FOREIGN_KEY_CONSTRAINT = 'reserves_tenant_visite_fkey';
+const FOREIGN_KEY_CONSTRAINT_TOKEN = /\b([a-z][a-z0-9_]*_fkey)\b/gi;
+const MISSING_TABLE_REFERENCE = /\bkey\s+is\s+not\s+present\s+in\s+table\s+["'`]?([a-z][a-z0-9_.]*)["'`]?/gi;
+const EXPLICIT_FOREIGN_KEY_COLUMN = /\b([a-z][a-z0-9_]*_id)\s+(?:violates?|viola|viole)\b.{0,80}\b(?:foreign\s+key|clave\s+for[aá]nea|cl[eé]\s+[eé]trang[eè]re)\b/gi;
 
 export const HISTORICAL_VISIT_RECOVERY_INTENT = 'insert_missing_historical_visit' as const;
 
@@ -14,6 +18,7 @@ export const HISTORICAL_VISIT_RECOVERY_SKIP_REASONS = [
   'organization_ambiguous',
   'chantier_missing',
   'chantier_ambiguous',
+  'recovery_parent_mismatch',
 ] as const;
 
 export type HistoricalVisitRecoverySkipReason = typeof HISTORICAL_VISIT_RECOVERY_SKIP_REASONS[number];
@@ -31,12 +36,19 @@ export interface HistoricalVisitQueueOperation {
   terminal?: boolean;
   terminalStatus?: string;
   terminalOutcome?: unknown;
+  attemptCount?: number;
+  lastAttemptAt?: string;
+  lastFailureAt?: string;
+  lastFailureFingerprint?: string;
+  lastHttpStatus?: number;
   nextAttemptAt?: string;
   failureClass?: unknown;
   retrySource?: unknown;
   sameFailureCount?: number;
   purgeState?: string;
   recoveryIntent?: string;
+  recoveryBlockedByVisitId?: string;
+  recoveryDependencyKeys?: string[];
 }
 
 export interface HistoricalVisitRepair {
@@ -45,6 +57,8 @@ export interface HistoricalVisitRepair {
   source: 'visit_cache' | 'dependent_reserves';
   organizationSource: HistoricalVisitRecoveryOrganizationSource;
   dependencyKeys: string[];
+  /** Reuse a parent persisted by an earlier OTA instead of inserting a twin. */
+  reuseQueuedParent?: boolean;
 }
 
 export interface HistoricalVisitRecoveryPlan {
@@ -63,6 +77,8 @@ export interface HistoricalVisitRecoveryEvidence {
   legacyVisitReferenceCount: number;
   missingVisitFailureCount: number;
   foreignKeyFailureCount: number;
+  terminalForeignKeyRecoveryCount: number;
+  foreignKeyContradictionCount: number;
   reserveLinkCorrelationCount: number;
   ambiguousReserveLinkCount: number;
 }
@@ -172,10 +188,24 @@ export function planHistoricalVisitRecovery(input: {
   const profileOrganizationId = input.organizationId?.trim() || null;
 
   const activeQueue = input.queue.filter(operation => !operation.purgeState);
-  const queuedParents = new Set(activeQueue
-    .filter(operation => operation.table === 'visites' && operation.op === 'insert')
-    .map(operation => exactNonEmptyIdentifier(operation.data?.id))
-    .filter((value): value is string => value !== null));
+  const queuedParentsByVisitId = new Map<string, HistoricalVisitQueueOperation[]>();
+  for (const operation of activeQueue) {
+    if (operation.table !== 'visites' || operation.op !== 'insert') continue;
+    const visitId = exactNonEmptyIdentifier(operation.data?.id);
+    if (!visitId) continue;
+    const parents = queuedParentsByVisitId.get(visitId) ?? [];
+    parents.push(operation);
+    queuedParentsByVisitId.set(visitId, parents);
+  }
+  const reusableQueuedRecoveryParents = new Map<string, HistoricalVisitQueueOperation>();
+  for (const [visitId, parents] of queuedParentsByVisitId) {
+    if (
+      parents.length === 1
+      && parents[0].recoveryIntent === HISTORICAL_VISIT_RECOVERY_INTENT
+    ) {
+      reusableQueuedRecoveryParents.set(visitId, parents[0]);
+    }
+  }
 
   const evidence: HistoricalVisitRecoveryEvidence = {
     createReserveOperationCount: 0,
@@ -183,11 +213,14 @@ export function planHistoricalVisitRecovery(input: {
     legacyVisitReferenceCount: 0,
     missingVisitFailureCount: 0,
     foreignKeyFailureCount: 0,
+    terminalForeignKeyRecoveryCount: 0,
+    foreignKeyContradictionCount: 0,
     reserveLinkCorrelationCount: 0,
     ambiguousReserveLinkCount: 0,
   };
   const directVisitIds = new Map<HistoricalVisitQueueOperation, string>();
   const linkedVisitIdsByReserve = new Map<string, Set<string>>();
+  const linkedOperationsByReserve = new Map<string, HistoricalVisitQueueOperation[]>();
 
   for (const operation of activeQueue) {
     const rpcName = operation.op === 'rpc' ? operation.rpc?.fn : null;
@@ -204,6 +237,9 @@ export function planHistoricalVisitRecovery(input: {
     }
     if (FOREIGN_KEY_23503_ERROR.test(operation.lastError ?? '')) {
       evidence.foreignKeyFailureCount += 1;
+      if (explicitlyContradictsVisitForeignKey(operation.lastError ?? '')) {
+        evidence.foreignKeyContradictionCount += 1;
+      }
     }
 
     if (rpcName !== 'link_reserves_to_visite' || !visitId || !LEGACY_VISIT_ID.test(visitId)) {
@@ -213,6 +249,9 @@ export function planHistoricalVisitRecovery(input: {
       const linkedVisitIds = linkedVisitIdsByReserve.get(reserveId) ?? new Set<string>();
       linkedVisitIds.add(visitId);
       linkedVisitIdsByReserve.set(reserveId, linkedVisitIds);
+      const linkedOperations = linkedOperationsByReserve.get(reserveId) ?? [];
+      linkedOperations.push(operation);
+      linkedOperationsByReserve.set(reserveId, linkedOperations);
     }
   }
 
@@ -248,22 +287,50 @@ export function planHistoricalVisitRecovery(input: {
 
   const recoveryCandidates = new Set<string>();
   for (const operation of activeQueue) {
-    const messageProvesMissingVisit = MISSING_VISIT_ERROR.test(operation.lastError ?? '');
+    const lastError = operation.lastError ?? '';
+    const messageProvesMissingVisit = MISSING_VISIT_ERROR.test(lastError);
     const directVisitId = directVisitIds.get(operation) ?? null;
-    const isCorroboratedReserveForeignKey = (
+    const reserveId = referencedReserveId(operation);
+    const correlatedVisitId = resolvedVisitIds.get(operation) ?? null;
+    const hasRepeatedTerminalLink = Boolean(reserveId && correlatedVisitId && (
+      linkedOperationsByReserve.get(reserveId) ?? []
+    ).some(link => (
+      referencedVisitId(link) === correlatedVisitId
+      && repeatedTerminalFailure(link)
+    )));
+    const hasExactCreateAndLinkCorrelation = (
       operation.op === 'rpc'
       && operation.rpc?.fn === 'create_reserve_with_photos'
-      // Un 23503 detaille qui nomme une AUTRE FK ne doit jamais fabriquer une
-      // visite. Le repli ne vaut que si PostgREST n'a conserve que le code et
-      // si le payload ET le lien nomment deja la meme visite historique.
-      && BARE_FOREIGN_KEY_23503_ERROR.test(operation.lastError ?? '')
       && directVisitId !== null
       && LEGACY_VISIT_ID.test(directVisitId)
       && corroboratedCreateOperations.has(operation)
     );
+    const isBareCorroboratedReserveForeignKey = (
+      hasExactCreateAndLinkCorrelation
+      && BARE_FOREIGN_KEY_23503_ERROR.test(lastError)
+    );
+    const isTerminalCorroboratedReserveForeignKey = (
+      hasExactCreateAndLinkCorrelation
+      && FOREIGN_KEY_23503_ERROR.test(lastError)
+      && !messageProvesMissingVisit
+      && !explicitlyContradictsVisitForeignKey(lastError)
+      && repeatedTerminalFailure(operation)
+      && hasRepeatedTerminalLink
+    );
+    if (isTerminalCorroboratedReserveForeignKey) {
+      evidence.terminalForeignKeyRecoveryCount += 1;
+    }
+    const isCorroboratedReserveForeignKey = (
+      isBareCorroboratedReserveForeignKey || isTerminalCorroboratedReserveForeignKey
+    );
     if (!messageProvesMissingVisit && !isCorroboratedReserveForeignKey) continue;
     const visitId = resolvedVisitIds.get(operation) ?? null;
-    if (!visitId || !LEGACY_VISIT_ID.test(visitId) || queuedParents.has(visitId)) continue;
+    if (!visitId || !LEGACY_VISIT_ID.test(visitId)) continue;
+    const queuedParents = queuedParentsByVisitId.get(visitId) ?? [];
+    // Une operation parente ordinaire (ou plusieurs parents concurrents) reste
+    // hors du reparateur. Seul l'ancien parent cree par CE workflow peut etre
+    // migre sans insertion supplementaire.
+    if (queuedParents.length > 0 && !reusableQueuedRecoveryParents.has(visitId)) continue;
     recoveryCandidates.add(visitId);
   }
 
@@ -282,6 +349,7 @@ export function planHistoricalVisitRecovery(input: {
 
   const now = validIso(input.now) ?? new Date().toISOString();
   for (const [visitId, operations] of dependencies) {
+    const reusableQueuedParent = reusableQueuedRecoveryParents.get(visitId) ?? null;
     const dependencyKeys = uniqueNonEmpty(operations.map(operation => operation.queueEntryId ?? operation.id));
     const queuedReserves = operations
       .map(reservePayload)
@@ -341,12 +409,21 @@ export function planHistoricalVisitRecovery(input: {
         skipped.push({ visitId, reason: 'chantier_ambiguous' });
         continue;
       }
+      const payload = fromVisite(cachedVisit, organizationId);
+      if (
+        reusableQueuedParent
+        && !recoveredVisitMatchesPersistedIdentity(payload, reusableQueuedParent.data)
+      ) {
+        skipped.push({ visitId, reason: 'recovery_parent_mismatch' });
+        continue;
+      }
       repairs.push({
         visitId,
-        payload: fromVisite(cachedVisit, organizationId),
+        payload,
         source: 'visit_cache',
         organizationSource,
         dependencyKeys,
+        reuseQueuedParent: Boolean(reusableQueuedParent),
       });
       continue;
     }
@@ -367,23 +444,32 @@ export function planHistoricalVisitRecovery(input: {
       .filter((value): value is string => value !== null)
       .sort()[0] ?? now;
 
+    const payload = fromVisite({
+      id: visitId,
+      chantierId: chantierIds[0],
+      title: `${input.recoveryTitle?.trim() || 'Visite récupérée'} (${visitId})`,
+      date: createdAt.slice(0, 10),
+      conducteur: input.userName?.trim() || 'BuildTrack',
+      status: 'planned',
+      notes: input.recoveryNotes?.trim()
+        || 'Visite reconstruite automatiquement depuis la file hors ligne.',
+      reserveIds,
+      createdAt,
+    }, organizationId);
+    if (
+      reusableQueuedParent
+      && !recoveredVisitMatchesPersistedIdentity(payload, reusableQueuedParent.data)
+    ) {
+      skipped.push({ visitId, reason: 'recovery_parent_mismatch' });
+      continue;
+    }
     repairs.push({
       visitId,
       source: 'dependent_reserves',
       organizationSource,
       dependencyKeys,
-      payload: fromVisite({
-        id: visitId,
-        chantierId: chantierIds[0],
-        title: `${input.recoveryTitle?.trim() || 'Visite récupérée'} (${visitId})`,
-        date: createdAt.slice(0, 10),
-        conducteur: input.userName?.trim() || 'BuildTrack',
-        status: 'planned',
-        notes: input.recoveryNotes?.trim()
-          || 'Visite reconstruite automatiquement depuis la file hors ligne.',
-        reserveIds,
-        createdAt,
-      }, organizationId),
+      payload,
+      reuseQueuedParent: Boolean(reusableQueuedParent),
     });
   }
 
@@ -412,6 +498,34 @@ export function summarizeHistoricalVisitRecovery(
   };
 }
 
+function repeatedTerminalFailure(operation: HistoricalVisitQueueOperation): boolean {
+  return operation.terminal === true
+    && operation.terminalStatus === 'server_rejected'
+    && (operation.sameFailureCount ?? 0) >= 3;
+}
+
+/**
+ * Refuse un 23503 opaque des qu'il contient une preuve explicite qu'une autre
+ * relation est en cause. En l'absence de contradiction, l'admission reste
+ * reservee plus bas a deux operations terminales exactement correlees.
+ */
+function explicitlyContradictsVisitForeignKey(message: string): boolean {
+  const constraintNames = [...message.matchAll(FOREIGN_KEY_CONSTRAINT_TOKEN)]
+    .map(match => match[1].toLowerCase());
+  if (constraintNames.some(name => name !== VISIT_FOREIGN_KEY_CONSTRAINT)) return true;
+
+  const referencedTables = [...message.matchAll(MISSING_TABLE_REFERENCE)]
+    .map(match => match[1].toLowerCase().split('.').pop());
+  if (referencedTables.some(table => table !== 'visite' && table !== 'visites')) return true;
+
+  // Si PostgreSQL a donne le nom exact de la contrainte, il prime sur une
+  // eventuelle liste de colonnes de la FK composite (tenant_id, visite_id).
+  if (constraintNames.length > 0) return false;
+  const explicitColumns = [...message.matchAll(EXPLICIT_FOREIGN_KEY_COLUMN)]
+    .map(match => match[1].toLowerCase());
+  return explicitColumns.some(column => column !== 'visite_id');
+}
+
 /**
  * Recovery inserts are insert-if-missing operations. If another device already
  * recreated the visit, matching tenant and chantier identity is sufficient to
@@ -430,24 +544,139 @@ export function recoveredVisitMatchesPersistedIdentity(
     && queued.chantier_id === persisted.chantier_id;
 }
 
-/** Reactivate only the child operations covered by a safe recovery plan. */
-export function reviveRecoveredVisitDependencies<T extends HistoricalVisitQueueOperation>(
+/**
+ * Hold every exact child while its synthetic parent is still unconfirmed.
+ * The marker is durable so a crash between INSERT and queue commit cannot let
+ * the children overtake the idempotent parent verification on restart.
+ */
+export function blockRecoveredVisitDependencies<T extends HistoricalVisitQueueOperation>(
   queue: T[],
   repairs: HistoricalVisitRepair[],
 ): T[] {
-  const dependencyKeys = new Set(repairs.flatMap(repair => repair.dependencyKeys));
+  const visitIdByDependencyKey = new Map<string, string>();
+  const ambiguousKeys = new Set<string>();
+  for (const repair of repairs) {
+    for (const key of repair.dependencyKeys) {
+      const existing = visitIdByDependencyKey.get(key);
+      if (existing && existing !== repair.visitId) ambiguousKeys.add(key);
+      else visitIdByDependencyKey.set(key, repair.visitId);
+    }
+  }
+
   return queue.map(operation => {
     const key = operation.queueEntryId ?? operation.id;
-    if (!key || !dependencyKeys.has(key)) return operation;
+    if (!key || ambiguousKeys.has(key)) return operation;
+    const visitId = visitIdByDependencyKey.get(key);
+    if (!visitId) return operation;
+    if (operation.recoveryBlockedByVisitId && operation.recoveryBlockedByVisitId !== visitId) {
+      return operation;
+    }
+    return { ...operation, recoveryBlockedByVisitId: visitId } as T;
+  });
+}
+
+/**
+ * Apply the durable child barrier and upgrade a unique parent persisted by an
+ * earlier OTA. The existing parent is reused only after the planner verified
+ * its visit/tenant/chantier identity against the reconstructed payload.
+ */
+export function prepareRecoveredVisitQueue<T extends HistoricalVisitQueueOperation>(
+  queue: T[],
+  repairs: HistoricalVisitRepair[],
+): T[] {
+  const blocked = blockRecoveredVisitDependencies(queue, repairs);
+  const reusableRepairs = new Map(repairs
+    .filter(repair => repair.reuseQueuedParent)
+    .map(repair => [repair.visitId, repair]));
+
+  return blocked.map(operation => {
+    if (
+      operation.table !== 'visites'
+      || operation.op !== 'insert'
+      || operation.recoveryIntent !== HISTORICAL_VISIT_RECOVERY_INTENT
+    ) return operation;
+    const visitId = exactNonEmptyIdentifier(operation.data?.id);
+    if (!visitId) return operation;
+    const repair = reusableRepairs.get(visitId);
+    if (!repair || !recoveredVisitMatchesPersistedIdentity(repair.payload, operation.data)) {
+      return operation;
+    }
+    const barrierWasAlreadyMigrated = Array.isArray(operation.recoveryDependencyKeys);
+    const dependencyKeys = [...new Set([
+      ...(Array.isArray(operation.recoveryDependencyKeys) ? operation.recoveryDependencyKeys : []),
+      ...repair.dependencyKeys,
+    ].map(exactNonEmptyIdentifier).filter((value): value is string => value !== null))];
+    const migrated = { ...operation, recoveryDependencyKeys: dependencyKeys };
+    if (barrierWasAlreadyMigrated || operation.terminal !== true) return migrated as T;
+
+    // Une OTA precedente a pu rendre ce parent terminal AVANT de persister la
+    // barriere. Le rearmement est autorise une seule fois : la presence future
+    // de `recoveryDependencyKeys` empeche toute boucle si le parent echoue de
+    // nouveau pour une raison deterministe legitime.
     const {
       terminal: _terminal,
       terminalStatus: _terminalStatus,
       terminalOutcome: _terminalOutcome,
+      lastError: _lastError,
+      attemptCount: _attemptCount,
+      lastAttemptAt: _lastAttemptAt,
+      lastFailureAt: _lastFailureAt,
+      lastFailureFingerprint: _lastFailureFingerprint,
+      lastHttpStatus: _lastHttpStatus,
       nextAttemptAt: _nextAttemptAt,
       failureClass: _failureClass,
       retrySource: _retrySource,
+      ...rearmed
+    } = migrated;
+    return { ...rearmed, attemptCount: 0, sameFailureCount: 0 } as T;
+  });
+}
+
+/** Reactivate only children released by the successfully applied exact parent. */
+export function releaseRecoveredVisitDependencies<T extends HistoricalVisitQueueOperation>(
+  queue: T[],
+  visitId: string,
+  dependencyKeys: string[],
+): T[] {
+  const exactDependencyKeys = new Set(dependencyKeys);
+  return queue.map(operation => {
+    // Le plan peut preceder la migration qui attribue `queueEntryId` aux
+    // anciennes files. Conserver les deux identites permet au parent persiste
+    // avec l'ancien `id` de liberer l'enfant apres cette attribution.
+    const operationKeys = [operation.queueEntryId, operation.id]
+      .filter((value): value is string => typeof value === 'string' && value.length > 0);
+    if (
+      !operationKeys.some(key => exactDependencyKeys.has(key))
+      || operation.recoveryBlockedByVisitId !== visitId
+    ) return operation;
+    const {
+      terminal: _terminal,
+      terminalStatus: _terminalStatus,
+      terminalOutcome: _terminalOutcome,
+      lastError: _lastError,
+      attemptCount: _attemptCount,
+      lastAttemptAt: _lastAttemptAt,
+      lastFailureAt: _lastFailureAt,
+      lastFailureFingerprint: _lastFailureFingerprint,
+      lastHttpStatus: _lastHttpStatus,
+      nextAttemptAt: _nextAttemptAt,
+      failureClass: _failureClass,
+      retrySource: _retrySource,
+      recoveryBlockedByVisitId: _recoveryBlockedByVisitId,
       ...revived
     } = operation;
-    return { ...revived, sameFailureCount: 0 } as T;
+    return { ...revived, attemptCount: 0, sameFailureCount: 0 } as T;
   });
+}
+
+/** Compatibility helper used by focused planning tests and callers. */
+export function reviveRecoveredVisitDependencies<T extends HistoricalVisitQueueOperation>(
+  queue: T[],
+  repairs: HistoricalVisitRepair[],
+): T[] {
+  let next = blockRecoveredVisitDependencies(queue, repairs);
+  for (const repair of repairs) {
+    next = releaseRecoveredVisitDependencies(next, repair.visitId, repair.dependencyKeys);
+  }
+  return next;
 }
