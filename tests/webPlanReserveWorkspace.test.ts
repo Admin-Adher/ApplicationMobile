@@ -251,6 +251,7 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(page).toContain('const photosByReserve = buildReservePhotoIndex(photos)');
     expect(page).toContain('Promise.all([chantiersPromise, reservesPromise, companiesPromise])');
     expect(page).toContain('const requestedReserveId = reserveIdFromHref(window.location.href)');
+    expect(page).toContain('if (!authUser || !profile) return;');
     expect(page).toContain('openReserveDetailTab(requestedReserveId, target)');
     expect(page).toContain("(supabaseBrowser as any).rpc('soft_delete_photo'");
     expect(nextConfig).toContain("formats: ['image/avif', 'image/webp']");
