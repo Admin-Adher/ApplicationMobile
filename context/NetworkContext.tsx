@@ -69,6 +69,7 @@ import {
   coalesceQueuedOperations,
   migrateAndCoalesceSitePlanSnapshots,
 } from '@/lib/offlineQueueCoalescing';
+import { dismissAuthorizedTerminalQueueEntries } from '@/lib/authorizedQueueDismissal';
 import {
   queueHydrationScopeKey,
   queueReplayPriority,
@@ -78,6 +79,7 @@ import {
   HISTORICAL_VISIT_RECOVERY_INTENT,
   planHistoricalVisitRecovery,
   prepareRecoveredVisitQueue,
+  queueNeedsHistoricalVisitRecoveryEvaluation,
   recoveredVisitMatchesPersistedIdentity,
   releaseRecoveredVisitDependencies,
   summarizeHistoricalVisitRecovery,
@@ -650,6 +652,7 @@ async function healSupabaseSessionAfterWake(longSleep: boolean): Promise<boolean
 }
 
 async function refetchActiveQueries(reason: string): Promise<void> {
+  const startedAt = Date.now();
   try {
     if (Platform.OS !== 'web') {
       await new Promise<void>(resolve => {
@@ -660,6 +663,8 @@ async function refetchActiveQueries(reason: string): Promise<void> {
     await queryClient.refetchQueries({ type: 'active' });
   } catch (err) {
     console.warn(`[query] foreground refetch failed (${reason}):`, (err as any)?.message ?? err);
+  } finally {
+    console.log(`[perf] active queries refetched (${reason}) in ${Date.now() - startedAt}ms`);
   }
 }
 
@@ -1068,6 +1073,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const loadQueue = useCallback(async () => {
+    const hydrationStartedAt = Date.now();
     const myHydrationGeneration = ++queueHydrationGenerationRef.current;
     // Les identités locales n'ont de valeur que persistées : tant que ce
     // drapeau est faux, aucune passe réseau ne doit démarrer.
@@ -1088,6 +1094,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     // trace de ces saisies : mieux vaut un doublon temporaire qu'une perte.
     let anonQueueToClear: string | null = null;
     let nextHistoricalVisitRecovery = emptyHistoricalVisitRecoveryAudit();
+    let historicalEvaluationRequired = false;
+    let authorizedDismissalCount = 0;
     setQueueLoaded(false);
     queueLoadedRef.current = false;
     setHistoricalVisitRecovery(nextHistoricalVisitRecovery);
@@ -1154,15 +1162,27 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         }
       }
       const coalesced = migrateAndCoalesceSitePlanSnapshots(combined, userId);
-      let repairedQueue = coalesced;
-      if (userId) {
+      const authorizedDismissal = dismissAuthorizedTerminalQueueEntries(coalesced);
+      authorizedDismissalCount = authorizedDismissal.dismissed.length;
+      if (authorizedDismissalCount > 0) {
+        await backupQueue(authorizedDismissal.dismissed, 'user-authorized-terminal-dismissal');
+        assertHydrationOwner();
+        console.warn(
+          `[queue] ${authorizedDismissalCount} opération(s) terminale(s) supprimée(s) avec autorisation explicite`,
+        );
+      }
+
+      const eligibleQueue = authorizedDismissal.kept;
+      historicalEvaluationRequired = queueNeedsHistoricalVisitRecoveryEvaluation(eligibleQueue);
+      let repairedQueue = eligibleQueue;
+      if (userId && historicalEvaluationRequired) {
         const [cachedVisits, cachedReserves] = await Promise.all([
           readCache<Visite>(VISITES_CACHE_KEY, userId),
           readCache<Reserve>(RESERVES_CACHE_KEY, userId),
         ]);
         assertHydrationOwner();
         const recovery = planHistoricalVisitRecovery({
-          queue: coalesced,
+          queue: eligibleQueue,
           cachedVisits: cachedVisits ?? [],
           cachedReserves: cachedReserves ?? [],
           organizationId: userOrganizationId,
@@ -1176,7 +1196,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         );
         if (recovery.repairs.length > 0) {
           const preparedRecoveryQueue = prepareRecoveredVisitQueue(
-            coalesced,
+            eligibleQueue,
             recovery.repairs,
           );
           const recoveryOperations: QueuedOperation[] = recovery.repairs
@@ -1287,6 +1307,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       lastLoadedScopeRef.current = queueHydrationScopeKey(
         userKey ?? anonKey,
         userId ? userOrganizationId : null,
+        queueNeedsHistoricalVisitRecoveryEvaluation(queueRef.current),
       );
       identitiesAreDurable = true;
       if (hydrationRetryTimerRef.current) {
@@ -1322,9 +1343,17 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         } else if (hasReplayableQueuedOperations(queueRef.current)) {
           scheduleSync();
         }
+        console.log(
+          `[perf] queue hydrated in ${Date.now() - hydrationStartedAt}ms `
+          + `(entries=${queueRef.current.length}, historical=${historicalEvaluationRequired ? 'yes' : 'no'}, `
+          + `dismissed=${authorizedDismissalCount})`,
+        );
       }
     }
-  }, [userId, userOrganizationId, recoveryUserName, writeQueueStrict, scheduleSync, scheduleHydrationRetry, schedulePurgeResumeRetry]);
+  }, [
+    userId, userOrganizationId, recoveryUserName, backupQueue, writeQueueStrict,
+    scheduleSync, scheduleHydrationRetry, schedulePurgeResumeRetry,
+  ]);
 
   // `loadQueue` se rappelle lui-même après un échec de migration : la référence
   // évite une dépendance circulaire entre les deux `useCallback`.
@@ -1336,6 +1365,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     const targetScope = queueHydrationScopeKey(
       targetKey,
       userId ? userOrganizationId : null,
+      queueNeedsHistoricalVisitRecoveryEvaluation(queueRef.current),
     );
     if (lastLoadedScopeRef.current === targetScope) return;
     // Une passe lancée pour le compte précédent ne doit jamais repeupler l'état
@@ -3448,11 +3478,18 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       clearTimeout(syncKickTimerRef.current);
       syncKickTimerRef.current = null;
     }
-    // Rejouer d'abord les migrations/reparations sur la DERNIERE version
-    // durable de la file. Une ancienne operation peut avoir ete enrichie en
-    // organisation lors d'un essai precedent ; sans cette rehydratation, le
-    // bouton manuel ne reevaluait jamais la reconstruction de sa visite.
-    if (!syncingRef.current) {
+    // Les nouvelles mutations sont déjà la représentation durable courante :
+    // les relire, puis relire les gros caches visites/réserves et invalider
+    // toutes les queries doublait inutilement le temps du bouton manuel.
+    // Seules les anciennes références VIS-######## ont besoin de rejouer le
+    // planificateur historique avant la passe réseau.
+    if (
+      !syncingRef.current
+      && (
+        !queueLoadedRef.current
+        || queueNeedsHistoricalVisitRecoveryEvaluation(queueRef.current)
+      )
+    ) {
       await loadQueueRef.current?.();
     }
     await processSyncQueueRef.current();

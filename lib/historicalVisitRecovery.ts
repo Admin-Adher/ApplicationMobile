@@ -157,6 +157,32 @@ function reservePayload(operation: HistoricalVisitQueueOperation): Record<string
   return persisted;
 }
 
+/**
+ * Cheap queue-only gate for the expensive historical recovery planner.
+ *
+ * Normal UUID-backed mutations never need the two large visits/reserves cache
+ * reads. Keeping this gate deliberately broad for legacy `VIS-########`
+ * references preserves fail-closed recovery while avoiding that work for an
+ * empty queue and for every newly-created entity.
+ */
+export function queueNeedsHistoricalVisitRecoveryEvaluation(
+  queue: readonly HistoricalVisitQueueOperation[],
+): boolean {
+  return queue.some(operation => {
+    if (operation.purgeState) return false;
+
+    const referenced = referencedVisitId(operation);
+    if (referenced && LEGACY_VISIT_ID.test(referenced)) return true;
+
+    const blockedVisitId = exactNonEmptyIdentifier(operation.recoveryBlockedByVisitId);
+    if (blockedVisitId && LEGACY_VISIT_ID.test(blockedVisitId)) return true;
+
+    const parentVisitId = exactNonEmptyIdentifier(operation.data?.id);
+    return operation.recoveryIntent === HISTORICAL_VISIT_RECOVERY_INTENT
+      && Boolean(parentVisitId && LEGACY_VISIT_ID.test(parentVisitId));
+  });
+}
+
 function validIso(value: string | undefined): string | null {
   if (!value || !Number.isFinite(Date.parse(value))) return null;
   return new Date(value).toISOString();

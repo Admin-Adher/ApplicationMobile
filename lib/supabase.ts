@@ -263,9 +263,9 @@ function fetchWithTimeout(input: any, init?: any): Promise<Response> {
 
 let lockChain: Promise<unknown> = Promise.resolve();
 
-export function resetAuthLock() {
+export function resetAuthLock(reason = 'app resumed from background') {
   lockChain = Promise.resolve();
-  console.log('[supabase-lock] lock chain reset (app resumed from background)');
+  console.log(`[supabase-lock] lock chain reset (${reason})`);
 }
 
 function safeLock<R>(_name: string, acquireTimeoutMs: number, fn: () => Promise<R>): Promise<R> {
@@ -340,21 +340,26 @@ export const supabase: SupabaseClientType = isSupabaseConfigured
 // soit jamais bloqué derrière une promesse fantôme de la session précédente.
 // ─────────────────────────────────────────────────────────────────────────────
 if (isSupabaseConfigured && Platform.OS !== 'web') {
+  let previousAuthAppState = AppState.currentState;
   AppState.addEventListener('change', (state) => {
     try {
+      const previousState = previousAuthAppState;
+      previousAuthAppState = state;
       if (state === 'active') {
+        // createClient(autoRefreshToken: true) already owns the cold-start
+        // initialization. Treating the first redundant `active` event as a
+        // resume restarted auth while that initialization was refreshing an
+        // expired token, creating a multi-second lock race on Android.
+        if (previousState === 'active') return;
         // 1. Libère le verrou AVANT le refresh pour éviter tout blocage
         resetAuthLock();
         // 2. Relance le timer de refresh (déclenche un refresh immédiat si expiré)
         (supabase as any).auth?.startAutoRefresh?.();
-      } else {
+      } else if (previousState === 'active' || previousState === null) {
         (supabase as any).auth?.stopAutoRefresh?.();
       }
     } catch (err) {
       console.warn('[supabase] auto-refresh toggle failed:', (err as any)?.message ?? err);
     }
   });
-  // L'app démarre en état "active" mais l'event ne se déclenche pas pour
-  // l'état initial → on lance manuellement.
-  try { (supabase as any).auth?.startAutoRefresh?.(); } catch {}
 }
