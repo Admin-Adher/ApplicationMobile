@@ -38,14 +38,19 @@ describe('BuildTrack web chantiers experience', () => {
 
   it('provides responsive, accessible and reduced-motion safeguards without decorative effects', () => {
     const css = read('vercel-app/app/web/chantiers-workspace/ChantiersWorkspace.module.css');
+    const shellCss = read('vercel-app/app/web/web.module.css');
 
     expect(css).toContain('@media (max-width: 860px)');
     expect(css).toContain('@media (max-width: 620px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('content-visibility: auto');
     expect(css).toContain('min-height: 44px');
+    expect(css).toContain('.dossierBody {\n    display: block;');
+    expect(css).toContain('.buildingList {\n    display: block;');
     expect(css).toContain('.workspace :is(button, input, select, textarea):focus-visible');
     expect(css).not.toMatch(/linear-gradient|radial-gradient|backdrop-filter/);
+    expect(shellCss).toContain(".workspaceChantiers[data-operational-mobile='true']");
+    expect(shellCss).toContain('overflow-y: auto;');
   });
 
   it('keeps the main Chantiers copy available in English and Spanish', () => {

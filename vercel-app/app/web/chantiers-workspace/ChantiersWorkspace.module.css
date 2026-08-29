@@ -1358,17 +1358,28 @@
   }
 
   .dossierBody {
+    display: block;
+    min-height: auto;
+    flex: none;
     overflow: visible;
   }
 
   .structurePanel {
-    min-height: 0;
+    display: block;
+    min-height: auto;
     overflow: visible;
   }
 
   .buildingList {
+    display: block;
+    min-height: auto;
+    flex: none;
     overflow: visible;
     padding-right: 0;
+  }
+
+  .loadMore {
+    width: 100%;
   }
 
   .companyList {
