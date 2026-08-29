@@ -29,6 +29,8 @@ describe('BuildTrack authenticated web workspace', () => {
     expect(css).toContain('@media (max-width: 620px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).not.toMatch(/linear-gradient|radial-gradient|backdrop-filter/);
+    expect(css).toMatch(/\.sidebarCollapsed \.accountIdentity,\s*\.sidebarCollapsed \.accountAvatar \{\s*display: grid;/);
+    expect(css).not.toMatch(/\.sidebarCollapsed \.accountIdentity,\s*\.sidebarCollapsed \.accountAvatar \{\s*display: initial;/);
   });
 
   it('owns the Dashboard in a deep, localized and accessible feature module', () => {
