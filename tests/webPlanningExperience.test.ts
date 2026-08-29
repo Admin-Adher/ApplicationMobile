@@ -48,6 +48,8 @@ describe('BuildTrack web planning experience', () => {
     expect(css).toMatch(/\.planningColumns,\s*\.planningColumns\[data-tasks-empty='true'\]\s*\{[^}]*grid-template-columns:\s*1fr/s);
     expect(css).toContain(".planningColumns[data-tasks-empty='true'] .taskModes");
     expect(css).toContain(".planningColumns[data-tasks-empty='true'] .emptyState");
+    expect(css).toContain('.weekContext > div > span');
+    expect(css).not.toContain('.weekContext span,');
     expect(css).toContain('.planningRoot :is(button, input, select):focus-visible');
     expect(css).not.toMatch(/linear-gradient|radial-gradient|backdrop-filter/);
   });

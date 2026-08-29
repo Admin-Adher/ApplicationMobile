@@ -60,7 +60,7 @@
   color: var(--planning-blue);
 }
 
-.weekContext span,
+.weekContext > div > span,
 .weekContext strong,
 .weekContext small {
   display: block;
