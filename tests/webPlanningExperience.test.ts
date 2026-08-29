@@ -46,6 +46,8 @@ describe('BuildTrack web planning experience', () => {
     expect(css).toContain('@media (max-width: 640px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toMatch(/\.planningColumns,\s*\.planningColumns\[data-tasks-empty='true'\]\s*\{[^}]*grid-template-columns:\s*1fr/s);
+    expect(css).toContain(".planningColumns[data-tasks-empty='true'] .taskModes");
+    expect(css).toContain(".planningColumns[data-tasks-empty='true'] .emptyState");
     expect(css).toContain('.planningRoot :is(button, input, select):focus-visible');
     expect(css).not.toMatch(/linear-gradient|radial-gradient|backdrop-filter/);
   });

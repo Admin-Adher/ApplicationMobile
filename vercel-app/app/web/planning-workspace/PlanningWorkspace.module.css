@@ -350,6 +350,10 @@
   grid-template-columns: minmax(260px, 0.48fr) minmax(0, 1.52fr);
 }
 
+.planningColumns[data-tasks-empty='true'] .taskModes {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .taskLane,
 .agendaLane {
   min-width: 0;
@@ -632,7 +636,7 @@
 }
 
 .taskActions button {
-  min-height: 40px;
+  min-height: 44px;
   border: 1px solid #d1dbea;
   border-radius: 9px;
   background: #f8faff;
@@ -692,7 +696,7 @@
 }
 
 .emptyState button {
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid #b5c8e1;
   border-radius: 10px;
   background: #fff;
@@ -701,6 +705,16 @@
   font-size: 12px;
   font-weight: 900;
   cursor: pointer;
+}
+
+.planningColumns[data-tasks-empty='true'] .emptyState {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+
+.planningColumns[data-tasks-empty='true'] .emptyState button {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .agendaLane {
