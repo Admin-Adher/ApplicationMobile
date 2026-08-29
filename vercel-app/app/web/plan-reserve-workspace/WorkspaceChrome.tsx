@@ -14,6 +14,7 @@ export type WorkspaceIconName =
   | 'clock'
   | 'close'
   | 'document'
+  | 'edit'
   | 'filter'
   | 'more'
   | 'pin'
@@ -44,6 +45,7 @@ export function WorkspaceIcon({ name, size = 20 }: { name: WorkspaceIconName; si
   if (name === 'chevron') return <svg {...common}><path d="m9 18 6-6-6-6" /></svg>;
   if (name === 'close') return <svg {...common}><path d="m6 6 12 12M18 6 6 18" /></svg>;
   if (name === 'document') return <svg {...common}><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></svg>;
+  if (name === 'edit') return <svg {...common}><path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16v4Z" /><path d="m13.5 6.5 4 4" /></svg>;
   if (name === 'plan') return <svg {...common}><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z" /><path d="M9 3v15M15 6v15" /></svg>;
   if (name === 'building') return <svg {...common}><path d="M4 21V5l8-3 8 3v16M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M9 21v-5h6v5" /></svg>;
   if (name === 'calendar') return <svg {...common}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></svg>;
