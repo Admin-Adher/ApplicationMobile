@@ -123,6 +123,7 @@ import {
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
+import OprWorkspace from './opr-workspace/OprWorkspace';
 import {
   mergeMessageReadState,
   type MessageSendInput,
@@ -7004,7 +7005,13 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'opr' && (
-              <OprView oprs={projectScoped.oprs} reserves={projectScoped.reserves} onOpenReserve={openReserveDetailTab} />
+              <OprWorkspace
+                oprs={projectScoped.oprs}
+                reserves={projectScoped.reserves}
+                projectName={projectName()}
+                onOpenReserve={openReserveDetailTab}
+                isReserveArchived={isReserveArchived}
+              />
             )}
             {activeTab === 'media' && (
               <MediaView photos={projectScoped.photos} documents={projectScoped.documents} isSubcontractor={profile?.role === 'sous_traitant'} />
@@ -13449,84 +13456,6 @@ function IncidentsView({ incidents, profile, canCreate, canEdit, onCreate, onUpd
             </article>
           ))}
           {!visible.length && <p className={styles.empty}>{t('empty.noIncident')}</p>}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function OprView({ oprs, reserves, onOpenReserve }: {
-  oprs: any[];
-  reserves: any[];
-  onOpenReserve: (id: string) => void;
-}) {
-  const { t } = useWebI18n();
-  const [filter, setFilter] = useState<'all' | 'draft' | 'in_progress' | 'signed'>('all');
-  const [openId, setOpenId] = useState<string | null>(null);
-  const sorted = [...oprs].sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')));
-  const visible = filter === 'all' ? sorted : sorted.filter(opr => opr.status === filter);
-  const openOpr = sorted.find(opr => opr.status !== 'signed');
-  const linkedIds = new Set(oprs.flatMap((opr: any) => (opr.items ?? []).map((item: any) => item.reserveId ?? item.reserve_id).filter(Boolean)));
-  const oprReserves = reserves.filter((reserve: any) => linkedIds.has(reserve.id) || reserve.type === 'observation' || reserve.source === 'opr');
-  return (
-    <div className={styles.stack}>
-      <div className={styles.kpiGrid}>
-        <Kpi title="OPR" value={oprs.length} hint="Contrôles du chantier" />
-        <Kpi title="Brouillons" value={oprs.filter((opr: any) => opr.status === 'draft').length} hint="À poursuivre" tone="amber" />
-        <Kpi title="Signés" value={oprs.filter((opr: any) => opr.status === 'signed').length} hint="PV clos" tone="green" />
-        <Kpi title="Réserves liées" value={oprReserves.filter((reserve: any) => reserve.status !== 'closed' && !isReserveArchived(reserve)).length} hint="Encore ouvertes" tone="red" />
-      </div>
-      {openOpr ? (
-        <section className={styles.panel}>
-          <div className={styles.panelHeaderCompact}>
-            <div>
-              <h2>Continuer l’OPR</h2>
-              <p>{openOpr.title} · {openOpr.date}</p>
-            </div>
-            <button type="button" onClick={() => setOpenId(openOpr.id)}>Ouvrir</button>
-          </div>
-        </section>
-      ) : null}
-      <section className={styles.panel}>
-        <div className={styles.panelHeaderCompact}>
-          <div>
-            <h2>OPR chantier</h2>
-            <p>PV, lots contrôlés et réserves rattachées.</p>
-          </div>
-          <div className={styles.inlineActions}>
-            {(['all', 'draft', 'in_progress', 'signed'] as const).map(value => (
-              <button key={value} type="button" onClick={() => setFilter(value)}>{value === 'all' ? 'Tous' : value === 'draft' ? 'Brouillon' : value === 'in_progress' ? 'En cours' : 'Signé'}</button>
-            ))}
-          </div>
-        </div>
-        <div className={styles.compactList}>
-          {visible.map((opr: any) => {
-            const items = Array.isArray(opr.items) ? opr.items : [];
-            const reservesCount = items.filter((item: any) => item.status === 'reserve').length;
-            const okCount = items.filter((item: any) => item.status === 'ok').length;
-            const open = openId === opr.id;
-            return (
-              <article key={opr.id} className={styles.timelineCard}>
-                <button type="button" onClick={() => setOpenId(open ? null : opr.id)}>
-                  <span>{opr.status ?? 'draft'} · {opr.date} · {okCount} OK · {reservesCount} réserves</span>
-                  <strong>{opr.title ?? opr.id}</strong>
-                </button>
-                {open ? (
-                  <div>
-                    {items.map((item: any) => (
-                      <p key={item.id}>
-                        {item.status === 'ok' ? '✓' : item.status === 'reserve' ? '⚠' : '–'} {item.lotName ?? item.lot_name} {item.reserveId || item.reserve_id ? (
-                          <button type="button" onClick={() => onOpenReserve(item.reserveId ?? item.reserve_id)}>Voir réserve</button>
-                        ) : null}
-                      </p>
-                    ))}
-                    {!items.length ? <p className={styles.empty}>Aucun lot.</p> : null}
-                  </div>
-                ) : null}
-              </article>
-            );
-          })}
-          {!visible.length ? <p className={styles.empty}>{t('empty.noOpr')}</p> : null}
         </div>
       </section>
     </div>
