@@ -20,6 +20,7 @@ export type WorkspaceIconName =
   | 'plan'
   | 'plus'
   | 'search'
+  | 'shield'
   | 'trash'
   | 'users'
   | 'warning';
@@ -51,6 +52,7 @@ export function WorkspaceIcon({ name, size = 20 }: { name: WorkspaceIconName; si
   if (name === 'check') return <svg {...common}><path d="m5 12 4 4L19 6" /></svg>;
   if (name === 'trash') return <svg {...common}><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" /></svg>;
   if (name === 'pin') return <svg {...common}><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></svg>;
+  if (name === 'shield') return <svg {...common}><path d="M12 3 4.5 6v5.2c0 4.8 3.1 8.1 7.5 9.8 4.4-1.7 7.5-5 7.5-9.8V6L12 3Z" /><path d="m8.8 12 2.1 2.1 4.5-4.7" /></svg>;
   if (name === 'warning') return <svg {...common}><path d="M10.3 3.8 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.8a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>;
   if (name === 'archive') return <svg {...common}><path d="M4 7h16v14H4V7ZM3 3h18v4H3V3ZM9 11h6" /></svg>;
   if (name === 'assistant') return <svg {...common}><path d="m12 3 1.1 3.9L17 8l-3.9 1.1L12 13l-1.1-3.9L7 8l3.9-1.1L12 3Z" /><path d="m18 14 .7 2.3L21 17l-2.3.7L18 20l-.7-2.3L15 17l2.3-.7L18 14Z" /></svg>;
