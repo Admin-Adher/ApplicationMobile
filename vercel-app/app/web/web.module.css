@@ -5054,11 +5054,16 @@
 }
 
 .visitesWorkspace {
+  --visit-space-1: 4px;
+  --visit-space-2: 8px;
+  --visit-space-3: 12px;
+  --visit-space-4: 16px;
+  --visit-space-5: 24px;
   min-height: 0;
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(380px, 0.75fr) minmax(0, 1.35fr);
-  gap: 16px;
+  grid-template-columns: minmax(320px, 0.64fr) minmax(0, 1.36fr);
+  gap: var(--visit-space-3);
   overflow: hidden;
 }
 
@@ -5067,15 +5072,15 @@
   min-height: 0;
   overflow: hidden;
   border: 1px solid #dde4ee;
-  border-radius: 16px;
+  border-radius: 14px;
   background: #fff;
 }
 
 .visitesListPanel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px;
+  gap: var(--visit-space-3);
+  padding: var(--visit-space-4);
 }
 
 .visitDetailPanel {
@@ -5092,6 +5097,23 @@
   gap: 16px;
 }
 
+.visitPanelHeader {
+  align-items: center;
+}
+
+.visitPanelHeader > div,
+.visitDetailHeading {
+  min-width: 0;
+}
+
+.visitListSummary {
+  display: block;
+  margin-top: var(--visit-space-1);
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 750;
+}
+
 .visitPanelHeader h2,
 .visitDetailHeader h2 {
   margin: 0;
@@ -5099,54 +5121,80 @@
 }
 
 .visitPanelHeader button,
-.visitDetailActions button,
 .visitInlineActions button,
 .visitReportControls > button:last-child {
+  min-height: 44px;
   border: 0;
-  border-radius: 14px;
+  border-radius: 10px;
   background: #1d348f;
   color: #fff;
-  padding: 11px 16px;
+  padding: 10px 14px;
   font-weight: 900;
   cursor: pointer;
 }
 
-.visitStatsGrid {
+.visitPanelHeader button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--visit-space-2);
+}
+
+.visitStatusRail {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--visit-space-1);
+  padding: var(--visit-space-1);
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #f7f9fc;
 }
 
-.visitStat,
-.visitStatActive {
-  display: grid;
+.visitStatusRail button {
+  min-width: 0;
+  min-height: 50px;
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: flex-start;
+  justify-content: center;
   gap: 2px;
-  border: 1px solid #d8e0ec;
-  border-radius: 13px;
-  background: #f8fafc;
-  padding: 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #5d7088;
+  padding: 7px 8px;
   text-align: left;
   cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
 }
 
-.visitStatActive {
-  border-color: #1d348f;
-  background: #f5f8ff;
+.visitStatusRail button:hover {
+  background: #eaf0ff;
 }
 
-.visitStat strong,
-.visitStatActive strong {
-  color: #1d348f;
-  font-size: 24px;
+.visitStatusRail button[data-active='true'] {
+  background: #003082;
+  color: #fff;
+  box-shadow: 0 4px 10px rgba(0, 48, 130, 0.16);
+}
+
+.visitStatusRail strong {
+  color: inherit;
+  font-size: 18px;
   font-weight: 900;
   line-height: 1;
 }
 
-.visitStat span,
-.visitStatActive span {
-  color: #64748b;
-  font-size: 12px;
+.visitStatusRail span {
+  width: 100%;
+  overflow: hidden;
+  color: inherit;
+  font-size: 11px;
   font-weight: 800;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .visitFilterChips {
@@ -5161,7 +5209,7 @@
   overflow-y: auto;
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: var(--visit-space-2);
   padding-right: 4px;
 }
 
@@ -5169,20 +5217,28 @@
 .visitCardActive {
   min-width: 0;
   display: grid;
-  gap: 7px;
+  gap: 6px;
   border: 1px solid #dde4ee;
-  border-radius: 15px;
+  border-radius: 10px;
   background: #fff;
   color: #0f172a;
-  padding: 13px;
+  padding: 12px;
   text-align: left;
   cursor: pointer;
+  touch-action: manipulation;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+
+.visitCard:hover,
+.visitCardActive:hover {
+  border-color: #9fb3ce;
+  background: #f7f9fc;
 }
 
 .visitCardActive {
   border-color: #1d348f;
   background: #f5f8ff;
-  box-shadow: 0 0 0 2px rgba(29, 52, 143, 0.08);
+  box-shadow: inset 3px 0 0 #003082;
 }
 
 .visitCardTop,
@@ -5223,10 +5279,10 @@
 }
 
 .visitCardFooter em {
-  border-radius: 999px;
-  background: #eef3fa;
+  border-radius: 6px;
+  background: transparent;
   color: #1d348f;
-  padding: 5px 8px;
+  padding: 2px 0;
   font-style: normal;
   font-size: 11px;
   font-weight: 900;
@@ -5264,9 +5320,10 @@
 .visitDetailHeader {
   position: sticky;
   top: 0;
-  z-index: 2;
-  padding: 18px 20px;
-  background: rgba(255, 255, 255, 0.96);
+  z-index: 20;
+  align-items: center;
+  padding: var(--visit-space-4) var(--visit-space-5);
+  background: rgba(255, 255, 255, 0.98);
   border-bottom: 1px solid #eef2f7;
   backdrop-filter: blur(12px);
 }
@@ -5277,18 +5334,95 @@
 }
 
 .visitDetailActions select {
+  min-height: 44px;
   border: 1px solid #d8e0ec;
-  border-radius: 13px;
+  border-radius: 10px;
   background: #fff;
   color: #0f172a;
   padding: 10px 12px;
   font-weight: 900;
+  cursor: pointer;
 }
 
-.visitDetailActions button {
+.visitDetailActions select:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.visitPrimaryAction {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--visit-space-2);
+  border: 0;
+  border-radius: 10px;
+  background: #003082;
+  color: #fff;
+  padding: 10px 14px;
+  font: inherit;
+  font-weight: 900;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.visitDangerMenu {
+  position: relative;
+}
+
+.visitDangerMenu summary {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-sizing: border-box;
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  background: #fff;
+  color: #475569;
+  padding: 9px 11px;
+  font-weight: 850;
+  cursor: pointer;
+  list-style: none;
+  touch-action: manipulation;
+}
+
+.visitDangerMenu summary::-webkit-details-marker {
+  display: none;
+}
+
+.visitDangerMenu[open] summary {
+  border-color: #8da5c3;
+  background: #f7f9fc;
+}
+
+.visitDangerMenu > div {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  width: max-content;
+  min-width: 180px;
+  padding: 6px;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.14);
+}
+
+.visitDangerMenu button {
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  border-radius: 7px;
   background: #fef2f2;
   color: #b91c1c;
-  border: 1px solid #fecaca;
+  padding: 8px 10px;
+  text-align: left;
+  font: inherit;
+  font-weight: 850;
+  cursor: pointer;
 }
 
 .visitCoverHero {
@@ -5304,60 +5438,124 @@
 .visitInfoGrid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  padding: 20px;
+  gap: 0;
+  overflow: hidden;
+  margin: var(--visit-space-4) var(--visit-space-5) var(--visit-space-3);
+  padding: 0;
+  border: 1px solid #e4ebf3;
+  border-radius: 10px;
+  background: #f7f9fc;
 }
 
 .visitInfoGrid div {
-  border: 1px solid #eef2f7;
-  border-radius: 14px;
-  background: #f8fafc;
+  min-width: 0;
+  border-right: 1px solid #e4ebf3;
+  border-bottom: 1px solid #e4ebf3;
   padding: 12px;
 }
 
-.visitInfoGrid span,
+.visitInfoGrid dt,
 .visitBlockHeader span,
 .visitReportCardWeb span {
   display: block;
+  margin: 0;
   color: #64748b;
   font-size: 12px;
   font-weight: 800;
 }
 
-.visitInfoGrid strong {
+.visitInfoGrid dd {
   display: block;
   margin-top: 4px;
-  overflow: hidden;
+  margin-right: 0;
+  margin-bottom: 0;
+  margin-left: 0;
   color: #0f172a;
   font-weight: 900;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .visitDetailQuickActions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin: -8px 20px 16px;
+  gap: var(--visit-space-2);
+  margin: 0 var(--visit-space-5) var(--visit-space-3);
 }
 
 .visitDetailQuickActions button {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--visit-space-2);
   border: 1px solid #d8e0ec;
-  border-radius: 13px;
-  background: #eef3fa;
-  color: #1d348f;
-  padding: 10px 13px;
+  border-radius: 10px;
+  background: #fff;
+  color: #003082;
+  padding: 9px 12px;
   font-size: 13px;
   font-weight: 900;
   cursor: pointer;
+  touch-action: manipulation;
+}
+
+.visitSectionNav {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 0 var(--visit-space-5) var(--visit-space-2);
+  border-top: 1px solid #e4ebf3;
+  border-bottom: 1px solid #e4ebf3;
+}
+
+.visitSectionNav a {
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #475569;
+  padding: 8px;
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 800;
+  touch-action: manipulation;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+.visitSectionNav a + a {
+  border-left: 1px solid #e4ebf3;
+}
+
+.visitSectionNav a:hover {
+  background: #f7f9fc;
+  color: #003082;
+}
+
+.visitSectionNav strong {
+  color: #003082;
+  font-size: 12px;
 }
 
 .visitDetailBlock {
-  margin: 0 20px 14px;
-  border: 1px solid #dde4ee;
-  border-radius: 16px;
-  background: #fff;
-  padding: 16px;
+  margin: 0 var(--visit-space-5);
+  padding: var(--visit-space-5) 0;
+  border: 0;
+  border-bottom: 1px solid #e4ebf3;
+  border-radius: 0;
+  background: transparent;
+  scroll-margin-top: 96px;
+}
+
+.visitNotesBlock {
+  margin-top: var(--visit-space-3);
+  margin-bottom: var(--visit-space-2);
+  padding: var(--visit-space-4);
+  border: 0;
+  border-radius: 10px;
+  background: #f7f9fc;
 }
 
 .visitDetailBlock h3,
@@ -5395,24 +5593,62 @@
 .visitReserveListWeb,
 .visitAttachList {
   display: grid;
-  gap: 8px;
+  gap: var(--visit-space-2);
   margin-top: 12px;
+}
+
+.visitChecklistProgress {
+  margin-top: var(--visit-space-3);
+}
+
+.visitChecklistProgress progress {
+  display: block;
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: #e5eaf1;
+}
+
+.visitChecklistProgress progress::-webkit-progress-bar {
+  border-radius: 999px;
+  background: #e5eaf1;
+}
+
+.visitChecklistProgress progress::-webkit-progress-value {
+  border-radius: 999px;
+  background: #003082;
+}
+
+.visitChecklistProgress progress::-moz-progress-bar {
+  border-radius: 999px;
+  background: #003082;
 }
 
 .visitChecklistTodo,
 .visitChecklistDone {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  gap: 9px;
+  gap: var(--visit-space-3);
   align-items: center;
-  border: 1px solid #dde4ee;
-  border-radius: 13px;
-  background: #f8fafc;
+  min-height: 48px;
+  border: 0;
+  border-bottom: 1px solid #e4ebf3;
+  border-radius: 0;
+  background: transparent;
   color: #0f172a;
-  padding: 10px 12px;
+  padding: 10px 4px;
   text-align: left;
   font-weight: 800;
   cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 180ms ease;
+}
+
+.visitChecklistTodo:hover,
+.visitChecklistDone:hover {
+  background: #f7f9fc;
 }
 
 .visitChecklistDone {
@@ -5446,21 +5682,39 @@
 }
 
 .visitParticipantGridWeb article {
-  border: 1px solid #eef2f7;
-  border-radius: 13px;
-  background: #f8fafc;
-  padding: 11px 12px;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  border: 0;
+  border-bottom: 1px solid #e4ebf3;
+  border-radius: 0;
+  background: transparent;
+  padding: 10px 4px 12px;
+}
+
+.visitParticipantAvatar {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: #eaf0ff;
+  color: #003082;
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .visitParticipantGridWeb strong,
-.visitParticipantGridWeb span {
+.visitParticipantGridWeb article > div > span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.visitParticipantGridWeb span {
+.visitParticipantGridWeb article > div > span {
   margin-top: 4px;
   color: #64748b;
   font-size: 12px;
@@ -5539,11 +5793,21 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin: 0 20px 14px;
+  margin: var(--visit-space-5);
   border: 1px solid #c7d7fe;
-  border-radius: 16px;
+  border-radius: 10px;
   background: #f5f8ff;
-  padding: 14px 16px;
+  padding: var(--visit-space-4);
+  scroll-margin-top: 96px;
+}
+
+.visitMobileBack {
+  display: none;
+}
+
+.visitesWorkspace :is(button, select, summary, a):focus-visible {
+  outline: 3px solid rgba(0, 48, 130, 0.28);
+  outline-offset: 2px;
 }
 
 .visitReportControls > button:last-child:disabled {
@@ -10281,8 +10545,8 @@
   }
 
   .visitInfoGrid {
-    grid-template-columns: 1fr;
-    overflow: visible;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: hidden;
   }
 
   .visitesListPanel,
@@ -10302,13 +10566,14 @@
   }
 
   .visitPanelHeader {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 12px;
+    align-items: center;
+    flex-direction: row;
+    gap: var(--visit-space-3);
   }
 
   .visitPanelHeader button {
-    width: 100%;
+    width: auto;
+    flex: 0 0 auto;
   }
 
   .visitStatsGrid {
@@ -10328,12 +10593,13 @@
 
   .visitDetailActions {
     display: grid;
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
     align-items: stretch;
+    width: 100%;
   }
 
   .visitDetailActions select,
-  .visitDetailActions button {
+  .visitPrimaryAction {
     width: 100%;
   }
 
@@ -10343,7 +10609,7 @@
   }
 
   .visitInfoGrid {
-    padding: 14px;
+    margin: 14px;
   }
 
   .visitDetailQuickActions,
@@ -10352,6 +10618,20 @@
   .visitReportCardWeb {
     margin-right: 14px;
     margin-left: 14px;
+  }
+
+  .visitSectionNav {
+    margin-right: 14px;
+    margin-left: 14px;
+  }
+
+  .visitMobileBack {
+    position: sticky;
+    top: 0;
+    z-index: 24;
+    display: block;
+    border-bottom: 1px solid #e4ebf3;
+    background: #fff;
   }
 
   .visitReserveListWeb article {
@@ -11711,5 +11991,98 @@
   .reservePdfModalWeb,
   .plansPdfModalWeb {
     width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .visitPanelHeader h2 {
+    font-size: 21px;
+    line-height: 1.15;
+  }
+
+  .visitPanelHeader button {
+    min-width: 44px;
+    padding-inline: 11px;
+  }
+
+  .visitStatusRail button {
+    min-height: 48px;
+    padding: 6px;
+  }
+
+  .visitStatusRail strong {
+    font-size: 17px;
+  }
+
+  .visitStatusRail span {
+    font-size: 10px;
+  }
+
+  .visitDetailActions {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .visitPrimaryAction {
+    grid-column: 1 / -1;
+  }
+
+  .visitDangerMenu summary {
+    width: 44px;
+    padding-inline: 0;
+  }
+
+  .visitDangerMenu summary span {
+    display: none;
+  }
+
+  .visitInfoGrid dt {
+    font-size: 11px;
+  }
+
+  .visitInfoGrid dd {
+    font-size: 13px;
+  }
+
+  .visitSectionNav {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .visitSectionNav a {
+    flex: 0 0 auto;
+    min-width: 104px;
+  }
+
+  .visitBlockHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .visitInlineActions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+
+  .visitInlineActions button {
+    min-width: 0;
+    padding-inline: 9px;
+  }
+
+  .visitParticipantGridWeb {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .visitStatusRail button,
+  .visitCard,
+  .visitCardActive,
+  .visitChecklistTodo,
+  .visitChecklistDone,
+  .visitSectionNav a {
+    transition: none;
   }
 }

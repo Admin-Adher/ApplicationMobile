@@ -14,7 +14,7 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(page).toContain('data-testid="web-reserves-workspace"');
     expect(page).toContain('data-testid="web-plans-workspace"');
     expect(page.match(/<WorkspacePageHeader/g)).toHaveLength(2);
-    expect(page.match(/<WorkspaceSearch/g)).toHaveLength(2);
+    expect(page.match(/<WorkspaceSearch/g)).toHaveLength(3);
     expect(chrome).toContain('WorkspaceIcon');
     expect(css).toContain('@media (max-width: 760px)');
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');

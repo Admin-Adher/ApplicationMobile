@@ -11523,6 +11523,8 @@ function VisitesView({
 }: any) {
   const { t } = useWebI18n();
   const [statusFilter, setStatusFilter] = useState<'all' | VisitDraft['status']>('all');
+  const [visitSearch, setVisitSearch] = useState('');
+  const deferredVisitSearch = useDeferredValue(visitSearch);
   const [selectedVisitId, setSelectedVisitId] = useState<string>('');
   const [attachVisitId, setAttachVisitId] = useState<string>('');
   const [attachSearch, setAttachSearch] = useState('');
@@ -11603,17 +11605,34 @@ function VisitesView({
     return dateDiff || String(a.title ?? '').localeCompare(String(b.title ?? ''), 'fr');
   }), [visites]);
 
-  const visibleVisits = useMemo(() => (
-    statusFilter === 'all'
-      ? sortedVisits
-      : sortedVisits.filter((visit: any) => visitStatus(visit) === statusFilter)
-  ), [sortedVisits, statusFilter]);
+  const visibleVisits = useMemo(() => {
+    const query = normalizeSearchText(deferredVisitSearch);
+    return sortedVisits.filter((visit: any) => {
+      if (statusFilter !== 'all' && visitStatus(visit) !== statusFilter) return false;
+      if (!query) return true;
+      return normalizeSearchText([
+        visit.title,
+        visit.conducteur,
+        visit.notes,
+        visit.building,
+        visit.level,
+        visit.zone,
+        ...visitTags(visit),
+        ...visitCompanyNames(visit),
+        ...getVisitLocations(visit).map(location => location.buildingName || location.building_name || location.name),
+      ].filter(Boolean).join(' ')).includes(query);
+    });
+  }, [companies, deferredVisitSearch, sortedVisits, statusFilter]);
 
   const selectedVisit = sortedVisits.find((visit: any) => visit.id === selectedVisitId)
     ?? visibleVisits[0]
     ?? sortedVisits[0]
     ?? null;
   const selectedVisitReserves = selectedVisit ? visitReserves(selectedVisit) : [];
+  const selectedVisitChecklist = selectedVisit ? visitChecklist(selectedVisit) : [];
+  const selectedVisitChecklistDone = selectedVisitChecklist.filter(item => item.checked).length;
+  const selectedVisitParticipants = selectedVisit ? visitParticipants(selectedVisit) : [];
+  const visitWorkspace = useResponsiveWorkspaceNavigation({ hasDetail: Boolean(selectedVisit) });
   const attachVisit = sortedVisits.find((visit: any) => visit.id === attachVisitId) ?? null;
   const attachVisitReserveIds = attachVisit ? visitReserveIds(attachVisit) : new Set<string>();
   const attachVisitedNames = new Set(getVisitLocations(attachVisit).map(location => location.buildingName || location.building_name).filter(Boolean));
@@ -11883,42 +11902,49 @@ function VisitesView({
   }
 
   return (
-    <div className={styles.visitesWorkspace}>
-      <section className={styles.visitesListPanel}>
+    <div
+      className={styles.visitesWorkspace}
+      data-testid="web-visits-workspace"
+      data-compact-detail={visitWorkspace.isCompact && visitWorkspace.detailOpen ? 'true' : 'false'}
+    >
+      {visitWorkspace.showList && <section className={styles.visitesListPanel}>
         <div className={styles.visitPanelHeader}>
           <div>
-            <p className={styles.eyebrow}>Visites chantier</p>
-            <h2>Visites</h2>
+            <p className={styles.eyebrow}>Suivi terrain</p>
+            <h2>Visites chantier</h2>
+            <span className={styles.visitListSummary} role="status" aria-live="polite">
+              {visibleVisits.length} affichée{visibleVisits.length > 1 ? 's' : ''} sur {stats.total}
+            </span>
           </div>
-          {canCreate ? <button type="button" onClick={onCreateVisit}>Créer</button> : null}
+          {canCreate ? (
+            <button type="button" onClick={onCreateVisit}>
+              <WorkspaceIcon name="plus" size={18} />
+              <span>Créer</span>
+            </button>
+          ) : null}
         </div>
-        <div className={styles.visitStatsGrid}>
+        <WorkspaceSearch
+          value={visitSearch}
+          placeholder="Rechercher une visite…"
+          clearLabel="Effacer la recherche de visites"
+          onChange={setVisitSearch}
+        />
+        <div className={styles.visitStatusRail} role="toolbar" aria-label="Filtrer les visites par statut">
           {[
-            { key: 'all' as const, label: 'Total', value: stats.total },
-            { key: 'planned' as const, label: 'Planifiées', value: stats.planned },
-            { key: 'in_progress' as const, label: 'En cours', value: stats.in_progress },
-            { key: 'completed' as const, label: 'Terminées', value: stats.completed },
+            { key: 'all' as const, label: t('visits.total'), value: stats.total },
+            { key: 'planned' as const, label: t('visits.planned'), value: stats.planned },
+            { key: 'in_progress' as const, label: t('visits.inProgress'), value: stats.in_progress },
+            { key: 'completed' as const, label: t('visits.completed'), value: stats.completed },
           ].map(item => (
             <button
               key={item.key}
               type="button"
-              className={statusFilter === item.key ? styles.visitStatActive : styles.visitStat}
+              data-active={statusFilter === item.key ? 'true' : 'false'}
+              aria-pressed={statusFilter === item.key}
               onClick={() => setStatusFilter(item.key)}
             >
-              <strong>{item.value}</strong>
               <span>{item.label}</span>
-            </button>
-          ))}
-        </div>
-        <div className={styles.visitFilterChips}>
-          {(['all', 'planned', 'in_progress', 'completed'] as const).map(key => (
-            <button
-              key={key}
-              type="button"
-              className={statusFilter === key ? styles.chipActive : styles.chip}
-              onClick={() => setStatusFilter(key)}
-            >
-              {key === 'all' ? 'Toutes' : VISIT_STATUS_LABELS[key]}
+              <strong>{item.value}</strong>
             </button>
           ))}
         </div>
@@ -11935,7 +11961,11 @@ function VisitesView({
                 key={visit.id}
                 type="button"
                 className={selected ? styles.visitCardActive : styles.visitCard}
-                onClick={() => setSelectedVisitId(visit.id)}
+                aria-current={selected ? 'true' : undefined}
+                onClick={() => {
+                  setSelectedVisitId(visit.id);
+                  visitWorkspace.openDetail();
+                }}
               >
                 <div className={styles.visitCardTop}>
                   <span className={styles.visitTypePill} style={{ color: type.color, background: `${type.color}16` }}>{type.label}</span>
@@ -11951,28 +11981,52 @@ function VisitesView({
               </button>
             );
           })}
-          {!visibleVisits.length && <p className={styles.empty}>{t('visits.empty')}</p>}
+          {!visibleVisits.length && (
+            <p className={styles.empty}>{visitSearch.trim() ? 'Aucune visite ne correspond à cette recherche.' : t('visits.empty')}</p>
+          )}
         </div>
-      </section>
+      </section>}
 
-      <section className={styles.visitDetailPanel}>
+      {visitWorkspace.showDetail && <section className={styles.visitDetailPanel}>
         {selectedVisit ? (
           <>
+            {visitWorkspace.isCompact ? (
+              <div className={styles.visitMobileBack}>
+                <WorkspaceBackButton label="Retour aux visites" onClick={visitWorkspace.closeDetail} />
+              </div>
+            ) : null}
             <div className={styles.visitDetailHeader}>
-              <div>
+              <div className={styles.visitDetailHeading}>
                 <p className={styles.eyebrow}>{t(`visits.type.${visitType(selectedVisit)}`)}</p>
                 <h2>{selectedVisit.title}</h2>
                 <span>{prettyDate(selectedVisit.date)}{timeRange(selectedVisit) ? ` · ${timeRange(selectedVisit)}` : ''}</span>
               </div>
               <div className={styles.visitDetailActions}>
+                {editable ? (
+                  <button type="button" className={styles.visitPrimaryAction} onClick={() => openSignatureModal(selectedVisit)}>
+                    <WorkspaceIcon name="document" size={18} />
+                    <span>{selectedVisit.signed_at || selectedVisit.signedAt ? 'Signatures' : 'Signer la visite'}</span>
+                  </button>
+                ) : null}
                 <select
+                  aria-label="Statut de la visite"
                   value={visitStatus(selectedVisit)}
                   onChange={event => onUpdateVisit(selectedVisit, { status: event.target.value })}
                   disabled={!editable}
                 >
                   {Object.entries(VISIT_STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
                 </select>
-                {canDelete ? <button type="button" onClick={() => onDeleteVisit(selectedVisit)}>Supprimer</button> : null}
+                {canDelete ? (
+                  <details className={styles.visitDangerMenu}>
+                    <summary aria-label="Autres actions sur la visite">
+                      <WorkspaceIcon name="more" size={20} />
+                      <span>Actions</span>
+                    </summary>
+                    <div>
+                      <button type="button" onClick={() => onDeleteVisit(selectedVisit)}>Supprimer la visite</button>
+                    </div>
+                  </details>
+                ) : null}
               </div>
             </div>
 
@@ -11984,25 +12038,46 @@ function VisitesView({
               />
             ) : null}
 
-            <div className={styles.visitInfoGrid}>
-              <div><span>Conducteur</span><strong>{selectedVisit.conducteur || 'Non renseigné'}</strong></div>
-              <div><span>Périmètre</span><strong>{visitLocationLabel(selectedVisit)}</strong></div>
-              <div><span>Entreprises</span><strong>{visitCompanyNames(selectedVisit).join(', ') || 'Aucune'}</strong></div>
-              <div><span>Délai cible</span><strong>{getVisitReserveDeadline(selectedVisit) || 'Non défini'}</strong></div>
-              <div><span>Réserves</span><strong>{selectedVisitReserves.length}</strong></div>
-              <div><span>Signatures</span><strong>{selectedVisit.signed_at || selectedVisit.signedAt ? 'Signée' : 'Non signée'}</strong></div>
-            </div>
+            <dl className={styles.visitInfoGrid} aria-label="Informations de la visite">
+              <div><dt>Conducteur</dt><dd>{selectedVisit.conducteur || 'Non renseigné'}</dd></div>
+              <div><dt>Périmètre</dt><dd>{visitLocationLabel(selectedVisit)}</dd></div>
+              <div><dt>Entreprises</dt><dd>{visitCompanyNames(selectedVisit).join(', ') || 'Aucune'}</dd></div>
+              <div><dt>Délai cible</dt><dd>{getVisitReserveDeadline(selectedVisit) || 'Non défini'}</dd></div>
+              <div><dt>Réserves</dt><dd>{selectedVisitReserves.length}</dd></div>
+              <div><dt>Signatures</dt><dd>{selectedVisit.signed_at || selectedVisit.signedAt ? 'Signée' : 'Non signée'}</dd></div>
+            </dl>
             {editable ? (
               <div className={styles.visitDetailQuickActions}>
-                <button type="button" onClick={() => openLocationModal(selectedVisit)}>Modifier la localisation</button>
-                <button type="button" onClick={() => openSignatureModal(selectedVisit)}>
-                  {selectedVisit.signed_at || selectedVisit.signedAt ? 'Voir / modifier les signatures' : 'Signer la visite'}
+                <button type="button" onClick={() => openLocationModal(selectedVisit)}>
+                  <WorkspaceIcon name="pin" size={18} />
+                  <span>Modifier le périmètre</span>
                 </button>
               </div>
             ) : null}
 
+            <nav className={styles.visitSectionNav} aria-label="Sommaire de la visite">
+              <a href={`#visit-checklist-${selectedVisit.id}`}>
+                <span>Checklist</span>
+                <strong>{selectedVisitChecklistDone}/{selectedVisitChecklist.length}</strong>
+              </a>
+              <a href={`#visit-participants-${selectedVisit.id}`}>
+                <span>Participants</span>
+                <strong>{selectedVisitParticipants.length}</strong>
+              </a>
+              <a href={`#visit-reserves-${selectedVisit.id}`}>
+                <span>Réserves</span>
+                <strong>{selectedVisitReserves.length}</strong>
+              </a>
+              {canExport ? (
+                <a href={`#visit-report-${selectedVisit.id}`}>
+                  <span>Compte-rendu</span>
+                  <WorkspaceIcon name="document" size={17} />
+                </a>
+              ) : null}
+            </nav>
+
             {selectedVisit.notes ? (
-              <section className={styles.visitDetailBlock}>
+              <section className={`${styles.visitDetailBlock} ${styles.visitNotesBlock}`}>
                 <h3>Notes et objectifs</h3>
                 <p>{selectedVisit.notes}</p>
               </section>
@@ -12014,49 +12089,62 @@ function VisitesView({
               </div>
             ) : null}
 
-            <section className={styles.visitDetailBlock}>
+            <section id={`visit-checklist-${selectedVisit.id}`} className={styles.visitDetailBlock}>
               <div className={styles.visitBlockHeader}>
                 <div>
                   <h3>Checklist de contrôle</h3>
-                  <span>{visitChecklist(selectedVisit).filter(item => item.checked).length}/{visitChecklist(selectedVisit).length} points validés</span>
+                  <span>{selectedVisitChecklistDone}/{selectedVisitChecklist.length} points validés</span>
                 </div>
               </div>
+              {selectedVisitChecklist.length ? (
+                <div className={styles.visitChecklistProgress}>
+                  <progress
+                    max={selectedVisitChecklist.length}
+                    value={selectedVisitChecklistDone}
+                    aria-label={`${selectedVisitChecklistDone} points validés sur ${selectedVisitChecklist.length}`}
+                  />
+                </div>
+              ) : null}
               <div className={styles.visitChecklistWeb}>
-                {visitChecklist(selectedVisit).map(item => (
+                {selectedVisitChecklist.map(item => (
                   <button
                     key={item.id}
                     type="button"
                     className={item.checked ? styles.visitChecklistDone : styles.visitChecklistTodo}
                     disabled={!editable}
+                    aria-pressed={item.checked}
                     onClick={() => toggleChecklist(selectedVisit, item.id)}
                   >
                     <span>{item.checked ? '✓' : ''}</span>
                     {item.label}
                   </button>
                 ))}
-                {!visitChecklist(selectedVisit).length && <p className={styles.empty}>{t('visits.noChecklist')}</p>}
+                {!selectedVisitChecklist.length && <p className={styles.empty}>{t('visits.noChecklist')}</p>}
               </div>
             </section>
 
-            <section className={styles.visitDetailBlock}>
+            <section id={`visit-participants-${selectedVisit.id}`} className={styles.visitDetailBlock}>
               <div className={styles.visitBlockHeader}>
                 <div>
                   <h3>Participants</h3>
-                  <span>{visitParticipants(selectedVisit).length} personne{visitParticipants(selectedVisit).length > 1 ? 's' : ''}</span>
+                  <span>{selectedVisitParticipants.length} personne{selectedVisitParticipants.length > 1 ? 's' : ''}</span>
                 </div>
               </div>
               <div className={styles.visitParticipantGridWeb}>
-                {visitParticipants(selectedVisit).map(participant => (
+                {selectedVisitParticipants.map(participant => (
                   <article key={participant.id ?? participant.name}>
-                    <strong>{participant.name}</strong>
-                    <span>{[participant.role, participant.company, participant.email].filter(Boolean).join(' · ') || 'Participant'}</span>
+                    <span className={styles.visitParticipantAvatar} aria-hidden="true">{initials(participant.name)}</span>
+                    <div>
+                      <strong>{participant.name}</strong>
+                      <span>{[participant.role, participant.company, participant.email].filter(Boolean).join(' · ') || 'Participant'}</span>
+                    </div>
                   </article>
                 ))}
-                {!visitParticipants(selectedVisit).length && <p className={styles.empty}>{t('visits.noParticipant')}</p>}
+                {!selectedVisitParticipants.length && <p className={styles.empty}>{t('visits.noParticipant')}</p>}
               </div>
             </section>
 
-            <section className={styles.visitDetailBlock}>
+            <section id={`visit-reserves-${selectedVisit.id}`} className={styles.visitDetailBlock}>
               <div className={styles.visitBlockHeader}>
                 <div>
                   <h3>Réserves de la visite</h3>
@@ -12090,7 +12178,7 @@ function VisitesView({
               </div>
             </section>
 
-            {canExport ? <section className={styles.visitReportCardWeb}>
+            {canExport ? <section id={`visit-report-${selectedVisit.id}`} className={styles.visitReportCardWeb}>
               <div>
                 <strong>Compte-rendu PDF</strong>
                  <span>Structure, checklist, réserves rattachées et signatures de la visite.</span>
@@ -12119,7 +12207,7 @@ function VisitesView({
         ) : (
           <p className={styles.empty}>Sélectionnez une visite.</p>
         )}
-      </section>
+      </section>}
 
       {locationVisit ? (
         <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
