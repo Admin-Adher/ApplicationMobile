@@ -655,10 +655,13 @@
   }
 
   .sidebarCollapsed .navigationGroupLabel,
-  .sidebarCollapsed .navigationText,
+  .sidebarCollapsed .navigationText {
+    display: initial;
+  }
+
   .sidebarCollapsed .accountIdentity,
   .sidebarCollapsed .accountAvatar {
-    display: initial;
+    display: grid;
   }
 
   .sidebarCollapsed .navigationItem {
