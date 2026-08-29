@@ -28,14 +28,15 @@ describe('BuildTrack web export performance contracts', () => {
   it('uses binary PDF transfer on web while retaining the base64 compatibility response', () => {
     const route = read('vercel-app/app/api/generate-pdf/route.ts');
     const page = read('vercel-app/app/web/page.tsx');
+    const batching = read('vercel-app/lib/pdf-report-batching.ts');
 
     expect(route).toContain("startsWith('application/pdf')");
     expect(route).toContain("'X-BuildTrack-PDF-Transfer': 'binary'");
     expect(route).toContain("'X-BuildTrack-PDF-Transfer': 'base64'");
     expect(page).toContain("Accept: 'application/pdf, application/json'");
     expect(page).toContain("responseType.includes('application/pdf')");
-    expect(page).toContain('downloadBlobFile(pdfBlob, filename)');
-    expect(page).toContain('Le rapport a dépassé le délai de génération.');
+    expect(page).toContain('return { blob: pdfBlob }');
+    expect(batching).toContain('Le rapport a dépassé le délai de génération.');
   });
 
   it('caches plan rasterization and prepares independent plans concurrently', () => {
@@ -45,6 +46,17 @@ describe('BuildTrack web export performance contracts', () => {
     expect(page).toContain('const pdfPlanDataUrlCache');
     expect(page).toContain('mapWithConcurrency(planItems, PDF_PLAN_RENDER_CONCURRENCY');
     expect(page).toContain('getCachedPlanImageForReport(plan, uri, clientUri, 720)');
+    expect(page).toContain('primePlanReportCacheFromPreview(selectedPlan, selectedPlanReportSource, preview.blob, 720)');
+  });
+
+  it('generates large reports in bounded parts and merges them into one download', () => {
+    const page = read('vercel-app/app/web/page.tsx');
+
+    expect(page).toContain('createWebPdfBatchPayloads(type, payload, language)');
+    expect(page).toContain('WEB_PDF_BATCH_CONCURRENCY');
+    expect(page).toContain("const { PDFDocument } = await import('pdf-lib')");
+    expect(page).toContain('await merged.copyPages(source, source.getPageIndices())');
+    expect(page).toContain('downloadBlobFile(finalBlob, filename)');
   });
 
   it('offers a lightweight CSV export with a local calendar date', () => {

@@ -17,6 +17,11 @@ import {
 import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
 import { publishWhenCurrent } from '@/lib/progressive-workspace-load';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import {
+  WEB_PDF_BATCH_CONCURRENCY,
+  createWebPdfBatchPayloads,
+  pdfApiErrorMessage,
+} from '@/lib/pdf-report-batching';
 import { BuildTrackAccess, BuildTrackAccessLoading } from './BuildTrackAccess';
 import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSession';
 import { WorkspaceChrome } from './WorkspaceChrome';
@@ -1933,24 +1938,30 @@ function downloadBlobFile(blob: Blob, filename: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
 }
 
-function toBase64Download(pdfBase64: string, filename: string) {
-  if (typeof window === 'undefined') return;
+function pdfBase64ToBlob(pdfBase64: string) {
   const byteChars = atob(pdfBase64);
   const bytes = new Uint8Array(byteChars.length);
   for (let i = 0; i < byteChars.length; i += 1) {
     bytes[i] = byteChars.charCodeAt(i);
   }
-  downloadBlobFile(new Blob([bytes], { type: 'application/pdf' }), filename);
+  return new Blob([bytes], { type: 'application/pdf' });
 }
 
-function pdfBase64ToObjectUrl(pdfBase64: string) {
-  if (typeof window === 'undefined') return '';
-  const byteChars = atob(pdfBase64);
-  const bytes = new Uint8Array(byteChars.length);
-  for (let i = 0; i < byteChars.length; i += 1) {
-    bytes[i] = byteChars.charCodeAt(i);
+async function mergePdfBlobs(blobs: Blob[], title: string) {
+  if (blobs.length === 1) return blobs[0];
+  const { PDFDocument } = await import('pdf-lib');
+  const merged = await PDFDocument.create();
+  merged.setTitle(title);
+  merged.setCreator('BuildTrack');
+  merged.setProducer('BuildTrack web');
+  for (const blob of blobs) {
+    const source = await PDFDocument.load(await blob.arrayBuffer(), { ignoreEncryption: true });
+    const pages = await merged.copyPages(source, source.getPageIndices());
+    pages.forEach(page => merged.addPage(page));
   }
-  return URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+  const bytes = await merged.save({ useObjectStreams: true });
+  const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return new Blob([buffer], { type: 'application/pdf' });
 }
 
 function printHtmlReport(html: string, filename: string) {
@@ -2462,6 +2473,25 @@ function getPlanReportCacheKey(plan: any, sourceUri: string, renderWidth: number
     String(renderWidth),
     annotations,
   ].join('|');
+}
+
+function primePlanReportCacheFromPreview(plan: any, sourceUri: string, previewBlob: Blob, renderWidth: number) {
+  if (!sourceUri || !previewBlob.size) return;
+  const cacheKey = getPlanReportCacheKey(plan, sourceUri, renderWidth);
+  if (pdfPlanDataUrlCache.has(cacheKey)) return;
+  evictOldestPdfCacheEntry(pdfPlanDataUrlCache, PDF_PLAN_CACHE_LIMIT);
+  const previewPromise = (async () => {
+    const previewDataUrl = await blobToDataUrl(previewBlob);
+    if ((plan?.annotations?.length ?? 0) === 0) return previewDataUrl;
+    return await renderPlanImageWithAnnotationsToDataUrl(previewDataUrl, renderWidth, plan.annotations)
+      ?? previewDataUrl;
+  })();
+  pdfPlanDataUrlCache.set(cacheKey, previewPromise);
+  void previewPromise.catch(() => {
+    if (pdfPlanDataUrlCache.get(cacheKey) === previewPromise) {
+      pdfPlanDataUrlCache.delete(cacheKey);
+    }
+  });
 }
 
 async function getCachedPlanImageForReport(plan: any, sourceUri: string, clientUri: string, renderWidth: number) {
@@ -5946,48 +5976,66 @@ export default function BuildTrackWebPage() {
       const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : type === 'visit_report' ? 'visite' : 'reserve';
       const filename = `BuildTrack_${typePart}_${filePart}_${language}.pdf`;
       const { data: pdfAuthData } = await supabaseBrowser.auth.getSession();
-      const response = await fetch('/api/generate-pdf', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/pdf, application/json',
-          ...(pdfAuthData.session?.access_token ? { Authorization: `Bearer ${pdfAuthData.session.access_token}` } : {}),
-        },
-        body: JSON.stringify(payload),
-      });
-      const responseType = response.headers.get('content-type')?.toLowerCase() ?? '';
-      if (response.ok && responseType.includes('application/pdf')) {
-        const pdfBlob = await response.blob();
-        if (pdfBlob.size <= 0) throw new Error('Le serveur a renvoyé un PDF vide.');
-        downloadBlobFile(pdfBlob, filename);
-        setNotice('PDF généré.');
-        return;
-      }
-      const rawResult = await response.text();
-      let result: any = {};
-      try {
-        result = rawResult ? JSON.parse(rawResult) : {};
-      } catch {
-        const rawPreview = rawResult.slice(0, 240);
-        const isTooLarge = response.status === 413 || /request entity too large|payload too large/i.test(rawResult);
-        const timedOut = response.status === 504 || /FUNCTION_INVOCATION_TIMEOUT|gateway timeout|timed?\s*out/i.test(rawResult);
-        throw new Error(
-          isTooLarge
-            ? 'Export PDF trop volumineux. Réduisez le périmètre ou filtrez par entreprise, puis réessayez.'
-            : timedOut
-              ? 'Le rapport a dépassé le délai de génération. Réduisez le périmètre ou filtrez les réserves, puis réessayez.'
-              : rawPreview || 'Réponse PDF invalide.',
-        );
-      }
-      if (!response.ok || !result.success) {
-        throw new Error(result.error ?? 'Génération PDF impossible.');
-      }
-      if (result.pdfBase64) {
-        toBase64Download(result.pdfBase64, filename);
-      } else if (result.printHtml) {
-        printHtmlReport(result.printHtml, filename);
-      } else {
+      const requestPdfPayload = async (requestPayload: any): Promise<{ blob?: Blob; printHtml?: string }> => {
+        const response = await fetch('/api/generate-pdf', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/pdf, application/json',
+            ...(pdfAuthData.session?.access_token ? { Authorization: `Bearer ${pdfAuthData.session.access_token}` } : {}),
+          },
+          body: JSON.stringify(requestPayload),
+        });
+        const responseType = response.headers.get('content-type')?.toLowerCase() ?? '';
+        if (response.ok && responseType.includes('application/pdf')) {
+          const pdfBlob = await response.blob();
+          if (pdfBlob.size <= 0) throw new Error('Le serveur a renvoyé un PDF vide.');
+          return { blob: pdfBlob };
+        }
+
+        const rawResult = await response.text();
+        let result: any = {};
+        try {
+          result = rawResult ? JSON.parse(rawResult) : {};
+        } catch {
+          throw new Error(pdfApiErrorMessage(response.status, rawResult));
+        }
+        if (!response.ok || !result.success) {
+          throw new Error(pdfApiErrorMessage(response.status, rawResult, result));
+        }
+        if (result.pdfBase64) return { blob: pdfBase64ToBlob(result.pdfBase64) };
+        if (result.printHtml) return { printHtml: result.printHtml };
         throw new Error('Génération PDF impossible.');
+      };
+
+      const batchPayloads = createWebPdfBatchPayloads(type, payload, language);
+      let completedBatches = 0;
+      if (batchPayloads.length > 1) {
+        setNotice(`Préparation du rapport en ${batchPayloads.length} parties…`);
+      }
+      const batchResults = await mapWithConcurrency(
+        batchPayloads,
+        WEB_PDF_BATCH_CONCURRENCY,
+        async batchPayload => {
+          const result = await requestPdfPayload(batchPayload);
+          completedBatches += 1;
+          if (batchPayloads.length > 1) {
+            setNotice(`Rapport PDF : ${completedBatches}/${batchPayloads.length} parties prêtes…`);
+          }
+          return result;
+        },
+      );
+      const printFallback = batchResults.find(result => result.printHtml)?.printHtml;
+      if (printFallback) {
+        if (batchResults.length > 1) {
+          throw new Error('Une partie du rapport nécessite l’impression du navigateur. Réessayez dans quelques instants.');
+        }
+        printHtmlReport(printFallback, filename);
+      } else {
+        const blobs = batchResults.map(result => result.blob).filter((blob): blob is Blob => Boolean(blob));
+        if (blobs.length !== batchResults.length) throw new Error('Génération PDF incomplète.');
+        const finalBlob = await mergePdfBlobs(blobs, filename.replace(/\.pdf$/i, ''));
+        downloadBlobFile(finalBlob, filename);
       }
       setNotice('PDF généré.');
     } catch (err: any) {
@@ -9865,6 +9913,10 @@ function PlansView({
   const selectedPlanPreviewKey = selectedPlan
     ? [selectedPlan.id, selectedPlan.revision_code ?? selectedPlan.revisionCode ?? '', selectedPlanMediaSource].join(':')
     : '';
+  const selectedPlanReportSource = selectedPlan ? getPlanReportUri(selectedPlan) : '';
+  const selectedPlanReportSignature = selectedPlan
+    ? getPlanReportCacheKey(selectedPlan, selectedPlanReportSource, 720)
+    : '';
   const activeCachedPlanPreview = cachedPlanPreview && cachedPlanPreview.ownerId === authUserId
     && cachedPlanPreview.key === selectedPlanPreviewKey
     ? cachedPlanPreview
@@ -9877,6 +9929,7 @@ function PlansView({
     if (!authUserId || !selectedPlanPreviewKey || selectedPlan?.file_type !== 'pdf') return;
     void readPlanPreview({ userId: authUserId, planKey: selectedPlanPreviewKey }).then(preview => {
       if (cancelled || !preview) return;
+      primePlanReportCacheFromPreview(selectedPlan, selectedPlanReportSource, preview.blob, 720);
       objectUrl = URL.createObjectURL(preview.blob);
       setCachedPlanPreview({ ownerId: authUserId, key: selectedPlanPreviewKey, url: objectUrl, width: preview.width, height: preview.height });
     });
@@ -9884,16 +9937,17 @@ function PlansView({
       cancelled = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [authUserId, selectedPlan?.file_type, selectedPlanPreviewKey]);
+  }, [authUserId, selectedPlan?.file_type, selectedPlanPreviewKey, selectedPlanReportSignature, selectedPlanReportSource]);
 
   const cacheSelectedPlanPreview = useCallback((preview: PlanPreviewRecord) => {
     if (!authUserId || activePreviewOwnerRef.current !== authUserId || !selectedPlanPreviewKey) return;
+    primePlanReportCacheFromPreview(selectedPlan, selectedPlanReportSource, preview.blob, 720);
     void writePlanPreview({
       userId: authUserId,
       planKey: selectedPlanPreviewKey,
       ...preview,
     });
-  }, [authUserId, selectedPlanPreviewKey]);
+  }, [authUserId, selectedPlanPreviewKey, selectedPlanReportSignature, selectedPlanReportSource]);
 
   function makePlanDraft(mode: 'create' | 'edit' | 'revision', plan?: any) {
     const baseProjectId = plan?.chantier_id ?? plan?.chantierId ?? (selectedProjectId !== 'all' ? selectedProjectId : selectedProject?.id ?? projects[0]?.id ?? '');
