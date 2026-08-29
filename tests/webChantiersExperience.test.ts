@@ -51,6 +51,12 @@ describe('BuildTrack web chantiers experience', () => {
     expect(component).toContain('moveModalSection');
     expect(component).toContain("document.body.style.overflow = 'hidden'");
     expect(component).toContain("event.key !== 'Tab'");
+    expect(component).toContain('StructureOrderControls');
+    expect(component).toContain('Supprimer le bâtiment');
+    expect(component).toContain('Supprimer le niveau');
+    expect(component).toContain('Supprimer la zone');
+    expect(component).toContain('Aucune zone définie');
+    expect(component).toContain('window.confirm(`Supprimer le bâtiment');
     expect(component).toContain('Modifications non enregistrées');
     expect(css).toContain('.modalWorkspace');
     expect(css).toContain('.modalSectionNav');
@@ -87,5 +93,8 @@ describe('BuildTrack web chantiers experience', () => {
     );
     expect(translateWebStaticText('Rechercher dans la structure', 'es')).toBe('Buscar en la estructura');
     expect(translateWebStaticText('Nom du bâtiment 7', 'en')).toBe('Building name 7');
+    expect(translateWebStaticText('Supprimer le niveau', 'es')).toBe('Eliminar nivel');
+    expect(translateWebStaticText('2 définies', 'en')).toBe('2 defined');
+    expect(translateWebStaticText('Ordre du niveau RDC', 'es')).toBe('Orden del nivel RDC');
   });
 });
