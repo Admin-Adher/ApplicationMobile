@@ -10,7 +10,7 @@ import {
   type CSSProperties,
   type FormEvent,
 } from 'react';
-import { WorkspaceIcon } from '../plan-reserve-workspace/WorkspaceChrome';
+import { WorkspaceIcon, type WorkspaceIconName } from '../plan-reserve-workspace/WorkspaceChrome';
 import {
   buildChantiersWorkspaceModel,
   chantierStatusLabel,
@@ -38,6 +38,10 @@ type ChantierDraft = {
   buildings: BuildingSource[];
 };
 
+type ModalSection = 'identity' | 'companies' | 'structure';
+
+type CompanyView = 'all' | 'selected';
+
 type ChantiersWorkspaceProps = {
   projects: ChantierSource[];
   companies: CompanySource[];
@@ -61,6 +65,25 @@ const PROJECT_FILTERS: Array<{ key: ChantierFilter; label: string }> = [
 ];
 
 const BUILDING_BATCH_SIZE = 18;
+
+const MODAL_SECTIONS: Array<{
+  key: ModalSection;
+  label: string;
+  description: string;
+  icon: WorkspaceIconName;
+}> = [
+  { key: 'identity', label: 'Général', description: 'Coordonnées et statut', icon: 'document' },
+  { key: 'companies', label: 'Entreprises', description: 'Affectations autorisées', icon: 'users' },
+  { key: 'structure', label: 'Structure', description: 'Bâtiments, niveaux et zones', icon: 'building' },
+];
+
+function normalizeLookup(value: unknown) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
@@ -120,10 +143,23 @@ function ProjectStructureEditor({
 }) {
   const [buildingName, setBuildingName] = useState('');
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [structureQuery, setStructureQuery] = useState('');
+  const deferredStructureQuery = useDeferredValue(structureQuery);
 
   function buildingKey(building: BuildingSource, index: number) {
     return String(building.id ?? `building-${index}`);
   }
+
+  const visibleBuildingEntries = useMemo(() => {
+    const query = normalizeLookup(deferredStructureQuery);
+    return buildings
+      .map((building, index) => ({ building, index, key: buildingKey(building, index) }))
+      .filter(({ building }) => {
+        if (!query) return true;
+        const levels = Array.isArray(building.levels) ? building.levels : [];
+        return normalizeLookup([building.name, ...levels.map(level => level.name)].join(' ')).includes(query);
+      });
+  }, [buildings, deferredStructureQuery]);
 
   function toggleBuilding(key: string) {
     setExpanded(current => {
@@ -159,6 +195,7 @@ function ProjectStructureEditor({
       { id, name, levels: [{ id: createStructureId('level'), name: 'RDC', zones: [] }] },
     ]);
     setBuildingName('');
+    setStructureQuery('');
     setExpanded(current => new Set(current).add(id));
   }
 
@@ -197,6 +234,24 @@ function ProjectStructureEditor({
 
   return (
     <div className={styles.structureEditor}>
+      <div className={styles.structureEditorToolbar}>
+        <div className={styles.searchField}>
+          <WorkspaceIcon name="search" size={18} />
+          <input
+            aria-label="Rechercher dans la structure"
+            value={structureQuery}
+            onChange={event => setStructureQuery(event.target.value)}
+            placeholder="Rechercher un bâtiment ou un niveau"
+          />
+          {structureQuery ? (
+            <button type="button" onClick={() => setStructureQuery('')} aria-label="Effacer la recherche de structure">
+              <WorkspaceIcon name="close" size={17} />
+            </button>
+          ) : null}
+        </div>
+        <span aria-live="polite">{visibleBuildingEntries.length} sur {buildings.length} bâtiments</span>
+      </div>
+
       <div className={styles.structureAddRow}>
         <label>
           <span>Nouveau bâtiment</span>
@@ -213,82 +268,95 @@ function ProjectStructureEditor({
       </div>
 
       <div className={styles.structureTree}>
-        {buildings.map((building, buildingIndex) => {
-          const key = buildingKey(building, buildingIndex);
+        {visibleBuildingEntries.map(({ building, index: buildingIndex, key }) => {
           const levels = Array.isArray(building.levels) ? building.levels : [];
+          const zoneCount = levels.reduce((total, level) => total + (Array.isArray(level.zones) ? level.zones.length : 0), 0);
           const isExpanded = expanded.has(key);
           return (
-            <article key={key} className={styles.structureBuilding}>
-              <div className={styles.structureHeaderRow}>
-                <button
-                  type="button"
-                  className={styles.structureDisclosure}
-                  aria-expanded={isExpanded}
-                  onClick={() => toggleBuilding(key)}
-                >
-                  <WorkspaceIcon name="building" size={18} />
-                  <span>{levels.length} niveau{levels.length > 1 ? 'x' : ''}</span>
-                  <span className={isExpanded ? styles.chevronOpen : ''}><WorkspaceIcon name="chevron" size={17} /></span>
-                </button>
-                <input
-                  aria-label={`Nom du bâtiment ${buildingIndex + 1}`}
-                  value={String(building.name ?? '')}
-                  onChange={event => updateBuilding(key, { name: event.target.value })}
-                />
-                <div className={styles.structureRowActions}>
-                  <button type="button" onClick={() => onChange(moveItem(buildings, buildingIndex, -1))} disabled={buildingIndex === 0} aria-label={`Monter ${building.name ?? 'le bâtiment'}`}>↑</button>
-                  <button type="button" onClick={() => onChange(moveItem(buildings, buildingIndex, 1))} disabled={buildingIndex === buildings.length - 1} aria-label={`Descendre ${building.name ?? 'le bâtiment'}`}>↓</button>
-                  <button type="button" onClick={() => addLevel(key)}>Ajouter un niveau</button>
-                  <button type="button" className={styles.dangerTextButton} onClick={() => onChange(buildings.filter((_, index) => index !== buildingIndex))}>Retirer</button>
-                </div>
-              </div>
+            <article key={key} className={styles.structureBuilding} data-expanded={isExpanded}>
+              <button
+                type="button"
+                className={styles.structureDisclosure}
+                aria-expanded={isExpanded}
+                onClick={() => toggleBuilding(key)}
+              >
+                <span className={styles.structureBuildingIcon}><WorkspaceIcon name="building" size={18} /></span>
+                <span className={styles.structureDisclosureCopy}>
+                  <strong>{String(building.name ?? '').trim() || `Bâtiment ${buildingIndex + 1}`}</strong>
+                  <small>{levels.length} niveau{levels.length > 1 ? 'x' : ''} · {zoneCount} zone{zoneCount > 1 ? 's' : ''}</small>
+                </span>
+                <span className={isExpanded ? styles.chevronOpen : ''}><WorkspaceIcon name="chevron" size={17} /></span>
+              </button>
 
               {isExpanded ? (
-                <div className={styles.structureLevels}>
-                  {levels.map((level, levelIndex) => {
-                    const levelId = String(level.id ?? `level-${levelIndex}`);
-                    const zones = Array.isArray(level.zones) ? level.zones : [];
-                    return (
-                      <section key={levelId} className={styles.structureLevel}>
-                        <div className={styles.structureLevelRow}>
-                          <input
-                            aria-label={`Nom du niveau ${levelIndex + 1}`}
-                            value={String(level.name ?? '')}
-                            onChange={event => updateLevel(key, levelId, { name: event.target.value })}
-                          />
-                          <div className={styles.structureRowActions}>
-                            <button type="button" onClick={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, -1) })} disabled={levelIndex === 0} aria-label={`Monter ${level.name ?? 'le niveau'}`}>↑</button>
-                            <button type="button" onClick={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, 1) })} disabled={levelIndex === levels.length - 1} aria-label={`Descendre ${level.name ?? 'le niveau'}`}>↓</button>
-                            <button type="button" onClick={() => addZone(key, levelId)}>Ajouter une zone</button>
-                            <button type="button" className={styles.dangerTextButton} onClick={() => updateBuilding(key, { levels: levels.filter((_, index) => index !== levelIndex) })}>Retirer</button>
+                <div className={styles.structureBuildingBody}>
+                  <div className={styles.structureBuildingEditRow}>
+                    <label>
+                      <span>Nom du bâtiment</span>
+                      <input
+                        aria-label={`Nom du bâtiment ${buildingIndex + 1}`}
+                        value={String(building.name ?? '')}
+                        onChange={event => updateBuilding(key, { name: event.target.value })}
+                      />
+                    </label>
+                    <div className={styles.structureRowActions}>
+                      <button type="button" onClick={() => onChange(moveItem(buildings, buildingIndex, -1))} disabled={buildingIndex === 0} aria-label={`Monter ${building.name ?? 'le bâtiment'}`}>↑</button>
+                      <button type="button" onClick={() => onChange(moveItem(buildings, buildingIndex, 1))} disabled={buildingIndex === buildings.length - 1} aria-label={`Descendre ${building.name ?? 'le bâtiment'}`}>↓</button>
+                      <button type="button" onClick={() => addLevel(key)}>Ajouter un niveau</button>
+                      <button type="button" className={styles.dangerTextButton} onClick={() => onChange(buildings.filter((_, index) => index !== buildingIndex))}>Retirer</button>
+                    </div>
+                  </div>
+
+                  <div className={styles.structureLevels}>
+                    {levels.map((level, levelIndex) => {
+                      const levelId = String(level.id ?? `level-${levelIndex}`);
+                      const zones = Array.isArray(level.zones) ? level.zones : [];
+                      return (
+                        <section key={levelId} className={styles.structureLevel}>
+                          <div className={styles.structureLevelRow}>
+                            <input
+                              aria-label={`Nom du niveau ${levelIndex + 1}`}
+                              value={String(level.name ?? '')}
+                              onChange={event => updateLevel(key, levelId, { name: event.target.value })}
+                            />
+                            <div className={styles.structureRowActions}>
+                              <button type="button" onClick={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, -1) })} disabled={levelIndex === 0} aria-label={`Monter ${level.name ?? 'le niveau'}`}>↑</button>
+                              <button type="button" onClick={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, 1) })} disabled={levelIndex === levels.length - 1} aria-label={`Descendre ${level.name ?? 'le niveau'}`}>↓</button>
+                              <button type="button" onClick={() => addZone(key, levelId)}>Ajouter une zone</button>
+                              <button type="button" className={styles.dangerTextButton} onClick={() => updateBuilding(key, { levels: levels.filter((_, index) => index !== levelIndex) })}>Retirer</button>
+                            </div>
                           </div>
-                        </div>
-                        <div className={styles.structureZones}>
-                          {zones.map((zone, zoneIndex) => {
-                            const zoneId = String(zone.id ?? `zone-${zoneIndex}`);
-                            return (
-                              <span key={zoneId} className={styles.structureZone}>
-                                <input
-                                  aria-label={`Nom de la zone ${zoneIndex + 1}`}
-                                  value={String(zone.name ?? '')}
-                                  onChange={event => updateZone(key, levelId, zoneId, event.target.value)}
-                                />
-                                <button type="button" onClick={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, -1) })} disabled={zoneIndex === 0} aria-label={`Monter ${zone.name ?? 'la zone'}`}>↑</button>
-                                <button type="button" onClick={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, 1) })} disabled={zoneIndex === zones.length - 1} aria-label={`Descendre ${zone.name ?? 'la zone'}`}>↓</button>
-                                <button type="button" className={styles.dangerTextButton} onClick={() => updateLevel(key, levelId, { zones: zones.filter((_, index) => index !== zoneIndex) })}>Retirer</button>
-                              </span>
-                            );
-                          })}
-                          {!zones.length ? <small>Aucune zone.</small> : null}
-                        </div>
-                      </section>
-                    );
-                  })}
+                          <div className={styles.structureZones}>
+                            {zones.map((zone, zoneIndex) => {
+                              const zoneId = String(zone.id ?? `zone-${zoneIndex}`);
+                              return (
+                                <span key={zoneId} className={styles.structureZone}>
+                                  <input
+                                    aria-label={`Nom de la zone ${zoneIndex + 1}`}
+                                    value={String(zone.name ?? '')}
+                                    onChange={event => updateZone(key, levelId, zoneId, event.target.value)}
+                                  />
+                                  <button type="button" onClick={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, -1) })} disabled={zoneIndex === 0} aria-label={`Monter ${zone.name ?? 'la zone'}`}>↑</button>
+                                  <button type="button" onClick={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, 1) })} disabled={zoneIndex === zones.length - 1} aria-label={`Descendre ${zone.name ?? 'la zone'}`}>↓</button>
+                                  <button type="button" className={styles.dangerTextButton} onClick={() => updateLevel(key, levelId, { zones: zones.filter((_, index) => index !== zoneIndex) })}>Retirer</button>
+                                </span>
+                              );
+                            })}
+                            {!zones.length ? <small>Aucune zone.</small> : null}
+                          </div>
+                        </section>
+                      );
+                    })}
+                    {!levels.length ? <p className={styles.editorEmpty}>Aucun niveau. Ajoutez un niveau pour poursuivre la structure.</p> : null}
+                  </div>
                 </div>
               ) : null}
             </article>
           );
         })}
+        {buildings.length > 0 && !visibleBuildingEntries.length ? (
+          <p className={styles.editorEmpty}>Aucun bâtiment ne correspond à cette recherche.</p>
+        ) : null}
         {!buildings.length ? (
           <p className={styles.editorEmpty}>Aucune structure. Ajoutez au moins un bâtiment pour lier les plans et visites précisément.</p>
         ) : null}
@@ -313,6 +381,7 @@ export default function ChantiersWorkspace({
 }: ChantiersWorkspaceProps) {
   const dialogTitleId = useId();
   const modalTitle = useRef<HTMLHeadingElement | null>(null);
+  const modalDialog = useRef<HTMLElement | null>(null);
   const actionMenu = useRef<HTMLDivElement | null>(null);
   const [projectFilter, setProjectFilter] = useState<ChantierFilter>('all');
   const [projectQuery, setProjectQuery] = useState('');
@@ -325,6 +394,10 @@ export default function ChantiersWorkspace({
   const [expandedBuildings, setExpandedBuildings] = useState<Set<string>>(() => new Set());
   const [actionMenuOpen, setActionMenuOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalSection, setModalSection] = useState<ModalSection>('identity');
+  const [companyQuery, setCompanyQuery] = useState('');
+  const deferredCompanyQuery = useDeferredValue(companyQuery);
+  const [companyView, setCompanyView] = useState<CompanyView>('all');
   const [draft, setDraft] = useState<ChantierDraft>(() => draftFromProject());
   const [draftDirty, setDraftDirty] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
@@ -341,6 +414,18 @@ export default function ChantiersWorkspace({
     [buildingSort, deferredBuildingQuery, model.selected?.buildings],
   );
   const visibleBuildings = filteredBuildings.slice(0, visibleLimit);
+  const modalCompanies = useMemo(() => {
+    const query = normalizeLookup(deferredCompanyQuery);
+    const selectedIds = new Set(draft.company_ids);
+    return companies
+      .map((company, index) => {
+        const id = String(company.id ?? `company-${index}`);
+        const name = String(company.name ?? company.short_name ?? company.shortName ?? 'Entreprise');
+        return { company, id, name, selected: selectedIds.has(id) };
+      })
+      .filter(item => companyView === 'all' || item.selected)
+      .filter(item => !query || normalizeLookup(item.name).includes(query));
+  }, [companies, companyView, deferredCompanyQuery, draft.company_ids]);
 
   useEffect(() => {
     setVisibleLimit(BUILDING_BATCH_SIZE);
@@ -370,13 +455,43 @@ export default function ChantiersWorkspace({
 
   useEffect(() => {
     if (!modalOpen) return undefined;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const previousBodyOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
     window.requestAnimationFrame(() => modalTitle.current?.focus({ preventScroll: true }));
-    const closeEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || saving) return;
-      if (!draftDirty || window.confirm('Abandonner les modifications non enregistrées ?')) setModalOpen(false);
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      if (previouslyFocused?.isConnected) previouslyFocused.focus({ preventScroll: true });
     };
-    document.addEventListener('keydown', closeEscape);
-    return () => document.removeEventListener('keydown', closeEscape);
+  }, [modalOpen]);
+
+  useEffect(() => {
+    if (!modalOpen) return undefined;
+    const handleModalKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        if (saving) return;
+        if (!draftDirty || window.confirm('Abandonner les modifications non enregistrées ?')) setModalOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = modalDialog.current;
+      if (!dialog) return;
+      const focusable = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])',
+      )).filter(element => element.getClientRects().length > 0);
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !dialog.contains(document.activeElement))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleModalKeyDown);
+    return () => document.removeEventListener('keydown', handleModalKeyDown);
   }, [draftDirty, modalOpen, saving]);
 
   function selectProject(projectId: string) {
@@ -398,6 +513,9 @@ export default function ChantiersWorkspace({
     setDraft(draftFromProject(project));
     setDraftDirty(false);
     setSubmissionError('');
+    setModalSection('identity');
+    setCompanyQuery('');
+    setCompanyView('all');
     setActionMenuOpen(false);
     setModalOpen(true);
   }
@@ -421,6 +539,14 @@ export default function ChantiersWorkspace({
     updateDraft({ company_ids: Array.from(current) });
   }
 
+  function moveModalSection(direction: -1 | 1) {
+    const currentIndex = MODAL_SECTIONS.findIndex(section => section.key === modalSection);
+    const nextIndex = (currentIndex + direction + MODAL_SECTIONS.length) % MODAL_SECTIONS.length;
+    const nextSection = MODAL_SECTIONS[nextIndex];
+    setModalSection(nextSection.key);
+    window.requestAnimationFrame(() => document.getElementById(`${dialogTitleId}-tab-${nextSection.key}`)?.focus());
+  }
+
   async function submitProject(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
@@ -436,6 +562,7 @@ export default function ChantiersWorkspace({
 
   const selected = model.selected;
   const resultsLabel = `${filteredBuildings.length} bâtiment${filteredBuildings.length > 1 ? 's' : ''} affiché${filteredBuildings.length > 1 ? 's' : ''}`;
+  const activeModalSection = MODAL_SECTIONS.find(section => section.key === modalSection) ?? MODAL_SECTIONS[0];
 
   return (
     <div className={styles.workspace} data-testid="web-chantiers-workspace">
@@ -685,7 +812,7 @@ export default function ChantiersWorkspace({
 
       {modalOpen ? (
         <div className={styles.modalBackdrop} onMouseDown={requestModalClose}>
-          <section className={styles.modal} role="dialog" aria-modal="true" aria-labelledby={dialogTitleId} onMouseDown={event => event.stopPropagation()}>
+          <section ref={modalDialog} className={styles.modal} role="dialog" aria-modal="true" aria-labelledby={dialogTitleId} onMouseDown={event => event.stopPropagation()}>
             <header className={styles.modalHeader}>
               <div>
                 <h2 id={dialogTitleId} ref={modalTitle} tabIndex={-1}>{draft.id ? 'Modifier le chantier' : 'Nouveau chantier'}</h2>
@@ -697,54 +824,143 @@ export default function ChantiersWorkspace({
             </header>
 
             <form className={styles.projectForm} onSubmit={submitProject} aria-busy={saving}>
-              <section className={styles.formSection} aria-labelledby={`${dialogTitleId}-identity`}>
-                <div className={styles.formSectionHeading}>
-                  <h3 id={`${dialogTitleId}-identity`}>Identité du chantier</h3>
-                  <p>Les informations utilisées dans les visites, plans et rapports.</p>
-                </div>
-                <div className={styles.formGrid}>
-                  <label><span>Nom</span><input value={draft.name} onChange={event => updateDraft({ name: event.target.value })} required /></label>
-                  <label><span>Statut</span><select value={draft.status} onChange={event => updateDraft({ status: event.target.value })}><option value="active">Actif</option><option value="paused">Suspendu</option><option value="completed">Terminé</option></select></label>
-                  <label><span>Date début</span><input type="date" value={draft.start_date} onChange={event => updateDraft({ start_date: event.target.value })} /></label>
-                  <label><span>Date fin</span><input type="date" value={draft.end_date} onChange={event => updateDraft({ end_date: event.target.value })} /></label>
-                  <label className={styles.fullSpan}><span>Adresse</span><input value={draft.address} onChange={event => updateDraft({ address: event.target.value })} /></label>
-                  <label className={styles.fullSpan}><span>Description</span><textarea rows={3} value={draft.description} onChange={event => updateDraft({ description: event.target.value })} /></label>
-                </div>
-              </section>
-
-              <section className={styles.formSection} aria-labelledby={`${dialogTitleId}-companies`}>
-                <div className={styles.formSectionHeading}>
-                  <h3 id={`${dialogTitleId}-companies`}>Entreprises affectées</h3>
-                  <p>Sélectionnez les entreprises autorisées sur ce chantier.</p>
-                </div>
-                <div className={styles.companySelector}>
-                  {companies.map((company, index) => {
-                    const id = String(company.id ?? `company-${index}`);
-                    const active = draft.company_ids.includes(id);
+              <div className={styles.modalWorkspace}>
+                <nav className={styles.modalSectionNav} role="tablist" aria-label="Sections du chantier">
+                  {MODAL_SECTIONS.map((section, index) => {
+                    const selectedSection = modalSection === section.key;
+                    const sectionMeta = section.key === 'identity'
+                      ? (draft.name.trim() ? 'Renseigné' : 'À compléter')
+                      : section.key === 'companies'
+                        ? `${draft.company_ids.length} sélectionnée${draft.company_ids.length > 1 ? 's' : ''}`
+                        : `${draft.buildings.length} bâtiment${draft.buildings.length > 1 ? 's' : ''}`;
                     return (
-                      <button key={id} type="button" aria-pressed={active} onClick={() => toggleCompany(id)}>
-                        <span style={{ '--company-color': String(company.color ?? '#003082') } as CSSProperties} />
-                        {String(company.name ?? company.short_name ?? company.shortName ?? 'Entreprise')}
-                        {active ? <WorkspaceIcon name="check" size={17} /> : null}
+                      <button
+                        key={section.key}
+                        id={`${dialogTitleId}-tab-${section.key}`}
+                        type="button"
+                        role="tab"
+                        aria-selected={selectedSection}
+                        aria-controls={`${dialogTitleId}-panel-${section.key}`}
+                        tabIndex={selectedSection ? 0 : -1}
+                        onClick={() => setModalSection(section.key)}
+                        onKeyDown={event => {
+                          if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                            event.preventDefault();
+                            moveModalSection(1);
+                          }
+                          if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                            event.preventDefault();
+                            moveModalSection(-1);
+                          }
+                        }}
+                      >
+                        <span className={styles.modalSectionIndex}>{index + 1}</span>
+                        <span className={styles.modalSectionIcon}><WorkspaceIcon name={section.icon} size={19} /></span>
+                        <span className={styles.modalSectionCopy}>
+                          <strong>{section.label}</strong>
+                          <small>{section.description}</small>
+                        </span>
+                        <em>{sectionMeta}</em>
                       </button>
                     );
                   })}
-                  {!companies.length ? <p className={styles.empty}>Aucune entreprise disponible.</p> : null}
-                </div>
-              </section>
+                </nav>
 
-              <section className={styles.formSection} aria-labelledby={`${dialogTitleId}-structure`}>
-                <div className={styles.formSectionHeading}>
-                  <h3 id={`${dialogTitleId}-structure`}>Structure bâtiments / niveaux / zones</h3>
-                  <p>Dépliez uniquement le bâtiment à modifier pour conserver une interface fluide.</p>
+                <div className={styles.modalContent}>
+                  {modalSection === 'identity' ? (
+                    <section
+                      id={`${dialogTitleId}-panel-identity`}
+                      className={styles.formSection}
+                      role="tabpanel"
+                      aria-labelledby={`${dialogTitleId}-tab-identity`}
+                    >
+                      <div className={styles.formSectionHeading}>
+                        <p className={styles.sectionEyebrow}>Général</p>
+                        <h3>Identité du chantier</h3>
+                        <p>Les informations utilisées dans les visites, plans et rapports.</p>
+                      </div>
+                      <div className={styles.formGrid}>
+                        <label><span>Nom</span><input value={draft.name} onChange={event => updateDraft({ name: event.target.value })} required autoFocus /></label>
+                        <label><span>Statut</span><select value={draft.status} onChange={event => updateDraft({ status: event.target.value })}><option value="active">Actif</option><option value="paused">Suspendu</option><option value="completed">Terminé</option></select></label>
+                        <label><span>Date début</span><input type="date" value={draft.start_date} onChange={event => updateDraft({ start_date: event.target.value })} /></label>
+                        <label><span>Date fin</span><input type="date" value={draft.end_date} onChange={event => updateDraft({ end_date: event.target.value })} /></label>
+                        <label className={styles.fullSpan}><span>Adresse</span><input value={draft.address} onChange={event => updateDraft({ address: event.target.value })} /></label>
+                        <label className={styles.fullSpan}><span>Description</span><textarea rows={4} value={draft.description} onChange={event => updateDraft({ description: event.target.value })} /></label>
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {modalSection === 'companies' ? (
+                    <section
+                      id={`${dialogTitleId}-panel-companies`}
+                      className={styles.formSection}
+                      role="tabpanel"
+                      aria-labelledby={`${dialogTitleId}-tab-companies`}
+                    >
+                      <div className={styles.formSectionHeading}>
+                        <p className={styles.sectionEyebrow}>Entreprises</p>
+                        <h3>Entreprises affectées</h3>
+                        <p>Sélectionnez les entreprises autorisées sur ce chantier.</p>
+                      </div>
+                      <div className={styles.companyToolbar}>
+                        <div className={styles.searchField}>
+                          <WorkspaceIcon name="search" size={18} />
+                          <input aria-label="Rechercher une entreprise" value={companyQuery} onChange={event => setCompanyQuery(event.target.value)} placeholder="Rechercher une entreprise" autoFocus />
+                          {companyQuery ? (
+                            <button type="button" onClick={() => setCompanyQuery('')} aria-label="Effacer la recherche d’entreprise"><WorkspaceIcon name="close" size={17} /></button>
+                          ) : null}
+                        </div>
+                        <div className={styles.companyViewToggle} role="group" aria-label="Filtrer les entreprises du chantier">
+                          <button type="button" aria-pressed={companyView === 'all'} onClick={() => setCompanyView('all')}>Toutes <strong>{companies.length}</strong></button>
+                          <button type="button" aria-pressed={companyView === 'selected'} onClick={() => setCompanyView('selected')}>Sélectionnées <strong>{draft.company_ids.length}</strong></button>
+                        </div>
+                      </div>
+                      <div className={styles.companySelectionSummary} aria-live="polite">
+                        <strong>{draft.company_ids.length} entreprise{draft.company_ids.length > 1 ? 's' : ''} sélectionnée{draft.company_ids.length > 1 ? 's' : ''}</strong>
+                        <span>{modalCompanies.length} résultat{modalCompanies.length > 1 ? 's' : ''}</span>
+                      </div>
+                      <div className={styles.companySelector}>
+                        {modalCompanies.map(({ company, id, name, selected: active }) => (
+                          <button key={id} type="button" aria-pressed={active} onClick={() => toggleCompany(id)}>
+                            <span style={{ '--company-color': String(company.color ?? '#003082') } as CSSProperties} />
+                            <span>{name}</span>
+                            {active ? <WorkspaceIcon name="check" size={17} /> : null}
+                          </button>
+                        ))}
+                        {!companies.length ? <p className={styles.empty}>Aucune entreprise disponible.</p> : null}
+                        {companies.length > 0 && !modalCompanies.length ? <p className={styles.editorEmpty}>Aucune entreprise ne correspond à cette recherche.</p> : null}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {modalSection === 'structure' ? (
+                    <section
+                      id={`${dialogTitleId}-panel-structure`}
+                      className={styles.formSection}
+                      role="tabpanel"
+                      aria-labelledby={`${dialogTitleId}-tab-structure`}
+                    >
+                      <div className={styles.formSectionHeading}>
+                        <p className={styles.sectionEyebrow}>Structure</p>
+                        <h3>Structure bâtiments / niveaux / zones</h3>
+                        <p>Dépliez uniquement le bâtiment à modifier pour conserver une interface fluide.</p>
+                      </div>
+                      <ProjectStructureEditor buildings={draft.buildings} onChange={buildings => updateDraft({ buildings })} onRequestText={onRequestText} />
+                    </section>
+                  ) : null}
                 </div>
-                <ProjectStructureEditor buildings={draft.buildings} onChange={buildings => updateDraft({ buildings })} onRequestText={onRequestText} />
-              </section>
+              </div>
 
               {submissionError ? <p className={styles.formError} role="alert">{submissionError}</p> : null}
               <footer className={styles.modalActions}>
-                <button type="button" onClick={requestModalClose} disabled={saving}>Annuler</button>
-                <button type="submit" disabled={saving || !draft.name.trim()}>{saving ? 'Enregistrement…' : 'Enregistrer le chantier'}</button>
+                <div className={styles.modalSaveState} aria-live="polite">
+                  <span data-dirty={draftDirty}><i aria-hidden="true" />{draftDirty ? 'Modifications non enregistrées' : draft.id ? 'Aucune modification' : 'Nouveau chantier non enregistré'}</span>
+                  <small><span>Section actuelle</span><span aria-hidden="true">·</span><span>{activeModalSection.label}</span></small>
+                </div>
+                <div>
+                  <button type="button" onClick={requestModalClose} disabled={saving}>Annuler</button>
+                  <button type="submit" disabled={saving || !draft.name.trim()}>{saving ? 'Enregistrement…' : 'Enregistrer le chantier'}</button>
+                </div>
               </footer>
             </form>
           </section>
