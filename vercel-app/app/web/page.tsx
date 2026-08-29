@@ -122,6 +122,7 @@ import {
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
+import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import OprWorkspace from './opr-workspace/OprWorkspace';
 import {
@@ -13547,20 +13548,6 @@ function RestrictedTool({ title }: { title: string }) {
 }
 
 function JournalView({ profile, projectName, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
-  const { t } = useWebI18n();
-  const [showForm, setShowForm] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<any>(() => ({
-    date: todayISO(),
-    weather: '',
-    workerCount: '',
-    workDone: '',
-    materials: '',
-    incidents: '',
-    observations: '',
-    visitors: '',
-  }));
-
   // Migration one-shot des anciennes entrées localStorage vers Supabase.
   useEffect(() => {
     if (!profile || typeof window === 'undefined') return;
@@ -13576,37 +13563,12 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
     });
   }, [profile, selectedProjectId]);
 
-  const entries = useMemo<any[]>(() => (rows ?? [])
-    .map(journalRowToEntry)
-    .sort((a: any, b: any) => String(b.date).localeCompare(String(a.date))), [rows]);
-
-  async function submitEntry(event: React.FormEvent) {
-    event.preventDefault();
-    if (!canCreate || !draft.workDone.trim() || busy) return;
-    const duplicate = !draft.id && entries.some((entry: any) => entry.date === draft.date);
-    if (duplicate && !window.confirm(`Une entrée existe déjà pour le ${draft.date}. Créer quand même ?`)) return;
-    setBusy(true);
-    try {
-      const attendanceCount = new Set(timeEntries.filter((entry: any) => entry.date === draft.date).map((entry: any) => entry.worker_name)).size;
-      const payload = {
-        ...draft,
-        workerCount: Number(draft.workerCount || attendanceCount || 0),
-        chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
-      };
-      const saved = draft.id
-        ? await onUpdate?.(entries.find((entry: any) => entry.id === draft.id) ?? draft, payload)
-        : await onCreate(payload);
-      if (saved) {
-        setDraft({ date: todayISO(), weather: '', workerCount: '', workDone: '', materials: '', incidents: '', observations: '', visitors: '' });
-        setShowForm(false);
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
+  const entries = useMemo<any[]>(() => (rows ?? []).map(journalRowToEntry), [rows]);
 
   function exportJournal() {
-    const rows = entries.map(entry => `
+    const tableRows = [...entries]
+      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+      .map(entry => `
       <tr>
         <td>${xmlEscape(entry.date)}</td>
         <td>${xmlEscape(entry.weather || '—')}</td>
@@ -13627,70 +13589,28 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
         <p>${entries.length} entrée(s) · Export ${todayISO()}</p>
         <table>
           <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux</th><th>Matériaux</th><th>Incidents</th><th>Visiteurs</th><th>Auteur</th></tr></thead>
-          <tbody>${rows || '<tr><td colspan="8">Aucune entrée</td></tr>'}</tbody>
+          <tbody>${tableRows || '<tr><td colspan="8">Aucune entrée</td></tr>'}</tbody>
         </table>
       </body></html>
     `, `BuildTrack_journal_${projectName}.pdf`);
   }
 
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Journal de chantier" />;
-
-  const totalWorkers = entries.reduce((sum, entry) => sum + Number(entry.workerCount ?? 0), 0);
-  const incidentDays = entries.filter(entry => String(entry.incidents ?? '').trim()).length;
-
   return (
-    <div className={styles.stack}>
-      <div className={styles.kpiGrid}>
-        <Kpi title="Entrées" value={entries.length} hint="Journal partagé (Supabase)" />
-        <Kpi title="Effectif cumulé" value={totalWorkers} hint="Somme des jours" tone="green" />
-        <Kpi title="Jours incident" value={incidentDays} hint="À contrôler" tone={incidentDays ? 'red' : 'green'} />
-        <Kpi title="Pointage du jour" value={new Set(timeEntries.filter((entry: any) => entry.date === todayISO()).map((entry: any) => entry.worker_name)).size} hint="Depuis Supabase" />
-      </div>
-      <section className={styles.panel}>
-        <div className={styles.panelHeaderCompact}>
-          <div>
-            <h2>Journal de chantier</h2>
-            <p>Saisie quotidienne, météo, effectifs, travaux, incidents, observations et visiteurs.</p>
-          </div>
-          <div className={styles.inlineActions}>
-            {canExport ? <button type="button" onClick={exportJournal}>Exporter</button> : null}
-            {canCreate ? <button type="button" onClick={() => { setDraft({ date: todayISO(), weather: '', workerCount: '', workDone: '', materials: '', incidents: '', observations: '', visitors: '' }); setShowForm(value => !value); }}>{showForm ? 'Fermer' : 'Journal du jour'}</button> : null}
-          </div>
-        </div>
-        {canCreate && showForm && (
-          <form className={styles.formGrid} onSubmit={submitEntry}>
-            <label><span>Date</span><input type="date" value={draft.date} onChange={event => setDraft((prev: any) => ({ ...prev, date: event.target.value }))} /></label>
-            <label><span>Météo</span><input value={draft.weather} onChange={event => setDraft((prev: any) => ({ ...prev, weather: event.target.value }))} placeholder="Soleil, pluie..." /></label>
-            <label><span>Effectif</span><input type="number" min={0} value={draft.workerCount} onChange={event => setDraft((prev: any) => ({ ...prev, workerCount: event.target.value }))} placeholder="Auto depuis pointage si vide" /></label>
-            <label className={styles.fullSpan}><span>Travaux réalisés</span><textarea rows={3} value={draft.workDone} onChange={event => setDraft((prev: any) => ({ ...prev, workDone: event.target.value }))} required /></label>
-            <label><span>Matériaux</span><input value={draft.materials} onChange={event => setDraft((prev: any) => ({ ...prev, materials: event.target.value }))} /></label>
-            <label><span>Visiteurs</span><input value={draft.visitors} onChange={event => setDraft((prev: any) => ({ ...prev, visitors: event.target.value }))} /></label>
-            <label className={styles.fullSpan}><span>Incidents</span><textarea rows={2} value={draft.incidents} onChange={event => setDraft((prev: any) => ({ ...prev, incidents: event.target.value }))} /></label>
-            <label className={styles.fullSpan}><span>Observations</span><textarea rows={2} value={draft.observations} onChange={event => setDraft((prev: any) => ({ ...prev, observations: event.target.value }))} /></label>
-            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Enregistrement…' : 'Enregistrer'}</button></div>
-          </form>
-        )}
-      </section>
-      <section className={styles.panel}>
-        <h2>Entrées journal</h2>
-        <div className={styles.compactList}>
-          {entries.map(entry => (
-            <article key={entry.id} className={styles.timelineCard}>
-              <span className={styles.statusDot} />
-              <div>
-                <strong>{prettyDate(entry.date)} · {entry.workerCount || 0} présent(s)</strong>
-                <small>{entry.weather || 'Météo non renseignée'} · {entry.author}</small>
-                <p>{entry.workDone}</p>
-                {entry.incidents ? <p style={{ color: '#b45309' }}>⚠ {entry.incidents}</p> : null}
-              </div>
-              {canCreate ? <button type="button" onClick={() => { setDraft({ id: entry.id, date: entry.date, weather: entry.weather ?? '', workerCount: String(entry.workerCount ?? ''), workDone: entry.workDone ?? '', materials: entry.materials ?? '', incidents: entry.incidents ?? '', observations: entry.observations ?? '', visitors: entry.visitors ?? '' }); setShowForm(true); }}>Modifier</button> : null}
-              {canDelete ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
-            </article>
-          ))}
-          {!entries.length ? <p className={styles.empty}>{t('empty.noJournal')}</p> : null}
-        </div>
-      </section>
-    </div>
+    <JournalWorkspace
+      entries={entries}
+      timeEntries={timeEntries}
+      projectName={projectName}
+      today={todayISO()}
+      selectedProjectId={selectedProjectId}
+      canCreate={canCreate}
+      canDelete={canDelete}
+      canExport={canExport}
+      onCreate={onCreate}
+      onUpdate={onUpdate}
+      onDelete={onDelete}
+      onExport={exportJournal}
+    />
   );
 }
 
