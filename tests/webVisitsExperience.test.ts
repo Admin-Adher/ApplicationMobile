@@ -50,6 +50,8 @@ describe('BuildTrack web visits experience', () => {
     expect(visitsCss).toMatch(/\.visitPrimaryAction \{[\s\S]*?min-height: 44px;/);
     expect(visitsCss).toMatch(/\.visitInfoGrid \{[\s\S]*?grid-template-columns: repeat\(3, minmax\(0, 1fr\)\);/);
     expect(css).toMatch(/@media \(max-width: 1180px\)[\s\S]*?\.visitInfoGrid \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    expect(css).toMatch(/@media \(max-width: 640px\)[\s\S]*?\.visitSectionNav \{[\s\S]*?grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    expect(visitsCss).toMatch(/\.visitPrimaryAction span \{[\s\S]*?color: inherit;/);
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?\.visitStatusRail button/);
     expect(css).toContain('.visitesWorkspace :is(button, select, summary, a):focus-visible');
   });

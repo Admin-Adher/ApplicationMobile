@@ -5328,9 +5328,13 @@
   backdrop-filter: blur(12px);
 }
 
-.visitDetailHeader span {
+.visitDetailHeading > span {
   color: #64748b;
   font-weight: 700;
+}
+
+.visitPrimaryAction span {
+  color: inherit;
 }
 
 .visitDetailActions select {
@@ -12044,15 +12048,21 @@
   }
 
   .visitSectionNav {
-    display: flex;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: thin;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible;
   }
 
   .visitSectionNav a {
-    flex: 0 0 auto;
-    min-width: 104px;
+    min-width: 0;
+  }
+
+  .visitSectionNav a:nth-child(odd) {
+    border-left: 0;
+  }
+
+  .visitSectionNav a:nth-child(n + 3) {
+    border-top: 1px solid #e4ebf3;
   }
 
   .visitBlockHeader {
