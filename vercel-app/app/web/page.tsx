@@ -125,6 +125,7 @@ import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
 import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import OprWorkspace from './opr-workspace/OprWorkspace';
+import PointageWorkspace from './pointage-workspace/PointageWorkspace';
 import {
   mergeMessageReadState,
   type MessageSendInput,
@@ -6856,6 +6857,7 @@ export default function BuildTrackWebPage() {
               <PointageView
                 entries={projectScoped.timeEntries}
                 companies={data.companies}
+                projectName={projectName()}
                 profile={profile}
                 editable={canUpdateAttendance(profile) || canCreate(profile)}
                 canDelete={canDelete(profile)}
@@ -13614,97 +13616,22 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
   );
 }
 
-function PointageView({ entries, companies, profile, editable, canDelete, onCreate, onUpdate, onDelete }: any) {
-  const [date, setDate] = useState(todayISO());
-  const [draft, setDraft] = useState<any>({ worker_name: '', company_id: companies[0]?.id ?? '', arrival_time: '08:00', departure_time: '', notes: '' });
-  const [busy, setBusy] = useState(false);
-  const dayEntries = entries.filter((entry: any) => entry.date === date);
-  const totalPresent = dayEntries.filter((entry: any) => !entry.departure_time).length;
-
-  function selectedCompany(companyId: string) {
-    return companies.find((company: any) => company.id === companyId) ?? null;
-  }
-
-  async function submitEntry(event: React.FormEvent) {
-    event.preventDefault();
-    if (busy) return;
-    if (!draft.company_id) return;
-    if (draft.departure_time && draft.departure_time === draft.arrival_time) return;
-    setBusy(true);
-    try {
-      const company = selectedCompany(draft.company_id);
-      const saved = await onCreate({
-        ...draft,
-        date,
-        company_name: company?.name ?? '',
-        company_color: company?.color ?? '#10B981',
-      });
-      if (saved) {
-        setDraft({ worker_name: '', company_id: draft.company_id, arrival_time: draft.arrival_time, departure_time: '', notes: '' });
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function PointageView({ entries, companies, projectName, profile, editable, canDelete, onCreate, onUpdate, onDelete }: any) {
+  const { lang } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Pointage" />;
-
   return (
-    <div className={styles.stack}>
-      <div className={styles.kpiGrid}>
-        <Kpi title="Entrées du jour" value={dayEntries.length} hint={prettyDate(date)} />
-        <Kpi title="Présents" value={totalPresent} hint="Sans départ" tone="green" />
-        <Kpi title="Entreprises" value={new Set(dayEntries.map((entry: any) => entry.company_id || entry.company_name)).size} hint="Sur la journée" />
-        <Kpi title="Historique" value={entries.length} hint="Pointages Supabase" tone="amber" />
-      </div>
-      <section className={styles.panel}>
-        <div className={styles.panelHeaderCompact}>
-          <div>
-            <h2>Pointage personnel</h2>
-            <p>Arrivées, départs, entreprise, notes et historique.</p>
-          </div>
-          <input className={styles.compactSearch} type="date" value={date} onChange={event => setDate(event.target.value)} />
-        </div>
-        {editable && (
-          <form className={styles.formGrid} onSubmit={submitEntry}>
-            <label><span>Compagnon</span><input value={draft.worker_name} onChange={event => setDraft((prev: any) => ({ ...prev, worker_name: event.target.value }))} required /></label>
-            <label>
-              <span>Entreprise</span>
-              <select value={draft.company_id} required onChange={event => setDraft((prev: any) => ({ ...prev, company_id: event.target.value }))}>
-                <option value="">Entreprise *</option>
-                {companies.map((company: any) => <option key={company.id} value={company.id}>{company.name}</option>)}
-              </select>
-            </label>
-            <label><span>Arrivée</span><input type="time" value={draft.arrival_time} onChange={event => setDraft((prev: any) => ({ ...prev, arrival_time: event.target.value }))} /></label>
-            <label><span>Départ</span><input type="time" value={draft.departure_time} onChange={event => setDraft((prev: any) => ({ ...prev, departure_time: event.target.value }))} /></label>
-            <label className={styles.fullSpan}><span>Notes</span><input value={draft.notes} onChange={event => setDraft((prev: any) => ({ ...prev, notes: event.target.value }))} /></label>
-            <div className={styles.modalActions}>
-              <button type="button" onClick={() => setDraft((prev: any) => ({ ...prev, arrival_time: new Date().toTimeString().slice(0, 5) }))}>Arrivée maintenant</button>
-              <button type="submit" disabled={busy}>{busy ? 'Ajout…' : 'Ajouter pointage'}</button>
-            </div>
-          </form>
-        )}
-      </section>
-      <section className={styles.panel}>
-        <h2>Journée sélectionnée</h2>
-        <div className={styles.tableLike}>
-          {dayEntries.map((entry: any) => (
-            <article key={entry.id} className={styles.tableRow}>
-              <span>{entry.arrival_time} → {entry.departure_time || 'présent'}{entry.departure_time ? ` · ${(() => { const [ah, am] = String(entry.arrival_time).split(':').map(Number); const [dh, dm] = String(entry.departure_time).split(':').map(Number); let diff = dh * 60 + dm - (ah * 60 + am); if (diff <= 0) diff += 24 * 60; return `${Math.round(diff / 6) / 10}h`; })()}` : ''}</span>
-              <strong>{entry.worker_name}</strong>
-              <em>{entry.company_name || 'Sans entreprise'}{entry.notes ? ` · ${entry.notes}` : ''}</em>
-              {(editable || canDelete) ? (
-                <div className={styles.inlineActions}>
-                  {editable && !entry.departure_time ? <button type="button" onClick={() => onUpdate(entry, { departure_time: new Date().toTimeString().slice(0, 5) })}>Départ</button> : null}
-                  {canDelete ? <button type="button" onClick={() => onDelete(entry)}>Supprimer</button> : null}
-                </div>
-              ) : null}
-            </article>
-          ))}
-          {!dayEntries.length ? <p className={styles.empty}>Aucun pointage pour cette journée.</p> : null}
-        </div>
-      </section>
-    </div>
+    <PointageWorkspace
+      entries={entries}
+      companies={companies}
+      projectName={projectName}
+      today={todayISO()}
+      locale={localeForLang(lang)}
+      editable={editable}
+      canDelete={canDelete}
+      onCreate={onCreate}
+      onUpdate={onUpdate}
+      onDelete={onDelete}
+    />
   );
 }
 

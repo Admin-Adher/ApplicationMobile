@@ -8,7 +8,10 @@ export type WorkspaceIconName =
   | 'assistant'
   | 'back'
   | 'building'
+  | 'calendar'
+  | 'check'
   | 'chevron'
+  | 'clock'
   | 'close'
   | 'document'
   | 'filter'
@@ -17,6 +20,8 @@ export type WorkspaceIconName =
   | 'plan'
   | 'plus'
   | 'search'
+  | 'trash'
+  | 'users'
   | 'warning';
 
 export function WorkspaceIcon({ name, size = 20 }: { name: WorkspaceIconName; size?: number }) {
@@ -40,6 +45,11 @@ export function WorkspaceIcon({ name, size = 20 }: { name: WorkspaceIconName; si
   if (name === 'document') return <svg {...common}><path d="M6 3h8l4 4v14H6V3Z" /><path d="M14 3v5h5M9 13h6M9 17h6" /></svg>;
   if (name === 'plan') return <svg {...common}><path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Z" /><path d="M9 3v15M15 6v15" /></svg>;
   if (name === 'building') return <svg {...common}><path d="M4 21V5l8-3 8 3v16M8 8h.01M12 8h.01M16 8h.01M8 12h.01M12 12h.01M16 12h.01M9 21v-5h6v5" /></svg>;
+  if (name === 'calendar') return <svg {...common}><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M16 3v4M8 3v4M3 10h18" /></svg>;
+  if (name === 'clock') return <svg {...common}><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>;
+  if (name === 'users') return <svg {...common}><circle cx="9" cy="8" r="3" /><path d="M3 20a6 6 0 0 1 12 0M16 5.5a3 3 0 0 1 0 5.8M17 14a5 5 0 0 1 4 4.9" /></svg>;
+  if (name === 'check') return <svg {...common}><path d="m5 12 4 4L19 6" /></svg>;
+  if (name === 'trash') return <svg {...common}><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14M10 11v6M14 11v6" /></svg>;
   if (name === 'pin') return <svg {...common}><path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" /><circle cx="12" cy="10" r="2.5" /></svg>;
   if (name === 'warning') return <svg {...common}><path d="M10.3 3.8 2.6 17.2A2 2 0 0 0 4.3 20h15.4a2 2 0 0 0 1.7-2.8L13.7 3.8a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></svg>;
   if (name === 'archive') return <svg {...common}><path d="M4 7h16v14H4V7ZM3 3h18v4H3V3ZM9 11h6" /></svg>;
