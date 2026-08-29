@@ -10253,11 +10253,23 @@
 
   .workspace,
   .workspacePlans,
-  .workspaceReserves,
-  .workspaceVisites {
+  .workspaceReserves {
     height: auto;
     max-width: 100%;
     overflow: visible;
+  }
+
+  .workspaceVisites {
+    height: 100%;
+    min-height: 0;
+    max-height: 100%;
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+    scroll-padding-bottom: 24px;
+    scrollbar-gutter: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .visitesWorkspace {
