@@ -36,6 +36,28 @@ describe('BuildTrack web chantiers experience', () => {
     expect(component).toContain('Abandonner les modifications non enregistrées ?');
   });
 
+  it('keeps the project editor focused through accessible, lazy-rendered sections', () => {
+    const component = read('vercel-app/app/web/chantiers-workspace/ChantiersWorkspace.tsx');
+    const css = read('vercel-app/app/web/chantiers-workspace/ChantiersWorkspace.module.css');
+
+    expect(component).toContain('role="tablist" aria-label="Sections du chantier"');
+    expect(component).toContain('role="tab"');
+    expect(component).toContain('aria-selected={selectedSection}');
+    expect(component).toContain("modalSection === 'identity'");
+    expect(component).toContain("modalSection === 'companies'");
+    expect(component).toContain("modalSection === 'structure'");
+    expect(component).toContain('useDeferredValue(companyQuery)');
+    expect(component).toContain('useDeferredValue(structureQuery)');
+    expect(component).toContain('moveModalSection');
+    expect(component).toContain("document.body.style.overflow = 'hidden'");
+    expect(component).toContain("event.key !== 'Tab'");
+    expect(component).toContain('Modifications non enregistrées');
+    expect(css).toContain('.modalWorkspace');
+    expect(css).toContain('.modalSectionNav');
+    expect(css).toContain('.modalContent');
+    expect(css).toMatch(/\.modalContent\s*\{[^}]*overflow-y:\s*auto/s);
+  });
+
   it('provides responsive, accessible and reduced-motion safeguards without decorative effects', () => {
     const css = read('vercel-app/app/web/chantiers-workspace/ChantiersWorkspace.module.css');
     const shellCss = read('vercel-app/app/web/web.module.css');
@@ -58,5 +80,12 @@ describe('BuildTrack web chantiers experience', () => {
     expect(translateWebStaticText('Structure du chantier', 'es')).toBe('Estructura de la obra');
     expect(translateWebStaticText('Supprimer le chantier', 'en')).toBe('Delete project');
     expect(translateWebStaticText('Gérer les affectations', 'es')).toBe('Gestionar asignaciones');
+    expect(translateWebStaticText('Sections du chantier', 'en')).toBe('Project sections');
+    expect(translateWebStaticText('Affectations autorisées', 'es')).toBe('Asignaciones autorizadas');
+    expect(translateWebStaticText('Aucune entreprise ne correspond à cette recherche.', 'en')).toBe(
+      'No company matches this search.',
+    );
+    expect(translateWebStaticText('Rechercher dans la structure', 'es')).toBe('Buscar en la estructura');
+    expect(translateWebStaticText('Nom du bâtiment 7', 'en')).toBe('Building name 7');
   });
 });
