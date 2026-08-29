@@ -1106,7 +1106,8 @@
 
 .formGrid label,
 .structureAddRow label,
-.structureBuildingEditRow label {
+.structureBuildingNameRow label,
+.structureLevelName {
   display: grid;
   min-width: 0;
   gap: 6px;
@@ -1114,7 +1115,8 @@
 
 .formGrid label > span,
 .structureAddRow label > span,
-.structureBuildingEditRow label > span {
+.structureBuildingNameRow label > span,
+.structureLevelName > span {
   color: #31445f;
   font-size: 11px;
   font-weight: 800;
@@ -1282,8 +1284,8 @@
 }
 
 .structureAddRow > button,
-.structureRowActions button,
-.structureZone > button {
+.structureAddAction,
+.structureZonesHeader > button {
   min-height: 44px;
   border: 1px solid #bfd0e5;
   border-radius: 8px;
@@ -1295,15 +1297,16 @@
   cursor: pointer;
 }
 
-.structureAddRow > button {
+.structureAddRow > button,
+.structureAddAction,
+.structureZonesHeader > button {
   display: inline-flex;
   align-items: center;
   gap: 7px;
 }
 
 .structureAddRow > button:disabled,
-.structureRowActions button:disabled,
-.structureZone > button:disabled {
+.structureOrderGroup button:disabled {
   opacity: 0.46;
   cursor: not-allowed;
 }
@@ -1384,71 +1387,248 @@
 
 .structureBuildingBody {
   border-top: 1px solid var(--border);
-  padding: 12px;
+  background: #fbfcfe;
+  padding: 14px;
 }
 
-.structureBuildingEditRow {
+.structureBuildingDetails {
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) auto;
+  gap: 12px;
+  border-bottom: 1px solid #dce5ef;
+  padding-bottom: 14px;
+}
+
+.structureBuildingNameRow {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
   align-items: end;
   gap: 10px;
 }
 
-.structureLevelRow {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(160px, 1fr) auto;
+.structureBuildingCommands,
+.structureLevelCommands {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
 }
 
-.structureRowActions {
-  display: flex;
-  flex-wrap: wrap;
+.structureLevelCommands {
   justify-content: flex-end;
-  gap: 6px;
 }
 
-.structureRowActions .dangerTextButton,
-.structureZone .dangerTextButton {
+.structureOrderGroup {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 3px;
+  border: 1px solid #cad6e4;
+  border-radius: 8px;
+  background: #f3f6fa;
+  padding: 3px;
+}
+
+.structureOrderGroup > span:first-child {
+  padding: 0 6px;
+  color: #526882;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.structureOrderGroup button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid #d3deea;
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--blue);
+  padding: 5px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.structureOrderGroup button > span:first-child {
+  font-size: 14px;
+  line-height: 1;
+}
+
+.structureDangerAction {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 6px;
   border-color: #efc8c5;
+  border-style: solid;
+  border-width: 1px;
+  border-radius: 8px;
   background: #fff2f1;
   color: var(--danger);
+  padding: 7px 10px;
+  font-size: 10px;
+  font-weight: 850;
+  cursor: pointer;
 }
 
 .structureLevels {
   display: grid;
-  gap: 8px;
-  margin: 12px 0 0;
-  border-left: 1px solid #c8d6e6;
-  padding-left: 12px;
+  gap: 12px;
+  margin: 14px 0 0;
 }
 
 .structureLevel {
   display: grid;
-  gap: 8px;
-  border: 1px solid #e0e8f1;
-  border-radius: 8px;
+  gap: 14px;
+  border: 1px solid #d6e1ed;
+  border-radius: 10px;
   background: var(--surface);
-  padding: 8px;
+  padding: 14px;
+}
+
+.structureLevelHeader {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.structureLevelIdentity {
+  display: flex;
+  min-width: 132px;
+  align-items: center;
+  gap: 9px;
+}
+
+.structureLevelIdentity > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  background: #eef4ff;
+  color: var(--blue);
+  font-size: 10px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.structureLevelIdentity > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.structureLevelIdentity h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.structureLevelIdentity small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.structureLevelName {
+  display: grid;
+  gap: 6px;
+}
+
+.structureZonesEditor {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #e0e8f1;
+  padding-top: 12px;
+}
+
+.structureZonesHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.structureZonesHeader > div {
+  display: grid;
+  gap: 1px;
+}
+
+.structureZonesHeader strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.structureZonesHeader span {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 650;
 }
 
 .structureZones {
   display: grid;
-  gap: 6px;
-  margin-left: 18px;
+  gap: 8px;
 }
 
-.structureZones > small {
+.structureZoneEmpty {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed #c7d4e3;
+  border-radius: 8px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.structureZoneEmpty > span {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 8px;
+  background: #edf3fa;
+  color: #5c7390;
+}
+
+.structureZoneEmpty > div {
+  display: grid;
+  gap: 2px;
+}
+
+.structureZoneEmpty strong {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.structureZoneEmpty small {
   color: var(--muted);
-  padding: 4px 0;
+  font-size: 10px;
 }
 
 .structureZone {
   display: grid;
-  grid-template-columns: minmax(140px, 1fr) repeat(3, auto);
+  grid-template-columns: 58px minmax(160px, 1fr) auto auto;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  border: 1px solid #e0e8f1;
+  border-radius: 8px;
+  background: #fbfcfe;
+  padding: 8px;
+}
+
+.structureZoneNumber {
+  color: #526882;
+  font-size: 10px;
+  font-weight: 850;
 }
 
 .editorEmpty {
@@ -1943,8 +2123,7 @@
   }
 
   .structureAddRow,
-  .structureBuildingEditRow,
-  .structureLevelRow,
+  .structureBuildingNameRow,
   .structureZone {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1953,13 +2132,28 @@
     grid-template-columns: 32px minmax(0, 1fr) 22px;
   }
 
-  .structureRowActions {
+  .structureBuildingCommands,
+  .structureLevelHeader,
+  .structureZonesHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .structureLevelCommands {
     justify-content: flex-start;
   }
 
-  .structureLevels,
-  .structureZones {
-    margin-left: 0;
+  .structureOrderGroup {
+    display: grid;
+    width: 100%;
+    grid-template-columns: auto repeat(2, minmax(0, 1fr));
+  }
+
+  .structureOrderGroup button,
+  .structureAddAction,
+  .structureDangerAction,
+  .structureZonesHeader > button {
+    justify-content: center;
   }
 
   .modalActions {

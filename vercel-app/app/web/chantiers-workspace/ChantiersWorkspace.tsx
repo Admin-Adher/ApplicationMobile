@@ -102,6 +102,36 @@ function moveItem<T>(items: T[], fromIndex: number, direction: -1 | 1) {
   return next;
 }
 
+function StructureOrderControls({
+  groupLabel,
+  itemLabel,
+  canMoveUp,
+  canMoveDown,
+  onMoveUp,
+  onMoveDown,
+}: {
+  groupLabel: string;
+  itemLabel: string;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}) {
+  return (
+    <div className={styles.structureOrderGroup} role="group" aria-label={groupLabel}>
+      <span>Ordre</span>
+      <button type="button" onClick={onMoveUp} disabled={!canMoveUp} aria-label={`Monter ${itemLabel}`}>
+        <span aria-hidden="true">↑</span>
+        <span>Monter</span>
+      </button>
+      <button type="button" onClick={onMoveDown} disabled={!canMoveDown} aria-label={`Descendre ${itemLabel}`}>
+        <span aria-hidden="true">↓</span>
+        <span>Descendre</span>
+      </button>
+    </div>
+  );
+}
+
 function draftFromProject(project?: ChantierSource): ChantierDraft {
   if (!project) {
     return {
@@ -232,6 +262,30 @@ function ProjectStructureEditor({
     });
   }
 
+  function removeBuilding(buildingIndex: number) {
+    const building = buildings[buildingIndex];
+    const name = String(building?.name ?? `Bâtiment ${buildingIndex + 1}`);
+    if (!window.confirm(`Supprimer le bâtiment « ${name} » et tous ses niveaux ?`)) return;
+    onChange(buildings.filter((_, index) => index !== buildingIndex));
+  }
+
+  function removeLevel(buildingId: string, levelIndex: number) {
+    const buildingIndex = buildings.findIndex((item, index) => buildingKey(item, index) === buildingId);
+    const levels = buildings[buildingIndex]?.levels ?? [];
+    const name = String(levels[levelIndex]?.name ?? `Niveau ${levelIndex + 1}`);
+    if (!window.confirm(`Supprimer le niveau « ${name} » et toutes ses zones ?`)) return;
+    updateBuilding(buildingId, { levels: levels.filter((_, index) => index !== levelIndex) });
+  }
+
+  function removeZone(buildingId: string, levelId: string, zoneIndex: number) {
+    const buildingIndex = buildings.findIndex((item, index) => buildingKey(item, index) === buildingId);
+    const level = (buildings[buildingIndex]?.levels ?? []).find((item, index) => String(item.id ?? `level-${index}`) === levelId);
+    const zones = level?.zones ?? [];
+    const name = String(zones[zoneIndex]?.name ?? `Zone ${zoneIndex + 1}`);
+    if (!window.confirm(`Supprimer la zone « ${name} » ?`)) return;
+    updateLevel(buildingId, levelId, { zones: zones.filter((_, index) => index !== zoneIndex) });
+  }
+
   return (
     <div className={styles.structureEditor}>
       <div className={styles.structureEditorToolbar}>
@@ -290,20 +344,34 @@ function ProjectStructureEditor({
 
               {isExpanded ? (
                 <div className={styles.structureBuildingBody}>
-                  <div className={styles.structureBuildingEditRow}>
-                    <label>
-                      <span>Nom du bâtiment</span>
-                      <input
-                        aria-label={`Nom du bâtiment ${buildingIndex + 1}`}
-                        value={String(building.name ?? '')}
-                        onChange={event => updateBuilding(key, { name: event.target.value })}
+                  <div className={styles.structureBuildingDetails}>
+                    <div className={styles.structureBuildingNameRow}>
+                      <label>
+                        <span>Nom du bâtiment</span>
+                        <input
+                          aria-label={`Nom du bâtiment ${buildingIndex + 1}`}
+                          value={String(building.name ?? '')}
+                          onChange={event => updateBuilding(key, { name: event.target.value })}
+                        />
+                      </label>
+                      <button type="button" className={styles.structureAddAction} onClick={() => addLevel(key)}>
+                        <WorkspaceIcon name="plus" size={17} />
+                        Ajouter un niveau
+                      </button>
+                    </div>
+                    <div className={styles.structureBuildingCommands}>
+                      <StructureOrderControls
+                        groupLabel={`Ordre du bâtiment ${String(building.name ?? '')}`.trim()}
+                        itemLabel={`le bâtiment ${String(building.name ?? '')}`.trim()}
+                        canMoveUp={buildingIndex > 0}
+                        canMoveDown={buildingIndex < buildings.length - 1}
+                        onMoveUp={() => onChange(moveItem(buildings, buildingIndex, -1))}
+                        onMoveDown={() => onChange(moveItem(buildings, buildingIndex, 1))}
                       />
-                    </label>
-                    <div className={styles.structureRowActions}>
-                      <button type="button" onClick={() => onChange(moveItem(buildings, buildingIndex, -1))} disabled={buildingIndex === 0} aria-label={`Monter ${building.name ?? 'le bâtiment'}`}>↑</button>
-                      <button type="button" onClick={() => onChange(moveItem(buildings, buildingIndex, 1))} disabled={buildingIndex === buildings.length - 1} aria-label={`Descendre ${building.name ?? 'le bâtiment'}`}>↓</button>
-                      <button type="button" onClick={() => addLevel(key)}>Ajouter un niveau</button>
-                      <button type="button" className={styles.dangerTextButton} onClick={() => onChange(buildings.filter((_, index) => index !== buildingIndex))}>Retirer</button>
+                      <button type="button" className={styles.structureDangerAction} onClick={() => removeBuilding(buildingIndex)}>
+                        <WorkspaceIcon name="trash" size={16} />
+                        Supprimer le bâtiment
+                      </button>
                     </div>
                   </div>
 
@@ -311,38 +379,88 @@ function ProjectStructureEditor({
                     {levels.map((level, levelIndex) => {
                       const levelId = String(level.id ?? `level-${levelIndex}`);
                       const zones = Array.isArray(level.zones) ? level.zones : [];
+                      const levelName = String(level.name ?? '').trim() || `Niveau ${levelIndex + 1}`;
                       return (
                         <section key={levelId} className={styles.structureLevel}>
-                          <div className={styles.structureLevelRow}>
+                          <header className={styles.structureLevelHeader}>
+                            <div className={styles.structureLevelIdentity}>
+                              <span>{String(levelIndex + 1).padStart(2, '0')}</span>
+                              <div>
+                                <h4>Niveau {levelIndex + 1}</h4>
+                                <small>{zones.length} zone{zones.length > 1 ? 's' : ''}</small>
+                              </div>
+                            </div>
+                            <div className={styles.structureLevelCommands}>
+                              <StructureOrderControls
+                                groupLabel={`Ordre du niveau ${levelName}`}
+                                itemLabel={`le niveau ${levelName}`}
+                                canMoveUp={levelIndex > 0}
+                                canMoveDown={levelIndex < levels.length - 1}
+                                onMoveUp={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, -1) })}
+                                onMoveDown={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, 1) })}
+                              />
+                              <button type="button" className={styles.structureDangerAction} onClick={() => removeLevel(key, levelIndex)}>
+                                <WorkspaceIcon name="trash" size={16} />
+                                Supprimer le niveau
+                              </button>
+                            </div>
+                          </header>
+
+                          <label className={styles.structureLevelName}>
+                            <span>Nom du niveau</span>
                             <input
                               aria-label={`Nom du niveau ${levelIndex + 1}`}
                               value={String(level.name ?? '')}
                               onChange={event => updateLevel(key, levelId, { name: event.target.value })}
                             />
-                            <div className={styles.structureRowActions}>
-                              <button type="button" onClick={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, -1) })} disabled={levelIndex === 0} aria-label={`Monter ${level.name ?? 'le niveau'}`}>↑</button>
-                              <button type="button" onClick={() => updateBuilding(key, { levels: moveItem(levels, levelIndex, 1) })} disabled={levelIndex === levels.length - 1} aria-label={`Descendre ${level.name ?? 'le niveau'}`}>↓</button>
-                              <button type="button" onClick={() => addZone(key, levelId)}>Ajouter une zone</button>
-                              <button type="button" className={styles.dangerTextButton} onClick={() => updateBuilding(key, { levels: levels.filter((_, index) => index !== levelIndex) })}>Retirer</button>
+                          </label>
+
+                          <div className={styles.structureZonesEditor}>
+                            <div className={styles.structureZonesHeader}>
+                              <div>
+                                <strong>Zones</strong>
+                                <span>{zones.length ? `${zones.length} définie${zones.length > 1 ? 's' : ''}` : 'Aucune définie'}</span>
+                              </div>
+                              <button type="button" onClick={() => addZone(key, levelId)}>
+                                <WorkspaceIcon name="plus" size={16} />
+                                Ajouter une zone
+                              </button>
                             </div>
-                          </div>
-                          <div className={styles.structureZones}>
-                            {zones.map((zone, zoneIndex) => {
-                              const zoneId = String(zone.id ?? `zone-${zoneIndex}`);
-                              return (
-                                <span key={zoneId} className={styles.structureZone}>
-                                  <input
-                                    aria-label={`Nom de la zone ${zoneIndex + 1}`}
-                                    value={String(zone.name ?? '')}
-                                    onChange={event => updateZone(key, levelId, zoneId, event.target.value)}
-                                  />
-                                  <button type="button" onClick={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, -1) })} disabled={zoneIndex === 0} aria-label={`Monter ${zone.name ?? 'la zone'}`}>↑</button>
-                                  <button type="button" onClick={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, 1) })} disabled={zoneIndex === zones.length - 1} aria-label={`Descendre ${zone.name ?? 'la zone'}`}>↓</button>
-                                  <button type="button" className={styles.dangerTextButton} onClick={() => updateLevel(key, levelId, { zones: zones.filter((_, index) => index !== zoneIndex) })}>Retirer</button>
-                                </span>
-                              );
-                            })}
-                            {!zones.length ? <small>Aucune zone.</small> : null}
+                            {zones.length ? (
+                              <div className={styles.structureZones}>
+                                {zones.map((zone, zoneIndex) => {
+                                  const zoneId = String(zone.id ?? `zone-${zoneIndex}`);
+                                  const zoneName = String(zone.name ?? '').trim() || `Zone ${zoneIndex + 1}`;
+                                  return (
+                                    <div key={zoneId} className={styles.structureZone}>
+                                      <span className={styles.structureZoneNumber}>Zone {zoneIndex + 1}</span>
+                                      <input
+                                        aria-label={`Nom de la zone ${zoneIndex + 1}`}
+                                        value={String(zone.name ?? '')}
+                                        onChange={event => updateZone(key, levelId, zoneId, event.target.value)}
+                                      />
+                                      <StructureOrderControls
+                                        groupLabel={`Ordre de la zone ${zoneName}`}
+                                        itemLabel={`la zone ${zoneName}`}
+                                        canMoveUp={zoneIndex > 0}
+                                        canMoveDown={zoneIndex < zones.length - 1}
+                                        onMoveUp={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, -1) })}
+                                        onMoveDown={() => updateLevel(key, levelId, { zones: moveItem(zones, zoneIndex, 1) })}
+                                      />
+                                      <button type="button" className={styles.structureDangerAction} onClick={() => removeZone(key, levelId, zoneIndex)}>
+                                        <WorkspaceIcon name="trash" size={16} />
+                                        Supprimer la zone
+                                      </button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className={styles.structureZoneEmpty}>
+                                <span><WorkspaceIcon name="plan" size={18} /></span>
+                                <div><strong>Aucune zone définie</strong><small>Ajoutez une zone si ce niveau doit être découpé plus précisément.</small></div>
+                              </div>
+                            )}
                           </div>
                         </section>
                       );
