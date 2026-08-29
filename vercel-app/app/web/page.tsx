@@ -122,6 +122,7 @@ import {
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
+import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace';
 import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import OprWorkspace from './opr-workspace/OprWorkspace';
@@ -1395,10 +1396,6 @@ function isTaskLateWeb(task: any) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return deadline < today;
-}
-
-function isIncidentOpenWeb(incident: any) {
-  return !['resolved', 'closed', 'done'].includes(String(incident?.status ?? '').toLowerCase());
 }
 
 function sameName(a?: string | null, b?: string | null) {
@@ -7000,6 +6997,7 @@ export default function BuildTrackWebPage() {
             {activeTab === 'incidents' && (
               <IncidentsView
                 incidents={projectScoped.incidents}
+                projectName={projectName()}
                 profile={profile}
                 canCreate={canCreate(profile)}
                 canEdit={canEdit(profile)}
@@ -13378,90 +13376,27 @@ function ChantiersView({ projects, companies, selectedProjectId, setSelectedProj
   );
 }
 
-function IncidentsView({ incidents, profile, canCreate, canEdit, onCreate, onUpdate }: {
+function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, onCreate, onUpdate }: {
   incidents: any[];
+  projectName: string;
   profile: any;
   canCreate?: boolean;
   canEdit?: boolean;
   onCreate?: (payload: Record<string, any>) => Promise<any>;
   onUpdate?: (incident: any, patch: Record<string, any>) => Promise<any>;
 }) {
-  const { t } = useWebI18n();
-  const [filter, setFilter] = useState<'all' | 'open' | 'investigating' | 'resolved'>('all');
-  const [showForm, setShowForm] = useState(false);
-  const [draft, setDraft] = useState({ title: '', description: '', location: '', severity: 'moderate', status: 'open' });
-  const [busy, setBusy] = useState(false);
-  const labels: Record<string, string> = { open: 'Ouvert', investigating: 'En cours', resolved: 'Résolu', minor: 'Mineur', moderate: 'Modéré', major: 'Majeur', critical: 'Critique' };
+  const { lang } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Incidents" />;
-  const openIncidents = incidents.filter(isIncidentOpenWeb);
-  const visible = [...incidents]
-    .filter(incident => filter === 'all' || incident.status === filter)
-    .sort((a, b) => String(b.reported_at ?? b.created_at ?? '').localeCompare(String(a.reported_at ?? a.created_at ?? '')));
   return (
-    <div className={styles.stack}>
-      <div className={styles.kpiGrid}>
-        <Kpi title="Incidents ouverts" value={openIncidents.length} hint="À traiter" tone={openIncidents.length ? 'red' : 'green'} />
-        <Kpi title="Total incidents" value={incidents.length} hint="Historique terrain" />
-        <Kpi title="Critiques" value={incidents.filter((incident: any) => incident.severity === 'critical').length} hint="Gravité critique" tone="red" />
-        <Kpi title="Clôturés" value={incidents.filter((incident: any) => incident.status === 'resolved').length} hint="Résolus" tone="green" />
-      </div>
-      <section className={styles.panel}>
-        <div className={styles.panelHeaderCompact}>
-          <div>
-            <h2>Incidents terrain</h2>
-            <p>Signaler, suivre et clôturer les alertes sécurité.</p>
-          </div>
-          <div className={styles.inlineActions}>
-            {(['all', 'open', 'investigating', 'resolved'] as const).map(value => (
-              <button key={value} type="button" onClick={() => setFilter(value)}>{value === 'all' ? 'Tous' : labels[value]}</button>
-            ))}
-            {canCreate ? <button type="button" onClick={() => setShowForm(value => !value)}>{showForm ? 'Fermer' : 'Signaler'}</button> : null}
-          </div>
-        </div>
-        {showForm && canCreate ? (
-          <form className={styles.formGrid} onSubmit={async event => {
-            event.preventDefault();
-            setBusy(true);
-            const saved = await onCreate?.(draft);
-            setBusy(false);
-            if (saved) {
-              setDraft({ title: '', description: '', location: '', severity: 'moderate', status: 'open' });
-              setShowForm(false);
-            }
-          }}>
-            <label><span>Titre</span><input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} required /></label>
-            <label><span>Lieu</span><input value={draft.location} onChange={event => setDraft(prev => ({ ...prev, location: event.target.value }))} /></label>
-            <label><span>Gravité</span>
-              <select value={draft.severity} onChange={event => setDraft(prev => ({ ...prev, severity: event.target.value }))}>
-                <option value="minor">Mineur</option>
-                <option value="moderate">Modéré</option>
-                <option value="major">Majeur</option>
-                <option value="critical">Critique</option>
-              </select>
-            </label>
-            <label className={styles.fullSpan}><span>Description</span><textarea rows={3} value={draft.description} onChange={event => setDraft(prev => ({ ...prev, description: event.target.value }))} /></label>
-            <div className={styles.modalActions}><button type="submit" disabled={busy}>{busy ? 'Envoi…' : 'Signaler'}</button></div>
-          </form>
-        ) : null}
-        <div className={styles.compactList}>
-          {visible.map((incident: any) => (
-            <article key={incident.id} className={styles.timelineCard}>
-              <span>{labels[incident.status] ?? incident.status} · {labels[incident.severity] ?? incident.severity} · {prettyDate(incident.reported_at ?? incident.created_at)}</span>
-              <strong>{incident.title ?? incident.description ?? incident.id}</strong>
-              {incident.description ? <p>{incident.description}</p> : null}
-              {incident.location ? <small>{incident.location}</small> : null}
-              {canEdit && incident.status !== 'resolved' ? (
-                <div className={styles.inlineActions}>
-                  {incident.status === 'open' ? <button type="button" onClick={() => onUpdate?.(incident, { status: 'investigating' })}>En cours</button> : null}
-                  <button type="button" onClick={() => onUpdate?.(incident, { status: 'resolved' })}>Clôturer</button>
-                </div>
-              ) : null}
-            </article>
-          ))}
-          {!visible.length && <p className={styles.empty}>{t('empty.noIncident')}</p>}
-        </div>
-      </section>
-    </div>
+    <IncidentsWorkspace
+      incidents={incidents}
+      projectName={projectName}
+      locale={localeForLang(lang)}
+      canCreate={Boolean(canCreate)}
+      canEdit={Boolean(canEdit)}
+      onCreate={async payload => onCreate?.(payload)}
+      onUpdate={async (incident, patch) => onUpdate?.(incident, patch)}
+    />
   );
 }
 
