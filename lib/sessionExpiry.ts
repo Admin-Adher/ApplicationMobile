@@ -29,8 +29,10 @@
  */
 
 type SessionExpiryListener = (reason: string) => void;
+type SessionRecoveryListener = () => void;
 
 const listeners = new Set<SessionExpiryListener>();
+const recoveryListeners = new Set<SessionRecoveryListener>();
 
 let expired = false;
 let lastReason: string | null = null;
@@ -60,6 +62,13 @@ export function notifySessionExpired(reason: string): void {
 export function notifySessionRecovered(): void {
   expired = false;
   lastReason = null;
+  for (const listener of [...recoveryListeners]) {
+    try {
+      listener();
+    } catch {
+      // a misbehaving listener must never break the signal fan-out
+    }
+  }
 }
 
 /** True once a terminal refresh failure has been observed and not yet recovered. */
@@ -81,5 +90,16 @@ export function subscribeSessionExpiry(listener: SessionExpiryListener): () => v
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
+  };
+}
+
+/**
+ * Subscribe to successful login/token-refresh signals. Media components use
+ * this to retry immediately instead of waiting for a remount or app restart.
+ */
+export function subscribeSessionRecovery(listener: SessionRecoveryListener): () => void {
+  recoveryListeners.add(listener);
+  return () => {
+    recoveryListeners.delete(listener);
   };
 }

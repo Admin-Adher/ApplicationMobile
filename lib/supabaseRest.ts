@@ -148,18 +148,44 @@ const REST_TIMEOUT_MS = 25_000;
 const TOKEN_TIMEOUT_MS = 4_000;
 const TOKEN_FAILURE_COOLDOWN_MS = 60_000;
 
-let memoryToken: { accessToken: string; expiresAt: number } | null = null;
+export type SupabaseAuthenticatedSession = {
+  accessToken: string;
+  expiresAt: number;
+  userId: string;
+};
+
+type CachedBearer = {
+  accessToken: string;
+  expiresAt: number;
+  userId: string | null;
+};
+
+let memoryToken: CachedBearer | null = null;
 let lastRefreshFailureAt = 0;
 let lastSessionFailureAt = 0;
+let authenticatedSessionPromise: Promise<SupabaseAuthenticatedSession | null> | null = null;
+let forcedAuthenticatedSessionPromise: Promise<SupabaseAuthenticatedSession | null> | null = null;
+let tokenGeneration = 0;
+
+function cacheBearer(value: CachedBearer, expectedGeneration: number): void {
+  if (expectedGeneration === tokenGeneration) memoryToken = value;
+}
 
 export function clearSupabaseRestTokenCache(): void {
+  tokenGeneration += 1;
   memoryToken = null;
+  authenticatedSessionPromise = null;
+  forcedAuthenticatedSessionPromise = null;
   lastRefreshFailureAt = 0;
   lastSessionFailureAt = 0;
 }
 
-async function rememberRefreshedToken(accessToken: string): Promise<void> {
+async function rememberRefreshedToken(
+  accessToken: string,
+  expectedGeneration = tokenGeneration,
+): Promise<void> {
   let expiresAt = Math.floor(Date.now() / 1000) + 300;
+  let userId: string | null = null;
   try {
     const cached = await getSessionFromStorage();
     if (
@@ -167,9 +193,10 @@ async function rememberRefreshedToken(accessToken: string): Promise<void> {
       typeof cached.expires_at === 'number'
     ) {
       expiresAt = cached.expires_at;
+      userId = cached.user?.id ?? null;
     }
   } catch {}
-  memoryToken = { accessToken, expiresAt };
+  cacheBearer({ accessToken, expiresAt, userId }, expectedGeneration);
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -224,9 +251,145 @@ async function readBody(response: Response): Promise<any> {
   }
 }
 
+function authenticatedSessionFrom(value: any): SupabaseAuthenticatedSession | null {
+  const accessToken = value?.access_token;
+  const expiresAt = value?.expires_at;
+  const userId = value?.user?.id;
+  if (
+    typeof accessToken !== 'string' ||
+    !accessToken ||
+    accessToken === SUPABASE_KEY ||
+    typeof expiresAt !== 'number' ||
+    typeof userId !== 'string' ||
+    !userId
+  ) {
+    return null;
+  }
+  return { accessToken, expiresAt, userId };
+}
+
+async function loadSupabaseAuthenticatedSession(
+  forceRefresh: boolean,
+  expectedGeneration: number,
+): Promise<SupabaseAuthenticatedSession | null> {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const nowMs = Date.now();
+
+  if (
+    !forceRefresh &&
+    memoryToken?.userId &&
+    memoryToken.accessToken !== SUPABASE_KEY &&
+    memoryToken.expiresAt - 10 > nowSec
+  ) {
+    return {
+      accessToken: memoryToken.accessToken,
+      expiresAt: memoryToken.expiresAt,
+      userId: memoryToken.userId,
+    };
+  }
+
+  let cached: Awaited<ReturnType<typeof getSessionFromStorage>> = null;
+  try {
+    cached = await getSessionFromStorage();
+    const storedSession = authenticatedSessionFrom(cached);
+    if (!forceRefresh && storedSession) {
+      if (storedSession.expiresAt - 10 > nowSec) {
+        cacheBearer(storedSession, expectedGeneration);
+        return storedSession;
+      }
+
+      if (nowMs - lastRefreshFailureAt > TOKEN_FAILURE_COOLDOWN_MS) {
+        const refreshed = await forceRefreshSession();
+        if (refreshed) {
+          await rememberRefreshedToken(refreshed, expectedGeneration);
+          const refreshedStored = authenticatedSessionFrom(await getSessionFromStorage());
+          if (refreshedStored?.accessToken === refreshed) return refreshedStored;
+        }
+        lastRefreshFailureAt = Date.now();
+      }
+    }
+  } catch {}
+
+  // A 401 from a private endpoint is stronger evidence than the local expiry
+  // timestamp. Refresh once even when the persisted access token still looks
+  // fresh, then reject the old token if the refresh did not replace it.
+  if (forceRefresh && cached?.refresh_token) {
+    const staleAccessToken = cached.access_token;
+    const refreshed = await forceRefreshSession().catch(() => null);
+    if (refreshed) {
+      await rememberRefreshedToken(refreshed, expectedGeneration);
+      const refreshedStored = authenticatedSessionFrom(await getSessionFromStorage());
+      if (
+        refreshedStored?.accessToken === refreshed &&
+        refreshedStored.accessToken !== staleAccessToken
+      ) {
+        return refreshedStored;
+      }
+    } else {
+      lastRefreshFailureAt = Date.now();
+    }
+  }
+
+  if (forceRefresh || nowMs - lastSessionFailureAt > TOKEN_FAILURE_COOLDOWN_MS) {
+    try {
+      const { data } = await withTimeout(
+        (supabase as any).auth.getSession(),
+        TOKEN_TIMEOUT_MS,
+        'supabase auth session',
+      ) as any;
+      const sdkSession = authenticatedSessionFrom(data?.session);
+      if (
+        sdkSession &&
+        sdkSession.expiresAt - 10 > Math.floor(Date.now() / 1000) &&
+        (!forceRefresh || sdkSession.accessToken !== cached?.access_token)
+      ) {
+        cacheBearer(sdkSession, expectedGeneration);
+        return sdkSession;
+      }
+    } catch {
+      lastSessionFailureAt = Date.now();
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Return only a real user session. Private media and other RLS-sensitive
+ * callers must never silently degrade to the publishable/anon key: that turns
+ * an auth incident into blank data and makes account ownership ambiguous.
+ * Concurrent image mounts share one bounded session lookup.
+ */
+export function getSupabaseAuthenticatedSession(options?: {
+  forceRefresh?: boolean;
+}): Promise<SupabaseAuthenticatedSession | null> {
+  const forceRefresh = options?.forceRefresh === true;
+  const current = forceRefresh
+    ? forcedAuthenticatedSessionPromise
+    : authenticatedSessionPromise;
+  if (current) return current;
+
+  const generation = tokenGeneration;
+  let work!: Promise<SupabaseAuthenticatedSession | null>;
+  work = loadSupabaseAuthenticatedSession(forceRefresh, generation)
+    .then(session => (generation === tokenGeneration ? session : null))
+    .finally(() => {
+      if (forceRefresh) {
+        if (forcedAuthenticatedSessionPromise === work) forcedAuthenticatedSessionPromise = null;
+      } else if (authenticatedSessionPromise === work) {
+        authenticatedSessionPromise = null;
+      }
+    });
+
+  if (forceRefresh) forcedAuthenticatedSessionPromise = work;
+  else authenticatedSessionPromise = work;
+  return work;
+}
+
 export async function getSupabaseRestAccessToken(): Promise<string> {
   const nowSec = Math.floor(Date.now() / 1000);
   const nowMs = Date.now();
+  const generation = tokenGeneration;
 
   if (memoryToken && memoryToken.expiresAt - 10 > nowSec) {
     return memoryToken.accessToken;
@@ -236,14 +399,18 @@ export async function getSupabaseRestAccessToken(): Promise<string> {
     const cached = await getSessionFromStorage();
     if (cached?.access_token && typeof cached.expires_at === 'number') {
       if (cached.expires_at - 10 > nowSec) {
-        memoryToken = { accessToken: cached.access_token, expiresAt: cached.expires_at };
+        cacheBearer({
+          accessToken: cached.access_token,
+          expiresAt: cached.expires_at,
+          userId: cached.user?.id ?? null,
+        }, generation);
         return cached.access_token;
       }
 
       if (nowMs - lastRefreshFailureAt > TOKEN_FAILURE_COOLDOWN_MS) {
         const refreshed = await forceRefreshSession();
         if (refreshed) {
-          await rememberRefreshedToken(refreshed);
+          await rememberRefreshedToken(refreshed, generation);
           return refreshed;
         }
         lastRefreshFailureAt = Date.now();
@@ -262,7 +429,11 @@ export async function getSupabaseRestAccessToken(): Promise<string> {
       const expiresAt = data?.session?.expires_at;
       if (token) {
         if (typeof expiresAt === 'number') {
-          memoryToken = { accessToken: token, expiresAt };
+          cacheBearer({
+            accessToken: token,
+            expiresAt,
+            userId: data?.session?.user?.id ?? null,
+          }, generation);
         }
         return token;
       }
@@ -335,11 +506,12 @@ async function restRequest<T = any>(
     // most one bounded refresh/retry. The queue remains intact if that retry
     // also fails.
     if (response.status === 401 && token && token !== SUPABASE_KEY) {
-      memoryToken = null;
+      clearSupabaseRestTokenCache();
+      const refreshGeneration = tokenGeneration;
       if (Date.now() - lastRefreshFailureAt > TOKEN_FAILURE_COOLDOWN_MS) {
         const refreshed = await forceRefreshSession().catch(() => null);
         if (refreshed) {
-          await rememberRefreshedToken(refreshed);
+          await rememberRefreshedToken(refreshed, refreshGeneration);
           response = await send(refreshed);
         } else if (!refreshed) {
           lastRefreshFailureAt = Date.now();

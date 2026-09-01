@@ -119,9 +119,11 @@ describe('plan preparation performance', () => {
     expect(pdfJsAsset).toContain('getLoadedBundledPdfJsSources');
     expect(viewer).toContain('getLoadedBundledPdfJsSources()');
     expect(viewer).toContain('isResolvablePlanUri(planUri)');
-    expect(media).toContain('resolveMediaRefsWithSession([ref], session, options)');
+    expect(media).toContain('createKeyedBatcher<string>');
+    expect(media).toContain('batcherFor(expectedUserId, options).request(ref)');
     expect(media).toContain('{ userId: offlineMediaUserId, token: null }');
-    expect(media).toContain('if (local[ref]) return local[ref]');
+    expect(media).toContain('output[ref] = item.url');
+    expect(media).toContain('scheduleDiskWarm({');
     expect(media).not.toContain('resolveMediaRefs([ref], options)');
   });
 

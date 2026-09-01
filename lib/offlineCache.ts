@@ -137,9 +137,6 @@ async function runForceRefreshSession(): Promise<string | null> {
       console.warn(`${tag} réponse sans access_token`);
       return null;
     }
-    // Refresh succeeded — clear any prior terminal-expiry latch.
-    notifySessionRecovered();
-
     // Write the refreshed session back into AsyncStorage so supabase-js
     // picks it up on the next read (after the stuck lock eventually releases).
     const key = supabaseStorageKey();
@@ -164,6 +161,10 @@ async function runForceRefreshSession(): Promise<string | null> {
         `${tag} JWT renouvelé ✓ — expire ${new Date(toStore.expires_at * 1000).toISOString()}`,
       );
     }
+    // Wake private-media retries only after the fresh token is durable. Firing
+    // before AsyncStorage.setItem let every mounted image reread the stale token
+    // and immediately create another 401 burst.
+    notifySessionRecovered();
     return newSession.access_token as string;
   } catch (e: any) {
     if (e?.name === 'AbortError') {

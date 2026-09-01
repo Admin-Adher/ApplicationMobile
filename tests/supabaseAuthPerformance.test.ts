@@ -76,5 +76,8 @@ describe('Supabase auth performance guards', () => {
     expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
     expect(authMocks.clearStoredAuth).toHaveBeenCalledTimes(1);
     expect(authMocks.resetAuthLock).toHaveBeenCalledWith('raw session refresh persisted');
+    expect(vi.mocked(AsyncStorage.setItem).mock.invocationCallOrder[0]).toBeLessThan(
+      authMocks.recovered.mock.invocationCallOrder[0],
+    );
   });
 });
