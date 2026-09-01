@@ -56,8 +56,8 @@ describe('private media batcher', () => {
   it('invalidates in-flight work with the account-switch reason', async () => {
     vi.useFakeTimers();
     let resolveHandler!: (value: Map<string, string>) => void;
-    const batcher = createKeyedBatcher(
-      () => new Promise(resolve => { resolveHandler = resolve; }),
+    const batcher = createKeyedBatcher<string>(
+      () => new Promise<Map<string, string>>(resolve => { resolveHandler = resolve; }),
       { delayMs: 20 },
     );
     const request = batcher.request('a');

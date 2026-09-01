@@ -30,7 +30,6 @@ vi.mock('../lib/supabaseRest', () => ({
 
 import {
   clearMediaUrlCache,
-  MediaResolutionError,
   resolveMediaRefOrThrow,
   setMediaCacheUserId,
 } from '../lib/media';
@@ -79,7 +78,11 @@ afterEach(() => {
 
 describe('private media resolution performance and isolation', () => {
   it('resolves visible thumbnails in one POST and does not block on disk download', async () => {
-    const fetchMock = vi.fn(async () => response(200, [asset(REF_A), asset(REF_B)]));
+    let requestInit: RequestInit | undefined;
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      requestInit = init;
+      return response(200, [asset(REF_A), asset(REF_B)]);
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     const first = resolveMediaRefOrThrow(REF_A, { cacheDisk: true });
@@ -91,8 +94,7 @@ describe('private media resolution performance and isolation', () => {
       'https://signed.example/bbbb',
     ]);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const request = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(JSON.parse(String(request.body)).refs).toEqual([REF_A, REF_B]);
+    expect(JSON.parse(String(requestInit?.body)).refs).toEqual([REF_A, REF_B]);
     expect(mocks.downloadAsync).not.toHaveBeenCalled();
 
     await vi.advanceTimersByTimeAsync(1_500);
@@ -136,7 +138,7 @@ describe('private media resolution performance and isolation', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     const request = resolveMediaRefOrThrow(REF_A, { cacheDisk: false });
-    const rejection = expect(request).rejects.toMatchObject<Partial<MediaResolutionError>>({
+    const rejection = expect(request).rejects.toMatchObject({
       code: 'account_changed',
     });
     await vi.advanceTimersByTimeAsync(20);
@@ -148,7 +150,7 @@ describe('private media resolution performance and isolation', () => {
   it('returns a terminal not_found error for an omitted asset', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response(200, [])));
     const request = resolveMediaRefOrThrow(REF_A, { cacheDisk: false });
-    const rejection = expect(request).rejects.toMatchObject<Partial<MediaResolutionError>>({
+    const rejection = expect(request).rejects.toMatchObject({
       code: 'not_found',
       retryable: false,
     });
