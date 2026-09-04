@@ -30,3 +30,4 @@ tmp/
 .playwright-cli/
 dist-stock-*/
 output/
+.vercel

@@ -964,11 +964,13 @@ export async function POST(req: NextRequest) {
         callerProfile.organization_id ?? null,
         payload.recipients,
       );
-      await Promise.allSettled(
+      if (!allowedRecipients.length) {
+        return NextResponse.json({ success: false, error: 'Aucun destinataire autorisé.' }, { status: 403, headers });
+      }
+      const deliveries = await Promise.allSettled(
         allowedRecipients.map(async (to: string) => {
           if (await isOptedOut(supabase, to)) {
-            console.warn('[generate-pdf] destinataire désinscrit, envoi ignoré:', to);
-            return { success: true, suppressed: true };
+            return { success: false, suppressed: true };
           }
           const language = await resolveRecipientLanguage(to, payload.language);
           const copy = PDF_EMAIL_COPY[language];
@@ -1046,6 +1048,13 @@ export async function POST(req: NextRequest) {
           });
         })
       );
+      const accepted = deliveries.filter(result => result.status === 'fulfilled' && result.value.success).length;
+      if (accepted !== deliveries.length) {
+        return NextResponse.json({ success: false, code: 'email_delivery_incomplete', accepted,
+          failed: deliveries.length - accepted,
+          error: `Envoi incomplet : ${accepted}/${deliveries.length} accepté(s) par le serveur mail. Ne renvoyez pas le rapport à tous les destinataires.`,
+        }, { status: 502, headers });
+      }
     }
     const responseHeaders = {
       ...headers,

@@ -155,3 +155,9 @@ jobs:
 
       - name: Execute inventory idempotency matrix
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/inventory_operation_idempotency.sql
+
+      - name: Apply transactional email outbox migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260904220000_durable_transactional_emails.sql
+
+      - name: Verify transactional email isolation, deduplication and crash recovery
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/transactional_email_outbox.sql

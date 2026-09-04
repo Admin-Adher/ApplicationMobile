@@ -100,8 +100,10 @@ export function BuildTrackAccess({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), language }),
+        signal: AbortSignal.timeout(20_000),
       });
-      if (!response.ok) {
+      const result = await response.json().catch(() => null);
+      if (!response.ok || result?.success !== true) {
         const code: WebAuthFeedbackCode = response.status === 429 ? 'rate_limited' : 'reset_unavailable';
         setFeedback(t(errorKey(code)));
         return;
