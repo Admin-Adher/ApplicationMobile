@@ -467,9 +467,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     if (!user) return { success: false, error: i18n.t('subscriptionContext.notAuthenticated') };
     const inv = pendingInvitations.find(i => i.id === id);
     if (!inv) return { success: false, error: i18n.t('subscriptionContext.invitationNotFound') };
-    if (new Date(inv.expiresAt).getTime() <= Date.now()) {
-      return { success: false, error: i18n.t('subscriptionContext.invitationExpired') };
-    }
+    // The authorized RPC renews pending invitations, including expired ones.
 
     let currentInv = inv;
     if (isSupabaseConfigured) {

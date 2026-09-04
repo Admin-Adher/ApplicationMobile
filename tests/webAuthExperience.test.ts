@@ -59,7 +59,7 @@ describe('BuildTrack web access experience', () => {
     expect(login).toContain('WEB_LANGUAGES.map');
     expect(login).toContain("setPassword('')");
     expect(route).toContain('requestedLanguage');
-    expect(route).toContain('?lang=${encodeURIComponent(language)}');
+    expect(route).toContain('enqueueRecovery(email, requestedLanguage, ip)');
     expect(mobileClient).toContain('JSON.stringify({ email, language: i18n.language })');
   });
 });

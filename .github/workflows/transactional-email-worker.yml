@@ -1,0 +1,32 @@
+name: Transactional email recovery
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: transactional-email-worker
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Drain persisted requests and check delivery health
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+          # Never retry an ambiguous HTTP POST here; the database lease handles it.
+          result=$(curl --fail-with-body --silent --show-error --max-time 70 \
+            -X POST 'https://buildtrack-mobile.vercel.app/api/cron/email-outbox' \
+            -H "Authorization: Bearer $CRON_SECRET")
+          printf '%s\n' "$result" | jq '{success, processed, healthy, recentIssues, delayed}'
+          printf '%s' "$result" | jq -e '.success == true and .healthy == true' >/dev/null

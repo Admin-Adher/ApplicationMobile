@@ -1,9 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { after, NextRequest, NextResponse } from 'next/server';
 import { sendEmail } from '@/lib/sender';
+import { enqueueInvitation, enqueueRecovery, processEmailJobs, EmailQueueError } from '@/lib/email-outbox';
 import {
-  invitationEmail,
   welcomeEmail,
-  passwordResetEmail,
   passwordChangedEmail,
   invitationAcceptedEmail,
   accessRevokedEmail,
@@ -21,6 +20,8 @@ import {
   listUnsubscribeHeaders,
 } from '@/lib/emailOptout';
 import { authenticateRequest, createServiceClient, getOrganizationUsers } from '@/lib/server-auth';
+
+export const maxDuration = 60;
 
 function signedReserveUrl(reserveId: string, recipientEmail: string, language?: string | null): string {
   // Fail closed: an unsigned fallback would produce either a broken link or a
@@ -231,18 +232,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Réserve hors organisation' }, { status: 403, headers });
     }
 
+    if (type === 'invitation' || type === 'password-reset') {
+      if (type === 'password-reset' && String(body.email ?? '').trim().toLowerCase() !== caller.email) {
+        return NextResponse.json({ error: 'Destinataire non autorisé' }, { status: 403, headers });
+      }
+      // Templates use the persisted invitation or a server-generated recovery
+      // token, never client-supplied authority fields or recovery URLs.
+      const requestId = type === 'invitation'
+        ? await enqueueInvitation(body, caller)
+        : await enqueueRecovery(body.email, body.language, `actor:${caller.userId}`);
+      after(async () => {
+        await processEmailJobs(requestId).catch(() => {
+          console.error('[email-outbox]', JSON.stringify({ requestId, code: 'worker_deferred' }));
+        });
+      });
+      return NextResponse.json({ success: true, queued: true, requestId }, { status: 202, headers });
+    }
+
     let template: { subject: string; html: string } | null = null;
     let to: string = '';
 
-    if (type === 'invitation') {
-      const { email, invitedByName, organizationName, role, token, expiresAt, companyName } = body;
-      if (!email || !invitedByName || !organizationName || !role || !token || !expiresAt) {
-        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
-      }
-      to = email;
-      const language = await resolveRecipientLanguage(email, body.language);
-      template = invitationEmail({ email, invitedByName, organizationName, role, token, expiresAt, companyName, language });
-    } else if (type === 'welcome') {
+    if (type === 'welcome') {
       const { email, name, organizationName } = body;
       if (!email || !name) {
         return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
@@ -250,14 +260,6 @@ export async function POST(req: NextRequest) {
       to = email;
       const language = await resolveRecipientLanguage(email, body.language);
       template = welcomeEmail({ email, name, organizationName, language });
-    } else if (type === 'password-reset') {
-      const { email, name, resetUrl } = body;
-      if (!email || !name || !resetUrl) {
-        return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400, headers });
-      }
-      to = email;
-      const language = await resolveRecipientLanguage(email, body.language);
-      template = passwordResetEmail({ name, resetUrl, language });
     } else if (type === 'invitation-accepted') {
       const { adminEmail, adminName, inviteeName, inviteeEmail, organizationName, role } = body;
       if (!adminEmail || !adminName || !inviteeName || !inviteeEmail || !organizationName || !role) {
@@ -333,7 +335,7 @@ export async function POST(req: NextRequest) {
 
     const allowed = await recipientAllowed(caller, type, to);
     if (!allowed) {
-      console.warn(`[send-email] destinataire refusé (type=${type}, caller=${caller.userId}):`, String(to).slice(0, 80));
+      console.warn('[send-email] destinataire refusé', { type, caller: caller.userId });
       return NextResponse.json(
         { error: "Destinataire non autorisé pour ce type d'email" },
         { status: 403, headers }
@@ -356,17 +358,14 @@ export async function POST(req: NextRequest) {
     const extraHeaders = exempt ? undefined : listUnsubscribeHeaders(APP_URL, to);
     const result = await sendEmail({ to, subject: template.subject, html, headers: extraHeaders });
     if (!result.success) {
-      return NextResponse.json({ error: result.error ?? "Échec de l'envoi" }, { status: 500, headers });
+      return NextResponse.json({ success: false, error: result.error, code: result.code, requestId: result.requestId }, { status: 503, headers });
     }
-    if (result.simulated) {
-      return NextResponse.json(
-        { error: 'Envoi email non configuré (GMAIL_USER / GMAIL_APP_PASSWORD).', simulated: true },
-        { status: 503, headers },
-      );
-    }
-    return NextResponse.json({ success: true }, { headers });
+    return NextResponse.json({ success: true, status: result.status, requestId: result.requestId }, { headers });
   } catch (err: any) {
-    console.error('[Email] Exception:', err?.message ?? err);
+    if (err instanceof EmailQueueError) {
+      return NextResponse.json({ success: false, error: 'Envoi email indisponible. Réessayez ou contactez votre administrateur.', code: err.code }, { status: err.status, headers });
+    }
+    console.error('[Email] Exception', { code: 'email_request_failed' });
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500, headers });
   }
 }

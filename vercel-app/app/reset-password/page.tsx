@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
-import type { Session } from '@supabase/supabase-js';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { BuildTrackBrand } from '../_components/BuildTrackBrand';
 import { WEB_LANGUAGES, normalizeLang, type SupportedLang } from '@/lib/i18n';
-import { supabaseBrowser } from '@/lib/supabase-browser';
+import { supabaseUrl, supabaseAnonKey } from '@/lib/supabase-public-config';
+import { readRecoveryToken } from '@/lib/recovery-link';
 import { webAuthFeedbackCode } from '@/lib/web-auth-feedback';
 import styles from './reset-password.module.css';
 
@@ -61,12 +62,6 @@ function Icon({ name }: { name: 'eye' | 'eyeOff' | 'lock' | 'check' | 'arrow' })
   return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{content}</svg>;
 }
 
-function hasRecoveryMarker() {
-  const query = new URLSearchParams(window.location.search);
-  const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-  return query.has('code') || query.has('token_hash') || hash.get('type') === 'recovery';
-}
-
 export default function ResetPasswordPage() {
   const [lang, setLang] = useState<SupportedLang>('en');
   const [stage, setStage] = useState<'checking' | 'form' | 'success' | 'error'>('checking');
@@ -75,6 +70,11 @@ export default function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState('');
+  const recoveryClient = useRef<SupabaseClient | null>(null);
+  const recoveryToken = useRef<string | null>(null);
+  const legacySession = useRef<{ access_token: string; refresh_token: string } | null>(null);
+  const verified = useRef(false);
+  const submitLock = useRef(false);
   const copy = COPY[lang];
 
   function selectLanguage(nextLanguage: SupportedLang) {
@@ -87,56 +87,29 @@ export default function ResetPasswordPage() {
   useEffect(() => {
     const nextLanguage = normalizeLang(new URLSearchParams(window.location.search).get('lang') ?? navigator.language);
     selectLanguage(nextLanguage);
-    let alive = true;
-    let accepted = false;
-
-    const acceptRecovery = (session: Session | null) => {
-      if (!alive || !session || accepted) return;
-      accepted = true;
+    // Do not consume a one-use token on page load: enterprise mail scanners
+    // prefetch links. Never reuse an unrelated user's persisted web session.
+    recoveryClient.current ??= createClient(supabaseUrl, supabaseAnonKey, {
+      auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'buildtrack-password-recovery' },
+    });
+    recoveryToken.current = readRecoveryToken(window.location.search, window.location.hash);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+    const accessToken = hash.get('access_token');
+    const refreshToken = hash.get('refresh_token');
+    if (hash.get('type') === 'recovery' && accessToken && refreshToken) {
+      legacySession.current = { access_token: accessToken, refresh_token: refreshToken };
+    }
+    if (recoveryToken.current || legacySession.current) {
       setStage('form');
-      setMessage('');
-    };
-
-    const { data: subscription } = supabaseBrowser.auth.onAuthStateChange((event, session) => {
-      if (event === 'PASSWORD_RECOVERY') acceptRecovery(session);
-    });
-
-    void supabaseBrowser.auth.getSession().then(async ({ data }) => {
-      if (!alive || accepted) return;
-      if (data.session && hasRecoveryMarker()) {
-        acceptRecovery(data.session);
-        return;
-      }
-
-      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ''));
-      const accessToken = hash.get('access_token');
-      const refreshToken = hash.get('refresh_token');
-      if (accessToken && refreshToken && hash.get('type') === 'recovery') {
-        const { data: restored, error } = await supabaseBrowser.auth.setSession({
-          access_token: accessToken,
-          refresh_token: refreshToken,
-        });
-        if (!error) acceptRecovery(restored.session);
-      }
-
-      if (!accepted && alive) {
-        setStage('error');
-        setMessage(COPY[nextLanguage].expired);
-      }
-    }).catch(() => {
-      if (!alive || accepted) return;
+    } else {
       setStage('error');
-      setMessage(COPY[nextLanguage].network);
-    });
-
-    return () => {
-      alive = false;
-      subscription.subscription.unsubscribe();
-    };
+      setMessage(COPY[nextLanguage].expired);
+    }
   }, []);
 
   async function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (submitLock.current) return;
     setMessage('');
     if (password.length < 8) {
       setMessage(copy.tooShort);
@@ -147,9 +120,23 @@ export default function ResetPasswordPage() {
       return;
     }
 
+    submitLock.current = true;
     setSubmitting(true);
     try {
-      const { error } = await supabaseBrowser.auth.updateUser({ password });
+      const client = recoveryClient.current;
+      if (!client) throw new Error('Recovery client unavailable');
+      if (!verified.current) {
+        const verification = recoveryToken.current
+          ? await client.auth.verifyOtp({ token_hash: recoveryToken.current, type: 'recovery' })
+          : legacySession.current ? await client.auth.setSession(legacySession.current) : null;
+        if (!verification || verification.error || !verification.data.session) {
+          setMessage(verification?.error && webAuthFeedbackCode(verification.error) === 'network_unavailable' ? copy.network : copy.expired);
+          return;
+        }
+        verified.current = true;
+        window.history.replaceState(null, '', `/reset-password?lang=${lang}`);
+      }
+      const { error } = await client.auth.updateUser({ password });
       if (error) {
         const code = webAuthFeedbackCode(error);
         setMessage(code === 'network_unavailable' ? copy.network : copy.updateFailed);
@@ -157,11 +144,14 @@ export default function ResetPasswordPage() {
       }
       setPassword('');
       setConfirm('');
-      await supabaseBrowser.auth.signOut({ scope: 'local' });
+      await client.auth.signOut({ scope: 'local' });
+      recoveryToken.current = null;
+      legacySession.current = null;
       setStage('success');
     } catch (error) {
       setMessage(webAuthFeedbackCode(error) === 'network_unavailable' ? copy.network : copy.updateFailed);
     } finally {
+      submitLock.current = false;
       setSubmitting(false);
     }
   }

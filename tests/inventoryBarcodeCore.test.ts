@@ -106,7 +106,7 @@ describe('UPCitemdb fallback', () => {
   });
 
   it('queries the no-key endpoint for a valid GTIN', async () => {
-    const fetchMock = vi.fn<typeof fetch>(async input => {
+    const fetchMock = vi.fn(async (input: unknown) => {
       expect(String(input)).toContain('upc=3250614435225');
       return Response.json({
         items: [{ ean: '3250614435225', title: 'Hager MM509N', brand: 'Hager' }],
@@ -155,7 +155,7 @@ describe('open catalogue lookup', () => {
   });
 
   it('falls back from Open Products Facts to Open Food Facts', async () => {
-    const fetchMock = vi.fn<typeof fetch>(async input => {
+    const fetchMock = vi.fn(async (input: unknown) => {
       const url = String(input);
       if (url.includes('openproductsfacts')) return new Response(null, { status: 404 });
       return Response.json({
@@ -175,7 +175,7 @@ describe('open catalogue lookup', () => {
   });
 
   it('does not query product catalogues for an invalid GTIN', async () => {
-    const fetchMock = vi.fn<typeof fetch>();
+    const fetchMock = vi.fn(async () => new Response(null));
     const match = await lookupOpenFactsCatalogs('3017620422004', { fetchImpl: fetchMock });
     expect(match).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();

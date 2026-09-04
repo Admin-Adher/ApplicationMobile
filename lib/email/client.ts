@@ -41,7 +41,7 @@ async function callEmailApi(body: Record<string, unknown>): Promise<{ success: b
       body: JSON.stringify(body),
     });
     const data = await response.json().catch(() => ({} as { error?: string; success?: boolean; simulated?: boolean }));
-    if (!response.ok || data.simulated || data.success === false) {
+    if (!response.ok || data.simulated || data.success !== true) {
       const errMsg = data?.error ?? response.statusText;
       console.warn('[Email Client] Échec envoi email:', errMsg);
       return { success: false, error: errMsg };
@@ -80,20 +80,25 @@ function getResetUrl(): string {
 }
 
 export async function requestPasswordReset(email: string): Promise<{ success: boolean; error?: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20_000);
   try {
     const url = getResetUrl();
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, language: i18n.language }),
+      signal: controller.signal,
     });
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.success !== true) {
       return { success: false, error: data?.error ?? response.statusText };
     }
     return { success: true };
   } catch (err: any) {
     return { success: false, error: err?.message ?? i18n.t('subscriptionContext.networkError') };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

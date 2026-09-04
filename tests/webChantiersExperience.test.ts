@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { translateWebStaticText } from '../vercel-app/lib/i18n';
 
 const repositoryRoot = resolve(import.meta.dirname, '..');
-const read = (path: string) => readFileSync(resolve(repositoryRoot, path), 'utf8');
+const read = (path: string) => readFileSync(resolve(repositoryRoot, path), 'utf8').replace(/\r\n/g, '\n');
 
 describe('BuildTrack web chantiers experience', () => {
   it('routes Chantiers through a dedicated portfolio and structure workspace', () => {
