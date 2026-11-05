@@ -52,7 +52,8 @@ describe('sync transfer cancellation', () => {
     // L'appel de finalisation du media n'avait AUCUNE borne.
     expect(storage).toContain('async function completeRegisteredUpload(');
     const complete = storage.slice(storage.indexOf('async function completeRegisteredUpload('));
-    expect(complete.slice(0, 1200)).toContain('signal: controller.signal');
+    expect(complete.slice(0, 900)).toContain('signal: requestSignal');
+    expect(storage).toContain('await request(controller.signal)');
 
     // Les sondes de connectivite tenaient une socket bien apres leur delai.
     expect(network).toContain('async function fetchWithAbort(');

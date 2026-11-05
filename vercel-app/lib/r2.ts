@@ -109,13 +109,13 @@ export async function presignR2Read(
 
 export async function headR2Object(
   key: string,
-): Promise<{ ok: boolean; size?: number; etag?: string; contentType?: string; error?: string }> {
+): Promise<{ ok: boolean; size?: number; etag?: string; contentType?: string; status?: number; error?: string }> {
   try {
     const response = await r2Client().fetch(
       `${r2Endpoint()}/${env('R2_BUCKET')}/${encodeKey(key)}`,
       { method: 'HEAD' },
     );
-    if (!response.ok) return { ok: false, error: `HTTP ${response.status}` };
+    if (!response.ok) return { ok: false, status: response.status, error: `HTTP ${response.status}` };
     const size = Number(response.headers.get('content-length') ?? '');
     return {
       ok: true,

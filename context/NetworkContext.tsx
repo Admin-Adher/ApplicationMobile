@@ -2571,7 +2571,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           // fichier. E40/E41 rendent le verdict explicite plus bas.
           if (!photoPatchGalleryFetchFailure && liveReserveForPhotoPatch !== null) try {
             const prep = await withTimeoutMs(
-              uploadLocalPhotosInPayload(op.table, data),
+              uploadLocalPhotosInPayload(op.table, data, { signal: passSignal }),
               uploadStepTimeoutMs(data),
             );
             if (op.table === 'site_plans') {
