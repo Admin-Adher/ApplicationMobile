@@ -844,7 +844,7 @@ export default function OprScreen() {
       items,
       maireOuvrage: maireOuvrage.trim() || undefined,
       visitContradictoire: visitDateForm.trim() || undefined,
-      createdAt: nowTimestampFR(),
+      createdAt: new Date().toISOString(),
     };
     addOpr(opr);
     setTitle('');
