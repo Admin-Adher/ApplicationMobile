@@ -8,7 +8,10 @@ export type MessageChannelFilter = 'all' | 'unread' | 'company' | 'dm' | 'site';
 export type MessageChannelRecord = {
   id: string;
   name?: string | null;
+  description?: string | null;
   type?: string | null;
+  organization_id?: string | null;
+  created_by_user_id?: string | null;
   members?: unknown;
   created_at?: string | null;
 };
@@ -43,10 +46,13 @@ export type AuthorizedMessagesSnapshot = {
   messages: MessageRecord[];
 };
 
+export type MessageAction = { type: 'reaction'; emoji: string } | { type: 'pin' } | { type: 'delete' };
+
 export type MessageSendInput = {
   channelId: string;
   content: string;
   attachmentRef?: string | null;
+  attachmentFile?: File;
   replyTo?: Pick<MessageRecord, 'id' | 'content' | 'sender'> | null;
 };
 

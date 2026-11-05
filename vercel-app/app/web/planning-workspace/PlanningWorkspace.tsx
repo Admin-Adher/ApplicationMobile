@@ -28,7 +28,9 @@ type PlanningWorkspaceProps = {
   emptyTaskLabel: string;
   reserveStatusLabels: Record<string, string>;
   visitStatusLabels: Record<string, string>;
-  onUpdateTask?: (task: any, patch: Record<string, unknown>) => void | Promise<void>;
+  onUpdateTask?: (task: any, patch: Record<string, unknown>) => boolean | Promise<boolean>;
+  onAddTaskComment?: (task: any, content: string) => Promise<boolean>;
+  onDeleteTask?: (task: any) => Promise<void>;
   onCreateTask?: (draft: Record<string, string>) => boolean | Promise<boolean>;
   onOpenReserve?: (reserveId: string) => void;
   onOpenVisites?: () => void;
@@ -70,6 +72,8 @@ export default function PlanningWorkspace({
   reserveStatusLabels,
   visitStatusLabels,
   onUpdateTask,
+  onAddTaskComment,
+  onDeleteTask,
   onCreateTask,
   onOpenReserve,
   onOpenVisites,
@@ -84,6 +88,8 @@ export default function PlanningWorkspace({
   const [showForm, setShowForm] = useState(false);
   const [showGantt, setShowGantt] = useState(false);
   const [detailId, setDetailId] = useState('');
+  const [taskComment, setTaskComment] = useState('');
+  const [commentBusy, setCommentBusy] = useState(false);
   const [draft, setDraft] = useState({ title: '', start_date: '', deadline: '', company: '', assignee: '' });
   const [busy, setBusy] = useState(false);
   const now = useMemo(() => new Date(), []);
@@ -305,7 +311,7 @@ export default function PlanningWorkspace({
                             </dl>
                             <div className={styles.taskProgress} aria-label={`Progression ${progress}%`}><span style={{ width: `${progress}%` }} /></div>
                             <details open={detailId === String(task.id)} onToggle={event => {
-                              if (event.currentTarget.open) setDetailId(String(task.id));
+                              if (event.currentTarget.open) { setDetailId(String(task.id)); setTaskComment(''); }
                               else setDetailId(current => current === String(task.id) ? '' : current);
                             }}>
                               <summary>Détails de la tâche</summary>
@@ -314,6 +320,19 @@ export default function PlanningWorkspace({
                               {Array.isArray(task.comments) ? task.comments.map((comment: any, index: number) => (
                                 <p key={comment.id ?? index}><strong>{comment.author}</strong> {comment.text ?? comment.content}</p>
                               )) : null}
+                              {editable && onAddTaskComment ? (
+                                <form className={styles.taskActions} onSubmit={async event => {
+                                  event.preventDefault();
+                                  if (!taskComment.trim() || commentBusy) return;
+                                  setCommentBusy(true);
+                                  try { if (await onAddTaskComment(task, taskComment)) setTaskComment(''); }
+                                  finally { setCommentBusy(false); }
+                                }}>
+                                  <input aria-label="Commentaire de la tâche" placeholder="Ajouter un commentaire" value={taskComment} onChange={event => setTaskComment(event.target.value)} />
+                                  <button type="submit" disabled={commentBusy || !taskComment.trim()}>Ajouter</button>
+                                </form>
+                              ) : null}
+                              {onDeleteTask ? <div className={styles.taskActions}><button type="button" onClick={() => void onDeleteTask(task)}>Supprimer la tâche</button></div> : null}
                             </details>
                             {editable ? (
                               <div className={styles.taskActions} aria-label={`Mettre à jour ${task.title ?? 'la tâche'}`}>

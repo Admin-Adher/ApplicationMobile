@@ -126,6 +126,7 @@ import ChantiersWorkspace from './chantiers-workspace/ChantiersWorkspace';
 import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace';
 import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
+import type { ChannelDraft } from './messages-workspace/ChannelEditor';
 import OprWorkspace from './opr-workspace/OprWorkspace';
 import { buildWebOprPrint } from './opr-workspace/opr-print';
 import PortalWorkspace from './PortalWorkspace';
@@ -135,9 +136,14 @@ import WebDxfPlan from './plan-reserve-workspace/WebDxfPlan';
 import {
   mergeMessageReadState,
   type MessageSendInput,
+  type MessageAction,
+  type MessageChannelRecord,
+  type MessageRecord,
 } from './messages-workspace/messages-model';
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
+import { useWebOutbox } from '@/lib/use-web-outbox';
+import { isWebNetworkFailure, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
 
 const webPlanAnnotationWriteQueue = new LatestWriteQueue<PlanDrawing[]>();
 
@@ -149,6 +155,7 @@ type Profile = {
   email: string;
   role: Role;
   role_label?: string | null;
+  membership_status?: string | null;
   organization_id?: string | null;
   company_id?: string | null;
   preferred_language?: SupportedLang | null;
@@ -3051,6 +3058,8 @@ export default function BuildTrackWebPage() {
   });
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
+  const outboxOwner = authUser?.id && profile?.organization_id ? authUser.id + ':' + profile.organization_id : '';
+  const outbox = useWebOutbox(outboxOwner, executeWebOperation);
   const previewCacheOwnerRef = useRef<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
@@ -4483,7 +4492,7 @@ export default function BuildTrackWebPage() {
     const uploaded = await Promise.all(newPhotos.map(async photo => {
       if (!photo.file) return null;
       const url = await uploadWebFile('photos', photo.file, `reserve_${reserveId}_${photo.kind ?? 'defect'}`);
-      return { photo, url, takenAt: new Date().toISOString(), photoId: crypto.randomUUID() };
+      return { photo, url, takenAt: new Date().toISOString(), photoId: photo.id };
     }));
     const uploadedPhotos: any[] = [];
     const photoRows: any[] = [];
@@ -4674,8 +4683,13 @@ export default function BuildTrackWebPage() {
         photos: null,
         photo_annotations: null,
       };
+      let prepared: Awaited<ReturnType<typeof buildReservePhotoPatch>> | undefined;
       try {
-        const photoPatch = await buildReservePhotoPatch(id, reserveDraft);
+        if (!navigator.onLine) {
+          await queueReserve();
+          return;
+        }
+        const photoPatch = prepared = await buildReservePhotoPatch(id, reserveDraft);
         const reservePayload = { ...insertPayload, photos: photoPatch.photos, photo_uri: photoPatch.photo_uri };
         const { data: inserted, error: insertError } = await (supabaseBrowser as any).rpc('create_reserve_with_photos', {
           p_reserve: reservePayload,
@@ -4697,7 +4711,17 @@ export default function BuildTrackWebPage() {
         closeReserveModal();
         setNotice('Réserve créée.');
       } catch (insertError: any) {
-        setError(insertError?.message ?? 'Création de la réserve impossible.');
+        if (isWebNetworkFailure(insertError)) {
+          try { await queueReserve(); }
+          catch (cause) { setError(cause instanceof Error ? cause.message : 'Sauvegarde locale impossible.'); }
+        } else setError(insertError?.message ?? 'Création de la réserve impossible.');
+      }
+
+      async function queueReserve() {
+        await outbox.enqueue('create_reserve', insertPayload, reserveDraft, prepared);
+        closeReserveModal();
+        setSaving(false);
+        setNotice('Réserve conservée sur ce navigateur. Elle sera envoyée au retour de la connexion.');
       }
     }
     setSaving(false);
@@ -4947,20 +4971,31 @@ export default function BuildTrackWebPage() {
   }
 
   async function updateTaskQuick(task: any, patch: Record<string, any>) {
-    if (!canEdit(profile)) return;
-    const payload = {
-      ...patch,
-      progress: patch.progress ?? task.progress ?? 0,
-    };
-    setData(prev => ({
-      ...prev,
-      tasks: prev.tasks.map(item => item.id === task.id ? { ...item, ...payload } : item),
-    }));
-    const { error: taskError } = await supabaseBrowser
-      .from('tasks')
-      .update(payload)
-      .eq('id', task.id);
-    if (taskError) setError(taskError.message);
+    if (!canEdit(profile)) return false;
+    let query = supabaseBrowser.from('tasks').update(patch).eq('id', task.id);
+    if (Object.hasOwn(patch, 'comments')) {
+      query = task.comments == null ? query.is('comments', null) : query.eq('comments', JSON.stringify(task.comments));
+    }
+    const { data: saved, error } = await query.select().maybeSingle();
+    if (error || !saved) {
+      setError(error?.message || 'La tâche a changé. Synchronisez avant de réessayer.');
+      return false;
+    }
+    setData(previous => ({ ...previous, tasks: previous.tasks.map(row => row.id === task.id ? saved : row) }));
+    return true;
+  }
+
+  async function addTaskComment(task: any, content: string) {
+    if (!authUser || !content.trim()) return false;
+    const comment = { id: crypto.randomUUID(), author: userLabel(profile, authUser), authorId: authUser.id, content: content.trim(), createdAt: new Date().toISOString() };
+    return await updateTaskQuick(task, { comments: [...(Array.isArray(task.comments) ? task.comments : []), comment] });
+  }
+
+  async function deleteTaskWeb(task: any) {
+    if (!canDelete(profile) || !window.confirm('Supprimer la tâche « ' + task.title + ' » ?')) return;
+    const { data: deleted, error } = await supabaseBrowser.from('tasks').delete().eq('id', task.id).select('id').maybeSingle();
+    if (error || !deleted) { setError(error?.message || 'Suppression de la tâche refusée.'); return; }
+    setData(previous => ({ ...previous, tasks: previous.tasks.filter(row => row.id !== task.id) }));
   }
 
   async function createOprSignerLink(oprId: string, signerId: string) {
@@ -4999,7 +5034,7 @@ export default function BuildTrackWebPage() {
       chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
       title: String(payload.title ?? '').trim(),
       description: String(payload.description ?? ''),
-      company: payload.company || null,
+      company: payload.company || '',
       assignee: String(payload.assignee ?? ''),
       status: payload.status || 'todo',
       priority: payload.priority || 'medium',
@@ -6077,12 +6112,186 @@ export default function BuildTrackWebPage() {
     }
   }
 
+  async function addGalleryPhoto(file: File) {
+    if (!canCreate(profile) || !profile?.organization_id || selectedProjectId === 'all') {
+      throw new Error('Sélectionnez un chantier où vous pouvez ajouter une photo.');
+    }
+    if (!file.type.startsWith('image/') || file.size > 15 * 1024 * 1024) throw new Error('Choisissez une image de 15 Mo maximum.');
+    const id = crypto.randomUUID();
+    const ref = await uploadWebFile('photos', file, 'gallery_' + id);
+    const row = {
+      id, uri: ref, comment: file.name, location: '', color_code: '#003082',
+      taken_at: new Date().toISOString(), taken_by: userLabel(profile, authUser),
+      chantier_id: selectedProjectId, organization_id: profile.organization_id,
+    };
+    const { data: saved, error } = await supabaseBrowser.from('photos').insert(row).select().maybeSingle();
+    if (error || !saved) throw new Error(error?.message || 'Impossible d’ajouter la photo.');
+    setData(previous => ({ ...previous, photos: [saved, ...previous.photos.filter(photo => photo.id !== id)] }));
+  }
+
+  async function deleteGalleryPhoto(photo: any) {
+    if (!canDelete(profile) || photo.reserve_id || photo.reserveId) throw new Error('Cette photo se gère depuis sa réserve.');
+    const { error } = await supabaseBrowser.rpc('soft_delete_photo', { p_photo_id: photo.id, p_reason: 'gallery_web' });
+    if (error) throw new Error(error.message);
+    setData(previous => ({ ...previous, photos: previous.photos.filter(row => row.id !== photo.id) }));
+  }
+
+  async function shareGalleryPhoto(photo: any, channelId: string) {
+    const attachmentRef = assetUrl(photo, 'photos');
+    if (!attachmentRef || !data.channels.some(channel => channel.id === channelId)) throw new Error('Photo ou canal indisponible.');
+    const sent = await sendMessage({ channelId, content: '', attachmentRef }, false);
+    if (!sent) throw new Error('La photo n’a pas pu être partagée dans le canal.');
+  }
+
   async function uploadMessagePhoto(file: File, channelId: string) {
     return uploadRegisteredWebFile('photos', file, safeStorageName(`message_${channelId}_${crypto.randomUUID()}`));
   }
 
-  async function sendMessage(input: MessageSendInput) {
-    if (!input.channelId || (!input.content.trim() && !input.attachmentRef) || !profile) return false;
+  function canManageMessageChannel(channel: MessageChannelRecord) {
+    return ['group', 'custom'].includes(channel.type ?? '')
+      && (isAdmin(profile) || channel.created_by_user_id === authUser?.id);
+  }
+
+  async function loadMessageChannelMembers(id: string) {
+    const { data: members, error } = await supabaseBrowser.from('channel_members')
+      .select('user_id').eq('channel_id', id).eq('status', 'active');
+    if (error) throw new Error(error.message);
+    return (members ?? []).map(member => String(member.user_id));
+  }
+
+  async function saveMessageChannel(draft: ChannelDraft, current: MessageChannelRecord | null) {
+    const organizationId = current?.organization_id ?? profile?.organization_id;
+    if (!authUser || !organizationId || (current ? !canManageMessageChannel(current) : !canCreate(profile))) {
+      throw new Error('Votre compte ne peut pas modifier ce canal.');
+    }
+    const id = current?.id ?? 'channel-' + crypto.randomUUID();
+    const fields = { name: draft.name, description: draft.description };
+    const result = draft.type === 'group'
+      ? await supabaseBrowser.rpc('upsert_private_channel', {
+        p_channel_id: id, p_type: 'group', p_name: draft.name, p_description: draft.description,
+        p_icon: 'people-circle', p_color: '#7C3AED', p_member_user_ids: draft.memberIds,
+        p_organization_id: organizationId,
+      })
+      : await (current ? supabaseBrowser.from('channels').update(fields).eq('id', id)
+        : supabaseBrowser.from('channels').insert({
+          ...fields, id, type: 'custom', members: [], icon: 'chatbubbles', color: '#003082',
+          created_by: userLabel(profile, authUser), created_by_user_id: authUser.id, organization_id: organizationId,
+        })).select().maybeSingle();
+    const row = Array.isArray(result.data) ? result.data[0] : result.data;
+    if (result.error || !row) throw new Error(result.error?.message || 'Impossible d’enregistrer le canal.');
+    setData(previous => ({ ...previous, channels: [row, ...previous.channels.filter(channel => channel.id !== id)] }));
+    return id;
+  }
+
+  async function deleteMessageChannel(channel: MessageChannelRecord) {
+    if (!canManageMessageChannel(channel)) return;
+    const { data: deleted, error } = await supabaseBrowser.from('channels').delete().eq('id', channel.id).select('id').maybeSingle();
+    if (error || !deleted) throw new Error(error?.message || 'Suppression du canal refusée.');
+    setData(previous => ({
+      ...previous,
+      channels: previous.channels.filter(row => row.id !== channel.id),
+      messages: previous.messages.filter(row => row.channel_id !== channel.id),
+    }));
+    setSelectedChannelId(current => current === channel.id ? '' : current);
+  }
+
+  async function actOnMessage(message: MessageRecord, action: MessageAction) {
+    if (!authUser || !profile) throw new Error('Reconnectez-vous pour continuer.');
+    if (action.type === 'reaction') {
+      const { error } = await supabaseBrowser.rpc('toggle_message_reaction', {
+        p_message_id: message.id, p_emoji: action.emoji, p_user_name: userLabel(profile, authUser),
+      });
+      if (error) throw new Error(error.message);
+      const { data: current, error: refreshError } = await supabaseBrowser.from('messages')
+        .select('reactions').eq('id', message.id).maybeSingle();
+      if (refreshError || !current) throw new Error('La réaction a été envoyée. Synchronisez la conversation pour l’afficher.');
+      setData(previous => ({ ...previous, messages: previous.messages.map(row => row.id === message.id ? { ...row, reactions: current.reactions } : row) }));
+      return;
+    }
+    if (message.sender_id !== authUser.id && !isAdmin(profile)) throw new Error('Action réservée à l’auteur ou à un administrateur.');
+    const { data: saved, error } = await (action.type === 'delete'
+      ? supabaseBrowser.from('messages').delete()
+      : supabaseBrowser.from('messages').update({ is_pinned: !message.is_pinned }))
+      .eq('id', message.id).select('id,is_pinned').maybeSingle();
+    if (error || !saved) throw new Error(error?.message || 'Action refusée.');
+    setData(previous => ({
+      ...previous, messages: action.type === 'delete'
+        ? previous.messages.filter(row => row.id !== message.id)
+        : previous.messages.map(row => row.id === message.id ? { ...row, is_pinned: saved.is_pinned } : row),
+    }));
+  }
+
+  async function insertWebMessage(payload: Record<string, unknown>) {
+    const result = await supabaseBrowser.from('messages').insert(payload).select().single();
+    if (result.error?.code === '23505') {
+      const prior = await supabaseBrowser.from('messages').select('*').eq('id', String(payload.id))
+        .eq('channel_id', String(payload.channel_id)).eq('sender_id', String(authUser?.id)).maybeSingle();
+      if (prior.error) throw prior.error;
+      if (prior.data) return { row: prior.data, created: false };
+    }
+    if (result.error || !result.data) throw result.error ?? new Error('Message non enregistré.');
+    return { row: result.data, created: true };
+  }
+
+  function acceptWebMessage(result: Awaited<ReturnType<typeof insertWebMessage>>) {
+    setData(previous => ({ ...previous, messages: [result.row, ...previous.messages.filter(row => row.id !== result.row.id)] }));
+    if (result.created) triggerWebPush({ type: 'message-created', messageId: String(result.row.id) });
+  }
+
+  async function executeWebOperation(operation: WebQueuedOperation, stillOwned: () => boolean) {
+    const assertOwner = async () => {
+      const { data: current } = await supabaseBrowser.auth.getSession();
+      if (!stillOwned() || !current.session || current.session.user.id !== authUser?.id || operation.owner !== outboxOwner) {
+        throw new Error('La session de synchronisation a changé.');
+      }
+    };
+    await assertOwner();
+    if (operation.kind === 'send_message') {
+      let attachment = typeof operation.prepared === 'string' ? operation.prepared : operation.payload.attachment_uri;
+      if (!attachment && operation.files instanceof File) {
+        attachment = await uploadMessagePhoto(operation.files, String(operation.payload.channel_id));
+        operation.prepared = attachment;
+        operation.files = undefined;
+        await saveWebOperation(operation);
+        await assertOwner();
+      }
+      const saved = await insertWebMessage({ ...operation.payload, attachment_uri: attachment ?? null });
+      if (stillOwned()) acceptWebMessage(saved);
+      return;
+    }
+
+    if (!canCreate(profile) || operation.payload.organization_id !== profile?.organization_id) {
+      throw new Error('Votre compte ne peut plus créer de réserves sur ce chantier.');
+    }
+    const id = String(operation.payload.id);
+    let prepared = operation.prepared as Awaited<ReturnType<typeof buildReservePhotoPatch>> | undefined;
+    if (!prepared) {
+      prepared = await buildReservePhotoPatch(id, operation.files as ReserveDraft);
+      operation.prepared = prepared;
+      operation.files = undefined;
+      await saveWebOperation(operation);
+      await assertOwner();
+    }
+    const payload = { ...operation.payload, photos: prepared.photos, photo_uri: prepared.photo_uri };
+    const { data: inserted, error } = await supabaseBrowser.rpc('create_reserve_with_photos', {
+      p_reserve: payload, p_photo_rows: prepared.photoRows ?? [],
+    });
+    if (error) throw error;
+    if (!stillOwned()) return;
+    const saved = (Array.isArray(inserted) ? inserted[0] : inserted) ?? payload;
+    setData(previous => ({ ...previous, reserves: [saved, ...previous.reserves.filter(row => row.id !== id)] }));
+    if (typeof operation.payload.visite_id === 'string' && operation.payload.visite_id) {
+      await assertOwner();
+      const { error: linkError } = await supabaseBrowser.rpc('link_reserves_to_visite', {
+        p_visite_id: operation.payload.visite_id, p_reserve_ids: [id],
+      });
+      if (linkError) throw linkError;
+    }
+    if (stillOwned()) triggerWebPush({ type: 'reserve-created', reserveId: id });
+  }
+
+  async function sendMessage(input: MessageSendInput, clearComposer = true) {
+    if (!input.channelId || (!input.content.trim() && !input.attachmentRef && !input.attachmentFile) || !profile) return false;
     setSaving(true);
     setError('');
     const payload = {
@@ -6101,23 +6310,31 @@ export default function BuildTrackWebPage() {
       reply_to_content: input.replyTo?.content ?? null,
       reply_to_sender: input.replyTo?.sender ?? null,
     };
-    const { data: inserted, error: messageError } = await supabaseBrowser
-      .from('messages')
-      .insert(payload)
-      .select()
-      .single();
-    if (messageError) {
-      setError(messageError.message);
-      setSaving(false);
+    let uploaded = input.attachmentRef;
+    async function queueMessage() {
+      await outbox.enqueue('send_message', payload, uploaded ? undefined : input.attachmentFile, uploaded);
+      if (clearComposer) setMessageDraft('');
+      setNotice('Message conservé sur ce navigateur. Il sera envoyé au retour de la connexion.');
+      return true;
+    }
+    try {
+      if (!navigator.onLine) return await queueMessage();
+      if (input.attachmentFile && !uploaded) uploaded = await uploadMessagePhoto(input.attachmentFile, input.channelId);
+      const saved = await insertWebMessage({ ...payload, attachment_uri: uploaded ?? null });
+      acceptWebMessage(saved);
+      if (clearComposer) setMessageDraft('');
+      return true;
+    } catch (cause) {
+      let failure = cause;
+      if (isWebNetworkFailure(cause)) {
+        try { return await queueMessage(); }
+        catch (localError) { failure = localError; }
+      }
+      setError(typeof failure === 'object' && failure && 'message' in failure ? String(failure.message) : 'Envoi du message impossible.');
       return false;
+    } finally {
+      setSaving(false);
     }
-    else {
-      setMessageDraft('');
-      setData(prev => ({ ...prev, messages: [inserted, ...prev.messages] }));
-      triggerWebPush({ type: 'message-created', messageId: String(inserted?.id ?? payload.id) });
-    }
-    setSaving(false);
-    return true;
   }
 
   const openReserveDetailTab = useCallback((reserveId: string, targetOverride?: any) => {
@@ -6696,13 +6913,15 @@ export default function BuildTrackWebPage() {
           ] : []),
           {
             id: 'sync',
-            label: loading || syncing ? t('common.syncing') : t('common.sync'),
+            label: loading || syncing || outbox.syncing ? t('common.syncing') : t('common.sync'),
             icon: 'sync',
             variant: 'quiet',
-            disabled: loading || syncing,
-            busy: loading || syncing,
-            onClick: () => {
-              if (session.user) void loadEverything(session.user, { background: true });
+            disabled: loading || syncing || outbox.syncing,
+            busy: loading || syncing || outbox.syncing,
+            onClick: async () => {
+              if (!navigator.onLine) { setNotice('Hors connexion. Les opérations en attente sont conservées.'); return; }
+              await outbox.flush(true);
+              if (session.user) await loadEverything(session.user, { background: true });
             },
           },
         ]}
@@ -6717,6 +6936,16 @@ export default function BuildTrackWebPage() {
         onLogout={handleSignOut}
       >
 
+        {outbox.rows.length || outbox.storageError ? <section className={styles.outbox} aria-label="Synchronisation hors connexion">
+          {outbox.storageError ? <p role="alert">{outbox.storageError}</p> : null}
+          {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
+            <ul>{outbox.rows.map(operation => <li key={operation.key}>
+              {operation.kind === 'create_reserve' ? 'Réserve ' + String(operation.payload.title ?? operation.payload.id) : 'Message'}
+              {operation.error ? ' · ' + operation.error : ' · En attente'}
+            </li>)}</ul>
+            <button type="button" disabled={outbox.syncing} onClick={() => void outbox.flush(true)}>{outbox.syncing ? 'Synchronisation…' : 'Réessayer les envois'}</button>
+          </> : null}
+        </section> : null}
         {error ? (
           <div className={styles.floatingAlert} role="alert">
             <span>{error}</span>
@@ -7014,6 +7243,8 @@ export default function BuildTrackWebPage() {
                  editable={canEdit(profile)}
                  canCreate={canCreate(profile)}
                  onUpdateTask={updateTaskQuick}
+                 onAddTaskComment={addTaskComment}
+                 onDeleteTask={canDelete(profile) ? deleteTaskWeb : undefined}
                  onCreateTask={createTaskWeb}
                  onOpenReserve={openReserveDetailTab}
                  onOpenVisites={() => setActiveTab('visites')}
@@ -7037,7 +7268,14 @@ export default function BuildTrackWebPage() {
                 onDraftChange={setMessageDraft}
                 onSelectChannel={setSelectedChannelId}
                 onSend={sendMessage}
-                onUploadPhoto={uploadMessagePhoto}
+                channelPeople={data.profiles.filter(person => person.membership_status === 'active' || !person.membership_status).map(person => ({ id: person.id, name: person.name || person.email || person.id }))}
+                canCreateChannel={canCreate(profile)}
+                canManageChannel={canManageMessageChannel}
+                canModerate={isAdmin(profile)}
+                loadChannelMembers={loadMessageChannelMembers}
+                onSaveChannel={saveMessageChannel}
+                onDeleteChannel={deleteMessageChannel}
+                onMessageAction={actOnMessage}
                 saving={saving}
               />
             )}
@@ -7078,7 +7316,12 @@ export default function BuildTrackWebPage() {
               />
             )}
             {activeTab === 'media' && (
-              <MediaView photos={projectScoped.photos} documents={projectScoped.documents} isSubcontractor={profile?.role === 'sous_traitant'} />
+              <MediaView photos={projectScoped.photos} documents={projectScoped.documents} isSubcontractor={profile?.role === 'sous_traitant'}
+                channels={data.channels}
+                onAddPhoto={canCreate(profile) && selectedProjectId !== 'all' ? addGalleryPhoto : undefined}
+                onDeletePhoto={canDelete(profile) ? deleteGalleryPhoto : undefined}
+                onSharePhoto={canUseReserveTunnel(profile) ? shareGalleryPhoto : undefined}
+                canExportPhoto={canExport(profile)} />
             )}
             {activeTab === 'rapports' && (
               <RapportsView
@@ -12537,7 +12780,7 @@ function VisitesView({
   );
 }
 
-function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onCreateTask, onOpenReserve, onOpenVisites }: any) {
+function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites }: any) {
   const { t, locale } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Planning" />;
   return (
@@ -12553,6 +12796,8 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
       reserveStatusLabels={STATUS_LABELS}
       visitStatusLabels={VISIT_STATUS_LABELS}
       onUpdateTask={onUpdateTask}
+      onAddTaskComment={onAddTaskComment}
+      onDeleteTask={onDeleteTask}
       onCreateTask={onCreateTask}
       onOpenReserve={onOpenReserve}
       onOpenVisites={onOpenVisites}
@@ -12560,8 +12805,46 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
   );
 }
 
-function MediaView({ photos, documents, isSubcontractor }: { photos: any[]; documents: any[]; isSubcontractor?: boolean }) {
+function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, onDeletePhoto, onSharePhoto, canExportPhoto }: {
+  photos: any[]; documents: any[]; isSubcontractor?: boolean; channels: MessageChannelRecord[];
+  onAddPhoto?: (file: File) => Promise<void>; onDeletePhoto?: (photo: any) => Promise<void>;
+  onSharePhoto?: (photo: any, channelId: string) => Promise<void>; canExportPhoto: boolean;
+}) {
   const [query, setQuery] = useState('');
+  const [sharingId, setSharingId] = useState('');
+  const [channelId, setChannelId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [error, setError] = useState('');
+
+  async function run(action: () => Promise<void>, success?: string) {
+    if (busy) return;
+    setBusy(true); setError(''); setFeedback('');
+    try { await action(); setFeedback(success ?? ''); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Action indisponible.'); }
+    finally { setBusy(false); }
+  }
+
+  async function exportPhoto(photo: any) {
+    const ref = assetUrl(photo, 'photos');
+    if (!ref) throw new Error('Photo indisponible.');
+    const resolved = (await resolvePrivateMediaRefs([ref])).get(ref);
+    if (!resolved) throw new Error('Photo indisponible.');
+    const response = await fetch(resolved);
+    if (!response.ok) throw new Error('Téléchargement impossible.');
+    const blob = await response.blob();
+    const name = safeStorageName(photo.comment || photo.name || 'photo-buildtrack');
+    const filename = /\.[a-z0-9]{2,5}$/i.test(name) ? name : name + '.' + (blob.type.split('/')[1] || 'jpg');
+    const file = new File([blob], filename, { type: blob.type });
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file] }); return; }
+      catch (cause) {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        if (!(cause instanceof DOMException && cause.name === 'NotAllowedError')) throw cause;
+      }
+    }
+    downloadBlobFile(file, filename);
+  }
   // Recherche différée : la frappe reste fluide même avec des centaines de photos.
   const deferredQuery = useDeferredValue(query);
   const q = deferredQuery.trim().toLowerCase();
@@ -12584,15 +12867,40 @@ function MediaView({ photos, documents, isSubcontractor }: { photos: any[]; docu
       </section>
       <section className={styles.panel}>
         <h2>Photos</h2>
+        {onAddPhoto ? <label className={styles.galleryUpload}>Ajouter une photo<input type="file" accept="image/*" capture="environment" disabled={busy} onChange={event => {
+          const file = event.currentTarget.files?.[0];
+          event.currentTarget.value = '';
+          if (file) void run(() => onAddPhoto(file), 'Photo ajoutée.');
+        }} /></label> : null}
+        {error ? <p role="alert">{error}</p> : null}
+        {feedback ? <p role="status">{feedback}</p> : null}
         <div className={styles.mediaGrid}>
           {filteredPhotos.map((photo: any) => {
             const ref = assetUrl(photo, 'photos');
             return (
-              <PrivateMediaLink key={photo.id ?? ref} className={styles.mediaCard} source={ref}>
+              <article key={photo.id ?? ref} className={styles.galleryPhoto}><PrivateMediaLink className={styles.mediaCard} source={ref}>
                 {ref ? <PrivateMediaImage source={ref} alt={photo.comment ?? photo.title ?? 'Photo chantier'} /> : <span>Photo</span>}
                 <strong>{photo.comment ?? photo.title ?? photo.name ?? 'Photo chantier'}</strong>
-                <small>{photo.location ?? photo.building ?? 'Sans localisation'} · {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
+                <small>{photo.location || photo.building || 'Sans localisation'} · {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
               </PrivateMediaLink>
+              <div className={styles.galleryActions}>
+                {ref && onSharePhoto && channels.length ? <button type="button" onClick={() => { setSharingId(photo.id); setChannelId(''); }}>Partager dans un canal</button> : null}
+                {ref && canExportPhoto ? <button type="button" disabled={busy} onClick={() => void run(() => exportPhoto(photo))}>Partager ou télécharger</button> : null}
+                {onDeletePhoto && !photo.reserve_id && !photo.reserveId ? <button type="button" disabled={busy} onClick={() => {
+                  if (window.confirm('Retirer cette photo de la galerie ?')) void run(() => onDeletePhoto(photo), 'Photo retirée.');
+                }}>Retirer</button> : null}
+              </div>
+              {sharingId === photo.id && onSharePhoto ? <form className={styles.galleryActions} onSubmit={event => {
+                event.preventDefault();
+                if (channelId) void run(async () => { await onSharePhoto(photo, channelId); setSharingId(''); }, 'Photo partagée.');
+              }}>
+                <label>Canal<select required value={channelId} onChange={event => setChannelId(event.target.value)}>
+                  <option value="">Choisir un canal</option>
+                  {channels.map(channel => <option key={channel.id} value={channel.id}>{channel.name || channel.id}</option>)}
+                </select></label>
+                <button type="submit" disabled={busy || !channelId}>Envoyer la photo</button>
+                <button type="button" onClick={() => setSharingId('')}>Annuler</button>
+              </form> : null}</article>
             );
           })}
           {!filteredPhotos.length && <p className={styles.empty}>Aucune photo trouvée.</p>}

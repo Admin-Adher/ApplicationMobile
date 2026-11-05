@@ -36,6 +36,12 @@ const nextConfig: NextConfig = {
     dangerouslyAllowLocalIP: false,
   },
   outputFileTracingIncludes: {
+    '/api/ocr-assets/**': [
+      './node_modules/tesseract.js/dist/worker.min.js',
+      './node_modules/tesseract.js-core/tesseract-core-*-lstm.wasm*',
+      './node_modules/tesseract.js-core/tesseract-core-lstm.wasm*',
+      './node_modules/@tesseract.js-data/*/4.0.0_best_int/*.traineddata.gz',
+    ],
     '/api/generate-pdf': [
       './node_modules/@sparticuz/chromium/bin/**/*',
       './node_modules/@sparticuz/chromium-min/bin/**/*',

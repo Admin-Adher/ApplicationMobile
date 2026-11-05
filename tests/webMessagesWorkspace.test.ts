@@ -20,21 +20,23 @@ describe('BuildTrack web messages workspace', () => {
     expect(model).toContain('MessageSendInput');
     expect(workspace).not.toContain('supabaseBrowser');
     expect(workspace).toContain('await onSend({');
-    expect(workspace).toContain('await onUploadPhoto(file, channelId)');
+    expect(workspace).toContain('attachmentFile: activeAttachment?.file');
+    expect(page).toContain("outbox.enqueue('send_message', payload,");
+    expect(page).toContain('uploadMessagePhoto(input.attachmentFile, input.channelId)');
   });
 
   it('derives message actor and tenant on the server instead of the client payload', () => {
     const page = read('vercel-app/app/web/page.tsx');
-    const sendStart = page.indexOf('async function sendMessage(input: MessageSendInput)');
-    const sendEnd = page.indexOf('const canViewReserveTrash', sendStart);
-    const sendImplementation = page.slice(sendStart, sendEnd);
+    const sendStart = page.indexOf('async function sendMessage(input: MessageSendInput');
+    const payloadStart = page.indexOf('const payload = {', sendStart);
+    const payloadEnd = page.indexOf('let uploaded', payloadStart);
+    const payload = page.slice(payloadStart, payloadEnd);
 
-    expect(sendImplementation).toContain(".from('messages')");
-    expect(sendImplementation).toContain('channel_id: input.channelId');
-    expect(sendImplementation).not.toContain('organization_id:');
-    expect(sendImplementation).not.toContain('sender: profile');
-    expect(sendImplementation).toContain('attachment_uri: input.attachmentRef');
-    expect(sendImplementation).toContain('reply_to_id: input.replyTo?.id');
+    expect(page).toContain("supabaseBrowser.from('messages').insert(payload)");
+    expect(payload).toContain('channel_id: input.channelId');
+    expect(payload).not.toMatch(/^\s*(?:organization_id|sender(?:_id)?)\s*:/m);
+    expect(payload).toContain('attachment_uri: input.attachmentRef');
+    expect(payload).toContain('reply_to_id: input.replyTo?.id');
   });
 
   it('shares read state with mobile and keeps immutable sender identity', () => {

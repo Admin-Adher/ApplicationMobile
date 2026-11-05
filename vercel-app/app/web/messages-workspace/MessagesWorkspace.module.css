@@ -1173,3 +1173,11 @@
     transition: none;
   }
 }
+
+.channelEditor { display: grid; gap: .5rem; margin: .55rem .75rem; padding: .7rem; border: 1px solid #d9e4ef; border-radius: .5rem; background: #f8fafc; }
+.channelEditor > label { display: grid; gap: .2rem; font-size: .85rem; }
+.channelEditor input:not([type=checkbox]), .channelEditor select { width: 100%; padding: .45rem; border: 1px solid #adbed1; border-radius: .35rem; }
+.channelEditor fieldset { max-height: 12rem; overflow: auto; border: 1px solid #adbed1; }
+.channelEditor fieldset label { display: flex; align-items: center; gap: .45rem; }
+.channelEditor div, .manageChannel { display: flex; flex-wrap: wrap; gap: .4rem; padding: .35rem .75rem; }
+.manageChannel button, .channelEditor button { padding: .4rem .55rem; color: #003082; background: #fff; border: 1px solid #b9c9da; border-radius: .4rem; cursor: pointer; }

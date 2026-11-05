@@ -12,6 +12,9 @@
     "@sparticuz/chromium": "^149.0.0",
     "@sparticuz/chromium-min": "^149.0.0",
     "@supabase/supabase-js": "^2.101.1",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/fra": "1.0.0",
+    "@tesseract.js-data/spa": "1.0.0",
     "@types/nodemailer": "^8.0.0",
     "@zxing/browser": "^0.2.0",
     "aws4fetch": "^1.0.20",
@@ -24,6 +27,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "resend": "^4.0.0",
+    "tesseract.js": "7.0.0",
     "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
