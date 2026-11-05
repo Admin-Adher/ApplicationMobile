@@ -1,3 +1,4 @@
+import { getPdfCompanyPalette, renderPdfCompanyLabel, type PdfCompany } from '@/lib/pdfCompanyColors';
 import {
   View,
   Text,
@@ -313,7 +314,8 @@ function interpolatePdf(text: string, values: Record<string, string | number>) {
   return Object.entries(values).reduce((acc, [key, value]) => acc.replaceAll(`{{${key}}}`, String(value)), text);
 }
 
-function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string | null): string {
+function buildOprPDF(opr: Opr, projectName: string, companies: PdfCompany[], t: TFunc, language?: string | null): string {
+  const palette = getPdfCompanyPalette(companies);
   const copy = oprPdfCopy(language);
   const locale = pdfLocale(language);
   const statusIcons: Record<string, string> = { ok: '✓', reserve: '⚠', non_applicable: '—' };
@@ -323,7 +325,7 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string 
   const rows = opr.items.map((item, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${escapeHtml(item.lotName)}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(item.entreprise ?? '—')}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${renderPdfCompanyLabel(item.entreprise ?? '—', palette)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${statusBg[item.status]};color:${statusColors[item.status]};font-weight:700;font-size:11px;padding:3px 10px;border-radius:12px">${statusIcons[item.status]} ${escapeHtml(t(ITEM_STATUS_CFG[item.status].labelKey))}</span>
       </td>
@@ -402,7 +404,7 @@ function buildOprPDF(opr: Opr, projectName: string, t: TFunc, language?: string 
         ${participants.map((p, idx) => `
           <tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
             <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${escapeHtml(p.name)}</td>
-            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(p.company || '—')}</td>
+            <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${renderPdfCompanyLabel(p.company || '—', palette)}</td>
             <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
               <span style="background:${p.present ? '#ECFDF5' : '#FEF2F2'};color:${p.present ? '#059669' : '#DC2626'};font-weight:700;font-size:10px;padding:2px 8px;border-radius:10px">${p.present ? `✓ ${escapeHtml(copy.present)}` : `✗ ${escapeHtml(copy.absent)}`}</span>
             </td>
@@ -583,7 +585,8 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
   return wrapHTML(body, `${copy.closureReport} - ${opr.id}`);
 }
 
-function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string, language?: string | null): string {
+function buildConvocationPDF(opr: Opr, projectName: string, companies: PdfCompany[], conducteur: string, language?: string | null): string {
+  const palette = getPdfCompanyPalette(companies);
   const copy = oprPdfCopy(language);
   const locale = pdfLocale(language);
   const today = new Date().toLocaleDateString(locale);
@@ -595,7 +598,7 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string, 
   const reserveRows = reserveItems.map((item, idx) =>
     `<tr style="background:${idx % 2 === 0 ? '#fff' : '#F9FAFB'}">
       <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:700">${escapeHtml(item.lotName)}</td>
-      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${escapeHtml(item.entreprise ?? '—')}</td>
+      <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#6B7280">${renderPdfCompanyLabel(item.entreprise ?? '—', palette)}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;color:#DC2626;font-weight:700">${escapeHtml(item.deadline ?? '—')}</td>
       <td style="padding:7px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(item.note ?? '')}</td>
     </tr>`
@@ -679,7 +682,7 @@ function buildConvocationPDF(opr: Opr, projectName: string, conducteur: string, 
 
 export default function OprScreen() {
   const { t } = useTranslation();
-  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, activeChantierId, activeChantier, updateReserveStatus, photos } = useApp();
+  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, companies, activeChantierId, activeChantier, updateReserveStatus, photos } = useApp();
   const { user, permissions } = useAuth();
   const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();
@@ -875,7 +878,7 @@ export default function OprScreen() {
   async function exportOprPDF(opr: Opr) {
     try {
       const exportT = getExportTranslator(exportLanguage) as unknown as TFunc;
-      const html = buildOprPDF(opr, projectName, exportT, exportLanguage);
+      const html = buildOprPDF(opr, projectName, companies, exportT, exportLanguage);
       await exportPDFHelper(html, buildPdfFilename('PV_OPR', [opr.id, opr.title, opr.level, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('oprScreen.pdfError'), e?.message ?? '');
@@ -894,7 +897,7 @@ export default function OprScreen() {
   async function exportConvocationPDF(opr: Opr) {
     try {
       const exportT = getExportTranslator(exportLanguage) as unknown as TFunc;
-      const html = buildConvocationPDF(opr, projectName, user?.name ?? exportT('oprScreen.constructionManager'), exportLanguage);
+      const html = buildConvocationPDF(opr, projectName, companies, user?.name ?? exportT('oprScreen.constructionManager'), exportLanguage);
       await exportPDFHelper(html, buildPdfFilename('Convocation_OPR', [opr.id, opr.title, opr.level, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('oprScreen.pdfError'), e?.message ?? '');

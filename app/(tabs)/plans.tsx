@@ -1,3 +1,4 @@
+import { getPdfCompanyPalette, getPdfReservePinColor, renderPdfCompanyLabel, renderPdfReserveCompanies } from '@/lib/pdfCompanyColors';
 import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView, FlatList, Platform,
@@ -274,6 +275,7 @@ async function exportPlanPDF(
   locale: string = 'fr-FR',
   planAnnotations: SitePlan['annotations'] = [],
 ) {
+  const companyPalette = getPdfCompanyPalette(companiesForColor);
   const languageCode = locale.split('-')[0].toUpperCase();
   const displayBuilding = planBuilding || reserves.find(r => !!r.building)?.building || '';
   const displayLevel = planLevel || reserves.find(r => !!r.level)?.level || '';
@@ -291,7 +293,7 @@ async function exportPlanPDF(
     pctX: r.planX!,
     pctY: r.planY!,
     n: numberMap.get(r.id) ?? 0,
-    color: getReservePinColor(r, companiesForColor),
+    color: getPdfReservePinColor(r, companyPalette),
   }));
 
   // Photos embarquées façon « rapport de pendientes » : empilées dans la
@@ -303,8 +305,8 @@ async function exportPlanPDF(
 
   const rowsAndPhotos = await Promise.all(reserves.map(async (r) => {
     const n = numberMap.get(r.id) ?? '-';
-    const color = getReservePinColor(r, companiesForColor);
-    const companyLabel = getReserveCompanyLabel(r);
+    const color = getPdfReservePinColor(r, companyPalette);
+    const companyLabel = renderPdfReserveCompanies(r, companyPalette);
     const rawPhotos = getReservePdfPhotos(r);
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
     const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
@@ -320,7 +322,7 @@ async function exportPlanPDF(
     const row = `<tr class="obs-row">
       <td style="text-align:center;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
       <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${photoStack}</td>
-      <td>${escapeHtml(companyLabel)}</td>
+      <td>${companyLabel}</td>
       <td>${escapeHtml(r.building || displayBuilding || '-')}</td>
       <td>${escapeHtml(r.level || displayLevel || '-')}</td>
       <td><span style="color:${color};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(r.status, t))}</span></td>
@@ -527,6 +529,8 @@ async function exportGlobalReport(
   const STATUS_COLORS = RESERVE_STATUS_COLORS as Record<string, string>;
   const PRIORITY_COLORS = RESERVE_PRIORITY_COLORS as Record<string, string>;
 
+  const companyPalette = getPdfCompanyPalette(companiesForColor);
+
   // 1. Filter reserves by company + status
   // Match against r.company (single string) OR r.companies (multi-company array).
   const matchesCompany = (r: Reserve, filter: string | null): boolean => {
@@ -604,7 +608,7 @@ async function exportGlobalReport(
       const buildGlobalPlanImg = (imgDataUrl: string): string => {
         const pinsWithCoords = planReserves.filter(r => r.planX != null && r.planY != null);
         const circles = pinsWithCoords.map((r, i) => {
-          const color = getReservePinColor(r, companiesForColor);
+          const color = getPdfReservePinColor(r, companyPalette);
           const n = i + 1;
           return (
             `<circle cx="${r.planX}%" cy="${r.planY}%" r="${PIN_R_G}" fill="${color}" stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>` +
@@ -674,10 +678,10 @@ async function exportGlobalReport(
       const MAX_PHOTOS_GLOBAL = maxPhotosPerReserve;
       const rows = (await Promise.all(planReserves.map(async (r, i) => {
         const n = i + 1;
-        const color = getReservePinColor(r, companiesForColor);
+        const color = getPdfReservePinColor(r, companyPalette);
         const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
         const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
-        const companyLabel = getReserveCompanyLabel(r);
+        const companyLabel = renderPdfReserveCompanies(r, companyPalette);
         const rawPhotos = getReservePdfPhotos(r);
         const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_GLOBAL);
         const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
@@ -693,7 +697,7 @@ async function exportGlobalReport(
         return `<tr class="obs-row">
           <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
           <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${photoStack}</td>
-          <td>${escapeHtml(companyLabel)}</td>
+          <td>${companyLabel}</td>
           <td>${escapeHtml(r.level || '-')}</td>
           <td><span style="color:${statusColor};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(r.status, t))}</span></td>
           <td><span style="color:${priorityColor};font-weight:600;">${escapeHtml(reservePriorityLabelForPdf(r.priority, t))}</span></td>
@@ -733,10 +737,10 @@ async function exportGlobalReport(
     const MAX_PHOTOS_ORPHAN = maxPhotosPerReserve;
     const orphanRows = (await Promise.all(orphanReserves.map(async (r, i) => {
       const n = i + 1;
-      const color = getReservePinColor(r, companiesForColor);
+      const color = getPdfReservePinColor(r, companyPalette);
       const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
       const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
-      const companyLabel = getReserveCompanyLabel(r);
+      const companyLabel = renderPdfReserveCompanies(r, companyPalette);
       const rawPhotos = getReservePdfPhotos(r);
       const photosToShow = rawPhotos.slice(0, MAX_PHOTOS_ORPHAN);
       const resolvedSrcs = await Promise.all(photosToShow.map(p => loadPhotoAsDataUrlForPdf(p.uri)));
@@ -752,7 +756,7 @@ async function exportGlobalReport(
       return `<tr class="obs-row">
         <td style="text-align:center;width:36px;"><span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${color};color:#fff;font-weight:700;font-size:11px;">${n}</span></td>
         <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${photoStack}</td>
-        <td>${escapeHtml(companyLabel)}</td>
+        <td>${companyLabel}</td>
         <td>${escapeHtml(r.building || '-')}</td>
         <td>${escapeHtml(r.level || '-')}</td>
         <td><span style="color:${statusColor};font-weight:600;">${escapeHtml(reserveStatusLabelForPdf(r.status, t))}</span></td>
@@ -852,7 +856,7 @@ tbody td{padding:7px 10px;vertical-align:top;}
   <div class="cover-title">${escapeHtml(tOr(t, 'plansScreen.pdfReport.globalTitle', 'Issues report'))}</div>
   <div class="cover-chantier">${escapeHtml(chantierName)}</div>
   <div class="cover-divider"></div>
-  <div class="cover-company">🏢 ${escapeHtml(companyLabel)}</div>
+  <div class="cover-company">🏢 ${renderPdfCompanyLabel(companyLabel, companyPalette)}</div>
   ${statusLabel ? `<div style="font-size:13px;color:#1E3A5F;background:#e8f0fe;padding:5px 18px;border-radius:16px;display:inline-block;margin-top:8px;">${escapeHtml(tOr(t, 'plansScreen.pdfReport.statuses', 'Statuses'))}: ${escapeHtml(statusLabel)}</div>` : ''}
   <div class="cover-stats">
     <div class="stat-block"><span class="stat-num">${totalReserves}</span><span class="stat-lbl">${escapeHtml(tOr(t, 'plansScreen.pdfReport.reservesStat', 'issues'))}</span></div>
@@ -1885,6 +1889,7 @@ export default function PlansScreen() {
           num: i + 1,
           title: r.title,
           company: r.company ?? '',
+          companies: r.companies,
           building: r.building ?? undefined,
           level: r.level ?? undefined,
           status: r.status,
@@ -1913,6 +1918,7 @@ export default function PlansScreen() {
         generatedAt: new Date().toISOString(),
         language: exportLanguage,
         plans: plansPayload,
+        companies: companies.map(({ name, color }) => ({ name, color })),
         reserves: reservesPayload,
         recipients: emails,
         sendByEmail: true,

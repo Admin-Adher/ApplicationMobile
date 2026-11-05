@@ -840,6 +840,8 @@ export default function InventoryWorkspace({
         projection.filteredMovements.map(normalizeExportMovement),
         projectName,
         reportLanguage,
+        new Date(),
+        snapshot.companies.map(({ name, color }) => ({ name: name ?? '', color })),
       );
       const frame = document.createElement('iframe');
       frame.title = 'BuildTrack inventory PDF';

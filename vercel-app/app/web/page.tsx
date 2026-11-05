@@ -2069,7 +2069,8 @@ function toPdfReserveItem(reserve: any, index = 0) {
     id: String(reserve?.id ?? `reserve-${index + 1}`),
     num: index + 1,
     title: String(reserve?.title ?? reserve?.description ?? 'Reserve'),
-    company: reserveCompanies(reserve).join(', '),
+    company: String(reserve?.company ?? ''),
+    companies: reserveCompanies(reserve),
     building: String(reserve?.building_name ?? reserve?.building ?? reserve?.batiment ?? '').trim(),
     level: String(reserve?.level_name ?? reserve?.level ?? reserve?.niveau ?? '').trim(),
     status: String(reserve?.status ?? 'open'),
@@ -5880,10 +5881,7 @@ export default function BuildTrackWebPage() {
       const targetPlans = options?.plans ?? projectScoped.plans;
       const reservePlanId = targetReserve?.plan_id ?? targetReserve?.planId;
       const reservePlan = reservePlanId ? projectScoped.plans.find((plan: any) => String(plan.id) === String(reservePlanId)) : null;
-      const reserveCompanyName = targetReserve ? reserveCompanies(targetReserve)[0] : null;
-      const reserveCompany = reserveCompanyName
-        ? data.companies.find((company: any) => company.name === reserveCompanyName || company.id === targetReserve?.company_id || company.id === targetReserve?.companyId)
-        : null;
+      const reportCompanies = data.companies.map(({ id, name, color }: any) => ({ id, name, color }));
       const planPins = reservePlanId
         ? projectScoped.reserves.filter((reserve: any) =>
             String(reserve.plan_id ?? reserve.planId ?? '') === String(reservePlanId) &&
@@ -5916,7 +5914,7 @@ export default function BuildTrackWebPage() {
             type,
             chantierName: selectedProjectName,
             reserve: reportReserve,
-            companyColor: reserveCompany?.color ?? null,
+            companies: reportCompanies,
             planUri: reservePlanImageUri,
             planName: reservePlan?.name ?? null,
             planX: normalizePlanPercent(reportReserve?.plan_x ?? reportReserve?.planX),
@@ -5934,7 +5932,7 @@ export default function BuildTrackWebPage() {
                 const visitReserveIds = reportVisit?.reserve_ids ?? [];
                 return reserve.visite_id === reportVisit?.id || visitReserveIds.includes(reserve.id);
               }),
-              companies: data.companies,
+              companies: reportCompanies,
               language,
               generatedAt: new Date().toISOString(),
             }
@@ -5943,6 +5941,7 @@ export default function BuildTrackWebPage() {
             chantierName: selectedProjectName,
             reserves: reportReserves,
             plans: reportPlans,
+            companies: reportCompanies,
             companyFilter: [options?.companyFilter, options?.statusFilter].filter(Boolean).join(' · ') || null,
             statusFilter: options?.statusFilter ?? null,
             language,

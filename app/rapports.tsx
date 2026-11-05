@@ -1,3 +1,5 @@
+import { getPdfCompanyPalette, renderPdfCompanyLabel, renderPdfReserveCompanies } from '@/lib/pdfCompanyColors';
+import { getReserveCompanyNames } from '@/lib/planPinColor';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform } from 'react-native';
 import { showAlert } from '@/lib/appAlert';
 import { Ionicons } from '@expo/vector-icons';
@@ -75,18 +77,19 @@ function incidentStatusLabel(t: TFunc, status: string): string {
 }
 
 function buildLotSummaryRows(reserves: any[], companies: any[], t: TFunc): string {
-  const companyNames = [...new Set(reserves.map((r: any) => r.company))];
+  const palette = getPdfCompanyPalette(companies);
+  const companyNames = [...new Set(reserves.flatMap(getReserveCompanyNames))];
   return companyNames.map(name => {
     const co = companies.find((c: any) => c.name === name);
     const coReserves = co
       ? reserves.filter((r: any) => reserveMatchesCompany(r, co))
-      : reserves.filter((r: any) => r.company === name);
+      : reserves.filter(r => getReserveCompanyNames(r).includes(name));
     const open = coReserves.filter((r: any) => r.status !== 'closed').length;
     const closed = coReserves.filter((r: any) => r.status === 'closed').length;
     const pct = coReserves.length > 0 ? Math.round((closed / coReserves.length) * 100) : 0;
     const barColor = pct >= 80 ? '#059669' : pct >= 40 ? '#F59E0B' : '#DC2626';
     return `<tr>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:600">${escapeHtml(name)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-weight:600">${renderPdfCompanyLabel(name, palette)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;font-weight:700;color:#003082">${coReserves.length}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;color:#DC2626;font-weight:700">${open}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center;color:#059669;font-weight:700">${closed}</td>
@@ -105,6 +108,7 @@ function buildLotSummaryRows(reserves: any[], companies: any[], t: TFunc): strin
 function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, projectName: string, t: TFunc, locale = 'fr-FR'): string {
   const now = new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const today = new Date().toLocaleDateString(locale);
+  const palette = getPdfCompanyPalette(companies);
   const docRef = `RJ-${today.replace(/\//g, '')}`;
 
   const severityColors: Record<string, string> = { minor: '#6B7280', moderate: '#F59E0B', major: '#EF4444', critical: '#7F1D1D' };
@@ -118,7 +122,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
   const tdS = 'padding:7px 10px;border-bottom:1px solid #EEF3FA;vertical-align:top';
 
   const personnelRows = companies.map((c: any) =>
-    `<tr><td style="${tdS}">${escapeHtml(c.name)}</td><td style="${tdS};text-align:center;font-weight:700">${c.actualWorkers}</td><td style="${tdS};text-align:center">${c.plannedWorkers}</td><td style="${tdS};text-align:center;color:${c.actualWorkers >= c.plannedWorkers ? '#059669' : '#DC2626'}">${c.actualWorkers >= c.plannedWorkers ? '✓' : '↓'}</td></tr>`
+    `<tr><td style="${tdS}">${renderPdfCompanyLabel(c.name, palette)}</td><td style="${tdS};text-align:center;font-weight:700">${c.actualWorkers}</td><td style="${tdS};text-align:center">${c.plannedWorkers}</td><td style="${tdS};text-align:center;color:${c.actualWorkers >= c.plannedWorkers ? '#059669' : '#DC2626'}">${c.actualWorkers >= c.plannedWorkers ? '✓' : '↓'}</td></tr>`
   ).join('');
 
   const taskRows = tasks.filter((t: any) => t.status === 'in_progress').map((t: any) =>
@@ -139,7 +143,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
     `<tr><td style="${tdS};font-weight:700;font-size:10px">${escapeHtml(r.id)}</td>
       <td style="${tdS}">${escapeHtml(r.title)}</td>
       <td style="${tdS}">${escapeHtml(formatReserveLocation(r))}</td>
-      <td style="${tdS}">${escapeHtml(r.company)}</td>
+      <td style="${tdS}">${renderPdfReserveCompanies(r, palette)}</td>
       <td style="${tdS}"><span style="color:${pColor[r.priority] || '#000'};font-weight:700">${escapeHtml(reservePriorityLabel(t, r.priority))}</span></td>
       <td style="${tdS}"><span style="color:${statusColors[r.status] || '#000'}">${escapeHtml(reserveStatusLabel(t, r.status))}</span></td>
       <td style="${tdS}">${escapeHtml(r.deadline)}</td></tr>`
@@ -201,6 +205,7 @@ function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], inciden
 }
 
 function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, weekNum: number, projectName: string, t: TFunc, locale = 'fr-FR'): string {
+  const palette = getPdfCompanyPalette(companies);
   const today = new Date().toLocaleDateString(locale);
   const docRef = `RH-S${weekNum}-${new Date().getFullYear()}`;
 
@@ -269,7 +274,7 @@ function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incide
       </tr></thead>
       <tbody>${criticalReserves.map((r: any) =>
         `<tr><td style="${tdS};font-weight:700">${escapeHtml(r.id)}</td><td style="${tdS}">${escapeHtml(r.title)}</td>
-         <td style="${tdS}">${escapeHtml(formatReserveLocation(r))}</td><td style="${tdS}">${escapeHtml(r.company)}</td>
+         <td style="${tdS}">${escapeHtml(formatReserveLocation(r))}</td><td style="${tdS}">${renderPdfReserveCompanies(r, palette)}</td>
          <td style="${tdS};color:#DC2626;font-weight:600">${escapeHtml(r.deadline)}</td></tr>`
       ).join('') || `<tr><td style="${tdS};color:#059669" colspan="5">${escapeHtml(t('reportsScreen.noCriticalReserve'))}</td></tr>`}</tbody>
     </table>
@@ -389,7 +394,7 @@ async function buildCompanyReserveHTML(company: any, companyReserves: any[], pro
     : `<div class="alert alert-success">✅ ${escapeHtml(t('reportsPdf.allReservesClosed'))}</div>`;
 
   const body = `
-    ${buildLetterhead(t('reportsPdf.reserveSlip'), company.name, docRef, now, projectName)}
+    ${buildLetterhead(t('reportsPdf.reserveSlip'), company.name, docRef, now, projectName, { company })}
     ${buildInfoGrid([
       ...(company.phone ? [{ label: t('reportsPdf.phone'), value: company.phone }] : []),
       ...(company.email ? [{ label: 'Email', value: company.email }] : []),

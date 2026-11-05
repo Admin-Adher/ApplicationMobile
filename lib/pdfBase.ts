@@ -1,3 +1,4 @@
+import { getPdfCompanyPalette, renderPdfCompanyLabel, type PdfCompany } from '@/lib/pdfCompanyColors';
 import { Platform } from 'react-native';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
@@ -194,6 +195,7 @@ export const PDF_BASE_CSS = `
 `;
 
 type PdfLetterheadCopy = {
+  company?: PdfCompany;
   tagline?: string;
   projectLabel?: string;
   refLabel?: string;
@@ -256,7 +258,7 @@ export function buildLetterhead(
       </div>
       <div class="letterhead-right">
         <div class="letterhead-doc-type">${escapeHtml(docType)}</div>
-        <div class="letterhead-doc-title">${escapeHtml(docTitle)}</div>
+        <div class="letterhead-doc-title">${copy.company ? renderPdfCompanyLabel(docTitle, getPdfCompanyPalette([copy.company])) : escapeHtml(docTitle)}</div>
         <div class="letterhead-ref">${escapeHtml(projectLabel)} : <strong>${escapeHtml(projectName)}</strong></div>
         <div class="letterhead-ref">${escapeHtml(refLabel)} : <strong>${escapeHtml(docRef)}</strong> &nbsp;|&nbsp; ${escapeHtml(dateLabel)} : <strong>${escapeHtml(date)}</strong></div>
       </div>

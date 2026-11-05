@@ -1,3 +1,4 @@
+import { getPdfCompanyPalette, getPdfReservePinColor, renderPdfReserveCompanies, type PdfCompany } from '@/lib/pdfCompanyColors';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   TextInput, Alert, Image, Modal, ActivityIndicator, Platform, KeyboardAvoidingView, Pressable,
@@ -314,7 +315,7 @@ function formatReservePdfTimestamp(value: string | undefined | null, locale: str
 function buildReservePDF(
   reserve: Reserve,
   projectName: string,
-  company: { color?: string } | undefined,
+  companies: PdfCompany[],
   resolvedPhotoSrcs?: string[],
   planData?: PlanData,
   pinNum: number = 1,
@@ -338,7 +339,8 @@ function buildReservePDF(
   const sLabel = statusLabels[reserve.status] ?? reserve.status;
   const pColor = priorityColors[reserve.priority] ?? '#6B7280';
   const pLabel = priorityLabels[reserve.priority] ?? reserve.priority;
-  const pinColor = company?.color ?? '#003082';
+  const palette = getPdfCompanyPalette(companies);
+  const pinColor = getPdfReservePinColor(reserve, palette);
 
   const rawPhotos = getReservePdfPhotos(reserve);
 
@@ -512,7 +514,7 @@ document.head.appendChild(s);
         </div>
         <div style="flex:1;text-align:center">
           <div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div>
-          <div style="font-size:10px;color:#5E738A">${(reserve.companies && reserve.companies.length > 0 ? reserve.companies : reserve.company ? [reserve.company] : [copy.contractor]).join(', ')}</div>
+          <div style="font-size:10px;color:#5E738A">${renderPdfReserveCompanies(reserve, palette, copy.contractor)}</div>
         </div>
       </div>`;
 
@@ -572,7 +574,7 @@ document.head.appendChild(s);
         <div class="col2" style="margin-bottom:8px">
           <div class="info-cell">
             <div class="lbl">${copy.company}</div>
-            <div class="val" style="color:${company?.color ?? '#003082'}">${reserve.company ?? '—'}</div>
+            <div class="val">${renderPdfReserveCompanies(reserve, palette)}</div>
           </div>
           <div class="info-cell">
             <div class="lbl">${copy.location}</div>
@@ -1283,7 +1285,7 @@ export default function ReserveDetailScreen() {
       const pinNumInPlan = (planReservesForNum.findIndex(r => r.id === reserve.id) + 1) || 1;
 
       const exportT = getExportTranslator(exportLanguage);
-      const html = buildReservePDF(reserve, projectName, company, resolvedSrcs, planData, pinNumInPlan, {
+      const html = buildReservePDF(reserve, projectName, companies, resolvedSrcs, planData, pinNumInPlan, {
         language: exportLanguage,
         statusLabels: {
           open: exportT('reserveLabels.status.open'), in_progress: exportT('reserveLabels.status.in_progress'), waiting: exportT('reserveLabels.status.waiting'), verification: exportT('reserveLabels.status.verification'), closed: exportT('reserveLabels.status.closed'),
@@ -1357,7 +1359,7 @@ export default function ReserveDetailScreen() {
 
       const result = await generateAndSendIndividualReserve({
         chantierName: projectName,
-        companyColor: company?.color ?? undefined,
+        companies: companies.map(({ name, color }) => ({ name, color })),
         language: exportLanguage,
         planUri,
         planX,

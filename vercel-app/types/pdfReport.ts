@@ -1,3 +1,5 @@
+import type { PdfCompany } from '../../lib/pdfCompanyColors';
+
 export interface PdfReservePhoto {
   uri: string;
   // Annotations dessinées sur la photo (format partagé mobile/web, champ
@@ -11,6 +13,7 @@ export interface PdfReserveItem {
   num: number;
   title: string;
   company: string;
+  companies?: string[];
   building?: string;
   level?: string;
   status: string;
@@ -35,6 +38,7 @@ export interface PdfPlanItem {
 export interface PdfReportPayload {
   chantierName: string;
   companyFilter: string | null;
+  companies?: PdfCompany[];
   generatedAt: string;
   plans: PdfPlanItem[];
   reserves: PdfReserveItem[];
