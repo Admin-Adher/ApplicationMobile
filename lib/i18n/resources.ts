@@ -1,6 +1,4 @@
-import type { Resource } from 'i18next';
-
-export const resources: Resource = {
+export const resources = {
   fr: {
     translation: {
       common: {
