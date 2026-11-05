@@ -54,7 +54,10 @@ export async function POST(req: NextRequest) {
     p_refs: [mediaRef],
   });
   const asset = Array.isArray(rows) ? rows[0] : rows;
-  if (candidateError || !asset || asset.owner_user_id !== auth.authority.userId) {
+  if (candidateError) {
+    return NextResponse.json({ error: 'Registre média indisponible' }, { status: 503, headers });
+  }
+  if (!asset || asset.owner_user_id !== auth.authority.userId) {
     return NextResponse.json({ error: 'Média introuvable' }, { status: 404, headers });
   }
 
@@ -63,7 +66,11 @@ export async function POST(req: NextRequest) {
   let actualContentType: string | undefined;
   if (asset.provider === 'r2') {
     const result = await headR2Object(asset.object_key);
-    if (!result.ok) return NextResponse.json({ error: 'Upload R2 incomplet' }, { status: 409, headers });
+    if (!result.ok) {
+      return result.status === 404
+        ? NextResponse.json({ error: 'Upload R2 incomplet' }, { status: 409, headers })
+        : NextResponse.json({ error: 'Vérification R2 indisponible' }, { status: 503, headers });
+    }
     size = result.size;
     etag = result.etag;
     actualContentType = result.contentType;
@@ -94,8 +101,25 @@ export async function POST(req: NextRequest) {
     p_actual_size: size,
     p_etag: etag ?? null,
   });
-  if (completeError || completed !== true) {
-    return NextResponse.json({ error: completeError?.message ?? 'Validation impossible' }, { status: 409, headers });
+  if (completeError) {
+    return NextResponse.json({ error: completeError.message }, { status: 409, headers });
+  }
+  if (completed !== true) {
+    // A previous attempt may have committed while its response was lost.
+    // The RPC above has already checked ownership, active membership and size.
+    const { data: ready, error: readyError } = await auth.supabase
+      .from('tenant_media_objects')
+      .select('id')
+      .eq('id', assetId)
+      .eq('owner_user_id', auth.authority.userId)
+      .eq('status', 'ready')
+      .maybeSingle();
+    if (readyError) {
+      return NextResponse.json({ error: 'État du média indisponible' }, { status: 503, headers });
+    }
+    if (!ready) {
+      return NextResponse.json({ error: 'Validation impossible' }, { status: 409, headers });
+    }
   }
   return NextResponse.json({ ok: true, mediaRef, size }, { headers });
 }

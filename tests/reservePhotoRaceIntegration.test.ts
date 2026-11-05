@@ -26,7 +26,7 @@ describe('reserve create and annotation ordering', () => {
     );
     const liveGalleryRead = executor.indexOf("'photos,photo_uri'");
     const rebase = executor.indexOf('rebasePendingReservePhotoPayload(data, liveReserveForPhotoPatch)');
-    const upload = executor.indexOf('uploadLocalPhotosInPayload(op.table, data)');
+    const upload = executor.indexOf('uploadLocalPhotosInPayload(op.table, data, { signal: passSignal })');
 
     expect(liveGalleryRead).toBeGreaterThan(-1);
     expect(rebase).toBeGreaterThan(liveGalleryRead);

@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { supabase, isSupabaseConfigured, SUPABASE_URL, SUPABASE_KEY } from './supabase';
-import i18n from '@/lib/i18n';
 import { canonicalApiBaseUrl } from './apiBase';
 import { privateMediaClientHeaders } from './clientVersion';
 
@@ -11,14 +10,14 @@ import { privateMediaClientHeaders } from './clientVersion';
 // a content:// URI we fall back to FileSystem base64 + manual Uint8Array.
 // On web, we use fetch + blob as well (works for blob:, data: and http URIs).
 
-async function readFileAsBlob(uri: string): Promise<{ data: Blob; mimeType: string }> {
+async function readFileAsBlob(uri: string, signal?: AbortSignal): Promise<{ data: Blob; mimeType: string }> {
   try {
-    const response = await fetch(uri);
+    const response = await fetch(uri, { signal });
     if (!response.ok) throw new Error(`fetch ${uri} → HTTP ${response.status}`);
     const blob = await response.blob();
     return { data: blob, mimeType: blob.type || 'application/octet-stream' };
   } catch (fetchErr) {
-    if (Platform.OS === 'web') throw fetchErr;
+    if (Platform.OS === 'web' || signal?.aborted) throw fetchErr;
     // Fallback for content:// URIs on older Android that fetch cannot access.
     const base64 = await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.Base64,
@@ -179,7 +178,62 @@ export const MISSING_LOCAL_FILE = '__BUILDTRACK_MISSING_LOCAL_FILE__';
 // aucun nouvel upload ne retombe sur une URL publique non enregistrée.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PRESIGN_TIMEOUT_MS = 10_000;
+// The reservation and confirmation routes can each run for up to 20 s.
+const MEDIA_API_TIMEOUT_MS = 25_000;
+
+class MediaUploadError extends Error {
+  constructor(message: string, readonly retryable = false) {
+    super(message);
+  }
+}
+
+function mediaHttpError(message: string, status: number): MediaUploadError {
+  return new MediaUploadError(`${message} (HTTP ${status})`, status === 408 || status >= 500);
+}
+
+function mediaApiError(label: string, status: number): MediaUploadError {
+  if (status === 401) return mediaHttpError(`Session invalide (${label})`, status);
+  if (status === 426) return mediaHttpError('Mise à jour de BuildTrack requise', status);
+  return mediaHttpError(label, status);
+}
+
+function checkMediaCancellation(signal?: AbortSignal | null) {
+  if (signal?.aborted) throw new MediaUploadError('Synchronisation du média interrompue');
+}
+
+async function fetchMedia<T>(
+  request: (signal: AbortSignal) => Promise<T>,
+  label: string,
+  timeoutMs: number,
+  signal?: AbortSignal | null,
+): Promise<T> {
+  checkMediaCancellation(signal);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const unlink = linkAbortSignal(controller, signal);
+  try {
+    const result = await request(controller.signal);
+    if (controller.signal.aborted) throw new Error('Abort');
+    return result;
+  } catch (error) {
+    checkMediaCancellation(signal);
+    if (controller.signal.aborted) throw new MediaUploadError(`Délai dépassé (${label})`, true);
+    if (error instanceof MediaUploadError) throw error;
+    throw new MediaUploadError(`Connexion interrompue (${label})`, true);
+  } finally {
+    clearTimeout(timer);
+    unlink();
+  }
+}
+
+async function retryMediaStep<T>(attempt: () => Promise<T>): Promise<T> {
+  try {
+    return await attempt();
+  } catch (error) {
+    if (!(error instanceof MediaUploadError) || !error.retryable) throw error;
+    return await attempt();
+  }
+}
 
 type PresignedUpload = {
   provider: 'r2' | 'supabase';
@@ -199,73 +253,49 @@ async function requestPresignedUpload(
   filename: string,
   contentType: string,
   size: number,
-  tag: string,
+  accessToken: string,
+  timeoutMs: number,
   signal?: AbortSignal | null,
-): Promise<PresignedUpload | null> {
-  try {
-    const base = storageApiBaseUrl();
-    const url = base ? `${base}/api/storage/presign` : '/api/storage/presign';
-    const accessToken = await resolveStorageAccessToken(tag);
-    if (!accessToken || accessToken === SUPABASE_KEY) {
-      // Pas de session utilisateur exploitable → le presign répondrait 401.
-      return null;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), PRESIGN_TIMEOUT_MS);
-    const unlink = linkAbortSignal(controller, signal);
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          ...privateMediaClientHeaders(),
-        },
-        body: JSON.stringify({ kind, filename, contentType, size }),
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-      unlink();
-    }
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      console.warn(`${tag} presign R2 refusé (HTTP ${response.status}): ${body.slice(0, 160)}`);
-      return null;
-    }
+): Promise<PresignedUpload> {
+  const label = 'réservation du média';
+  return fetchMedia(async requestSignal => {
+    const response = await fetch(`${storageApiBaseUrl()}/api/storage/presign`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${accessToken}`,
+        ...privateMediaClientHeaders(),
+      },
+      body: JSON.stringify({ kind, filename, contentType, size }),
+      signal: requestSignal,
+    });
+    if (!response.ok) throw mediaApiError('Réservation du média refusée', response.status);
     const data = await response.json().catch(() => null);
-    if (!data?.assetId || !data?.mediaRef || !data?.bucket || !data?.objectKey) return null;
-    if (data.provider === 'r2' && !data.uploadUrl) return null;
-    return {
-      provider: data.provider,
-      assetId: data.assetId,
-      mediaRef: data.mediaRef,
-      bucket: data.bucket,
-      objectKey: data.objectKey,
-      uploadUrl: data.uploadUrl,
-    };
-  } catch (err: any) {
-    console.warn(`${tag} presign R2 indisponible:`, err?.message ?? err);
-    return null;
-  }
+    if (!data?.assetId || !data?.mediaRef || !data?.bucket || !data?.objectKey
+        || !['r2', 'supabase'].includes(data.provider)
+        || (data.provider === 'r2' && !data.uploadUrl)) {
+      throw new MediaUploadError('Réponse de réservation du média invalide');
+    }
+    return data;
+  }, label, timeoutMs, signal);
 }
 
-// PUT du fichier vers R2. Natif : FileSystem.uploadAsync (HTTP natif, pas de
-// Blob fetch — même contrainte Android/Hermes que pour Supabase). Web : fetch.
+// Le natif envoie le fichier via une tâche FileSystem annulable.
 async function putFileToR2(
   presigned: PresignedUpload,
   uri: string,
   contentType: string,
   timeoutMs: number,
-  tag: string,
   signal?: AbortSignal | null,
-): Promise<boolean> {
-  try {
-    if (!presigned.uploadUrl) return false;
-    if (Platform.OS !== 'web') {
-      const result = await uploadFileCancellable(
-        presigned.uploadUrl,
+): Promise<void> {
+  const uploadUrl = presigned.uploadUrl;
+  if (!uploadUrl) throw new MediaUploadError('Adresse d’envoi R2 manquante');
+  checkMediaCancellation(signal);
+  if (Platform.OS !== 'web') {
+    let result: FileSystem.FileSystemUploadResult;
+    try {
+      result = await uploadFileCancellable(
+        uploadUrl,
         uri,
         {
           httpMethod: 'PUT',
@@ -273,40 +303,29 @@ async function putFileToR2(
           headers: { 'Content-Type': contentType },
         },
         timeoutMs,
-        'upload R2 natif',
+        'envoi vers R2',
         signal,
       );
-      if (result.status < 200 || result.status >= 300) {
-        console.warn(`${tag} PUT R2 natif HTTP ${result.status}: ${(result.body ?? '').slice(0, 160)}`);
-        return false;
-      }
-      return true;
+    } catch (error) {
+      checkMediaCancellation(signal);
+      const timedOut = error instanceof Error && error.message.startsWith('Délai dépassé');
+      throw new MediaUploadError(timedOut ? error.message : 'Connexion interrompue (envoi vers R2)', true);
     }
-    const { data: blob } = await readFileAsBlob(uri);
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    const unlink = linkAbortSignal(controller, signal);
-    let response: Response;
-    try {
-      response = await fetch(presigned.uploadUrl, {
-        method: 'PUT',
-        body: blob,
-        headers: { 'Content-Type': contentType },
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timer);
-      unlink();
+    if (result.status < 200 || result.status >= 300) {
+      throw mediaHttpError('Envoi vers R2 refusé', result.status);
     }
-    if (!response.ok) {
-      console.warn(`${tag} PUT R2 web HTTP ${response.status}`);
-      return false;
-    }
-    return true;
-  } catch (err: any) {
-    console.warn(`${tag} PUT R2 échoué:`, err?.message ?? err);
-    return false;
+    return;
   }
+  await fetchMedia(async requestSignal => {
+    const { data: blob } = await readFileAsBlob(uri, requestSignal);
+    const response = await fetch(uploadUrl, {
+      method: 'PUT',
+      body: blob,
+      headers: { 'Content-Type': contentType },
+      signal: requestSignal,
+    });
+    if (!response.ok) throw mediaHttpError('Envoi vers R2 refusé', response.status);
+  }, 'envoi vers R2', timeoutMs, signal);
 }
 
 async function fileSize(uri: string): Promise<number> {
@@ -324,12 +343,10 @@ async function putFileToSupabase(
   uri: string,
   contentType: string,
   timeoutMs: number,
-  tag: string,
+  accessToken: string,
   signal?: AbortSignal | null,
 ): Promise<boolean> {
   if (Platform.OS !== 'web' && SUPABASE_URL && SUPABASE_KEY) {
-    const accessToken = await resolveStorageAccessToken(tag);
-    if (!accessToken || accessToken === SUPABASE_KEY) return false;
     const encodedKey = reservation.objectKey.split('/').map(encodeURIComponent).join('/');
     const result = await uploadFileCancellable(
       `${SUPABASE_URL}/storage/v1/object/${reservation.bucket}/${encodedKey}`,
@@ -364,20 +381,12 @@ async function putFileToSupabase(
 
 async function completeRegisteredUpload(
   reservation: PresignedUpload,
-  tag: string,
+  accessToken: string,
+  timeoutMs: number,
   signal?: AbortSignal | null,
-): Promise<boolean> {
-  const base = storageApiBaseUrl();
-  const accessToken = await resolveStorageAccessToken(tag);
-  if (!accessToken || accessToken === SUPABASE_KEY) return false;
-  // Cet appel n'avait AUCUNE borne : un serveur qui ne répond jamais gelait
-  // l'étape d'upload jusqu'au plafond de la passe, sans possibilité d'annuler.
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), PRESIGN_TIMEOUT_MS);
-  const unlink = linkAbortSignal(controller, signal);
-  let response: Response;
-  try {
-    response = await fetch(base ? `${base}/api/storage/complete` : '/api/storage/complete', {
+): Promise<void> {
+  await fetchMedia(async requestSignal => {
+    const response = await fetch(`${storageApiBaseUrl()}/api/storage/complete`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -385,13 +394,14 @@ async function completeRegisteredUpload(
         ...privateMediaClientHeaders(),
       },
       body: JSON.stringify({ assetId: reservation.assetId }),
-      signal: controller.signal,
+      signal: requestSignal,
     });
-  } finally {
-    clearTimeout(timer);
-    unlink();
-  }
-  return response.ok;
+    if (!response.ok) throw mediaApiError('Validation du média refusée', response.status);
+    const data = await response.json().catch(() => null);
+    if (data?.ok !== true || data.mediaRef !== reservation.mediaRef) {
+      throw new MediaUploadError('Réponse de validation du média invalide', true);
+    }
+  }, 'validation du média', timeoutMs, signal);
 }
 
 async function uploadRegisteredMedia(
@@ -403,18 +413,39 @@ async function uploadRegisteredMedia(
   tag: string,
   signal?: AbortSignal | null,
 ): Promise<{ url: string | null; error: string | null }> {
+  const deadline = Date.now() + timeoutMs;
+  const remaining = (maximum = timeoutMs) => {
+    checkMediaCancellation(signal);
+    const time = Math.min(maximum, deadline - Date.now());
+    if (time <= 0) throw new MediaUploadError('Délai total de synchronisation du média dépassé');
+    return time;
+  };
+  const getAccessToken = async () => {
+    const budget = remaining();
+    const token = await withTimeout(resolveStorageAccessToken(tag), budget, 'session média');
+    if (!token || token === SUPABASE_KEY) throw new MediaUploadError('Session indisponible pour synchroniser le média');
+    return token;
+  };
   try {
-    const size = await fileSize(uri);
+    const sizeBudget = remaining(FILE_STAT_TIMEOUT_MS);
+    const size = await withTimeout(fileSize(uri), sizeBudget, 'lecture du fichier');
     if (!Number.isFinite(size) || size <= 0) return { url: null, error: 'Taille de fichier invalide' };
-    const reservation = await requestPresignedUpload(kind, filename, contentType, size, tag, signal);
-    if (!reservation) return { url: null, error: 'Réservation média indisponible' };
-    const uploaded = reservation.provider === 'r2'
-      ? await putFileToR2(reservation, uri, contentType, timeoutMs, tag, signal)
-      : await putFileToSupabase(reservation, uri, contentType, timeoutMs, tag, signal);
-    if (!uploaded) return { url: null, error: 'Upload privé impossible' };
-    if (!await completeRegisteredUpload(reservation, tag, signal)) {
-      return { url: null, error: 'Validation serveur du média impossible' };
+    const token = await getAccessToken();
+    const reservation = await requestPresignedUpload(
+      kind, filename, contentType, size, token, remaining(MEDIA_API_TIMEOUT_MS), signal,
+    );
+    if (reservation.provider === 'r2') {
+      // Replay the same object key with the same file after a transient failure.
+      await retryMediaStep(() => putFileToR2(reservation, uri, contentType, remaining(), signal));
+    } else {
+      const uploaded = await putFileToSupabase(reservation, uri, contentType, remaining(), token, signal);
+      if (!uploaded) throw new MediaUploadError('Envoi vers Supabase Storage refusé');
     }
+    const completionToken = await getAccessToken();
+    // Completion is idempotent even if the first response was lost after commit.
+    await retryMediaStep(() => completeRegisteredUpload(
+      reservation, completionToken, remaining(MEDIA_API_TIMEOUT_MS), signal,
+    ));
     return { url: reservation.mediaRef, error: null };
   } catch (error: any) {
     return { url: null, error: error?.message ?? String(error) };
@@ -502,6 +533,7 @@ async function _uploadPhotoWithError(
   const startedAt = Date.now();
   const remainingBudgetMs = () => Math.max(0, timeoutMs - (Date.now() - startedAt));
   const timeoutMessage = () => `Délai dépassé (upload photo complet > ${Math.round(timeoutMs / 1000)}s)`;
+  if (signal?.aborted) return { url: null, error: 'Synchronisation du média interrompue' };
   if (await localFileMissing(uri)) {
     console.warn('[uploadPhoto] local file missing, dropping:', uri);
     return { url: MISSING_LOCAL_FILE as any, error: null };
