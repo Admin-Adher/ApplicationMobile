@@ -2361,7 +2361,8 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           if (op.rpc.fn === 'create_reserve_with_photos' && args.p_reserve?.id) {
             const reserveId = String(args.p_reserve.id);
             await applySyncedReservePhotoPayloadToCache(userId, reserveId, retryRpcOp.data ?? args.p_reserve);
-            await queryClient.invalidateQueries({ queryKey: queryKeys.photos(), refetchType: 'active' });
+            // Mark the gallery stale now. The end-of-pass refresh reads it once.
+            await queryClient.invalidateQueries({ queryKey: queryKeys.photos(), refetchType: 'none' });
             triggerReserveCreatedPush(reserveId);
             return syncExit('E21', { kind: 'applied', operation: retryRpcOp });
           }
