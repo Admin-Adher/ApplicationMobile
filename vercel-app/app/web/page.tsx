@@ -127,8 +127,11 @@ import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace';
 import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import OprWorkspace from './opr-workspace/OprWorkspace';
+import { buildWebOprPrint } from './opr-workspace/opr-print';
+import PortalWorkspace from './PortalWorkspace';
 import PointageWorkspace from './pointage-workspace/PointageWorkspace';
 import PlanningWorkspace from './planning-workspace/PlanningWorkspace';
+import WebDxfPlan from './plan-reserve-workspace/WebDxfPlan';
 import {
   mergeMessageReadState,
   type MessageSendInput,
@@ -2381,7 +2384,7 @@ async function toPdfPlanItemsForReport(plans: any[], reserves: any[]) {
     }
 
     const clientUri = resolvedUris.get(item.uri) || (!isRegistryBackedRef(item.uri) ? item.uri : '');
-    const renderedUri = clientUri && String(item.fileType).toLowerCase() !== 'dxf'
+    const renderedUri = clientUri
       ? await getCachedPlanImageForReport(plan, item.uri, clientUri, 720)
       : null;
     return renderedUri
@@ -2497,7 +2500,9 @@ async function getCachedPlanImageForReport(plan: any, sourceUri: string, clientU
     if (isPdfPlan(plan, sourceUri)) {
       return await preRenderPdfPageToDataUrl(clientUri, renderWidth, plan?.annotations);
     }
-    const embeddedImage = await imageUrlToPdfDataUrl(clientUri);
+    const embeddedImage = String(plan?.file_type ?? plan?.fileType).toLowerCase() === 'dxf'
+      ? await import('./plan-reserve-workspace/web-dxf').then(module => module.renderWebDxfToDataUrl(clientUri, renderWidth)).catch(() => null)
+      : await imageUrlToPdfDataUrl(clientUri);
     if (!embeddedImage || (plan?.annotations?.length ?? 0) === 0) return embeddedImage;
     return await renderPlanImageWithAnnotationsToDataUrl(embeddedImage, renderWidth, plan.annotations)
       ?? embeddedImage;
@@ -3101,6 +3106,13 @@ export default function BuildTrackWebPage() {
     if (!hasStoredReportLanguage) setReportLanguageState(nextLanguage);
   }, [hasStoredReportLanguage]);
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
+  const [portalCompanyId, setPortalCompanyId] = useState('');
+  const [requestedOprId, setRequestedOprId] = useState('');
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setPortalCompanyId(params.get('portal') ?? '');
+    setRequestedOprId(params.get('opr') ?? '');
+  }, []);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -4951,6 +4963,34 @@ export default function BuildTrackWebPage() {
     if (taskError) setError(taskError.message);
   }
 
+  async function createOprSignerLink(oprId: string, signerId: string) {
+    const response = await fetch('/api/opr-signature', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + session?.access_token },
+      body: JSON.stringify({ action: 'issue', oprId, signerId }),
+    });
+    const result = await response.json();
+    if (!response.ok || !result.token) throw new Error(result.error || 'Lien de signature indisponible.');
+    return window.location.origin + '/opr-session/' + encodeURIComponent(oprId) + '#access=' + encodeURIComponent(result.token);
+  }
+
+  async function saveOprWeb(current: any, fields: Record<string, unknown>) {
+    if ((current ? !canEdit(profile) || current.status === 'signed' : !canCreate(profile)) || !profile?.organization_id) {
+      throw new Error('Votre compte ne peut pas modifier cette OPR.');
+    }
+    if (!current && selectedProjectId === 'all') throw new Error('Sélectionnez le chantier de l’OPR.');
+    const query = current
+      ? supabaseBrowser.from('oprs').update(fields).eq('id', current.id).eq('opr_revision', current.opr_revision)
+      : supabaseBrowser.from('oprs').insert({
+        ...fields, id: 'OPR-' + crypto.randomUUID(), organization_id: profile.organization_id,
+        chantier_id: selectedProjectId, conducteur: userLabel(profile, authUser), status: 'draft',
+      });
+    const { data: saved, error } = await query.select().maybeSingle();
+    if (error || !saved) throw new Error(error?.message || 'Ce procès-verbal a changé. Rechargez-le avant de réessayer.');
+    setData(previous => ({ ...previous, oprs: [saved, ...previous.oprs.filter(row => row.id !== saved.id)] }));
+    return saved.id as string;
+  }
+
   async function createTaskWeb(payload: Record<string, any>) {
     if (!canCreate(profile)) return null;
     const row = {
@@ -4964,7 +5004,8 @@ export default function BuildTrackWebPage() {
       status: payload.status || 'todo',
       priority: payload.priority || 'medium',
       progress: Number(payload.progress ?? 0),
-      deadline: payload.deadline || null,
+      start_date: payload.start_date || null,
+      deadline: payload.deadline || '',
     };
     if (!row.title) return null;
     const { data: inserted, error } = await supabaseBrowser.from('tasks').insert(row).select().single();
@@ -6225,6 +6266,16 @@ export default function BuildTrackWebPage() {
     setPinFilter('all');
   }, [activeTab, selectedProjectId]);
 
+  const openedOprLink = useRef('');
+  useEffect(() => {
+    if (!requestedOprId || !profile || openedOprLink.current === requestedOprId) return;
+    const opr = data.oprs.find(row => row.id === requestedOprId);
+    if (!opr && loading) return;
+    openedOprLink.current = requestedOprId;
+    if (opr?.chantier_id) setSelectedProjectId(opr.chantier_id);
+    setActiveTab('opr');
+  }, [data.oprs, loading, profile, requestedOprId]);
+
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
     const visibleReserves = visibleReservesForProfile(data.reserves, profile, data.companies);
@@ -6539,6 +6590,18 @@ export default function BuildTrackWebPage() {
         />
       </WebI18nContext.Provider>
     );
+  }
+
+  if (portalCompanyId) {
+    const permitted = profile && (profile.role !== 'sous_traitant' || String(profile.company_id) === portalCompanyId);
+    const company = permitted ? data.companies.find(item => String(item.id) === portalCompanyId) : null;
+    const reserves = company
+      ? visibleReservesForProfile(data.reserves, profile, data.companies)
+        .filter(reserve => !isReserveArchived(reserve) && !isReserveDeleted(reserve)
+          && (!company.organization_id || company.organization_id === reserve.organization_id)
+          && reserveMatchesCompanyIdOrName(reserve, company))
+      : [];
+    return <PortalWorkspace company={company?.name} reserves={reserves} loading={loading || syncing} statusLabel={statusLabel} />;
   }
 
   function enterWebSupport(org: { id: string; name: string }) {
@@ -7002,6 +7065,13 @@ export default function BuildTrackWebPage() {
               <OprWorkspace
                 oprs={projectScoped.oprs}
                 reserves={projectScoped.reserves}
+                requestedId={requestedOprId}
+                canEdit={canEdit(profile)}
+                canCreate={canCreate(profile) && Boolean(profile?.organization_id) && selectedProjectId !== 'all'}
+                canExport={canExport(profile)}
+                onSave={saveOprWeb}
+                onSignerLink={createOprSignerLink}
+                onExport={(opr, kind) => printHtmlReport(buildWebOprPrint(opr, projectName(), projectScoped.reserves, kind, data.companies), 'OPR-' + kind + '-' + opr.id + '.pdf')}
                 projectName={projectName()}
                 onOpenReserve={openReserveDetailTab}
                 isReserveArchived={isReserveArchived}
@@ -10904,7 +10974,7 @@ function PlansView({
               data-prw-plan-workarea
               data-reserves-open={planReservePanelOpen}
             >
-              <div className={styles.planCanvas} data-prw-plan-canvas>
+              <div className={styles.planCanvas} data-prw-plan-canvas data-file-type={selectedPlan.file_type}>
                 {selectedPlan.file_type === 'pdf' && (selectedPlanResolvedUri || activeCachedPlanPreview) ? (
                   <WebPdfPlan
                     uri={selectedPlanResolvedUri}
@@ -10951,6 +11021,8 @@ function PlansView({
                       {t('plans.retry')}
                     </button>
                   </div>
+                ) : selectedPlanResolvedUri && selectedPlan.file_type === 'dxf' ? (
+                  <WebDxfPlan key={selectedPlan.id} uri={selectedPlanResolvedUri} name={selectedPlan.name} />
                 ) : selectedPlanResolvedUri && selectedPlan.file_type === 'image' ? (
                   <img src={selectedPlanResolvedUri} alt={selectedPlan.name} />
                 ) : (
@@ -13063,6 +13135,7 @@ function PointageView({ entries, companies, projectName, profile, editable, canD
       locale={localeForLang(lang)}
       editable={editable}
       canDelete={canDelete}
+      canExport={resolveWebPermissions(profile).canExport}
       onCreate={onCreate}
       onUpdate={onUpdate}
       onDelete={onDelete}

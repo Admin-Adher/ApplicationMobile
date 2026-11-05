@@ -11732,3 +11732,5 @@
     transition: none;
   }
 }
+
+.planCanvas[data-file-type="dxf"] { min-height: 0; }

@@ -1,0 +1,14 @@
+.page { width: min(48rem, calc(100% - 2rem)); margin: 2rem auto; color: #142842; }
+.page header { border-bottom: 1px solid #d9e4ef; margin-bottom: 1rem; padding-bottom: .75rem; }
+.page header a { font-weight: 800; color: #003082; }
+.page h1 { font-size: clamp(1.6rem, 4vw, 2.3rem); line-height: 1.2; margin: .45rem 0; }
+.page p { margin: .6rem 0; }
+.items { padding: 0; list-style: none; display: grid; gap: .4rem; margin: 1rem 0; }
+.items li { padding: .65rem .8rem; background: #f1f5fa; border: 1px solid #d9e4ef; border-radius: .5rem; }
+.items li span { margin-left: .75rem; font-size: .9rem; }
+.pad { touch-action: none; user-select: none; display: block; width: 100%; height: clamp(9rem, 35vw, 14rem); border: 1px solid #8398b1; border-radius: .6rem; background: #fff; cursor: crosshair; }
+.actions { display: flex; justify-content: flex-end; gap: .55rem; margin-top: .8rem; }
+.actions button { min-height: 2.6rem; padding: .5rem .85rem; border: 1px solid #5577a6; border-radius: .55rem; background: white; color: #003082; font-weight: 700; cursor: pointer; }
+.actions button:last-child { background: #003082; color: #fff; }
+.actions button:disabled { opacity: .55; cursor: default; }
+.error { color: #a3211c; }

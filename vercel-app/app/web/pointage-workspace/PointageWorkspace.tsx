@@ -4,6 +4,7 @@ import { useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { WorkspaceIcon } from '../plan-reserve-workspace/WorkspaceChrome';
 import {
   buildPointageWorkspaceModel,
+  buildWeeklyAttendanceCsv,
   formatAttendanceDate,
   formatAttendanceDuration,
   shiftAttendanceDate,
@@ -34,6 +35,7 @@ type PointageWorkspaceProps = {
   locale?: string;
   editable: boolean;
   canDelete: boolean;
+  canExport: boolean;
   onCreate: (payload: Record<string, unknown>) => Promise<unknown>;
   onUpdate: (entry: TimeEntrySource, patch: Record<string, unknown>) => Promise<unknown>;
   onDelete: (entry: TimeEntrySource) => Promise<unknown> | unknown;
@@ -124,6 +126,7 @@ export default function PointageWorkspace({
   locale = 'fr-FR',
   editable,
   canDelete,
+  canExport,
   onCreate,
   onUpdate,
   onDelete,
@@ -234,6 +237,18 @@ export default function PointageWorkspace({
     }
   }
 
+  const weeklyCsv = useMemo(() => buildWeeklyAttendanceCsv(entries, date, locale), [date, entries, locale]);
+
+  function downloadWeeklyCsv() {
+    if (!canExport || !weeklyCsv) return;
+    const url = URL.createObjectURL(new Blob([weeklyCsv.csv], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = weeklyCsv.filename;
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  }
+
   return (
     <div className={styles.workspace} data-testid="web-pointage-workspace">
       <section className={styles.overview} aria-labelledby="pointage-overview-title">
@@ -264,6 +279,9 @@ export default function PointageWorkspace({
               </button>
             </div>
             <div className={styles.dayActions}>
+              {canExport ? (
+                <button type="button" onClick={downloadWeeklyCsv} disabled={!weeklyCsv}>CSV de la semaine</button>
+              ) : null}
               {!isToday ? <button type="button" onClick={() => changeDate(today)}>Aujourd’hui</button> : null}
               {editable ? <button type="button" onClick={focusComposer}><WorkspaceIcon name="plus" size={18} />Ajouter une présence</button> : null}
             </div>

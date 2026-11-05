@@ -143,3 +143,32 @@ export function shiftAttendanceDate(value: string, offset: number) {
   date.setDate(date.getDate() + Math.trunc(offset));
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
 }
+
+export function buildWeeklyAttendanceCsv(entries: TimeEntrySource[], selectedDate: string, locale = 'fr-FR') {
+  const date = new Date(selectedDate + 'T12:00:00');
+  if (!safeIsoDate(selectedDate) || !Number.isFinite(date.getTime())) return null;
+  const weekStart = shiftAttendanceDate(selectedDate, -((date.getDay() + 6) % 7));
+  const weekEnd = shiftAttendanceDate(weekStart, 6);
+  const summaries = entries.map(summarizeTimeEntry)
+    .filter(entry => entry.date >= weekStart && entry.date <= weekEnd)
+    .sort((left, right) => left.date.localeCompare(right.date) || byArrival(left, right));
+  if (!summaries.length) return null;
+
+  const formatDate = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const formatHours = new Intl.NumberFormat(locale, { maximumFractionDigits: 2, useGrouping: false });
+  const header = ['Date', 'Compagnon', 'Entreprise', 'Arrivée', 'Départ', 'Heures', 'Tâche', 'Enregistré par', 'Notes'];
+  const rows = summaries.map(entry => [
+    formatDate.format(new Date(entry.date + 'T12:00:00')), entry.workerName, entry.companyName,
+    entry.arrivalTime, entry.departureTime, entry.departureTime ? formatHours.format(entry.durationMinutes / 60) : '',
+    entry.source.task_title, entry.source.recorded_by, entry.notes,
+  ]);
+  const encode = (value: unknown) => {
+    const text = String(value ?? '');
+    const safe = /^[\s\u0000-\u001f]*[=+@-]/.test(text) ? "'" + text : text;
+    return '"' + safe.replaceAll('"', '""') + '"';
+  };
+  return {
+    csv: '\uFEFF' + [header, ...rows].map(row => row.map(encode).join(';')).join('\r\n') + '\r\n',
+    filename: 'Pointage_' + weekStart + '_' + weekEnd + '.csv',
+  };
+}

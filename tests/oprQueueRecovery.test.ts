@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeOprPayloadForSupabase } from '../lib/mappers';
-import { recoverRejectedOprTimestamp } from '../lib/oprQueueRecovery';
+import { recoverRejectedOprWrite } from '../lib/oprQueueRecovery';
 
 const frenchTimestamp = '17/09/2026 15:39';
 const isoTimestamp = new Date(2026, 8, 17, 15, 39).toISOString();
@@ -38,7 +38,7 @@ describe('OPR creation timestamp', () => {
   });
 
   it('replays a proven 22008 rejection once using the same operation and OPR IDs', () => {
-    const repaired = recoverRejectedOprTimestamp(operation);
+    const repaired = recoverRejectedOprWrite(operation);
 
     expect(repaired).toEqual({
       ...operation,
@@ -50,7 +50,7 @@ describe('OPR creation timestamp', () => {
       sameFailureCount: undefined,
       nextAttemptAt: undefined,
     });
-    expect(recoverRejectedOprTimestamp(repaired)).toBe(repaired);
+    expect(recoverRejectedOprWrite(repaired)).toBe(repaired);
     expect(operation.data.created_at).toBe(frenchTimestamp);
   });
 
@@ -63,6 +63,6 @@ describe('OPR creation timestamp', () => {
     { data: { ...operation.data, id: '' } },
   ])('leaves unrelated or unsafe entries untouched (%j)', patch => {
     const entry = { ...operation, ...patch };
-    expect(recoverRejectedOprTimestamp(entry)).toBe(entry);
+    expect(recoverRejectedOprWrite(entry)).toBe(entry);
   });
 });

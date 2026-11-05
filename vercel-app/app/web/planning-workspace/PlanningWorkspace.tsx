@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { WorkspaceIcon, WorkspaceSearch } from '../plan-reserve-workspace/WorkspaceChrome';
 import styles from './PlanningWorkspace.module.css';
+import PlanningGantt from './PlanningGantt';
 import {
   PLANNING_SCHEDULE_BATCH_SIZE,
   buildPlanningSchedule,
@@ -81,7 +82,9 @@ export default function PlanningWorkspace({
   const deferredScheduleQuery = useDeferredValue(scheduleQuery);
   const [visibleScheduleCount, setVisibleScheduleCount] = useState(PLANNING_SCHEDULE_BATCH_SIZE);
   const [showForm, setShowForm] = useState(false);
-  const [draft, setDraft] = useState({ title: '', deadline: '', company: '', assignee: '' });
+  const [showGantt, setShowGantt] = useState(false);
+  const [detailId, setDetailId] = useState('');
+  const [draft, setDraft] = useState({ title: '', start_date: '', deadline: '', company: '', assignee: '' });
   const [busy, setBusy] = useState(false);
   const now = useMemo(() => new Date(), []);
   const weekRange = useMemo(() => getPlanningWeekRange(now, locale), [locale, now]);
@@ -138,7 +141,7 @@ export default function PlanningWorkspace({
     try {
       const saved = await onCreateTask?.(draft);
       if (saved) {
-        setDraft({ title: '', deadline: '', company: '', assignee: '' });
+        setDraft({ title: '', start_date: '', deadline: '', company: '', assignee: '' });
         setShowForm(false);
       }
     } finally {
@@ -217,6 +220,10 @@ export default function PlanningWorkspace({
                 <input value={draft.title} onChange={event => setDraft(previous => ({ ...previous, title: event.target.value }))} required autoFocus />
               </label>
               <label>
+                <span>Début</span>
+                <input type="date" value={draft.start_date} onChange={event => setDraft(previous => ({ ...previous, start_date: event.target.value }))} />
+              </label>
+              <label>
                 <span>Échéance</span>
                 <input type="date" value={draft.deadline} onChange={event => setDraft(previous => ({ ...previous, deadline: event.target.value }))} />
               </label>
@@ -239,6 +246,14 @@ export default function PlanningWorkspace({
           </form>
         ) : null}
 
+        <div className={styles.taskActions}>
+          <button type="button" aria-expanded={showGantt} onClick={() => setShowGantt(value => !value)}>Diagramme de Gantt</button>
+        </div>
+        {showGantt ? <PlanningGantt tasks={tasks} locale={locale} onOpenTask={id => {
+          setTaskMode('company');
+          setDetailId(id);
+          requestAnimationFrame(() => document.getElementById('planning-task-' + id)?.scrollIntoView({ block: 'nearest' }));
+        }} /> : null}
         <div className={styles.planningColumns} data-tasks-empty={visibleTasks.length === 0}>
           <section className={styles.taskLane} aria-labelledby={taskHeadingId}>
             <div className={styles.laneHeader}>
@@ -275,7 +290,7 @@ export default function PlanningWorkspace({
                         const progress = Math.max(0, Math.min(100, Number(task.progress ?? 0)));
                         const late = isPlanningTaskLate(task, now);
                         return (
-                          <article key={task.id} className={styles.taskCard} data-late={late}>
+                          <article key={task.id} id={'planning-task-' + task.id} className={styles.taskCard} data-late={late}>
                             <div className={styles.taskCardHeader}>
                               <div>
                                 <span className={styles.taskState}>{late ? 'En retard' : task.status === 'done' ? 'Terminée' : 'À suivre'}</span>
@@ -289,6 +304,17 @@ export default function PlanningWorkspace({
                               <div><dt>Échéance</dt><dd>{formatTaskDate(task.deadline, locale)}</dd></div>
                             </dl>
                             <div className={styles.taskProgress} aria-label={`Progression ${progress}%`}><span style={{ width: `${progress}%` }} /></div>
+                            <details open={detailId === String(task.id)} onToggle={event => {
+                              if (event.currentTarget.open) setDetailId(String(task.id));
+                              else setDetailId(current => current === String(task.id) ? '' : current);
+                            }}>
+                              <summary>Détails de la tâche</summary>
+                              <p>{task.description || 'Aucune description.'}</p>
+                              {task.start_date ? <p>Début {formatTaskDate(task.start_date, locale)}</p> : null}
+                              {Array.isArray(task.comments) ? task.comments.map((comment: any, index: number) => (
+                                <p key={comment.id ?? index}><strong>{comment.author}</strong> {comment.text ?? comment.content}</p>
+                              )) : null}
+                            </details>
                             {editable ? (
                               <div className={styles.taskActions} aria-label={`Mettre à jour ${task.title ?? 'la tâche'}`}>
                                 <button type="button" disabled={task.status === 'todo'} onClick={() => onUpdateTask?.(task, { status: 'todo', progress: Math.min(progress, 10) })}>À faire</button>

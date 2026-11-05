@@ -11,6 +11,7 @@ import { Reserve, Company, ReserveStatus } from '@/constants/types';
 import Header from '@/components/Header';
 import PageContainer from '@/components/PageContainer';
 import BottomNavBar from '@/components/BottomNavBar';
+import { canonicalApiBaseUrl } from '@/lib/apiBase';
 import { showAlert } from '@/lib/appAlert';
 import { reserveMatchesCompany } from '@/lib/reserveVisibility';
 
@@ -321,9 +322,7 @@ export default function SousTraitantScreen() {
 
             {/* SHAREABLE PORTAL LINK */}
             {(() => {
-              const baseUrl = Platform.OS === 'web' && typeof window !== 'undefined'
-                ? window.location.origin
-                : 'https://buildtrack.replit.app';
+              const baseUrl = canonicalApiBaseUrl() || 'https://buildtrack-mobile.vercel.app';
               const portalUrl = `${baseUrl}/portal/${encodeURIComponent(displayCompany?.id ?? '')}`;
               const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(portalUrl)}&color=1E3A5F&bgcolor=FFFFFF&format=png&margin=4`;
 

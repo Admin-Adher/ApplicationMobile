@@ -12,6 +12,9 @@ import {
   type OprSummary,
   type ReserveSource,
 } from './opr-workspace-model';
+import OprEditor, { type SaveOpr } from './OprEditor';
+import { type OprPrintKind } from './opr-print';
+import editorStyles from './OprEditor.module.css';
 import styles from './OprWorkspace.module.css';
 
 type OprWorkspaceProps = {
@@ -20,6 +23,13 @@ type OprWorkspaceProps = {
   projectName: string;
   onOpenReserve: (id: string) => void;
   isReserveArchived?: (reserve: ReserveSource) => boolean;
+  requestedId?: string;
+  canEdit: boolean;
+  canCreate: boolean;
+  canExport: boolean;
+  onSave: SaveOpr;
+  onSignerLink: (oprId: string, signerId: string) => Promise<string>;
+  onExport: (opr: OprSummary, kind: OprPrintKind) => void;
 };
 
 const STATUS_COPY: Record<OprStatus, { label: string; description: string }> = {
@@ -71,16 +81,37 @@ function StatusBadge({ status }: { status: OprStatus }) {
   );
 }
 
-function OprCard({ opr, open, onToggle, onOpenReserve }: {
+function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onSignerLink, onExport }: {
   opr: OprSummary;
   open: boolean;
   onToggle: () => void;
   onOpenReserve: (id: string) => void;
+  onEdit?: () => void;
+  onSignerLink?: OprWorkspaceProps['onSignerLink'];
+  onExport?: (kind: OprPrintKind) => void;
 }) {
   const reactId = useId().replace(/:/g, '');
   const detailId = `opr-detail-${reactId}`;
   const dateLabel = formatOprDate(opr.date);
   const locationLabel = opr.location || 'Localisation à préciser';
+  const signers = Array.isArray(opr.source.signatories) ? opr.source.signatories : [];
+  const [signerLink, setSignerLink] = useState<{ url: string; signerId: string } | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState('');
+
+  async function prepareLink(signerId: string) {
+    if (!onSignerLink || linkBusy) return;
+    setLinkBusy(true);
+    setLinkError('');
+    setSignerLink(null);
+    try {
+      setSignerLink({ url: await onSignerLink(opr.id, signerId), signerId });
+    } catch (cause) {
+      setLinkError(cause instanceof Error ? cause.message : 'Lien indisponible.');
+    } finally {
+      setLinkBusy(false);
+    }
+  }
 
   return (
     <article className={styles.oprCard} data-open={open ? 'true' : 'false'} data-opr-id={opr.id}>
@@ -128,6 +159,33 @@ function OprCard({ opr, open, onToggle, onOpenReserve }: {
             <div><dt>Date du contrôle</dt><dd>{formatOprDate(opr.date, true)}</dd></div>
           </dl>
 
+          <div className={editorStyles.actions}>
+            {onEdit ? <button type="button" onClick={onEdit}>Modifier</button> : null}
+            {onExport ? <>
+              <button type="button" onClick={() => onExport('pv')}>PDF du procès-verbal</button>
+              <button type="button" onClick={() => onExport('convocation')}>PDF de convocation</button>
+              {opr.reserveCount ? <button type="button" onClick={() => onExport('levee')}>PDF de levée</button> : null}
+            </> : null}
+          </div>
+          {opr.source.visit_contradictoire && !/^(true|false)$/i.test(String(opr.source.visit_contradictoire)) ? (
+            <p>Visite contradictoire le {formatOprDate(String(opr.source.visit_contradictoire))}</p>
+          ) : null}
+          {signers.length ? <div className={editorStyles.signers}>
+            <h3>Signataires</h3>
+            {signers.map((signer: { id: string; name: string; signed?: boolean; signedAt?: string }) => (
+              <div key={signer.id}>
+                <strong>{signer.name}</strong> {signer.signed || signer.signedAt ? '· Signé' : '· En attente'}
+                {onSignerLink && !signer.signed && !signer.signedAt && opr.status !== 'signed' ? (
+                  <div className={editorStyles.actions}><button type="button" disabled={linkBusy} onClick={() => void prepareLink(signer.id)}>Créer le lien de signature</button></div>
+                ) : null}
+                {signerLink?.signerId === signer.id ? <label>Lien individuel à transmettre à {signer.name}
+                  <input readOnly value={signerLink.url} onFocus={event => event.currentTarget.select()} />
+                </label> : null}
+              </div>
+            ))}
+            {linkError ? <p role="alert">{linkError}</p> : null}
+          </div> : null}
+
           <div className={styles.checklistHeader}>
             <div>
               <h3>Lots contrôlés</h3>
@@ -172,9 +230,10 @@ function OprCard({ opr, open, onToggle, onOpenReserve }: {
   );
 }
 
-export default function OprWorkspace({ oprs, reserves, projectName, onOpenReserve, isReserveArchived }: OprWorkspaceProps) {
+export default function OprWorkspace({ oprs, reserves, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onSignerLink, onExport }: OprWorkspaceProps) {
   const [filter, setFilter] = useState<OprFilter>('all');
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(requestedId || null);
+  const [editor, setEditor] = useState<OprSource | null | undefined>(undefined);
   const model = useMemo(
     () => buildOprWorkspaceModel(oprs, reserves, isReserveArchived),
     [isReserveArchived, oprs, reserves],
@@ -247,6 +306,12 @@ export default function OprWorkspace({ oprs, reserves, projectName, onOpenReserv
           </div>
         </div>
 
+        {requestedId && !model.summaries.some(opr => opr.id === requestedId) ? <p role="status">Ce procès-verbal n’est pas accessible dans ce chantier.</p> : null}
+        {canCreate && editor === undefined ? <div className={editorStyles.actions}><button type="button" onClick={() => setEditor(null)}>Nouveau procès-verbal</button></div> : null}
+        {editor !== undefined ? <OprEditor key={editor?.id ?? 'new'} current={editor} reserves={reserves} onSave={onSave} onClose={id => {
+          setEditor(undefined);
+          if (id) { setOpenId(id); setFilter('all'); }
+        }} /> : null}
         <p className={styles.resultCount} role="status" aria-live="polite">
           {visible.length} {visible.length === 1 ? 'dossier affiché' : 'dossiers affichés'} · filtre {activeFilterLabel.toLowerCase()}
         </p>
@@ -260,6 +325,10 @@ export default function OprWorkspace({ oprs, reserves, projectName, onOpenReserv
                 open={openId === opr.id}
                 onToggle={() => setOpenId(current => current === opr.id ? null : opr.id)}
                 onOpenReserve={onOpenReserve}
+                onEdit={canEdit && opr.status !== 'signed' && !(Array.isArray(opr.source.signatories) && opr.source.signatories.some(signer => signer?.signatureSource === 'web_link' && signer.signed))
+                  ? () => setEditor(opr.source) : undefined}
+                onSignerLink={canEdit ? onSignerLink : undefined}
+                onExport={canExport ? kind => onExport(opr, kind) : undefined}
               />
             ))}
           </div>

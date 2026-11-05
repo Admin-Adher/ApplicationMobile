@@ -258,7 +258,8 @@ export function toOpr(row: any): Opr {
     conducteurSignature: row.conducteur_signature ?? undefined,
     moSignature: row.mo_signature ?? undefined,
     createdAt: row.created_at,
-    visitContradictoire: row.visit_contradictoire ?? undefined,
+    visitContradictoire: typeof row.visit_contradictoire === 'string' && !/^(true|false)$/i.test(row.visit_contradictoire)
+      ? row.visit_contradictoire : undefined,
     visitParticipants: row.visit_participants ?? undefined,
     signatories: row.signatories ?? undefined,
     invitedEmails: row.invited_emails ?? undefined,

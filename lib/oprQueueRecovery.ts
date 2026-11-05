@@ -1,6 +1,6 @@
 import { normalizeOprPayloadForSupabase } from './mappers';
 
-type QueuedOprInsert = {
+type QueuedOprWrite = {
   table: string;
   op: string;
   data?: Record<string, unknown>;
@@ -8,19 +8,26 @@ type QueuedOprInsert = {
   terminalStatus?: string;
   lastError?: string;
   purgeState?: string;
+  filter?: { column: string; value: unknown };
 };
 
-export function recoverRejectedOprTimestamp<T extends QueuedOprInsert>(operation: T): T {
+export function recoverRejectedOprWrite<T extends QueuedOprWrite>(operation: T): T {
   const { table, op, data, terminal, terminalStatus, lastError, purgeState } = operation;
-  if (table !== 'oprs' || op !== 'insert' || !terminal || terminalStatus !== 'server_rejected'
-      || purgeState || typeof data?.id !== 'string' || !data.id.trim()
-      || typeof data.created_at !== 'string' || !lastError?.startsWith('[22008]')
-      || !lastError.includes(`date/time field value out of range: "${data.created_at}"`)) {
-    return operation;
-  }
+  if (table !== 'oprs' || !data || !terminal || terminalStatus !== 'server_rejected' || purgeState) return operation;
+
+  const id = op === 'insert' ? data.id : operation.filter?.column === 'id' ? operation.filter.value : null;
+  if (typeof id !== 'string' || !id.trim()) return operation;
+  const visitDate = data.visit_contradictoire;
+  const rejectedVisitDate = (op === 'insert' || op === 'update') && typeof visitDate === 'string'
+    && lastError?.startsWith('[22P02]')
+    && lastError.includes(`invalid input syntax for type boolean: "${visitDate}"`);
+  const rejectedTimestamp = op === 'insert' && typeof data.created_at === 'string'
+    && lastError?.startsWith('[22008]')
+    && lastError.includes(`date/time field value out of range: "${data.created_at}"`);
+  if (!rejectedVisitDate && !rejectedTimestamp) return operation;
 
   const repaired = normalizeOprPayloadForSupabase(data);
-  if (repaired === data) return operation;
+  if (rejectedTimestamp && repaired === data) return operation;
   return {
     ...operation,
     data: repaired,
