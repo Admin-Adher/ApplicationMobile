@@ -44,4 +44,25 @@ describe('reserve create and annotation ordering', () => {
     expect(loop).toContain('failedOps.push({');
     expect(loop).toContain('appliedReserveCreateIds.add(createdReserveId)');
   });
+
+  it('waits until the end of the sync pass to refresh photos after queued reserve creation', () => {
+    const source = read('context/NetworkContext.tsx');
+    const success = source.slice(
+      source.indexOf("if (op.rpc.fn === 'create_reserve_with_photos' && args.p_reserve?.id)"),
+      source.indexOf("return syncExit('E21'"),
+    );
+    expect(success).toContain("queryKey: queryKeys.photos(), refetchType: 'none'");
+    expect(source).toContain("refetchActiveQueries('queue-processed')");
+  });
+
+  it('reuses the online reserve status operation ID when queuing a retry', () => {
+    const source = read('hooks/queries/useReserves.ts');
+    const update = source.slice(
+      source.indexOf('const updateReserveStatus = useCallback'),
+      source.indexOf('const archiveReserve = useCallback'),
+    );
+    expect(update).toContain('const operationId = newOperationId();');
+    expect(update).toContain('p_operation_id: operationId, p_event: event');
+    expect(update).toMatch(/appendReserveStatusEventOperation\(\{\s*operationId,\s*event,/);
+  });
 });

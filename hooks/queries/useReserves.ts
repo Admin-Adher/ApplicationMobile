@@ -1186,11 +1186,12 @@ export function useReserves() {
       closed_at: updated.closedAt ?? null,
       closed_by: updated.closedBy ?? null,
     };
+    const operationId = newOperationId();
     const queueStatusEvent = () => enqueueOperation({
       table: 'reserves',
       op: 'rpc',
       filter: { column: 'id', value: id },
-      rpc: { fn: 'append_reserve_status_event', args: { p_event: event } },
+      rpc: { fn: 'append_reserve_status_event', args: { p_operation_id: operationId, p_event: event } },
       data: fallbackPayload,
       baseVersion: reserve.version ?? null,
     });
@@ -1202,7 +1203,7 @@ export function useReserves() {
     }
 
     const rpcResult = await appendReserveStatusEventOperation({
-      operationId: newOperationId(),
+      operationId,
       event,
     });
     const outcome = firstReserveMutationResult(rpcResult.data);
