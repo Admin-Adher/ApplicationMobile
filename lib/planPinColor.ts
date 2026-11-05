@@ -1,11 +1,16 @@
-import { Reserve } from '@/constants/types';
-
 // Shared plan pin color rule (kept in sync with the web app):
 //   - exactly 1 associated company → the company color
 //   - 0 or 2+ companies → neutral gray
 //   - company found but color unknown → fallback blue
 export const PIN_NEUTRAL_COLOR = '#6B7280';
 export const PIN_FALLBACK_COLOR = '#003082';
+
+type ReserveCompanies = {
+  company?: string | null;
+  companies?: readonly string[] | null;
+  company_name?: string | null;
+  companyName?: string | null;
+};
 
 type CompanyLike = { name: string; color?: string | null };
 
@@ -19,7 +24,7 @@ export function normalizeCompanyName(value: string | null | undefined): string {
  * `companies[]`, `company`, plus the web-side `company_name`/`companyName`.
  * Names are deduplicated using normalized matching.
  */
-export function getReserveCompanyNames(reserve: Reserve | null | undefined): string[] {
+export function getReserveCompanyNames(reserve: ReserveCompanies | null | undefined): string[] {
   if (!reserve) return [];
   const names: string[] = [];
   const seen = new Set<string>();
@@ -32,8 +37,8 @@ export function getReserveCompanyNames(reserve: Reserve | null | undefined): str
     names.push(name);
   };
   push(reserve.company);
-  push((reserve as any).company_name);
-  push((reserve as any).companyName);
+  push(reserve.company_name);
+  push(reserve.companyName);
   if (Array.isArray(reserve.companies)) reserve.companies.forEach(push);
   return names;
 }
@@ -52,7 +57,7 @@ export function getCompanyPinColor(
 
 /** Applies the shared pin color rule to a reserve. */
 export function getReservePinColor(
-  reserve: Reserve | null | undefined,
+  reserve: ReserveCompanies | null | undefined,
   companies: CompanyLike[],
   fallback: string = PIN_FALLBACK_COLOR,
 ): string {

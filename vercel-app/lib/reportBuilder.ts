@@ -1,12 +1,14 @@
-﻿import type { PdfReportPayload, PdfPlanItem, PdfReserveItem } from '../types/pdfReport';
+﻿import { getPdfCompanyPalette, getPdfReservePinColor, renderPdfCompanyLabel, renderPdfReserveCompanies } from '../../lib/pdfCompanyColors';
+import { getReserveCompanyNames } from '../../lib/planPinColor';
+import type { PdfReportPayload, PdfPlanItem, PdfReserveItem } from '../types/pdfReport';
 import {
   RESERVE_PRIORITY_COLORS,
   RESERVE_PRIORITY_LABELS,
   RESERVE_STATUS_COLORS,
   RESERVE_STATUS_LABELS,
   RESERVE_STATUS_LABELS_FEMININE,
-} from '@/lib/reserveLabels';
-import { getReserveDescriptionText, hasCustomReserveDescription } from '@/lib/reserveDescription';
+} from './reserveLabels';
+import { getReserveDescriptionText, hasCustomReserveDescription } from './reserveDescription';
 
 type ReportLanguage = 'fr' | 'en' | 'es';
 
@@ -157,6 +159,7 @@ function priorityLabel(priority: string | undefined, language: ReportLanguage): 
 // ── Global Reserves HTML (no plans needed) ────────────────────────────────────
 export function buildGlobalReservesHtml(payload: any): string {
   const { chantierName, companyFilter, generatedAt, reserves } = payload;
+  const palette = getPdfCompanyPalette(payload.companies);
   const lang = reportLanguage(payload.language);
   const copy = REPORT_COPY[lang];
   const dateStr = new Date(generatedAt || Date.now()).toLocaleDateString(REPORT_LOCALES[lang], { day: '2-digit', month: 'long', year: 'numeric' });
@@ -173,8 +176,8 @@ export function buildGlobalReservesHtml(payload: any): string {
 
   const byCompany: Record<string, { total: number; closed: number }> = {};
   for (const r of reserves as any[]) {
-    const names: string[] = Array.isArray(r.companies) && r.companies.length > 0 ? r.companies : r.company ? [r.company] : [copy.noValue];
-    for (const n of names) {
+    const names = getReserveCompanyNames(r);
+    for (const n of names.length ? names : [copy.noValue]) {
       if (!byCompany[n]) byCompany[n] = { total: 0, closed: 0 };
       byCompany[n].total++;
       if (r.status === 'closed') byCompany[n].closed++;
@@ -187,7 +190,7 @@ export function buildGlobalReservesHtml(payload: any): string {
       const rate = st.total > 0 ? Math.round((st.closed / st.total) * 100) : 0;
       const rateColor = rate >= 80 ? '#059669' : rate >= 50 ? '#D97706' : '#DC2626';
       return `<tr>
-        <td style="padding:7px 12px;font-weight:600">${escHtml(co)}</td>
+        <td style="padding:7px 12px;font-weight:600">${renderPdfCompanyLabel(co, palette)}</td>
         <td style="padding:7px 12px;text-align:center">${st.total}</td>
         <td style="padding:7px 12px;text-align:center;color:#22c55e;font-weight:700">${st.closed}</td>
         <td style="padding:7px 12px;text-align:center">
@@ -215,7 +218,6 @@ export function buildGlobalReservesHtml(payload: any): string {
       const sc = S_COL[r.status] ?? '#6b7280';
       const pc = P_COL[r.priority] ?? '#6b7280';
       const bg = i % 2 === 0 ? '#ffffff' : '#f9fafb';
-      const cos: string[] = Array.isArray(r.companies) && r.companies.length > 0 ? r.companies : r.company ? [r.company] : [copy.noValue];
       // Colonne « Observation » : titre, description éventuelle, puis photos
       // empilées (comme le rapport de pendientes de référence).
       const rawPhotos: any[] = Array.isArray(r.photos) ? r.photos : [];
@@ -230,7 +232,7 @@ export function buildGlobalReservesHtml(payload: any): string {
           <span style="display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:#003082;color:#fff;font-weight:700;font-size:10px">${i + 1}</span>
         </td>
         <td style="padding:6px 8px;font-size:11px;vertical-align:top;min-width:150px"><div style="font-weight:600">${escHtml(r.title)}</div>${descHtml}${photoStack}</td>
-        <td style="padding:6px 8px;font-size:11px;vertical-align:top">${cos.map(c => escHtml(c)).join(', ')}</td>
+        <td style="padding:6px 8px;font-size:11px;vertical-align:top">${renderPdfReserveCompanies(r, palette, copy.noValue)}</td>
         <td style="padding:6px 8px;font-size:11px;vertical-align:top">${copy.buildingShort} ${escHtml(r.building || '?')} · ${escHtml(r.level || copy.noValue)}</td>
         <td style="padding:6px 8px;vertical-align:top"><span style="color:${sc};font-weight:600;font-size:10px">${S_FR[r.status] ?? r.status}</span></td>
         <td style="padding:6px 8px;vertical-align:top"><span style="color:${pc};font-weight:600;font-size:10px">${P_FR[r.priority] ?? r.priority}</span></td>
@@ -255,7 +257,7 @@ export function buildGlobalReservesHtml(payload: any): string {
   <div style="background:linear-gradient(135deg,#003082 0%,#1A6FD8 100%);color:#fff;padding:24px 28px;border-radius:8px;margin-bottom:20px">
     <div style="font-size:11px;letter-spacing:2px;text-transform:uppercase;opacity:0.75;margin-bottom:4px">BuildTrack · ${copy.reportReservesTitle}</div>
     <div style="font-size:22px;font-weight:800;margin-bottom:2px">${escHtml(chantierName)}</div>
-    <div style="font-size:13px;opacity:0.8">${escHtml(companyLabel)} · ${copy.generatedOn} ${dateStr}</div>
+    <div style="font-size:13px;opacity:0.8">${renderPdfCompanyLabel(companyLabel, palette)} · ${copy.generatedOn} ${dateStr}</div>
   </div>
   <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px">
     <div style="text-align:center;background:#f8fafc;border-radius:8px;padding:10px 20px;border:1px solid #e2e8f0">
@@ -310,12 +312,13 @@ export function buildIndividualReserveHtml(payload: any): string {
   const sLabels = STATUS_LABELS_FEMININE_I18N[lang] as Record<string, string>;
   const pColors = RESERVE_PRIORITY_COLORS as Record<string, string>;
   const pLabels = PRIORITY_LABELS_I18N[lang] as Record<string, string>;
-  const pinColor: string = companyColor || '#003082';
+  const companies = getReserveCompanyNames(reserve);
+  const palette = getPdfCompanyPalette(payload.companies ?? [{ name: companies[0], color: companyColor }]);
+  const pinColor = getPdfReservePinColor(reserve, palette);
   const sColor = sColors[reserve.status] ?? '#6B7280';
   const sLabel = sLabels[reserve.status] ?? reserve.status;
   const pColor = pColors[reserve.priority] ?? '#6B7280';
   const pLabel = pLabels[reserve.priority] ?? reserve.priority;
-  const companies: string[] = Array.isArray(reserve.companies) && reserve.companies.length > 0 ? reserve.companies : reserve.company ? [reserve.company] : [];
   const dateStr = new Date().toLocaleDateString(REPORT_LOCALES[lang]);
 
   let planSection = '';
@@ -420,7 +423,7 @@ export function buildIndividualReserveHtml(payload: any): string {
         <div class="col2" style="margin-bottom:8px">
           <div class="info-cell">
             <div class="lbl">${copy.company}${companies.length > 1 && lang === 'fr' ? 's' : ''}</div>
-            <div class="val" style="color:${pinColor}">${companies.map(c => escHtml(c)).join(', ') || copy.noValue}</div>
+            <div class="val">${renderPdfReserveCompanies(reserve, palette, copy.noValue)}</div>
           </div>
           <div class="info-cell">
             <div class="lbl">${copy.location}</div>
@@ -447,7 +450,7 @@ export function buildIndividualReserveHtml(payload: any): string {
     <tbody>${historyRows}</tbody></table>` : ''}
     <div style="margin-top:16px;display:flex;gap:20px">
       <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${copy.manager}</div></div>
-      <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${companies.map(c => escHtml(c)).join(', ') || copy.company}</div></div>
+      <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${renderPdfReserveCompanies(reserve, palette, copy.company)}</div></div>
     </div>
     <div class="doc-footer">
       <span>${copy.reserveSheetTitle} · BuildTrack</span>
@@ -565,6 +568,7 @@ export function buildVisitReportHtml(payload: any): string {
   const visit = payload.visit ?? {};
   const reserves = Array.isArray(payload.reserves) ? payload.reserves : [];
   const companies = Array.isArray(payload.companies) ? payload.companies : [];
+  const palette = getPdfCompanyPalette(companies);
   const participants = Array.isArray(visit.participants) ? visit.participants : [];
   const coverPhotoUri = visit.cover_photo_uri ?? visit.coverPhotoUri ?? null;
   const companyIds: string[] = Array.isArray(visit.concerned_company_ids)
@@ -607,10 +611,10 @@ export function buildVisitReportHtml(payload: any): string {
   const participantsHtml = participants.length
     ? participants.map((participant: any) => {
         const name = participant.name ?? participant.full_name ?? participant.email ?? common.noValue;
-        const meta = [participant.role, participant.company, participant.email].filter(Boolean).join(' · ');
+        const meta = [escapeHtml(participant.role), renderPdfCompanyLabel(participant.company, palette), escapeHtml(participant.email)].filter(Boolean).join(' · ');
         return `<div style="border:1px solid #e2e8f0;background:#f8fafc;border-radius:8px;padding:8px 10px">
           <div style="font-weight:800">${escapeHtml(name)}</div>
-          <div style="font-size:10px;color:#64748b;margin-top:2px">${escapeHtml(meta || copy.participants)}</div>
+          <div style="font-size:10px;color:#64748b;margin-top:2px">${meta || escapeHtml(copy.participants)}</div>
         </div>`;
       }).join('')
     : `<p style="color:#94a3b8">${copy.noParticipants}</p>`;
@@ -628,13 +632,10 @@ export function buildVisitReportHtml(payload: any): string {
     ? reserves.map((reserve: any, index: number) => {
         const statusColor = STATUS_COLORS[reserve.status] ?? '#6b7280';
         const priorityColor = PRIORITY_COLORS[reserve.priority] ?? '#6b7280';
-        const companyLabel = Array.isArray(reserve.companies) && reserve.companies.length
-          ? reserve.companies.join(', ')
-          : reserve.company ?? common.noValue;
         return `<tr style="background:${index % 2 === 0 ? '#ffffff' : '#f8fafc'}">
           <td style="padding:8px 10px;font-weight:800;color:#003082">#${index + 1}</td>
           <td style="padding:8px 10px;font-weight:700">${escapeHtml(reserve.title)}</td>
-          <td style="padding:8px 10px">${escapeHtml(companyLabel)}</td>
+          <td style="padding:8px 10px">${renderPdfReserveCompanies(reserve, palette, common.noValue)}</td>
           <td style="padding:8px 10px">${escapeHtml([reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · ') || common.noValue)}</td>
           <td style="padding:8px 10px;color:${statusColor};font-weight:700">${statusLabel(reserve.status, lang)}</td>
           <td style="padding:8px 10px;color:${priorityColor};font-weight:700">${priorityLabel(reserve.priority, lang)}</td>
@@ -685,7 +686,7 @@ export function buildVisitReportHtml(payload: any): string {
 
   <div class="section-title">${copy.companies}</div>
   <div style="display:flex;gap:6px;flex-wrap:wrap">
-    ${(companyNames.length ? companyNames : [common.allCompanies]).map(name => `<span style="background:#eef2ff;color:#003082;border:1px solid #c7d2fe;border-radius:999px;padding:5px 10px;font-weight:700">${escapeHtml(name)}</span>`).join('')}
+    ${(companyNames.length ? companyNames : [common.allCompanies]).map(name => `<span style="background:#eef2ff;color:#003082;border:1px solid #c7d2fe;border-radius:999px;padding:5px 10px;font-weight:700">${renderPdfCompanyLabel(name, palette)}</span>`).join('')}
   </div>
 
   <div class="section-title">${copy.participants}</div>
@@ -726,7 +727,7 @@ export function buildVisitReportHtml(payload: any): string {
 </html>`;
 }
 
-function buildReserveRow(r: PdfReserveItem, idx: number, lang: ReportLanguage = 'fr'): string {
+function buildReserveRow(r: PdfReserveItem, idx: number, palette: ReadonlyMap<string, string>, lang: ReportLanguage): string {
   const statusColor = STATUS_COLORS[r.status] ?? '#6b7280';
   const priorityColor = PRIORITY_COLORS[r.priority] ?? '#6b7280';
   const copy = REPORT_COPY[lang];
@@ -741,10 +742,10 @@ function buildReserveRow(r: PdfReserveItem, idx: number, lang: ReportLanguage = 
   const descHtml = desc ? `<div style="color:#64748b;font-size:10px;margin-top:2px">${escapeHtml(desc.length > 240 ? desc.slice(0, 240) + '…' : desc)}</div>` : '';
   return `<tr style="background:${bg}">
     <td style="text-align:center;width:36px;padding:7px 10px;vertical-align:top">
-      <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#003082;color:#fff;font-weight:700;font-size:11px">${idx + 1}</span>
+      <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:${getPdfReservePinColor(r, palette)};color:#fff;font-weight:700;font-size:11px">${idx + 1}</span>
     </td>
     <td style="padding:7px 10px;vertical-align:top;min-width:150px"><div style="font-weight:600">${escapeHtml(r.title)}</div>${descHtml}${photoStack}</td>
-    <td style="padding:7px 10px;vertical-align:top">${escapeHtml(r.company) || copy.noValue}</td>
+    <td style="padding:7px 10px;vertical-align:top">${renderPdfReserveCompanies(r, palette, copy.noValue)}</td>
     <td style="padding:7px 10px;vertical-align:top">${escapeHtml(r.level) || copy.noValue}</td>
     <td style="padding:7px 10px;vertical-align:top"><span style="color:${statusColor};font-weight:600">${statusLabel(r.status, lang)}</span></td>
     <td style="padding:7px 10px;vertical-align:top"><span style="color:${priorityColor};font-weight:600">${priorityLabel(r.priority, lang)}</span></td>
@@ -765,7 +766,7 @@ function buildTableHeader(bgColor = '#003082', lang: ReportLanguage = 'fr'): str
   </tr></thead>`;
 }
 
-function buildPlanBlock(plan: PdfPlanItem, planReserves: PdfReserveItem[], lang: ReportLanguage = 'fr'): string {
+function buildPlanBlock(plan: PdfPlanItem, planReserves: PdfReserveItem[], palette: ReadonlyMap<string, string>, lang: ReportLanguage): string {
   const copy = REPORT_COPY[lang];
   const levelBadge = plan.level
     ? `<span style="font-size:11px;background:#e2e8f0;color:#64748b;padding:2px 8px;border-radius:10px;margin-left:8px">${escapeHtml(plan.level)}</span>`
@@ -773,11 +774,10 @@ function buildPlanBlock(plan: PdfPlanItem, planReserves: PdfReserveItem[], lang:
 
   let planImgHtml = '';
   if (plan.uri && plan.fileType !== 'pdf' && plan.fileType !== 'dxf') {
-    const pinsWithCoords = planReserves.filter(r => r.planX != null && r.planY != null);
-    const circles = pinsWithCoords
-      .map((r, i) => `
+    const circles = planReserves
+      .map((r, i) => r.planX == null || r.planY == null ? '' : `
         <circle cx="${r.planX}%" cy="${r.planY}%" r="10"
-          fill="#003082" stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>
+          fill="${getPdfReservePinColor(r, palette)}" stroke="rgba(255,255,255,0.85)" stroke-width="1.5"/>
         <text x="${r.planX}%" y="${r.planY}%"
           text-anchor="middle" dominant-baseline="central"
           fill="#fff" font-size="9" font-weight="bold" font-family="Arial,sans-serif">${i + 1}</text>`)
@@ -794,7 +794,7 @@ function buildPlanBlock(plan: PdfPlanItem, planReserves: PdfReserveItem[], lang:
       </div>`;
   }
 
-  const rows = planReserves.map((r, i) => buildReserveRow(r, i, lang)).join('');
+  const rows = planReserves.map((r, i) => buildReserveRow(r, i, palette, lang)).join('');
 
   return `
     <div style="background:#fff;border-radius:8px;border:1px solid #e2e8f0;margin-bottom:14px;overflow:hidden">
@@ -814,6 +814,7 @@ function buildPlanBlock(plan: PdfPlanItem, planReserves: PdfReserveItem[], lang:
 
 export function buildGlobalReportHtml(payload: PdfReportPayload): string {
   const { chantierName, companyFilter, generatedAt, plans, reserves } = payload;
+  const palette = getPdfCompanyPalette(payload.companies);
   const lang = reportLanguage((payload as any).language);
   const copy = REPORT_COPY[lang];
 
@@ -853,7 +854,7 @@ export function buildGlobalReportHtml(payload: PdfReportPayload): string {
       const planReserves = reservesByPlan.get(plan.id) ?? [];
       if (planReserves.length === 0) continue;
       buildingReserveCount += planReserves.length;
-      planBlocks.push(buildPlanBlock(plan, planReserves, lang));
+      planBlocks.push(buildPlanBlock(plan, planReserves, palette, lang));
     }
 
     if (buildingReserveCount === 0) continue;
@@ -889,7 +890,7 @@ export function buildGlobalReportHtml(payload: PdfReportPayload): string {
             <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:#475569;color:#fff;font-weight:700;font-size:11px">${i + 1}</span>
           </td>
           <td style="padding:7px 10px;vertical-align:top;min-width:150px"><div style="font-weight:600">${escapeHtml(r.title)}</div>${descHtml}${photoStack}</td>
-          <td style="padding:7px 10px;vertical-align:top">${escapeHtml(r.company) || copy.noValue}</td>
+          <td style="padding:7px 10px;vertical-align:top">${renderPdfReserveCompanies(r, palette, copy.noValue)}</td>
           <td style="padding:7px 10px;vertical-align:top">${escapeHtml(r.building) || copy.noValue}</td>
           <td style="padding:7px 10px;vertical-align:top">${escapeHtml(r.level) || copy.noValue}</td>
           <td style="padding:7px 10px;vertical-align:top"><span style="color:${statusColor};font-weight:600">${statusLabel(r.status, lang)}</span></td>
@@ -985,7 +986,7 @@ export function buildGlobalReportHtml(payload: PdfReportPayload): string {
     </div>
     <div style="font-size:28px;font-weight:800;color:#1e293b;margin-bottom:8px">${copy.reportPlansTitle}</div>
     <div style="font-size:18px;color:#64748b;margin-bottom:6px">${escapeHtml(chantierName)}</div>
-    <div style="font-size:14px;color:#94a3b8;margin-bottom:32px">${escapeHtml(companyLabel)}</div>
+    <div style="font-size:14px;color:#94a3b8;margin-bottom:32px">${renderPdfCompanyLabel(companyLabel, palette)}</div>
     <div style="display:flex;gap:40px;margin:16px 0">
       <div style="text-align:center">
         <div style="font-size:40px;font-weight:800;color:#003082">${totalReserves}</div>

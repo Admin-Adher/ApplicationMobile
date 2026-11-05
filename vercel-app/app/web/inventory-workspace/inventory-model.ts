@@ -50,6 +50,7 @@ export type InventoryProjectRow = {
 export type InventoryCompanyRow = {
   id: string;
   name?: string | null;
+  color?: string | null;
   chantier_id?: string | null;
 };
 

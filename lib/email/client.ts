@@ -1,3 +1,4 @@
+import type { PdfCompany } from '@/lib/pdfCompanyColors';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import i18n from '@/lib/i18n';
 import { canonicalApiBaseUrl } from '@/lib/apiBase';
@@ -181,6 +182,7 @@ export async function sendPasswordChangedEmail(params: {
 export interface PdfReportPayload {
   chantierName: string;
   companyFilter: string | null;
+  companies?: PdfCompany[];
   generatedAt: string;
   language?: string | null;
   plans: Array<{
@@ -196,6 +198,7 @@ export interface PdfReportPayload {
     num: number;
     title: string;
     company: string;
+    companies?: string[];
     building?: string;
     level?: string;
     status: string;
@@ -235,6 +238,7 @@ export async function generateAndSendPdfReport(
 export interface GlobalReservesPayload {
   chantierName: string;
   companyFilter: string | null;
+  companies?: PdfCompany[];
   generatedAt: string;
   language?: string | null;
   reserves: Array<{
@@ -279,6 +283,7 @@ export async function generateAndSendReservesReport(
 export interface IndividualReservePayload {
   chantierName: string;
   companyColor?: string;
+  companies?: PdfCompany[];
   language?: string | null;
   planUri?: string;
   planX?: number;

@@ -1,3 +1,5 @@
+import { getPdfCompanyPalette, renderPdfCompanyLabel, type PdfCompany } from '@/lib/pdfCompanyColors';
+import { normalizeCompanyName } from '@/lib/planPinColor';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Modal, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useCallback, useEffect, useMemo } from 'react';
@@ -49,7 +51,8 @@ const CRR_TEMPLATE_DEFS = [
 
 const MEETING_KEY = 'buildtrack_meetings_v1';
 
-function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: string, options?: any) => string, locale = 'fr-FR'): string {
+function buildMeetingHTML(report: MeetingReport, projectName: string, companies: PdfCompany[], t: (key: string, options?: any) => string, locale = 'fr-FR'): string {
+  const palette = getPdfCompanyPalette(companies);
   const exportDate = new Date().toLocaleString(locale);
   const localizedDate = (value: string) => {
     const parts = value.split('/').map(Number);
@@ -72,7 +75,7 @@ function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: s
   const actionsHtml = report.actions.map(a =>
     `<tr>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(a.description)}</td>
-      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:600">${escapeHtml(a.responsible)}</td>
+      <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px;font-weight:600">${renderPdfCompanyLabel(a.responsible, palette)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;font-size:11px">${escapeHtml(a.deadline)}</td>
       <td style="padding:8px 10px;border-bottom:1px solid #EEF3FA;text-align:center">
         <span style="background:${a.status === 'done' ? '#ECFDF5' : '#FFFBEB'};color:${a.status === 'done' ? '#059669' : '#D97706'};font-size:10px;font-weight:700;padding:2px 10px;border-radius:10px">
@@ -84,8 +87,13 @@ function buildMeetingHTML(report: MeetingReport, projectName: string, t: (key: s
 
   const sH = (t: string) => `<div class="section-header">${t}</div>`;
 
-  const participantsList = report.participants.split('\n').filter(p => p.trim()).map(p =>
-    `<span style="display:inline-block;background:#F4F7FB;border:1px solid #DDE4EE;border-radius:20px;padding:3px 10px;font-size:11px;margin:3px 4px 3px 0">${escapeHtml(p.trim())}</span>`
+  const companyNames = new Set(companies.map(company => normalizeCompanyName(company.name)));
+  const participantsList = report.participants.split('\n').map(name => name.trim()).filter(Boolean).flatMap(name => {
+    if (companyNames.has(normalizeCompanyName(name))) return [name];
+    const names = name.split(', ');
+    return names.every(part => companyNames.has(normalizeCompanyName(part))) ? names : [name];
+  }).map(p =>
+    `<span style="display:inline-block;background:#F4F7FB;border:1px solid #DDE4EE;border-radius:20px;padding:3px 10px;font-size:11px;margin:3px 4px 3px 0">${renderPdfCompanyLabel(p.trim(), palette)}</span>`
   ).join('');
 
   const agendaItems = report.agenda.split('\n').filter(a => a.trim()).map((item, i) =>
@@ -283,7 +291,7 @@ export default function MeetingReportScreen() {
     }
     try {
       const exportT = getExportTranslator(exportLanguage) as unknown as (key: string, options?: any) => string;
-      const html = buildMeetingHTML(report, projectName, exportT, localeForExportLanguage(exportLanguage));
+      const html = buildMeetingHTML(report, projectName, companies, exportT, localeForExportLanguage(exportLanguage));
       await exportPDFHelper(html, buildPdfFilename('CR_Reunion', [report.subject, report.location, projectName, exportLanguage.toUpperCase()]));
     } catch (e: any) {
       showAlert(t('common.error'), e?.message ?? t('meetingReport.pdfError'));

@@ -1,3 +1,4 @@
+import { getPdfCompanyPalette, renderPdfCompanyLabel, type PdfCompany } from './pdfCompanyColors';
 import { inventoryDocumentCopy, type InventoryDocumentLanguage } from './inventoryDocumentCopy';
 import type { InventoryWorkbookMovement, InventoryWorkbookProduct } from './inventoryWorkbookEngine';
 
@@ -10,9 +11,9 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#039;');
 }
 
-function rows(cells: string[][], empty: string, columns: number): string {
+function rows(cells: string[][], empty: string, columns: number, company?: { column: number; palette: ReadonlyMap<string, string> }): string {
   if (!cells.length) return `<tr><td colspan="${columns}" class="empty">${escapeHtml(empty)}</td></tr>`;
-  return cells.map(row => `<tr>${row.map(cell => `<td>${escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
+  return cells.map(row => `<tr>${row.map((cell, index) => `<td>${company?.column === index ? renderPdfCompanyLabel(cell, company.palette) : escapeHtml(cell)}</td>`).join('')}</tr>`).join('');
 }
 
 function headers(labels: string[]): string {
@@ -44,7 +45,9 @@ export function buildInventoryPdfHtml(
   chantierName: string,
   language: InventoryDocumentLanguage,
   generatedAt = new Date(),
+  companies?: PdfCompany[],
 ): string {
+  const palette = getPdfCompanyPalette(companies);
   const copy = inventoryDocumentCopy(language);
   const lowStock = products.filter(product => product.minStock > 0 && product.currentStock <= product.minStock);
   const entries = movements.filter(movement => movement.movementType === 'in');
@@ -92,8 +95,8 @@ export function buildInventoryPdfHtml(
     <h2>${escapeHtml(copy.pdf.stockSection)}</h2><table><thead>${headers(copy.pdf.stockHeaders)}</thead><tbody>${rows(products.map(product => [product.reference, product.designation, String(product.currentStock), String(product.minStock), String(product.totalEntries), String(product.totalExits), product.location ?? '']), copy.noData, copy.pdf.stockHeaders.length)}</tbody></table>
     <h2>${escapeHtml(copy.pdf.reorderSection)}</h2><table><thead>${headers(copy.pdf.reorderHeaders)}</thead><tbody>${rows(lowStock.map(product => [product.reference, product.designation, String(product.currentStock), String(product.minStock), product.supplier ?? '']), copy.noData, copy.pdf.reorderHeaders.length)}</tbody></table>
     <h2>${escapeHtml(copy.pdf.buildingSection)}</h2><table><thead>${headers(copy.pdf.buildingHeaders)}</thead><tbody>${rows(byBuilding.map(([label, quantity]) => [label, String(quantity)]), copy.noData, copy.pdf.buildingHeaders.length)}</tbody></table>
-    <h2>${escapeHtml(copy.pdf.companySection)}</h2><table><thead>${headers(copy.pdf.companyHeaders)}</thead><tbody>${rows(byCompany.map(([label, quantity]) => [label, String(quantity)]), copy.noData, copy.pdf.companyHeaders.length)}</tbody></table>
-    <section ${movements.length ? 'style="break-before:page;page-break-before:always"' : ''}><h2>${escapeHtml(copy.pdf.movementsSection)}</h2><table><thead>${headers(copy.pdf.movementHeaders)}</thead><tbody>${rows(movements.slice(0, 100).map(movement => [formatDate(movement.createdAt, copy.locale), movement.movementType === 'in' ? copy.movement.in : copy.movement.out, movement.reference, String(movement.quantity), movement.buildingName ?? movement.supplier ?? '', movement.companyName ?? '', movement.userName ?? '']), copy.noData, copy.pdf.movementHeaders.length)}</tbody></table></section>
+    <h2>${escapeHtml(copy.pdf.companySection)}</h2><table><thead>${headers(copy.pdf.companyHeaders)}</thead><tbody>${rows(byCompany.map(([label, quantity]) => [label, String(quantity)]), copy.noData, copy.pdf.companyHeaders.length, { column: 0, palette })}</tbody></table>
+    <section ${movements.length ? 'style="break-before:page;page-break-before:always"' : ''}><h2>${escapeHtml(copy.pdf.movementsSection)}</h2><table><thead>${headers(copy.pdf.movementHeaders)}</thead><tbody>${rows(movements.slice(0, 100).map(movement => [formatDate(movement.createdAt, copy.locale), movement.movementType === 'in' ? copy.movement.in : copy.movement.out, movement.reference, String(movement.quantity), movement.buildingName ?? movement.supplier ?? '', movement.companyName ?? '', movement.userName ?? '']), copy.noData, copy.pdf.movementHeaders.length, { column: 5, palette })}</tbody></table></section>
     <footer class="footer"><span>BuildTrack · ${escapeHtml(copy.pdf.tagline)}</span><span>${escapeHtml(language.toUpperCase())}</span></footer>
   </main></body></html>`;
 }

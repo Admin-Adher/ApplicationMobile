@@ -1,3 +1,4 @@
+import { getPdfCompanyPalette, renderPdfCompanyLabel, renderPdfReserveCompanies, type PdfCompany } from '@/lib/pdfCompanyColors';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Platform, Modal, TextInput, ActivityIndicator, KeyboardAvoidingView, Image, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -487,11 +488,13 @@ function buildVisitePDF(
   visite: Visite,
   reserves: Reserve[],
   projectName: string,
+  companies: PdfCompany[],
   reservePhotoMap?: Map<string, string[]>,
   coverPhotoDataUrl?: string | null,
   language: VisitReportLanguage = 'fr',
 ): string {
   const copy = VISIT_REPORT_COPY[language] ?? VISIT_REPORT_COPY.fr;
+  const palette = getPdfCompanyPalette(companies);
   const totalOpen = reserves.filter(r => r.status === 'open').length;
   const totalInProgress = reserves.filter(r => r.status === 'in_progress').length;
   const totalWaiting = reserves.filter(r => r.status === 'waiting').length;
@@ -597,7 +600,7 @@ function buildVisitePDF(
         <td style="white-space:nowrap;font-weight:700">${htmlText(r.deadline)}</td>
         <td>${escapeHtml(reserveLocationLabel(r, copy))}</td>
         <td><strong>${escapeHtml(r.id)}</strong> — ${escapeHtml(r.title)}<br/><span style="color:#6B7280">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</span></td>
-        <td>${escapeHtml(reserveCompanyLabel(r, copy))}</td>
+        <td>${renderPdfReserveCompanies(r, palette, copy.noCompany)}</td>
         <td>${reserveStatusBadge(r.status, copy)}</td>
       </tr>
     `).join('');
@@ -638,8 +641,8 @@ function buildVisitePDF(
           ${Array.from(zoneMap.entries()).map(([zone, companyMap]) => `
             <div class="zone-block">
               <div class="zone-title">${escapeHtml(zone)}</div>
-              ${Array.from(companyMap.entries()).map(([company, items]) => `
-                <div class="company-title">${escapeHtml(company)}</div>
+              ${Array.from(companyMap.values()).map(items => `
+                <div class="company-title">${renderPdfReserveCompanies(items[0], palette, copy.noCompany)}</div>
                 <ul class="action-list">
                   ${items.map(r => `
                     <li>
@@ -662,7 +665,7 @@ function buildVisitePDF(
       <td style="font-weight:700;white-space:nowrap">${escapeHtml(r.id)}</td>
       <td><strong>${escapeHtml(r.title)}</strong><br/><span style="color:#6B7280">${escapeHtml(getReserveDescriptionText(r.description, r.title, ''))}</span></td>
       <td>${escapeHtml(reserveLocationLabel(r, copy))}</td>
-      <td>${escapeHtml(reserveCompanyLabel(r, copy))}</td>
+      <td>${renderPdfReserveCompanies(r, palette, copy.noCompany)}</td>
       <td style="text-align:center">${reservePriorityBadge(r.priority, copy)}</td>
       <td style="text-align:center">${reserveStatusBadge(r.status, copy)}</td>
       <td style="white-space:nowrap">${htmlText(reserveDeadlineValue(r, copy))}</td>
@@ -704,7 +707,7 @@ function buildVisitePDF(
   const statusCounts = countBy(reserves, r => r.status);
   const companyCounts = countBy(reserves.flatMap(r => reserveCompanies(r).length ? reserveCompanies(r) : [copy.noCompany]), name => name);
   const statusDistribution = Object.entries(statusCounts).map(([status, count]) => `${copy.reserveStatus[status] ?? RESERVE_STATUS_LABELS[status] ?? status} : ${count}`).join(' · ') || copy.noReserveDistribution;
-  const companyDistribution = Object.entries(companyCounts).map(([company, count]) => `${company} : ${count}`).join(' · ') || copy.noCompanyDistribution;
+  const companyDistribution = Object.entries(companyCounts).map(([company, count]) => `${renderPdfCompanyLabel(company, palette)} : ${count}`).join(' · ') || copy.noCompanyDistribution;
   const pilotageSection = `
     <div class="section-header">${escapeHtml(copy.pilotageTitle)}</div>
     <div class="summary-grid">
@@ -714,7 +717,7 @@ function buildVisitePDF(
       </div>
       <div class="summary-card">
         <strong>${escapeHtml(copy.companyDistributionTitle)}</strong>
-        <span>${escapeHtml(companyDistribution)}</span>
+        <span>${companyDistribution}</span>
       </div>
     </div>
   `;
@@ -727,7 +730,7 @@ function buildVisitePDF(
            `<tr style="background:${i % 2 === 0 ? '#fff' : '#F9FAFB'}">
              <td style="font-weight:600">${htmlText(p.name)}</td>
              <td>${htmlText(p.role)}</td>
-             <td>${htmlText(p.company)}</td>
+             <td>${renderPdfCompanyLabel(p.company || '—', palette)}</td>
            </tr>`
          ).join('')}</tbody>
        </table>`
@@ -755,7 +758,7 @@ function buildVisitePDF(
           const srcs = reservePhotoMap?.get(r.id) ?? [];
           const rawPhotos = getReservePdfPhotos(r);
           return `<div style="margin-bottom:18px;padding:12px 16px;border:1.5px solid #DDE4EE;border-radius:10px;page-break-inside:avoid">
-            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${escapeHtml(reserveCompanyLabel(r, copy))} · ${escapeHtml(reserveLocationLabel(r, copy))}</span></div>
+            <div style="font-size:11px;font-weight:700;color:#1A2742;margin-bottom:6px">${escapeHtml(r.id)} — ${escapeHtml(r.title)} <span style="color:#6B7280;font-weight:400">· ${renderPdfReserveCompanies(r, palette, copy.noCompany)} · ${escapeHtml(reserveLocationLabel(r, copy))}</span></div>
             ${buildPhotoGrid(srcs.slice(0, 4).map((src, i) => ({
               src,
               badge: (rawPhotos[i]?.kind === 'resolution') ? copy.photoResolutionBadge : copy.photoObservationBadge,
@@ -853,6 +856,7 @@ export default function VisiteDetailScreen() {
     activeChantier,
     oprs,
     photos,
+    companies,
   } = useApp();
   const { user, permissions } = useAuth();
   const { projectName } = useSettings();
@@ -1287,7 +1291,7 @@ export default function VisiteDetailScreen() {
       const coverPhotoDataUrl = visite.coverPhotoUri
         ? await loadPhotoAsDataUrlForPdf(visite.coverPhotoUri)
         : null;
-      const html = buildVisitePDF(visite, visiteReserves, projectName, reservePhotoMap, coverPhotoDataUrl, language);
+      const html = buildVisitePDF(visite, visiteReserves, projectName, companies, reservePhotoMap, coverPhotoDataUrl, language);
       await exportPDFHelper(html, buildPdfFilename(`CR_Visite_${language.toUpperCase()}`, [visite.title, visite.level, projectName]));
     } catch (e: any) {
       showAlert(t('common.error'), e?.message ?? t('visits.detail.pdfError'));

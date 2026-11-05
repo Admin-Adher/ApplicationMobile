@@ -1,3 +1,5 @@
+import { getPdfCompanyPalette, renderPdfCompanyLabel, renderPdfReserveCompanies, type PdfCompany } from '@/lib/pdfCompanyColors';
+import { getReserveCompanyNames } from '@/lib/planPinColor';
 import {
   View, Text, StyleSheet, FlatList, SectionList, TouchableOpacity, TextInput,
   Platform, ScrollView, Modal, ActivityIndicator, useWindowDimensions,
@@ -111,9 +113,11 @@ async function generateReportPDF(action: 'share' | 'print',
   reserves: Reserve[],
   chantierName: string,
   lots: { id: string; name: string; color: string; number?: string }[],
+  companies: PdfCompany[],
   t: TranslateFn,
   locale: string,
 ) {
+  const palette = getPdfCompanyPalette(companies);
   const now = new Date();
   const dateStr = now.toLocaleDateString(locale);
   const totalCount = reserves.length;
@@ -124,8 +128,8 @@ async function generateReportPDF(action: 'share' | 'print',
 
   const byCompany: Record<string, { total: number; closed: number; overdue: number }> = {};
   for (const r of reserves) {
-    const coNames = r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—'];
-    for (const coName of coNames) {
+    const coNames = getReserveCompanyNames(r);
+    for (const coName of coNames.length ? coNames : ['—']) {
       if (!byCompany[coName]) byCompany[coName] = { total: 0, closed: 0, overdue: 0 };
       byCompany[coName].total++;
       if (r.status === 'closed') byCompany[coName].closed++;
@@ -138,7 +142,7 @@ async function generateReportPDF(action: 'share' | 'print',
     .map(([co, stats]) => {
       const rate = stats.total > 0 ? Math.round((stats.closed / stats.total) * 100) : 0;
       return `<tr>
-        <td>${escapeHtml(co)}</td>
+        <td>${renderPdfCompanyLabel(co, palette)}</td>
         <td style="text-align:center">${stats.total}</td>
         <td style="text-align:center;color:${C.closed}">${stats.closed}</td>
         <td style="text-align:center;color:${stats.overdue > 0 ? C.open : PDF_MUTED}">${stats.overdue}</td>
@@ -161,7 +165,6 @@ async function generateReportPDF(action: 'share' | 'print',
     const overdue = isOverdue(r.deadline, r.status);
     const lot = r.lotId ? lots.find(l => l.id === r.lotId) : null;
     const lotLabel = lot ? escapeHtml(lot.number ? t('reservesScreen.report.lotPrefix', { number: lot.number, name: lot.name }) : lot.name) : '—';
-    const coNames = (r.companies && r.companies.length > 0 ? r.companies : r.company ? [r.company] : ['—']);
 
     const rawPhotos = getReservePdfPhotos(r);
     const photosToShow = rawPhotos.slice(0, maxPhotosPerReserve);
@@ -189,7 +192,7 @@ async function generateReportPDF(action: 'share' | 'print',
       <td><span style="background:${STATUS_COLORS[r.status]}20;color:${STATUS_COLORS[r.status]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold;white-space:nowrap;">${escapeHtml(reserveStatusLabel(t, r.status))}</span></td>
       <td>${lotLabel}</td>
       <td>${escapeHtml(formatReserveLocation(r))}</td>
-      <td>${coNames.map(c => escapeHtml(c)).join(', ')}</td>
+      <td>${renderPdfReserveCompanies(r, palette)}</td>
       <td style="min-width:150px;"><div style="font-weight:600;">${escapeHtml(r.title)}</div>${descriptionHtml}${photoStack}</td>
       <td><span style="background:${PRIORITY_COLORS[r.priority]}20;color:${PRIORITY_COLORS[r.priority]};padding:2px 8px;border-radius:8px;font-size:10px;font-weight:bold;white-space:nowrap;">${escapeHtml(reservePriorityLabel(t, r.priority))}</span></td>
       <td style="white-space:nowrap;${overdue ? 'color:' + C.open + ';font-weight:bold' : ''}">${escapeHtml(r.deadline ?? '—')}</td>
@@ -596,7 +599,7 @@ export default function ReservesScreen() {
         ? chantiers.find(c => c.id === chantierFilter)?.name ?? t('reservesScreen.projectFallback')
         : t('reservesScreen.allProjects');
       const exportT = getExportTranslator(exportLanguage) as unknown as TranslateFn;
-      await generateReportPDF(action, enrichReserveListForPdf(list, photos), chantierName, lots, exportT, localeForExportLanguage(exportLanguage));
+      await generateReportPDF(action, enrichReserveListForPdf(list, photos), chantierName, lots, companies, exportT, localeForExportLanguage(exportLanguage));
     } catch (e) {
       Alert.alert(t('common.error'), t('reservesScreen.alerts.pdfFailed'));
     } finally {
@@ -1076,6 +1079,7 @@ export default function ReservesScreen() {
       });
       const result = await generateAndSendReservesReport({
         chantierName,
+        companies: companies.map(({ name, color }) => ({ name, color })),
         companyFilter,
         generatedAt: new Date().toISOString(),
         language: exportLanguage,
@@ -1114,7 +1118,7 @@ export default function ReservesScreen() {
     } finally {
       setEmailReportLoading(false);
     }
-  }, [emailReportTo, exportLanguage, getSelectedReservesForEmail, photos, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle, t]);
+  }, [emailReportTo, exportLanguage, getSelectedReservesForEmail, photos, companies, chantierFilter, chantiers, pdfExportMode, pdfCompanySingle, t]);
 
   const pdfPreviewCount = useMemo(() => {
     if (pdfExportMode === 'all') return filtered.length;
