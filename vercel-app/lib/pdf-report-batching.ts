@@ -1,4 +1,6 @@
-export type WebPdfReportType = 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report';
+import type { FieldReportType } from './field-reports';
+
+export type WebPdfReportType = 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report' | FieldReportType;
 
 export const WEB_PDF_BATCH_MAX_RESERVES = 150;
 export const WEB_PDF_BATCH_MAX_PHOTOS = 60;

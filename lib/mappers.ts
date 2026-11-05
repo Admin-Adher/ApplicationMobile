@@ -1,9 +1,9 @@
-import {
+import type {
   Reserve, Company, Task, Document, Photo, Message, Profile,
   Chantier, SitePlan, Visite, Lot, Opr,
   ReservePriority, ReserveStatus, TaskStatus, ChantierStatus,
   VisiteStatus, OprStatus,
-} from '@/constants/types';
+} from '../constants/types';
 
 const FRENCH_DATE_TIME = /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
 

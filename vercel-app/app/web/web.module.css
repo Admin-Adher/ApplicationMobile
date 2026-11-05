@@ -6445,6 +6445,49 @@
   font-weight: 700;
 }
 
+.fieldForm {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin-block: 10px;
+}
+
+.fieldForm label {
+  display: grid;
+  gap: 4px;
+  font-weight: 600;
+}
+
+.fieldForm input,
+.fieldForm textarea {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid #dde4ee;
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  color: #1e293b;
+}
+
+.fieldForm textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.fieldPhoto {
+  display: block;
+  width: min(100%, 360px);
+  max-height: 200px;
+  object-fit: contain;
+  object-position: left;
+  margin-block: 8px;
+}
+
+.fieldForm .segmented,
+.reportCard .segmented {
+  flex-wrap: wrap;
+}
+
 .reportCard button:disabled {
   opacity: 0.55;
   cursor: not-allowed;

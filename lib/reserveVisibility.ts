@@ -1,4 +1,4 @@
-import type { Company, Reserve, User } from '@/constants/types';
+import type { Company, Reserve, User } from '../constants/types';
 
 function normalize(value?: string | null): string {
   return String(value ?? '')

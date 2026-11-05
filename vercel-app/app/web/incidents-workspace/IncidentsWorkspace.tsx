@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { WorkspaceIcon } from '../plan-reserve-workspace/WorkspaceChrome';
 import {
   buildIncidentsWorkspaceModel,
@@ -20,6 +20,7 @@ type IncidentDraft = {
   severity: IncidentSeverity;
   description: string;
   actions: string;
+  photo?: File;
 };
 
 type IncidentsWorkspaceProps = {
@@ -30,6 +31,7 @@ type IncidentsWorkspaceProps = {
   canEdit: boolean;
   onCreate: (payload: Record<string, unknown>) => Promise<unknown>;
   onUpdate: (incident: IncidentSource, patch: Record<string, unknown>) => Promise<unknown>;
+  renderPhoto?: (incident: IncidentSource) => ReactNode;
 };
 
 const FILTERS: Array<{ key: IncidentFilter; label: string }> = [
@@ -69,12 +71,14 @@ function IncidentRecord({
   canEdit,
   pendingAction,
   onStatusChange,
+  photo,
 }: {
   incident: IncidentSummary;
   locale: string;
   canEdit: boolean;
   pendingAction: string;
   onStatusChange: (incident: IncidentSummary, status: IncidentStatus) => void;
+  photo?: ReactNode;
 }) {
   const location = [incident.building, incident.location].filter(Boolean).join(' · ');
   const takingOwnership = pendingAction === `${incident.id}:investigating`;
@@ -110,6 +114,7 @@ function IncidentRecord({
           {location || 'Lieu à préciser'}
         </p>
         {incident.description ? <p className={styles.description}>{incident.description}</p> : null}
+        {photo}
         {incident.actions ? (
           <p className={styles.immediateAction}>
             <WorkspaceIcon name="check" size={16} />
@@ -155,6 +160,7 @@ export default function IncidentsWorkspace({
   canEdit,
   onCreate,
   onUpdate,
+  renderPhoto,
 }: IncidentsWorkspaceProps) {
   const idPrefix = useId().replace(/:/g, '');
   const composerTitle = useRef<HTMLHeadingElement | null>(null);
@@ -216,6 +222,7 @@ export default function IncidentsWorkspace({
         severity: draft.severity,
         description: draft.description.trim(),
         actions: draft.actions.trim(),
+        photo: draft.photo,
         status: 'open',
       });
       if (!saved) {
@@ -225,8 +232,8 @@ export default function IncidentsWorkspace({
       setDraft(emptyDraft());
       setComposerOpen(false);
       window.requestAnimationFrame(() => signalAction.current?.focus({ preventScroll: true }));
-    } catch {
-      setSubmissionError('Le signalement a échoué. Vérifiez votre connexion puis réessayez.');
+    } catch (cause) {
+      setSubmissionError(cause instanceof Error ? cause.message : 'Le signalement a échoué. Vérifiez votre connexion puis réessayez.');
     } finally {
       setBusy(false);
     }
@@ -327,6 +334,7 @@ export default function IncidentsWorkspace({
                   canEdit={canEdit}
                   pendingAction={pendingAction}
                   onStatusChange={changeIncidentStatus}
+                  photo={renderPhoto?.(incident.source)}
                 />
               ))}
             </div>
@@ -416,6 +424,10 @@ export default function IncidentsWorkspace({
                 <small>{draft.actions.length}/1000</small>
               </label>
 
+              <label>Photo du constat <input type="file" accept="image/*" onChange={event => {
+                const photo = event.currentTarget.files?.[0];
+                setDraft(previous => ({ ...previous, photo }));
+              }} /></label>
               <p className={styles.formHint}><WorkspaceIcon name="shield" size={18} />Le signalement sera visible par l’équipe chantier et suivi jusqu’à sa résolution.</p>
 
               <div className={styles.formFooter}>

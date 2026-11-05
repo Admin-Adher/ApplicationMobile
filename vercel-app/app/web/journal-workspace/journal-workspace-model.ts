@@ -6,6 +6,8 @@ export type JournalEntrySource = {
   weather?: string | null;
   weatherTemp?: number | string | null;
   weatherWind?: number | string | null;
+  weatherCode?: number | null;
+  photoUri?: string | null;
   workerCount?: number | string | null;
   workDone?: string | null;
   materials?: string | null;

@@ -7,6 +7,9 @@ import { useNetwork } from '@/context/NetworkContext';
 import { Channel, ChannelMemberIdentity } from '@/constants/types';
 import { genId } from '@/lib/utils';
 import { isSupabaseSessionValid } from '@/lib/offlineCache';
+import { dmChannelIdByUserIds } from '@/lib/directMessageId';
+
+export { dmChannelIdByUserIds } from '@/lib/directMessageId';
 
 const CUSTOM_CHANNELS_PREFIX = 'customChannels_v2_';
 const GROUP_CHANNELS_PREFIX = 'groupChannels_v2_';
@@ -20,10 +23,6 @@ const MAX_PINNED = 5;
 
 export function dmChannelId(nameA: string, nameB: string): string {
   return 'dm-' + [nameA, nameB].sort().join('__');
-}
-
-export function dmChannelIdByUserIds(userIdA: string, userIdB: string): string {
-  return 'dm-' + [userIdA, userIdB].sort().join('__');
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
