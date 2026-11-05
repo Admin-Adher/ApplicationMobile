@@ -32,6 +32,8 @@ function startOfLocalDay(value: Date) {
 
 export function parsePlanningDate(value?: string | null) {
   if (!value) return null;
+  const french = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(value);
+  if (french) value = french[3] + '-' + french[2] + '-' + french[1];
   const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
   const parsed = new Date(dateOnly ? `${value}T12:00:00` : value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
@@ -230,4 +232,24 @@ export function groupPlanningTasks(tasks: any[], companies: any[], mode: Plannin
     return acc;
   }, {});
   return Object.entries(grouped).sort(([a], [b]) => a.localeCompare(b, 'fr'));
+}
+
+export function buildPlanningGantt(tasks: any[], reference: Date, dayCount = 14) {
+  const start = startOfLocalDay(reference);
+  start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+  const days = Array.from({ length: dayCount }, (_, index) => {
+    const day = new Date(start);
+    day.setDate(start.getDate() + index);
+    return day;
+  });
+  const rows = tasks.flatMap(task => {
+    const first = parsePlanningDate(task.start_date ?? task.startDate);
+    const last = parsePlanningDate(task.deadline);
+    if (!first && !last) return [];
+    const from = daysBetween(first ?? last!, start);
+    const to = Math.max(from, daysBetween(last ?? first!, start));
+    if (to < 0 || from >= dayCount) return [];
+    return [{ task, from: Math.max(0, from), to: Math.min(dayCount - 1, to), startDate: first ?? last!, endDate: last ?? first! }];
+  }).sort((left, right) => left.from - right.from || String(left.task.title).localeCompare(String(right.task.title)));
+  return { days, rows };
 }

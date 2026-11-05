@@ -1,0 +1,15 @@
+.editor { display: grid; gap: .8rem; padding: 1rem; border: 1px solid #dbe4ef; border-radius: .75rem; background: #fff; }
+.editor fieldset { margin: 0; padding: .65rem; border: 1px solid #dbe4ef; border-radius: .5rem; }
+.editor legend { font-weight: 700; padding: 0 .35rem; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .6rem; }
+.editor label { display: grid; gap: .2rem; font-size: .875rem; }
+.editor input, .editor select { box-sizing: border-box; width: 100%; min-height: 2.35rem; padding: .35rem .5rem; border: 1px solid #aab9ca; border-radius: .4rem; }
+.editor button, .actions button { min-height: 2.25rem; width: fit-content; padding: .4rem .65rem; border: 1px solid #aab9ca; border-radius: .45rem; background: white; color: #003082; cursor: pointer; font-weight: 600; }
+.editor fieldset button { margin-top: .55rem; }
+.actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; margin: .55rem 0; }
+.actions button[type=submit] { background: #003082; color: #fff; }
+.editor button:disabled { opacity: .6; cursor: default; }
+.error { color: #a3211c; }
+.signers { margin: .7rem 0; display: grid; gap: .4rem; }
+.signers label { display: grid; gap: .25rem; }
+.signers input { width: 100%; padding: .5rem; }

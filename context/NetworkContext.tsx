@@ -17,7 +17,7 @@ import {
   writeCache,
 } from '@/lib/offlineCache';
 import { normalizeOprPayloadForSupabase, normalizeVisitePayloadForSupabase } from '@/lib/mappers';
-import { recoverRejectedOprTimestamp } from '@/lib/oprQueueRecovery';
+import { recoverRejectedOprWrite } from '@/lib/oprQueueRecovery';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
@@ -1178,7 +1178,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
 
       const eligibleQueue = userId
-        ? authorizedDismissal.kept.map(recoverRejectedOprTimestamp)
+        ? authorizedDismissal.kept.map(recoverRejectedOprWrite)
         : authorizedDismissal.kept;
       historicalEvaluationRequired = queueNeedsHistoricalVisitRecoveryEvaluation(eligibleQueue);
       let repairedQueue = eligibleQueue;

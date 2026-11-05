@@ -1,0 +1,6 @@
+.canvas { display: block; width: 100%; height: auto; background: #fff; }
+.state { min-height: 12rem; display: grid; place-content: center; gap: .75rem; text-align: center; }
+.layers { position: absolute; z-index: 12; top: .65rem; right: .65rem; max-width: min(17rem, 70%); padding: .5rem .7rem; border: 1px solid #ccd8e7; border-radius: .5rem; background: #fff; color: #192e45; font-size: .85rem; }
+.layers summary { cursor: pointer; font-weight: 600; }
+.layers fieldset { max-height: 14rem; overflow-y: auto; margin-top: .5rem; padding: .35rem; border: 1px solid #dce5ef; }
+.layers label { display: flex; align-items: center; gap: .5rem; padding: .2rem 0; overflow-wrap: anywhere; }

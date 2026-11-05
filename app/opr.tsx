@@ -35,6 +35,8 @@ import { Opr, OprItem, OprSignatory, OprStatus, PhotoAnnotation, Reserve } from 
 import Header from '@/components/Header';
 import BottomNavBar from '@/components/BottomNavBar';
 import PageContainer from '@/components/PageContainer';
+import { canonicalApiBaseUrl } from '@/lib/apiBase';
+import { supabase } from '@/lib/supabase';
 import { showAlert } from '@/lib/appAlert';
 import SignaturePad, { SignaturePadRef } from '@/components/SignaturePad';
 import { genEntityId, genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
@@ -863,9 +865,26 @@ export default function OprScreen() {
     setShowNew(false);
   }
 
-  async function shareOprLink(opr: Opr) {
-    const base = Platform.OS === 'web' ? window.location.origin : (process.env.EXPO_PUBLIC_DOMAIN ? `https://${process.env.EXPO_PUBLIC_DOMAIN}` : process.env.EXPO_PUBLIC_APP_URL ?? '');
-    const url = `${base}/opr-session/${opr.id}`;
+  async function shareOprLink(opr: Opr, signer?: OprSignatory) {
+    const base = canonicalApiBaseUrl() || 'https://buildtrack-mobile.vercel.app';
+    let url = base + '/opr-session/' + encodeURIComponent(opr.id);
+    if (signer) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        if (!data.session) throw new Error('Reconnectez-vous pour créer le lien de signature.');
+        const response = await fetch(base + '/api/opr-signature', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.session.access_token },
+          body: JSON.stringify({ action: 'issue', oprId: opr.id, signerId: signer.id }),
+        });
+        const result = await response.json();
+        if (!response.ok || !result.token) throw new Error(result.error || 'Lien de signature indisponible.');
+        url += '#access=' + encodeURIComponent(result.token);
+      } catch (error) {
+        showAlert(t('common.error'), error instanceof Error ? error.message : 'Lien de signature indisponible.');
+        return;
+      }
+    }
     if (Platform.OS === 'web') {
       try { await navigator.clipboard.writeText(url); showAlert(t('oprScreen.linkCopied'), t('oprScreen.shareLinkHint')); } catch { showAlert(t('oprScreen.sessionLink'), url); }
       return;
@@ -1815,7 +1834,12 @@ export default function OprScreen() {
                             <Text style={styles.sigPendingText}>{t('oprScreen.pending')}</Text>
                           </View>
                         )}
-                        {permissions.canDelete && (
+                        {permissions.canEdit && opr.status !== 'signed' && !sig.signedAt && !sig.signed && (
+                          <TouchableOpacity onPress={() => void shareOprLink(opr, sig)} accessibilityRole="button" accessibilityLabel={'Partager le lien de signature avec ' + sig.name} hitSlop={8}>
+                            <Ionicons name="link-outline" size={16} color={C.primary} />
+                          </TouchableOpacity>
+                        )}
+                        {permissions.canDelete && !sig.signedAt && !sig.signed && (
                           <TouchableOpacity
                             onPress={() => removeSignatory(opr, sig.id)}
                             hitSlop={8}

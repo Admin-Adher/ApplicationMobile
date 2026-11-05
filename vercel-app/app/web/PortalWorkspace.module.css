@@ -1,0 +1,9 @@
+.page { width: min(52rem, calc(100% - 2rem)); margin: 2rem auto; color: #142842; }
+.page header { border-bottom: 1px solid #d9e4ef; padding-bottom: 1rem; }
+.page header a { font-weight: 800; color: #003082; }
+.page h1 { margin: .4rem 0; font-size: clamp(1.6rem, 4vw, 2.4rem); }
+.page p { margin: .65rem 0; }
+.page ul { margin: 1rem 0; padding: 0; list-style: none; display: grid; gap: .6rem; }
+.page li a { display: grid; gap: .25rem; padding: .8rem 1rem; border: 1px solid #d9e4ef; background: white; border-radius: .65rem; text-decoration: none; color: inherit; }
+.page li a:hover, .page li a:focus-visible { border-color: #003082; }
+.page li span { color: #455e78; }

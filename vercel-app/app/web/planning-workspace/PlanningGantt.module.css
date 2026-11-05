@@ -1,0 +1,12 @@
+.gantt { margin: 1rem 0; padding: .8rem; border: 1px solid #dbe4ef; border-radius: .65rem; }
+.header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .45rem; }
+.header div { display: flex; flex-wrap: wrap; gap: .4rem; }
+.header button, .task { padding: .35rem .5rem; border: 1px solid #b5c4d6; border-radius: .4rem; background: white; color: #003082; cursor: pointer; }
+.scroll { overflow-x: auto; margin-top: .55rem; }
+.grid { display: grid; grid-template-columns: 11rem repeat(14, minmax(2.45rem, 1fr)); align-items: center; min-width: 46rem; row-gap: .35rem; }
+.row { display: contents; }
+.day { font-size: .65rem; text-align: center; padding: .3rem .05rem; border-bottom: 1px solid #dbe4ef; }
+.title { font-weight: 650; }
+.task { grid-column: 1; text-align: left; overflow-wrap: anywhere; margin-right: .4rem; }
+.bar { height: .75rem; background: #245b9a; border-radius: .35rem; }
+.bar[data-done=true] { background: #087159; }

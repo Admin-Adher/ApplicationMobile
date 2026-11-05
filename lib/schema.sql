@@ -854,7 +854,7 @@ create table if not exists public.oprs (
   maire_ouvrage text,
   conducteur_signature text,
   mo_signature text,
-  visit_contradictoire boolean,
+  visit_contradictoire text,
   visit_participants jsonb,
   signatories jsonb,
   invited_emails jsonb,
