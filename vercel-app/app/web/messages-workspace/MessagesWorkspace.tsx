@@ -20,6 +20,8 @@ import {
   type MessageRecord,
   type MessageSendInput,
 } from './messages-model';
+import ChannelEditor, { type ChannelDraft, type ChannelPerson } from './ChannelEditor';
+import type { MessageAction, MessageChannelRecord } from './messages-model';
 import styles from './MessagesWorkspace.module.css';
 
 type MessagesWorkspaceProps = {
@@ -33,12 +35,19 @@ type MessagesWorkspaceProps = {
   onSelectChannel: (channelId: string) => void;
   onDraftChange: (value: string) => void;
   onSend: (input: MessageSendInput) => Promise<boolean>;
-  onUploadPhoto: (file: File, channelId: string) => Promise<string>;
+  channelPeople: ChannelPerson[];
+  canCreateChannel: boolean;
+  canManageChannel: (channel: MessageChannelRecord) => boolean;
+  canModerate: boolean;
+  loadChannelMembers: (channelId: string) => Promise<string[]>;
+  onSaveChannel: (draft: ChannelDraft, current: MessageChannelRecord | null) => Promise<string>;
+  onDeleteChannel: (channel: MessageChannelRecord) => Promise<void>;
+  onMessageAction: (message: MessageRecord, action: MessageAction) => Promise<void>;
 };
 
 type PendingAttachment = {
   channelId: string;
-  mediaRef: string;
+  file: File;
   previewUrl: string;
   filename: string;
 };
@@ -110,6 +119,8 @@ function MessageBubble({
   locale,
   copy,
   onReply,
+  canModerate,
+  onMessageAction,
 }: {
   message: MessageRecord;
   previousDay: string;
@@ -117,12 +128,27 @@ function MessageBubble({
   locale: string;
   copy: ReturnType<typeof messagesCopy>;
   onReply: (message: MessageRecord) => void;
+  canModerate: boolean;
+  onMessageAction: MessagesWorkspaceProps['onMessageAction'];
 }) {
   const sender = String(message.sender ?? copy.unknownSender);
   const day = messageDayLabel(message, locale);
   const own = isOwnMessage(message, actor);
   const reactions = messageReactions(message);
   const hasContent = Boolean(String(message.content ?? '').trim());
+  const canChange = String(message.sender_id ?? '') === actor.userId || canModerate;
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+
+  async function change(action: MessageAction) {
+    if (actionBusy) return;
+    if (action.type === 'delete' && !window.confirm('Supprimer ce message ?')) return;
+    setActionBusy(true);
+    setActionError('');
+    try { await onMessageAction(message, action); }
+    catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Action indisponible.'); }
+    finally { setActionBusy(false); }
+  }
 
   return (
     <div className={styles.messageBlock}>
@@ -154,12 +180,20 @@ function MessageBubble({
             {hasContent ? <p>{message.content}</p> : null}
           </div>
           <div className={styles.messageActions}>
-            {reactions.map(reaction => <span key={reaction.emoji}>{reaction.emoji} {reaction.count}</span>)}
+            {Array.from(new Set(['👍', '✅', '❤️', ...reactions.map(reaction => reaction.emoji)])).map(emoji => {
+              const count = reactions.find(reaction => reaction.emoji === emoji)?.count ?? 0;
+              return <button key={emoji} type="button" aria-label={'Basculer la réaction ' + emoji} disabled={actionBusy} onClick={() => void change({ type: 'reaction', emoji })}>{emoji}{count ? ' ' + count : ''}</button>;
+            })}
+            {canChange ? <>
+              <button type="button" disabled={actionBusy} onClick={() => void change({ type: 'pin' })}>{message.is_pinned ? 'Désépingler' : 'Épingler'}</button>
+              <button type="button" disabled={actionBusy} onClick={() => void change({ type: 'delete' })}>Supprimer</button>
+            </> : null}
             <button type="button" onClick={() => onReply(message)}>
               <MessageIcon name="reply" size={14} />
               {copy.reply}
             </button>
           </div>
+          {actionError ? <p role="alert">{actionError}</p> : null}
         </div>
       </article>
     </div>
@@ -177,16 +211,18 @@ export default function MessagesWorkspace({
   onSelectChannel,
   onDraftChange,
   onSend,
-  onUploadPhoto,
+  channelPeople, canCreateChannel, canManageChannel, canModerate,
+  loadChannelMembers, onSaveChannel, onDeleteChannel, onMessageAction,
 }: MessagesWorkspaceProps) {
   const copy = messagesCopy(language);
   const locale = messagesLocale(language);
   const [query, setQuery] = useState('');
+  const [editingChannel, setEditingChannel] = useState<MessageChannelRecord | null | undefined>(undefined);
+  const [channelError, setChannelError] = useState('');
   const [filter, setFilter] = useState<MessageChannelFilter>('all');
   const [compactView, setCompactView] = useState<'list' | 'thread'>('list');
   const [replyTo, setReplyTo] = useState<MessageRecord | null>(null);
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
-  const [attachmentUploading, setAttachmentUploading] = useState(false);
   const [attachmentError, setAttachmentError] = useState('');
   const threadEndRef = useRef<HTMLDivElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -205,7 +241,7 @@ export default function MessagesWorkspace({
 
   const selected = projection.selected;
   const activeAttachment = pendingAttachment?.channelId === selected?.channel.id ? pendingAttachment : null;
-  const canSend = Boolean(selected && (draft.trim() || activeAttachment?.mediaRef) && !saving && !attachmentUploading);
+  const canSend = Boolean(selected && (draft.trim() || activeAttachment?.file) && !saving);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => threadEndRef.current?.scrollIntoView({ block: 'end' }));
@@ -224,7 +260,7 @@ export default function MessagesWorkspace({
     setCompactView('thread');
   }
 
-  async function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
+  function choosePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file || !selected) return;
@@ -241,19 +277,7 @@ export default function MessagesWorkspace({
     const previewUrl = URL.createObjectURL(file);
     previewUrlRef.current = previewUrl;
     setAttachmentError('');
-    setAttachmentUploading(true);
-    setPendingAttachment({ channelId, mediaRef: '', previewUrl, filename: file.name });
-    try {
-      const mediaRef = await onUploadPhoto(file, channelId);
-      setPendingAttachment(current => current?.channelId === channelId ? { ...current, mediaRef } : current);
-    } catch (error: any) {
-      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
-      previewUrlRef.current = null;
-      setPendingAttachment(null);
-      setAttachmentError(error?.message || copy.uploadFailed);
-    } finally {
-      setAttachmentUploading(false);
-    }
+    setPendingAttachment({ channelId, file, previewUrl, filename: file.name });
   }
 
   function clearAttachment() {
@@ -269,7 +293,7 @@ export default function MessagesWorkspace({
     const sent = await onSend({
       channelId: selected.channel.id,
       content: draft.trim(),
-      attachmentRef: activeAttachment?.mediaRef || null,
+      attachmentFile: activeAttachment?.file,
       replyTo: replyTo ? { id: replyTo.id, content: replyTo.content, sender: replyTo.sender } : null,
     });
     if (sent) {
@@ -297,6 +321,12 @@ export default function MessagesWorkspace({
           <p className={styles.channelSubtitle}>{copy.subtitle}</p>
         </header>
 
+        {canCreateChannel && editingChannel === undefined ? <div className={styles.manageChannel}><button type="button" onClick={() => setEditingChannel(null)}>Nouveau canal</button></div> : null}
+        {editingChannel === null ? <ChannelEditor actorId={actor.userId} people={channelPeople} current={null} loadMembers={loadChannelMembers} close={() => setEditingChannel(undefined)} save={async value => {
+          const id = await onSaveChannel(value, null);
+          setEditingChannel(undefined);
+          selectChannel(id);
+        }} /> : null}
         <div className={styles.channelTools}>
           <label className={styles.searchBox}>
             <span className={styles.srOnly}>{copy.searchLabel}</span>
@@ -382,6 +412,22 @@ export default function MessagesWorkspace({
           )}
         </header>
 
+        {selected && canManageChannel(selected.channel) ? <div className={styles.manageChannel}>
+          <button type="button" onClick={() => { setChannelError(''); setEditingChannel(selected.channel); }}>Gérer le canal</button>
+          <button type="button" onClick={async () => {
+            if (!window.confirm('Supprimer le canal « ' + selected.label + ' » ?')) return;
+            setChannelError('');
+            try { await onDeleteChannel(selected.channel); setEditingChannel(undefined); }
+            catch (cause) { setChannelError(cause instanceof Error ? cause.message : 'Suppression impossible.'); }
+          }}>Supprimer le canal</button>
+        </div> : null}
+        {channelError ? <p role="alert">{channelError}</p> : null}
+        {editingChannel && selected?.channel.id === editingChannel.id ? (
+          <ChannelEditor key={editingChannel.id} actorId={actor.userId} people={channelPeople} current={editingChannel} loadMembers={loadChannelMembers} close={() => setEditingChannel(undefined)} save={async value => {
+            await onSaveChannel(value, editingChannel);
+            setEditingChannel(undefined);
+          }} />
+        ) : null}
         <div className={styles.thread} aria-live="polite">
           {projection.selectedMessages.map((message, index) => (
             <MessageBubble
@@ -392,6 +438,8 @@ export default function MessagesWorkspace({
               locale={locale}
               copy={copy}
               onReply={setReplyTo}
+              canModerate={canModerate}
+              onMessageAction={onMessageAction}
             />
           ))}
           {!projection.selectedMessages.length ? (
@@ -415,7 +463,7 @@ export default function MessagesWorkspace({
           {activeAttachment ? (
             <div className={styles.attachmentPreview}>
               <img src={activeAttachment.previewUrl} alt={copy.attachmentAlt} />
-              <span><strong>{activeAttachment.filename}</strong><small>{attachmentUploading ? copy.uploading : copy.uploadPhoto}</small></span>
+              <span><strong>{activeAttachment.filename}</strong><small>{saving ? copy.uploading : copy.uploadPhoto}</small></span>
               <button type="button" onClick={clearAttachment} aria-label={copy.removeAttachment}><MessageIcon name="close" size={17} /></button>
             </div>
           ) : null}
@@ -430,8 +478,8 @@ export default function MessagesWorkspace({
               aria-hidden="true"
               onChange={choosePhoto}
             />
-            <button type="button" className={styles.attachButton} onClick={() => fileInputRef.current?.click()} disabled={!selected || attachmentUploading || saving} aria-label={copy.attachPhoto} title={copy.attachPhoto}>
-              <MessageIcon name={attachmentUploading ? 'image' : 'camera'} size={20} />
+            <button type="button" className={styles.attachButton} onClick={() => fileInputRef.current?.click()} disabled={!selected || saving} aria-label={copy.attachPhoto} title={copy.attachPhoto}>
+              <MessageIcon name={saving ? 'image' : 'camera'} size={20} />
             </button>
             <label className={styles.composerField}>
               <span className={styles.srOnly}>{selected ? copy.composerPlaceholder(selected.label) : copy.noChannelSelected}</span>

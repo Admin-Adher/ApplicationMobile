@@ -11734,3 +11734,13 @@
 }
 
 .planCanvas[data-file-type="dxf"] { min-height: 0; }
+
+.galleryPhoto { min-width: 0; }
+.galleryUpload { display: grid; gap: .45rem; width: fit-content; margin: .55rem 0 1rem; font-weight: 650; }
+.galleryActions { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0 .7rem; }
+.galleryActions button, .galleryActions select { padding: .35rem .45rem; color: #003082; background: #fff; border: 1px solid #b9c9da; border-radius: .4rem; }
+.galleryActions label { display: grid; gap: .25rem; width: 100%; }
+
+.outbox { margin: .65rem 0; padding: .65rem .8rem; border: 1px solid #b4cae3; border-radius: .5rem; background: #eef5fd; color: #16334f; }
+.outbox ul { margin: .45rem 0; padding-left: 1.2rem; }
+.outbox button { padding: .4rem .6rem; color: #003082; background: #fff; border: 1px solid #aac1db; border-radius: .4rem; }

@@ -216,6 +216,9 @@ export default function InventoryWorkspace({
   const [exporting, setExporting] = useState<ExportKind | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [ocrBusy, setOcrBusy] = useState(false);
+  const [ocrSuggestion, setOcrSuggestion] = useState<{ reference?: string; designation?: string } | null>(null);
+  const ocrSequence = useRef(0);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [scannerArmed, setScannerArmed] = useState(false);
   const [scannerLoading, setScannerLoading] = useState(false);
@@ -427,6 +430,39 @@ export default function InventoryWorkspace({
       setPhoto(null);
       setSelectedProductId(null);
       setForm({ ...EMPTY_FORM });
+    }
+  }
+
+  useEffect(() => {
+    ocrSequence.current += 1;
+    setOcrBusy(false);
+    setOcrSuggestion(null);
+    return () => { ocrSequence.current += 1; };
+  }, [mode, operationProjectId]);
+
+  async function readLabel(file: File) {
+    if (!operationProjectId || ocrBusy) return;
+    if (!file.type.startsWith('image/') || file.size > 15 * 1024 * 1024) {
+      setError('Choisissez une image d’étiquette de 15 Mo maximum.');
+      return;
+    }
+    const sequence = ++ocrSequence.current;
+    setOcrBusy(true);
+    setOcrSuggestion(null);
+    setError('');
+    try {
+      const { readInventoryLabel } = await import('./web-inventory-ocr');
+      const fields = await readInventoryLabel(file, language);
+      if (sequence !== ocrSequence.current) return;
+      if (!fields.reference && !fields.designation) {
+        setError('Aucun texte exploitable. Reprenez la photo ou saisissez la référence.');
+        return;
+      }
+      setOcrSuggestion({ reference: fields.reference, designation: fields.designation });
+    } catch {
+      if (sequence === ocrSequence.current) setError('Lecture de l’étiquette impossible. La saisie manuelle reste disponible.');
+    } finally {
+      if (sequence === ocrSequence.current) setOcrBusy(false);
     }
   }
 
@@ -1021,6 +1057,29 @@ export default function InventoryWorkspace({
                 <InventoryIcon name="camera" />
                 <span>{scannerLoading ? copy.openingCamera : scannerOpen ? copy.stopCamera : copy.scan}</span>
               </button>
+              <label className={styles.scanButton}>
+                <InventoryIcon name="camera" />
+                <span>{ocrBusy ? 'Lecture de l’étiquette…' : 'Lire une étiquette en photo'}</span>
+                <input type="file" accept="image/*" capture="environment" aria-label="Lire une étiquette en photo" disabled={ocrBusy || !operationProjectId} onChange={event => {
+                  const file = event.currentTarget.files?.[0];
+                  event.currentTarget.value = '';
+                  if (file) void readLabel(file);
+                }} />
+              </label>
+              {ocrSuggestion ? (
+                <div className={styles.lookupStatus} role="status">
+                  <span>{[ocrSuggestion.reference, ocrSuggestion.designation].filter(Boolean).join(' · ')}</span>
+                  <button type="button" onClick={() => {
+                    const found = ocrSuggestion.reference ? resolveTypedProduct(ocrSuggestion.reference, '') : null;
+                    if (!found) patchForm({
+                      reference: ocrSuggestion.reference || form.reference,
+                      designation: ocrSuggestion.designation || form.designation,
+                    });
+                    setOcrSuggestion(null);
+                  }}>Utiliser ces valeurs</button>
+                  <button type="button" onClick={() => setOcrSuggestion(null)}>Ignorer</button>
+                </div>
+              ) : null}
               {lookupMessage ? (
                 <div className={styles.lookupStatus} data-status={lookupState} role="status">
                   {lookupState === 'found' ? <InventoryIcon name="check" /> : lookupState === 'incomplete' || lookupState === 'notFound' ? <InventoryIcon name="warning" /> : <InventoryIcon name="search" />}

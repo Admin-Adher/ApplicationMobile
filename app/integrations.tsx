@@ -1,10 +1,10 @@
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
-  Platform, Linking, Switch, TextInput, Modal, KeyboardAvoidingView,
+  Platform, Linking, TextInput,
 } from 'react-native';
 import { showAlert } from '@/lib/appAlert';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import Header from '@/components/Header';
@@ -12,7 +12,9 @@ import PageContainer from '@/components/PageContainer';
 import BottomNavBar from '@/components/BottomNavBar';
 import { BTPIntegration } from '@/constants/types';
 import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'expo-router';
+import { useApp } from '@/context/AppContext';
+import { canonicalApiBaseUrl } from '@/lib/apiBase';
+import { supabase } from '@/lib/supabase';
 import { goBack } from '@/lib/nav';
 
 const INTEGRATION_CATEGORIES = ['project', 'bim', 'regulatory', 'geolocation', 'forms', 'dms', 'signature', 'weather', 'hr'] as const;
@@ -155,19 +157,72 @@ const INTEGRATION_TEXT_KEYS = Object.fromEntries(
   ]),
 ) as Record<string, { description: string; features: string[] }>;
 
+type WebhookConnection = {
+  provider: 'make' | 'n8n';
+  updated_at: string;
+  last_tested_at: string | null;
+  last_sent_at: string | null;
+};
+
+async function requestWebhook(action: string, fields: Record<string, string> = {}): Promise<WebhookConnection | null> {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) throw new Error('Reconnectez-vous pour gérer le connecteur.');
+  const base = canonicalApiBaseUrl() || 'https://buildtrack-mobile.vercel.app';
+  const response = await fetch(base + '/api/organization-webhook', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.session.access_token },
+    body: JSON.stringify({ action, ...fields }),
+  });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'Connecteur indisponible.');
+  return result.connection ?? null;
+}
+
 export default function IntegrationsScreen() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const router = useRouter();
-
-  const [enabledMap, setEnabledMap] = useState<Record<string, boolean>>({});
-  const [configModal, setConfigModal] = useState<string | null>(null);
-  const [apiKeyInput, setApiKeyInput] = useState('');
+  const { activeChantierId, activeChantier } = useApp();
   const [webhookInput, setWebhookInput] = useState('');
-  const [apiKeysStored, setApiKeysStored] = useState<Record<string, string>>({});
+  const [showConfig, setShowConfig] = useState(false);
+  const [connection, setConnection] = useState<WebhookConnection | null>(null);
+  const [busy, setBusy] = useState('');
+  const [loadError, setLoadError] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<IntegrationCategory | null>(null);
-
   const isAdmin = user?.role === 'admin' || user?.role === 'super_admin';
+
+  useEffect(() => {
+    setConnection(null);
+    setWebhookInput('');
+    setLoadError('');
+    if (!isAdmin) return;
+    let mounted = true;
+    setBusy('read');
+    void requestWebhook('read').then(value => {
+      if (mounted) setConnection(value);
+    }).catch(cause => {
+      if (mounted) setLoadError(cause instanceof Error ? cause.message : 'Connecteur indisponible.');
+    }).finally(() => { if (mounted) setBusy(''); });
+    return () => { mounted = false; };
+  }, [isAdmin, user?.id, user?.organizationId]);
+
+  async function run(action: 'save' | 'remove' | 'test' | 'send' | 'read') {
+    if (busy) return;
+    setBusy(action);
+    setLoadError('');
+    try {
+      const value = await requestWebhook(action, action === 'save' ? { url: webhookInput.trim() }
+        : action === 'send' && activeChantierId ? { projectId: activeChantierId } : {});
+      setConnection(value);
+      if (action === 'save') { setWebhookInput(''); setShowConfig(false); }
+      if (action === 'test' || action === 'send') {
+        showAlert(action === 'test' ? 'Connexion vérifiée' : 'Bilan transmis', 'Le fournisseur a confirmé la réception.');
+      }
+    } catch (cause) {
+      setLoadError(cause instanceof Error ? cause.message : 'Connecteur indisponible.');
+    } finally {
+      setBusy('');
+    }
+  }
 
   if (!isAdmin) {
     return (
@@ -194,38 +249,11 @@ export default function IntegrationsScreen() {
     ? INTEGRATIONS_CATALOG.filter(i => i.category === selectedCategory)
     : INTEGRATIONS_CATALOG;
 
-  const enabledCount = Object.values(enabledMap).filter(Boolean).length;
-
-  function openConfig(integrationId: string) {
-    const saved = apiKeysStored[integrationId] ?? '';
-    setApiKeyInput(saved);
-    setWebhookInput('');
-    setConfigModal(integrationId);
-  }
-
-  function saveConfig() {
-    if (!configModal) return;
-    setApiKeysStored(prev => ({ ...prev, [configModal]: apiKeyInput }));
-    setConfigModal(null);
-    showAlert(t('integrationsScreen.configSavedTitle'), t('integrationsScreen.configSavedText'), [{ text: 'OK' }]);
-  }
-
-  function toggleIntegration(id: string, value: boolean) {
-    if (value && !apiKeysStored[id]) {
-      openConfig(id);
-      return;
-    }
-    setEnabledMap(prev => ({ ...prev, [id]: value }));
-    if (value) {
-      showAlert(t('integrationsScreen.enabledTitle'), t('integrationsScreen.enabledText'), [{ text: 'OK' }]);
-    }
-  }
-
   return (
     <View style={styles.container}>
       <Header
         title={t('integrationsScreen.title')}
-        subtitle={t('integrationsScreen.subtitle', { enabled: enabledCount, total: INTEGRATIONS_CATALOG.length })}
+        subtitle={connection ? 'Webhook d’organisation configuré' : 'Connecteur d’organisation et catalogue'}
         showBack
       />
 
@@ -239,6 +267,63 @@ export default function IntegrationsScreen() {
             <Text style={styles.bannerTitle}>{t('integrationsScreen.bannerTitle')}</Text>
             <Text style={styles.bannerSub}>{t('integrationsScreen.bannerText')}</Text>
           </View>
+        </View>
+
+        <View style={styles.card}>
+          <Text style={styles.integName}>Webhook d’organisation</Text>
+          <Text style={styles.integDesc}>Connectez Make ou n8n Cloud pour recevoir un bilan du chantier sur demande.</Text>
+          {loadError ? <Text accessibilityRole="alert" style={styles.integDesc}>{loadError}</Text> : null}
+          {busy === 'read' ? <Text style={styles.integDesc}>Chargement du connecteur…</Text> : null}
+          {connection ? (
+            <View style={styles.featuresRow}>
+              <Text style={styles.syncText}>{connection.provider === 'make' ? 'Make' : 'n8n Cloud'}</Text>
+              <Text style={styles.featureText}>{connection.last_tested_at ? 'Testé le ' + new Date(connection.last_tested_at).toLocaleString() : 'Test de connexion à faire'}</Text>
+              {connection.last_sent_at ? <Text style={styles.featureText}>Dernier bilan le {new Date(connection.last_sent_at).toLocaleString()}</Text> : null}
+            </View>
+          ) : null}
+          {showConfig ? <>
+            <Text style={styles.fieldLabel}>URL HTTPS de production</Text>
+            <TextInput
+              value={webhookInput} onChangeText={setWebhookInput} style={styles.fieldInput}
+              secureTextEntry autoCapitalize="none" autoCorrect={false} keyboardType="url"
+              placeholder="https://hook.eu1.make.com/…" placeholderTextColor={C.textMuted}
+              accessibilityLabel="URL du webhook"
+            />
+            <View style={styles.cardActions}>
+              <TouchableOpacity style={styles.configBtn} disabled={!!busy || !webhookInput.trim()} onPress={() => void run('save')} accessibilityRole="button">
+                <Text style={styles.configBtnText}>{busy === 'save' ? 'Enregistrement…' : t('common.save')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.configBtn} disabled={!!busy} onPress={() => { setWebhookInput(''); setShowConfig(false); }} accessibilityRole="button">
+                <Text style={styles.configBtnText}>{t('common.cancel')}</Text>
+              </TouchableOpacity>
+            </View>
+          </> : (
+            <View style={styles.cardActions}>
+              <TouchableOpacity style={styles.configBtn} disabled={!!busy} onPress={() => setShowConfig(true)} accessibilityRole="button">
+                <Text style={styles.configBtnText}>{connection ? 'Remplacer l’URL' : 'Configurer le webhook'}</Text>
+              </TouchableOpacity>
+              {connection ? <>
+                <TouchableOpacity style={styles.configBtn} disabled={!!busy} onPress={() => void run('test')} accessibilityRole="button">
+                  <Text style={styles.configBtnText}>{busy === 'test' ? 'Test…' : 'Tester la connexion'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.configBtn} disabled={!!busy || !activeChantierId} onPress={() => showAlert(
+                  'Envoyer le bilan du chantier',
+                  'Le fournisseur recevra le nom du chantier et le nombre de réserves actives et clôturées pour « ' + (activeChantier?.name ?? activeChantierId) + ' ».',
+                  [{ text: t('common.cancel'), style: 'cancel' }, { text: 'Envoyer le bilan', onPress: () => void run('send') }],
+                )} accessibilityRole="button">
+                  <Text style={styles.configBtnText}>{busy === 'send' ? 'Envoi…' : 'Envoyer le bilan du chantier'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.configBtn} disabled={!!busy} onPress={() => showAlert(
+                  'Retirer le webhook', 'L’URL enregistrée pour cette organisation sera supprimée.',
+                  [{ text: t('common.cancel'), style: 'cancel' }, { text: 'Retirer', style: 'destructive', onPress: () => void run('remove') }],
+                )} accessibilityRole="button">
+                  <Text style={styles.configBtnText}>Retirer</Text>
+                </TouchableOpacity>
+              </> : loadError ? <TouchableOpacity style={styles.configBtn} disabled={!!busy} onPress={() => void run('read')} accessibilityRole="button">
+                <Text style={styles.configBtnText}>Recharger</Text>
+              </TouchableOpacity> : null}
+            </View>
+          )}
         </View>
 
         {/* Category filter */}
@@ -262,12 +347,10 @@ export default function IntegrationsScreen() {
 
         {/* Integration cards */}
         {filtered.map(integration => {
-          const isEnabled = enabledMap[integration.id] ?? false;
-          const hasKey = !!apiKeysStored[integration.id];
           const catColor = CATEGORY_COLORS[integration.category] ?? C.primary;
 
           return (
-            <View key={integration.id} style={[styles.card, isEnabled && styles.cardActive]}>
+            <View key={integration.id} style={styles.card}>
               <View style={styles.cardHeader}>
                 <View style={[styles.logoPlaceholder, { backgroundColor: catColor + '20' }]}>
                   <Ionicons name="git-network" size={22} color={catColor} />
@@ -281,12 +364,7 @@ export default function IntegrationsScreen() {
                   </View>
                   <Text style={styles.integProvider}>{integration.provider}</Text>
                 </View>
-                <Switch
-                  value={isEnabled}
-                  onValueChange={v => toggleIntegration(integration.id, v)}
-                  trackColor={{ false: C.border, true: catColor + '60' }}
-                  thumbColor={isEnabled ? catColor : C.textMuted}
-                />
+                <Text style={styles.featureText}>Catalogue</Text>
               </View>
 
               <Text style={styles.integDesc}>{t(INTEGRATION_TEXT_KEYS[integration.id].description)}</Text>
@@ -306,15 +384,7 @@ export default function IntegrationsScreen() {
               </View>
 
               <View style={styles.cardActions}>
-                <TouchableOpacity
-                  style={styles.configBtn}
-                  onPress={() => openConfig(integration.id)}
-                >
-                  <Ionicons name={hasKey ? 'key' : 'key-outline'} size={14} color={hasKey ? catColor : C.textSub} />
-                  <Text style={[styles.configBtnText, hasKey && { color: catColor }]}>
-                    {hasKey ? t('integrationsScreen.reconfigure') : t('integrationsScreen.configure')}
-                  </Text>
-                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.docsBtn}
                   onPress={() => {
@@ -328,12 +398,7 @@ export default function IntegrationsScreen() {
                   <Ionicons name="open-outline" size={14} color={C.textSub} />
                   <Text style={styles.docsBtnText}>{t('integrationsScreen.documentation')}</Text>
                 </TouchableOpacity>
-                {isEnabled && (
-                  <View style={styles.syncBadge}>
-                    <View style={styles.syncDot} />
-                    <Text style={styles.syncText}>{t('integrationsScreen.active')}</Text>
-                  </View>
-                )}
+
               </View>
             </View>
           );
@@ -343,87 +408,12 @@ export default function IntegrationsScreen() {
         <View style={styles.infoCard}>
           <Ionicons name="information-circle-outline" size={20} color={C.primary} />
           <Text style={styles.infoText}>
-            {t('integrationsScreen.infoText')}
+            Le catalogue présente les outils. Le webhook Make ou n8n Cloud est le connecteur configurable dans BuildTrack.
           </Text>
         </View>
 
       </ScrollView>
       </PageContainer>
-
-      {/* Config modal */}
-      <Modal visible={!!configModal} transparent animationType="slide" onRequestClose={() => setConfigModal(null)}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            {configModal && (() => {
-              const integ = INTEGRATIONS_CATALOG.find(i => i.id === configModal);
-              if (!integ) return null;
-              return (
-                <>
-                  <View style={styles.modalHeader}>
-                    <Text style={styles.modalTitle}>{t('integrationsScreen.configureTitle', { name: integ.name })}</Text>
-                    <TouchableOpacity onPress={() => setConfigModal(null)}>
-                      <Ionicons name="close" size={24} color={C.text} />
-                    </TouchableOpacity>
-                  </View>
-                  <Text style={styles.modalSub}>{integ.provider}</Text>
-
-                  <Text style={styles.fieldLabel}>{t('integrationsScreen.apiKey')}</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={apiKeyInput}
-                    onChangeText={setApiKeyInput}
-                    placeholder="sk-xxxxxxxxxxxxxxxxxxxx"
-                    placeholderTextColor={C.textMuted}
-                    secureTextEntry
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-
-                  <Text style={styles.fieldLabel}>{t('integrationsScreen.webhookUrl')}</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={webhookInput}
-                    onChangeText={setWebhookInput}
-                    placeholder="https://webhook.example.com/buildtrack"
-                    placeholderTextColor={C.textMuted}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-
-                  <Text style={styles.docsLink}>
-                    {t('integrationsScreen.docsPrefix')}{' '}
-                    <Text
-                      style={{ color: C.primary, textDecorationLine: 'underline' }}
-                      onPress={() => {
-                        if (Platform.OS !== 'web') Linking.openURL(integ.docsUrl).catch(() => {});
-                        else window.open(integ.docsUrl, '_blank');
-                      }}
-                    >
-                      {t('integrationsScreen.docsLink', { name: integ.name })}
-                    </Text>
-                    {' '}{t('integrationsScreen.docsSuffix')}
-                  </Text>
-
-                  <View style={styles.modalActions}>
-                    <TouchableOpacity style={styles.cancelBtn} onPress={() => setConfigModal(null)}>
-                      <Text style={styles.cancelBtnText}>{t('common.cancel')}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.saveBtn, !apiKeyInput.trim() && styles.saveBtnDisabled]}
-                      onPress={saveConfig}
-                      disabled={!apiKeyInput.trim()}
-                    >
-                      <Text style={styles.saveBtnText}>{t('common.save')}</Text>
-                    </TouchableOpacity>
-                  </View>
-                </>
-              );
-            })()}
-          </View>
-        </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
       <BottomNavBar />
     </View>
@@ -502,37 +492,10 @@ const styles = StyleSheet.create({
   },
   infoText: { flex: 1, fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17 },
 
-  modalOverlay: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.5)',
-    // Sur web desktop, un dialogue centré remplace la feuille basse mobile.
-    ...(Platform.OS === 'web'
-      ? { justifyContent: 'center' as const, alignItems: 'center' as const, padding: 20 }
-      : { justifyContent: 'flex-end' as const }),
-  },
-  modalContent: {
-    backgroundColor: C.surface,
-    padding: 24,
-    ...(Platform.OS === 'web'
-      ? { borderRadius: 20, width: '100%' as const, maxWidth: 480, paddingBottom: 24 }
-      : { borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 40 }),
-  },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
-  modalTitle: { fontSize: 18, fontFamily: 'Inter_700Bold', color: C.text },
-  modalSub: { fontSize: 13, fontFamily: 'Inter_400Regular', color: C.textSub, marginBottom: 20 },
   fieldLabel: { fontSize: 12, fontFamily: 'Inter_600SemiBold', color: C.textSub, marginBottom: 6, textTransform: 'uppercase', letterSpacing: 0.5 },
   fieldInput: {
     borderWidth: 1, borderColor: C.border, borderRadius: 10,
     padding: 12, fontSize: 14, fontFamily: 'Inter_400Regular',
     color: C.text, backgroundColor: C.bg, marginBottom: 16,
   },
-  docsLink: { fontSize: 12, fontFamily: 'Inter_400Regular', color: C.textSub, lineHeight: 17, marginBottom: 24 },
-  modalActions: { flexDirection: 'row', gap: 12 },
-  cancelBtn: {
-    flex: 1, borderWidth: 1, borderColor: C.border, borderRadius: 10,
-    paddingVertical: 13, alignItems: 'center',
-  },
-  cancelBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: C.textSub },
-  saveBtn: { flex: 2, backgroundColor: C.primary, borderRadius: 10, paddingVertical: 13, alignItems: 'center' },
-  saveBtnDisabled: { backgroundColor: C.border },
-  saveBtnText: { fontSize: 14, fontFamily: 'Inter_600SemiBold', color: '#fff' },
 });
