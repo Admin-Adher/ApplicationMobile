@@ -5,14 +5,14 @@ import {
   VisiteStatus, OprStatus,
 } from '@/constants/types';
 
+const FRENCH_DATE_TIME = /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
+
 function parseFrenchDateTime(value?: string | null): Date | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
 
-  const frMatch = trimmed.match(
-    /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?$/,
-  );
+  const frMatch = trimmed.match(FRENCH_DATE_TIME);
   if (frMatch) {
     const [, dd, mm, yyyy, hh = '00', min = '00', sec = '00'] = frMatch;
     const parsed = new Date(
@@ -266,8 +266,24 @@ export function toOpr(row: any): Opr {
   };
 }
 
+export function normalizeOprPayloadForSupabase<T extends { created_at?: unknown }>(payload: T): T {
+  const value = payload.created_at;
+  if (typeof value !== 'string') return payload;
+  const match = value.trim().match(FRENCH_DATE_TIME);
+  if (!match) return payload;
+
+  const [, day, month, year, hour = '00', minute = '00', second = '00'] = match;
+  const parsed = parseFrenchDateTime(value);
+  if (!parsed || parsed.getFullYear() !== Number(year) || parsed.getMonth() + 1 !== Number(month)
+      || parsed.getDate() !== Number(day) || parsed.getHours() !== Number(hour)
+      || parsed.getMinutes() !== Number(minute) || parsed.getSeconds() !== Number(second)) {
+    return payload;
+  }
+  return { ...payload, created_at: parsed.toISOString() };
+}
+
 export function fromOpr(o: Opr, orgId?: string | null): Record<string, any> {
-  return {
+  return normalizeOprPayloadForSupabase({
     id: o.id, chantier_id: o.chantierId ?? null,
     title: o.title ?? '',
     date: o.date ?? new Date().toISOString().split('T')[0],
@@ -287,7 +303,7 @@ export function fromOpr(o: Opr, orgId?: string | null): Record<string, any> {
     invited_emails: o.invitedEmails ?? null,
     session_token: o.sessionToken ?? null,
     organization_id: orgId ?? null,
-  };
+  });
 }
 
 export function toChantier(row: any): Chantier {

@@ -16,7 +16,8 @@ import {
   readCacheStrict,
   writeCache,
 } from '@/lib/offlineCache';
-import { normalizeVisitePayloadForSupabase } from '@/lib/mappers';
+import { normalizeOprPayloadForSupabase, normalizeVisitePayloadForSupabase } from '@/lib/mappers';
+import { recoverRejectedOprTimestamp } from '@/lib/oprQueueRecovery';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
@@ -1176,7 +1177,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         );
       }
 
-      const eligibleQueue = authorizedDismissal.kept;
+      const eligibleQueue = userId
+        ? authorizedDismissal.kept.map(recoverRejectedOprTimestamp)
+        : authorizedDismissal.kept;
       historicalEvaluationRequired = queueNeedsHistoricalVisitRecoveryEvaluation(eligibleQueue);
       let repairedQueue = eligibleQueue;
       if (userId && historicalEvaluationRequired) {
@@ -2531,6 +2534,10 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
         let liveReserveForPhotoPatch: Record<string, any> | null | undefined;
         let photoPatchGalleryFetchFailure: { error: any; meta?: SupabaseRestMeta } | null = null;
         if (data) {
+          if (op.table === 'oprs') {
+            data = normalizeOprPayloadForSupabase(data);
+            retryData = data;
+          }
           if (op.table === 'visites') {
             data = normalizeVisitePayloadForSupabase(data);
             retryData = data;
