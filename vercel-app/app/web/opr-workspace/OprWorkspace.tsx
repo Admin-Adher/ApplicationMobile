@@ -20,6 +20,7 @@ import styles from './OprWorkspace.module.css';
 type OprWorkspaceProps = {
   oprs: OprSource[];
   reserves: ReserveSource[];
+  lotNames: string[];
   projectName: string;
   onOpenReserve: (id: string) => void;
   isReserveArchived?: (reserve: ReserveSource) => boolean;
@@ -170,6 +171,11 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onSignerLink, onE
           {opr.source.visit_contradictoire && !/^(true|false)$/i.test(String(opr.source.visit_contradictoire)) ? (
             <p>Visite contradictoire le {formatOprDate(String(opr.source.visit_contradictoire))}</p>
           ) : null}
+          {Array.isArray(opr.source.visit_participants) && opr.source.visit_participants.length > 0 ? (
+            <div><h4>Participants à la visite contradictoire</h4><ul>
+              {opr.source.visit_participants.map(person => <li key={person.id}>{[person.name, person.company, person.present ? 'Présent' : 'Absent'].filter(Boolean).join(' · ')}</li>)}
+            </ul></div>
+          ) : null}
           {signers.length ? <div className={editorStyles.signers}>
             <h3>Signataires</h3>
             {signers.map((signer: { id: string; name: string; signed?: boolean; signedAt?: string }) => (
@@ -230,7 +236,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onSignerLink, onE
   );
 }
 
-export default function OprWorkspace({ oprs, reserves, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onSignerLink, onExport }: OprWorkspaceProps) {
+export default function OprWorkspace({ oprs, reserves, lotNames, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onSignerLink, onExport }: OprWorkspaceProps) {
   const [filter, setFilter] = useState<OprFilter>('all');
   const [openId, setOpenId] = useState<string | null>(requestedId || null);
   const [editor, setEditor] = useState<OprSource | null | undefined>(undefined);
@@ -308,7 +314,7 @@ export default function OprWorkspace({ oprs, reserves, projectName, onOpenReserv
 
         {requestedId && !model.summaries.some(opr => opr.id === requestedId) ? <p role="status">Ce procès-verbal n’est pas accessible dans ce chantier.</p> : null}
         {canCreate && editor === undefined ? <div className={editorStyles.actions}><button type="button" onClick={() => setEditor(null)}>Nouveau procès-verbal</button></div> : null}
-        {editor !== undefined ? <OprEditor key={editor?.id ?? 'new'} current={editor} reserves={reserves} onSave={onSave} onClose={id => {
+        {editor !== undefined ? <OprEditor key={editor?.id ?? 'new'} current={editor} reserves={reserves} lotNames={lotNames} onSave={onSave} onClose={id => {
           setEditor(undefined);
           if (id) { setOpenId(id); setFilter('all'); }
         }} /> : null}

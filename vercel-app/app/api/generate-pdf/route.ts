@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { PdfReportPayload } from '@/types/pdfReport';
 import { buildGlobalReportHtml, buildGlobalReservesHtml, buildIndividualReserveHtml, buildVisitReportHtml } from '@/lib/reportBuilder';
+import { buildFieldReportHtml, isFieldReportType, validFieldReportPayload } from '@/lib/field-reports';
 import { sendEmail } from '@/lib/sender';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { normalizeEmailLanguage, APP_URL, type EmailLanguage } from '@/lib/templates';
@@ -876,7 +877,12 @@ export async function POST(req: NextRequest) {
 
     let html: string;
 
-    if (type === 'global_reserves') {
+    if (isFieldReportType(type)) {
+      if (!validFieldReportPayload(type, payload)) {
+        return NextResponse.json({ success: false, error: 'Données du rapport invalides.' }, { status: 400, headers });
+      }
+      html = await buildFieldReportHtml(type, payload);
+    } else if (type === 'global_reserves') {
       if (!payload.chantierName || !Array.isArray(payload.reserves)) {
         return NextResponse.json(
           { success: false, error: 'Payload invalide (global_reserves)' },

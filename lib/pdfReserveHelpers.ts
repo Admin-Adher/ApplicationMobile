@@ -1,4 +1,4 @@
-import { Photo, PhotoAnnotation, Reserve, ReservePhoto } from '@/constants/types';
+import type { Photo, PhotoAnnotation, Reserve, ReservePhoto } from '../constants/types';
 
 type ReserveLocationSource = Pick<Reserve, 'building' | 'level' | 'zone'>;
 

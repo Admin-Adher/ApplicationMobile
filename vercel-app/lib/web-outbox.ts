@@ -1,7 +1,7 @@
 export type WebQueuedOperation = {
   key: string;
   owner: string;
-  kind: 'create_reserve' | 'send_message';
+  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit';
   payload: Record<string, unknown>;
   createdAt: number;
   files?: unknown;

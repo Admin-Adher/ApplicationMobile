@@ -1,5 +1,5 @@
-import { C } from '@/constants/colors';
-import type { ReservePriority, ReserveStatus } from '@/constants/types';
+import { C } from '../constants/colors';
+import type { ReservePriority, ReserveStatus } from '../constants/types';
 
 export const RESERVE_STATUS_LABELS: Record<ReserveStatus, string> = {
   open: 'Ouvert',

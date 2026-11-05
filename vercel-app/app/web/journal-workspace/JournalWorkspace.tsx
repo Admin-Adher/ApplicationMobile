@@ -1,6 +1,6 @@
 'use client';
 
-import { useDeferredValue, useId, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   buildJournalWorkspaceModel,
   countAttendanceForDate,
@@ -17,6 +17,10 @@ type JournalDraft = {
   id?: string;
   date: string;
   weather: string;
+  weatherTemp?: number | null;
+  weatherWind?: number | null;
+  weatherCode?: number | null;
+  photo?: File;
   workerCount: string;
   workDone: string;
   materials: string;
@@ -38,6 +42,8 @@ type JournalWorkspaceProps = {
   onUpdate: (entry: JournalEntrySource, payload: Record<string, unknown>) => Promise<unknown>;
   onDelete: (entry: JournalEntrySource) => Promise<unknown> | unknown;
   onExport: () => void;
+  getWeather?: () => Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null>;
+  renderPhoto?: (entry: JournalEntrySource) => ReactNode;
 };
 
 const FILTERS: Array<{ key: JournalFilter; label: string }> = [
@@ -92,6 +98,9 @@ function draftFromEntry(entry: JournalEntrySummary): JournalDraft {
     id: entry.id,
     date: entry.date,
     weather: entry.weather,
+    weatherTemp: entry.source.weatherTemp == null ? null : Number(entry.source.weatherTemp),
+    weatherWind: entry.source.weatherWind == null ? null : Number(entry.source.weatherWind),
+    weatherCode: entry.source.weatherCode ?? null,
     workerCount: entry.workerCount ? String(entry.workerCount) : '',
     workDone: entry.workDone,
     materials: entry.materials,
@@ -102,11 +111,12 @@ function draftFromEntry(entry: JournalEntrySummary): JournalDraft {
 }
 
 function draftSignature(draft: JournalDraft) {
-  return JSON.stringify(draft);
+  return JSON.stringify({ ...draft, photo: draft.photo ? [draft.photo.name, draft.photo.size, draft.photo.lastModified] : null });
 }
 
-function JournalEntryRecord({ entry, canCreate, canDelete, onEdit, onDelete }: {
+function JournalEntryRecord({ entry, canCreate, canDelete, onEdit, onDelete, photo }: {
   entry: JournalEntrySummary;
+  photo?: ReactNode;
   canCreate: boolean;
   canDelete: boolean;
   onEdit: (entry: JournalEntrySummary) => void;
@@ -131,6 +141,7 @@ function JournalEntryRecord({ entry, canCreate, canDelete, onEdit, onDelete }: {
           {entry.incidents ? <span className={styles.incidentFlag}><JournalIcon name="alert" />Incident consigné</span> : null}
         </div>
         <h3>{entry.workDone || 'Travaux non renseignés'}</h3>
+        {photo}
         {hasDetails ? (
           <details className={styles.entryDetails}>
             <summary>Voir le compte rendu complet <JournalIcon name="chevron" /></summary>
@@ -166,6 +177,8 @@ export default function JournalWorkspace({
   onUpdate,
   onDelete,
   onExport,
+  getWeather,
+  renderPhoto,
 }: JournalWorkspaceProps) {
   const idPrefix = useId().replace(/:/g, '');
   const [filter, setFilter] = useState<JournalFilter>('all');
@@ -174,6 +187,9 @@ export default function JournalWorkspace({
   const [showEditor, setShowEditor] = useState(false);
   const [busy, setBusy] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
+  const [loadingWeather, setLoadingWeather] = useState(false);
+  const [weatherError, setWeatherError] = useState('');
+  const weatherRequest = useRef(0);
   const [draft, setDraft] = useState<JournalDraft>(() => emptyDraft(today));
   const initialDraft = useRef(draftSignature(emptyDraft(today)));
   const editorTitle = useRef<HTMLHeadingElement | null>(null);
@@ -183,6 +199,23 @@ export default function JournalWorkspace({
     [deferredQuery, filter, model.entries, today],
   );
   const todayAttendance = useMemo(() => countAttendanceForDate(timeEntries, today), [timeEntries, today]);
+
+  async function suggestWeather() {
+    if (!getWeather || draft.date !== today || loadingWeather) return;
+    const request = ++weatherRequest.current;
+    setLoadingWeather(true);
+    setWeatherError('');
+    try {
+      const weather = await getWeather();
+      if (!weather) throw new Error('Météo indisponible. Vérifiez l’accès à votre position ou saisissez les conditions manuellement.');
+      if (request === weatherRequest.current) setDraft(previous => previous.date === today
+        ? { ...previous, weather: weather.label, weatherTemp: weather.temp, weatherWind: weather.wind, weatherCode: weather.code } : previous);
+    } catch (cause) {
+      if (request === weatherRequest.current) setWeatherError(cause instanceof Error ? cause.message : 'Météo indisponible.');
+    } finally {
+      if (request === weatherRequest.current) setLoadingWeather(false);
+    }
+  }
   const draftAttendance = useMemo(() => countAttendanceForDate(timeEntries, draft.date), [draft.date, timeEntries]);
   const draftChanged = draftSignature(draft) !== initialDraft.current;
 
@@ -212,6 +245,9 @@ export default function JournalWorkspace({
 
   function closeEditor(force = false) {
     if (!force && draftChanged && !window.confirm('Fermer sans enregistrer les modifications ?')) return;
+    weatherRequest.current++;
+    setLoadingWeather(false);
+    setWeatherError('');
     setSubmissionError('');
     setShowEditor(false);
   }
@@ -239,8 +275,8 @@ export default function JournalWorkspace({
       } else {
         setSubmissionError('L’enregistrement n’a pas abouti. Vérifiez le message d’erreur affiché puis réessayez.');
       }
-    } catch {
-      setSubmissionError('L’enregistrement a échoué. Vérifiez votre connexion puis réessayez.');
+    } catch (cause) {
+      setSubmissionError(cause instanceof Error ? cause.message : 'L’enregistrement a échoué. Vérifiez votre connexion puis réessayez.');
     } finally {
       setBusy(false);
     }
@@ -302,9 +338,11 @@ export default function JournalWorkspace({
               <legend><JournalIcon name="weather" /><span><strong>Conditions du jour</strong><small>Date, météo et présence sur site</small></span></legend>
               <div className={styles.conditionGrid}>
                 <label htmlFor={`${idPrefix}-date`}><span>Date</span><input id={`${idPrefix}-date`} type="date" value={draft.date} onChange={event => setDraft(previous => ({ ...previous, date: event.target.value }))} required /></label>
-                <label htmlFor={`${idPrefix}-weather`}><span>Météo</span><input id={`${idPrefix}-weather`} value={draft.weather} onChange={event => setDraft(previous => ({ ...previous, weather: event.target.value }))} placeholder="Soleil, pluie, vent…" autoComplete="off" /></label>
+                <label htmlFor={`${idPrefix}-weather`}><span>Météo</span><input id={`${idPrefix}-weather`} value={draft.weather} onChange={event => setDraft(previous => ({ ...previous, weather: event.target.value, weatherTemp: null, weatherWind: null, weatherCode: null }))} placeholder="Soleil, pluie, vent…" autoComplete="off" /></label>
                 <label htmlFor={`${idPrefix}-workers`}><span>Effectif</span><input id={`${idPrefix}-workers`} type="number" inputMode="numeric" min={0} value={draft.workerCount} onChange={event => setDraft(previous => ({ ...previous, workerCount: event.target.value }))} placeholder={draftAttendance ? String(draftAttendance) : '0'} aria-describedby={`${idPrefix}-workers-help`} /><small id={`${idPrefix}-workers-help`}>{draftAttendance ? `${draftAttendance} personne${draftAttendance > 1 ? 's' : ''} détectée${draftAttendance > 1 ? 's' : ''} dans le pointage` : 'Repris automatiquement du pointage si le champ reste vide'}</small></label>
               </div>
+              {getWeather && draft.date === today && <button type="button" disabled={loadingWeather || busy} onClick={() => void suggestWeather()}>{loadingWeather ? 'Recherche de la météo…' : 'Météo du jour à ma position'}</button>}
+              {weatherError && <p role="alert">{weatherError}</p>}
             </fieldset>
 
             <fieldset>
@@ -313,6 +351,10 @@ export default function JournalWorkspace({
                 <label className={styles.workDoneField} htmlFor={`${idPrefix}-work`}><span>Travaux réalisés <em>obligatoire</em></span><textarea id={`${idPrefix}-work`} rows={5} value={draft.workDone} onChange={event => setDraft(previous => ({ ...previous, workDone: event.target.value }))} placeholder="Décrivez les zones, lots et tâches réalisés aujourd’hui…" required /></label>
                 <label htmlFor={`${idPrefix}-materials`}><span>Matériaux et livraisons</span><textarea id={`${idPrefix}-materials`} rows={5} value={draft.materials} onChange={event => setDraft(previous => ({ ...previous, materials: event.target.value }))} placeholder="Réceptions, consommations, manquants…" /></label>
               </div>
+              <label>Photo du chantier <input type="file" accept="image/*" onChange={event => {
+                const photo = event.currentTarget.files?.[0];
+                setDraft(previous => ({ ...previous, photo }));
+              }} /></label>
             </fieldset>
 
             <fieldset>
@@ -371,6 +413,7 @@ export default function JournalWorkspace({
               <JournalEntryRecord
                 key={entry.id}
                 entry={entry}
+                photo={renderPhoto?.(entry.source)}
                 canCreate={canCreate}
                 canDelete={canDelete}
                 onEdit={item => beginDraft(draftFromEntry(item))}

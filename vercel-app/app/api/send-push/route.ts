@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
 import { checkRateLimit } from '@/lib/rateLimit';
 import { authenticateRequest, createServiceClient, getOrganizationUsers } from '@/lib/server-auth';
+import { deliverBrowserPush } from '@/lib/web-push';
 
 // Les ids (messages, réserves) sont des chaînes générées par l'app — jamais de
 // contenu libre. On refuse tout ce qui sort de ce format avant de l'injecter
@@ -150,7 +151,7 @@ async function enabledTokensForProfiles(
   critical = false,
 ) {
   const ids = Array.from(new Set((profileIds ?? []).filter(Boolean)));
-  if (ids.length === 0) return [];
+  if (ids.length === 0) return { tokens: [], allowedIds: [] };
   const { data, error } = await supabase
     .from('push_tokens')
     .select('token, user_id')
@@ -158,13 +159,25 @@ async function enabledTokensForProfiles(
     .in('user_id', ids);
   if (error) throw error;
   const prefs = await preferencesForProfiles(supabase, ids);
+  const allowedIds = ids.filter(id => pushPreferenceAllows(prefs.get(id), column, critical));
+  const allowed = new Set(allowedIds);
   const seen = new Set<string>();
-  return (data ?? []).filter((row: any) => {
-    if (!pushPreferenceAllows(prefs.get(row.user_id), column, critical)) return false;
+  const tokens = (data ?? []).filter((row: any) => {
+    if (!allowed.has(row.user_id)) return false;
     if (!isExpoPushToken(row.token) || seen.has(row.token)) return false;
     seen.add(row.token);
     return true;
   });
+  return { tokens, allowedIds };
+}
+
+async function sendBrowserPush(supabase: any, org: string, ids: string[], body: string, href: string) {
+  try {
+    return await deliverBrowserPush(supabase, org, ids, { body, href });
+  } catch {
+    console.warn('[send-push] Browser notification delivery unavailable');
+    return { webSent: 0, webExpired: 0 };
+  }
 }
 
 async function sendExpoPushMessages(supabase: any, messages: any[]) {
@@ -283,16 +296,16 @@ async function pushForMessage(supabase: any, profile: any, body: any) {
     throw Object.assign(new Error('Seul l expediteur peut notifier ce message'), { statusCode: 403 });
   }
   const recipientIds = await resolveMessageRecipientProfileIds(supabase, message, profile);
-  const tokens = await enabledTokensForProfiles(supabase, recipientIds, 'messages_push');
-  const pushStats = await sendExpoPushMessages(supabase, tokens.map((row: any) => ({
+  const { tokens, allowedIds } = await enabledTokensForProfiles(supabase, recipientIds, 'messages_push');
+  const [pushStats, browserStats] = await Promise.all([sendExpoPushMessages(supabase, tokens.map((row: any) => ({
     to: row.token,
     sound: 'default',
     title: `Message de ${message.sender}`,
     body: previewText(message.content, message.attachment_uri ? 'Photo jointe' : 'Nouveau message'),
     data: notificationRoute('/channel/[id]', message.channel_id),
     channelId: 'buildtrack',
-  })));
-  return { recipients: recipientIds.length, ...pushStats };
+  }))), sendBrowserPush(supabase, profile.organization_id, allowedIds, 'Nouveau message.', '/web?channel=' + encodeURIComponent(message.channel_id))]);
+  return { recipients: recipientIds.length, ...pushStats, ...browserStats };
 }
 
 async function pushForReserve(supabase: any, profile: any, body: any, statusChange = false) {
@@ -310,7 +323,7 @@ async function pushForReserve(supabase: any, profile: any, body: any, statusChan
 
   const recipientIds = await resolveReserveRecipientProfileIds(supabase, reserve);
   const isCritical = reserve.priority === 'critical';
-  const tokens = await enabledTokensForProfiles(
+  const { tokens, allowedIds } = await enabledTokensForProfiles(
     supabase,
     recipientIds.filter((id: string) => id !== profile.id),
     statusChange ? 'reserve_status_push' : 'reserve_created_push',
@@ -319,15 +332,15 @@ async function pushForReserve(supabase: any, profile: any, body: any, statusChan
   const statusLabel = getReserveStatusLabel(body.newStatus || reserve.status, true);
   const title = statusChange ? 'Statut de reserve modifie' : 'Nouvelle reserve';
   const fallback = statusChange ? `${reserve.id} - ${statusLabel}` : `${reserve.id} - ${reserve.title}`;
-  const pushStats = await sendExpoPushMessages(supabase, tokens.map((row: any) => ({
+  const [pushStats, browserStats] = await Promise.all([sendExpoPushMessages(supabase, tokens.map((row: any) => ({
     to: row.token,
     sound: 'default',
     title,
     body: previewText(statusChange ? `${reserve.title} (${body.previousStatus || reserve.status} -> ${statusLabel})` : fallback, fallback),
     data: notificationRoute('/reserve/[id]', reserve.id),
     channelId: 'buildtrack',
-  })));
-  return { recipients: recipientIds.length, ...pushStats };
+  }))), sendBrowserPush(supabase, profile.organization_id, allowedIds, statusChange ? 'Le statut d’une réserve a changé.' : 'Une nouvelle réserve est disponible.', '/web?reserve=' + encodeURIComponent(reserve.id))]);
+  return { recipients: recipientIds.length, ...pushStats, ...browserStats };
 }
 
 async function pushOverdueReserves(supabase: any) {
@@ -428,9 +441,13 @@ async function pushOverdueReserves(supabase: any) {
         }
       }
 
-      const pushStats = await sendExpoPushMessages(supabase, messages);
-      stats.sent += pushStats.sent;
-      if (pushStats.sent > 0) {
+      const [pushStats, browserStats] = await Promise.all([
+        sendExpoPushMessages(supabase, messages),
+        sendBrowserPush(supabase, reserve.organization_id, [...seenUsers], 'Une réserve est en retard.', '/web?reserve=' + encodeURIComponent(reserve.id)),
+      ]);
+      const sent = pushStats.sent + browserStats.webSent;
+      stats.sent += sent;
+      if (sent > 0) {
         const nextCount = escalate ? reminderCount : reminderCount + 1;
         const { error: updateError } = await supabase
           .from('reserves')

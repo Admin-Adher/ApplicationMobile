@@ -1,7 +1,9 @@
 'use client';
 
 import NextImage from 'next/image';
-import { createContext, useCallback, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import dynamic from 'next/dynamic';
+import { useSearchParams } from 'next/navigation';
+import { createContext, Suspense, useCallback, useContext, useDeferredValue, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import type { User as SupabaseUser } from '@supabase/supabase-js';
 import {
@@ -17,10 +19,12 @@ import {
 import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
 import { publishWhenCurrent } from '@/lib/progressive-workspace-load';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { dmChannelIdByUserIds } from '../../../lib/directMessageId';
 import {
   WEB_PDF_BATCH_CONCURRENCY,
   createWebPdfBatchPayloads,
   pdfApiErrorMessage,
+  type WebPdfReportType,
 } from '@/lib/pdf-report-batching';
 import { BuildTrackAccess, BuildTrackAccessLoading } from './BuildTrackAccess';
 import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSession';
@@ -130,6 +134,14 @@ import type { ChannelDraft } from './messages-workspace/ChannelEditor';
 import OprWorkspace from './opr-workspace/OprWorkspace';
 import { buildWebOprPrint } from './opr-workspace/opr-print';
 import PortalWorkspace from './PortalWorkspace';
+import OrganizationWebhookSettings from './OrganizationWebhookSettings';
+import BrowserPushSettings from './BrowserPushSettings';
+import SubscriptionOverview from './SubscriptionOverview';
+import { stopBrowserPush } from '@/lib/browser-push-client';
+import { clearWorkspaceSnapshot, readWorkspaceSnapshot, warmOfflineWorkspace, writeWorkspaceSnapshot } from '@/lib/web-workspace-cache';
+import LotsWorkspace, { type LotDraft, type LotRow } from './LotsWorkspace';
+import { STANDARD_LOTS } from '../../../constants/standardLots';
+import type { MeetingReport } from '../../../constants/types';
 import PointageWorkspace from './pointage-workspace/PointageWorkspace';
 import PlanningWorkspace from './planning-workspace/PlanningWorkspace';
 import WebDxfPlan from './plan-reserve-workspace/WebDxfPlan';
@@ -146,6 +158,7 @@ import { useWebOutbox } from '@/lib/use-web-outbox';
 import { isWebNetworkFailure, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
 
 const webPlanAnnotationWriteQueue = new LatestWriteQueue<PlanDrawing[]>();
+const MeetingsWorkspace = dynamic(() => import('./MeetingsWorkspace'));
 
 type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'magasinier' | 'sous_traitant' | 'observateur' | string;
 
@@ -408,6 +421,7 @@ const WEB_LAST_TAB_KEY = 'buildtrack-web-last-tab-v1';
 const WEB_EXPORT_LANGUAGE_KEY = 'buildtrack-export-language-v1';
 const WEB_RECENT_BUILDINGS_KEY = 'buildtrack-web-recent-buildings-v1';
 const WEB_RESERVE_HISTORY_STATE = '__buildtrackReserveDetail';
+const WEB_PORTAL_RESERVE_STATE = '__buildtrackPortalReserve';
 const PHOTO_ANNOTATION_COLORS = ['#EF4444', '#F59E0B', '#3B82F6', '#10B981', '#8B5CF6', '#FFFFFF', '#111827'];
 const PHOTO_ANNOTATION_STROKES = [2, 8, 18];
 
@@ -432,6 +446,7 @@ const TABS = [
   { id: 'planning', label: 'Planning', icon: 'time' },
   { id: 'media', label: 'Médias', icon: 'images' },
   { id: 'rapports', label: 'Rapports', icon: 'document-text' },
+  { id: 'meetings', label: 'Réunions', icon: 'document-text' },
   { id: 'equipes', label: 'Équipes', icon: 'people-circle' },
   { id: 'settings', label: 'Paramètres', icon: 'options' },
   { id: 'admin', label: 'Administration', icon: 'settings' },
@@ -2650,6 +2665,8 @@ function journalRowToEntry(row: any) {
     weather: row.weather ?? '',
     weatherTemp: row.weather_temp ?? row.weatherTemp,
     weatherWind: row.weather_wind ?? row.weatherWind,
+    weatherCode: row.weather_code ?? row.weatherCode,
+    photoUri: row.photo_uri ?? row.photoUri,
     workerCount: row.worker_count ?? row.workerCount ?? 0,
     workDone: row.work_done ?? row.workDone ?? '',
     materials: row.materials ?? '',
@@ -3034,6 +3051,14 @@ function TextPromptDialog({ request, onSubmit, onCancel }: {
 }
 
 export default function BuildTrackWebPage() {
+  return (
+    <Suspense fallback={<BuildTrackAccessLoading language="fr" />}>
+      <BuildTrackWebWorkspace />
+    </Suspense>
+  );
+}
+
+function BuildTrackWebWorkspace() {
   const [authLoadGuard] = useState(createAuthScopedLoadGuard);
   const authenticatedWorkspace = useAuthenticatedWorkspaceSession({
     onAuthenticatedUserChange: authLoadGuard.setAuthenticatedUser,
@@ -3058,7 +3083,8 @@ export default function BuildTrackWebPage() {
   });
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
-  const outboxOwner = authUser?.id && profile?.organization_id ? authUser.id + ':' + profile.organization_id : '';
+  const [offlineSnapshotAt, setOfflineSnapshotAt] = useState<number | null>(null);
+  const outboxOwner = authUser && profile?.id === authUser.id && profile.organization_id ? authUser.id + ':' + profile.organization_id : '';
   const outbox = useWebOutbox(outboxOwner, executeWebOperation);
   const previewCacheOwnerRef = useRef<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
@@ -3115,13 +3141,10 @@ export default function BuildTrackWebPage() {
     if (!hasStoredReportLanguage) setReportLanguageState(nextLanguage);
   }, [hasStoredReportLanguage]);
   const [generatingReport, setGeneratingReport] = useState<string | null>(null);
-  const [portalCompanyId, setPortalCompanyId] = useState('');
-  const [requestedOprId, setRequestedOprId] = useState('');
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    setPortalCompanyId(params.get('portal') ?? '');
-    setRequestedOprId(params.get('opr') ?? '');
-  }, []);
+  const searchParams = useSearchParams();
+  const portalCompanyId = searchParams.get('portal') ?? '';
+  const requestedOprId = searchParams.get('opr') ?? '';
+  const requestedChannelId = searchParams.get('channel') ?? '';
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -3279,6 +3302,7 @@ export default function BuildTrackWebPage() {
       pendingWebPlanAnnotationsRef.current.clear();
       setProfile(null);
       setData(EMPTY_DATA);
+      setOfflineSnapshotAt(null);
       setStorageUsage(null);
       setError('');
       setNotice('');
@@ -3462,7 +3486,34 @@ export default function BuildTrackWebPage() {
     const onError = (table: string) => {
       if (!failedTables.includes(table)) failedTables.push(table);
     };
+    function saveOfflineSnapshot(loadedProfile: Profile, workspace: Partial<WebState>) {
+      if (failedTables.length || !loadedProfile.organization_id || loadedProfile.role === 'super_admin') return;
+      // Never store administrative directories, deleted records, or remote media responses.
+      const { chantiers, reserves, sitePlans, companies, visites, messages, channels, lots, tasks,
+        incidents, oprs, timeEntries, journalEntries, checklists, inventoryProducts, inventoryMovements } = workspace;
+      const snapshot = { profile: loadedProfile, workspace: { chantiers, reserves, sitePlans, companies, visites,
+        messages, channels, lots, tasks, incidents, oprs, timeEntries, journalEntries, checklists, inventoryProducts, inventoryMovements } };
+      void writeWorkspaceSnapshot(user.id, snapshot).then(() => {
+        if (authUserIdRef.current !== user.id) return clearWorkspaceSnapshot(user.id);
+        return warmOfflineWorkspace();
+      }).catch(() => undefined);
+    }
     try {
+      if (!navigator.onLine) {
+        const entry = await readWorkspaceSnapshot<{ profile: Profile; workspace: Partial<WebState> }>(user.id).catch(() => null);
+        if (!loadLease.isCurrent()) return;
+        if (!entry || entry.snapshot.profile.id !== user.id) {
+          setError('Ouvrez ce chantier en ligne avant sa première utilisation hors connexion.');
+          return;
+        }
+        const { workspace, profile: savedProfile } = entry.snapshot;
+        const available = Object.fromEntries(Object.entries(workspace).filter(([, rows]) => Array.isArray(rows)));
+        setProfile(savedProfile);
+        setData({ ...EMPTY_DATA, ...available });
+        setSelectedProjectId(previous => workspace.chantiers?.some(project => project.id === previous) ? previous : workspace.chantiers?.[0]?.id ?? 'all');
+        setOfflineSnapshotAt(entry.savedAt);
+        return;
+      }
       let { data: profileRows, error: profileError } = await supabaseBrowser
         .rpc('get_profile_for_current_user');
       if (!loadLease.isCurrent()) return;
@@ -3503,6 +3554,7 @@ export default function BuildTrackWebPage() {
       }
       syncReportLanguageWithInterface(preferredLang);
       setProfile({ ...loadedProfile, preferred_language: profileLanguage });
+      setOfflineSnapshotAt(null);
       setLastReadByChannel(previous => mergeMessageReadState(
         loadedProfile.last_read_by_channel,
         previous,
@@ -3524,7 +3576,7 @@ export default function BuildTrackWebPage() {
         ]);
         if (!loadLease.isCurrent()) return;
         setStorageUsage(null);
-        setData({
+        const warehouseData = {
           ...EMPTY_DATA,
           chantiers,
           companies,
@@ -3532,7 +3584,9 @@ export default function BuildTrackWebPage() {
           notificationPreferences,
           inventoryProducts,
           inventoryMovements,
-        });
+        };
+        setData(warehouseData);
+        saveOfflineSnapshot(loadedProfile, warehouseData);
         setSelectedProjectId(prev => prev !== 'all' && chantiers.some((chantier: any) => chantier.id === prev) ? prev : chantiers[0]?.id ?? 'all');
         if (failedTables.length) {
           setError(loadT('sync.partialInventoryLoad', { tables: failedTableList(loadT, failedTables) }));
@@ -3719,6 +3773,7 @@ export default function BuildTrackWebPage() {
         inventoryProducts,
         inventoryMovements,
       };
+      saveOfflineSnapshot(loadedProfile, nextData);
       setData(previous => opts.background
         ? nextData
         : {
@@ -3739,7 +3794,15 @@ export default function BuildTrackWebPage() {
         setError(loadT('sync.partialLoad', { tables: failedTableList(loadT, failedTables) }));
       }
     } catch (err: any) {
-      if (loadLease.isCurrent()) setError(err?.message ?? loadT('login.loadError'));
+      if (loadLease.isCurrent()) {
+        if (offlineSnapshotAt && !isWebNetworkFailure(err)) {
+          setProfile(null);
+          setData(EMPTY_DATA);
+          setOfflineSnapshotAt(null);
+          void clearWorkspaceSnapshot(user.id).catch(() => undefined);
+        }
+        setError(err?.message ?? loadT('login.loadError'));
+      }
     } finally {
       if (loadLease.isCurrent()) {
         setLoading(false);
@@ -3748,11 +3811,19 @@ export default function BuildTrackWebPage() {
     }
   }
 
+  useEffect(() => {
+    if (!authUser || !offlineSnapshotAt) return;
+    const reconnect = () => { void loadEverything(authUser, { background: true }); };
+    window.addEventListener('online', reconnect);
+    return () => window.removeEventListener('online', reconnect);
+  }, [authUser?.id, offlineSnapshotAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function handleSignOut() {
     const ownerId = authUser?.id ?? null;
     previewCacheOwnerRef.current = null;
+    await stopBrowserPush().catch(() => undefined);
     await authenticatedWorkspace.signOut();
-    if (ownerId) await clearPlanPreviewsForUser(ownerId);
+    if (ownerId) await Promise.allSettled([clearPlanPreviewsForUser(ownerId), clearWorkspaceSnapshot(ownerId)]);
   }
 
   async function patchReserveWeb(reserve: any, patch: Record<string, any>) {
@@ -3790,6 +3861,7 @@ export default function BuildTrackWebPage() {
     if (!reserve || !canUseReserveTunnel(profile)) return;
 
     const currentStatus = String(reserve.status ?? 'open');
+    if (status === currentStatus) return;
     if (!canEdit(profile)) {
       const allowedForSubcontractor =
         (status === 'in_progress' && currentStatus === 'open') ||
@@ -3801,6 +3873,30 @@ export default function BuildTrackWebPage() {
     }
 
     const author = userLabel(profile, authUser);
+    if (canEdit(profile) && profile?.organization_id && reserve.organization_id === profile.organization_id) {
+      const payload = {
+        id: crypto.randomUUID(), reserveId, organization_id: profile.organization_id,
+        event: {
+          id: crypto.randomUUID(), reserve_id: reserveId, from_status: currentStatus, to_status: status,
+          actor_name: author, occurred_at: new Date().toISOString(), reason: 'Statut modifié depuis le web',
+          history_entry: makeHistory('Statut modifié depuis le web', author, statusLabel(currentStatus), statusLabel(status)),
+          closed_at: status === 'closed' ? todayISO() : null, closed_by: status === 'closed' ? author : null,
+        },
+      };
+      setSaving(true);
+      setError('');
+      try {
+        // Persist before sending so a response lost after commit reuses the same operation ID.
+        await outbox.enqueue('reserve_status', payload);
+        if (navigator.onLine) await outbox.flush();
+        else setNotice('Changement de statut enregistré dans la file hors connexion.');
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Impossible de conserver le changement de statut.');
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
     const history = [
       ...(Array.isArray(reserve.history) ? reserve.history : []),
       makeHistory('Statut modifié depuis le web', author, statusLabel(currentStatus), statusLabel(status)),
@@ -4599,6 +4695,34 @@ export default function BuildTrackWebPage() {
     };
 
     if (reserveModalMode === 'edit' && editingReserveId) {
+      if (!navigator.onLine && existing) {
+        try {
+          const initial = reserveToDraft(existing);
+          const photosChanged = reserveDraft.photos.some(photo => photo.file)
+            || JSON.stringify(reserveDraft.photos.map(photo => [photo.uri, photo.kind, photo.annotations]))
+              !== JSON.stringify(initial.photos.map(photo => [photo.uri, photo.kind, photo.annotations]));
+          if (photosChanged || companiesChanged || initial.visiteId !== reserveDraft.visiteId || initial.status !== reserveDraft.status) {
+            throw new Error('Les modifications des photos, de l’entreprise ou de la visite nécessitent une connexion. Utilisez le bouton de statut pour changer l’état hors connexion.');
+          }
+          if (typeof existing.version !== 'number' || outbox.rows.some(row => row.payload.reserveId === editingReserveId)) {
+            throw new Error('Synchronisez d’abord cette réserve avant de préparer une nouvelle modification hors connexion.');
+          }
+          const { status: _status, comments: _comments, closed_at: _closedAt, closed_by: _closedBy,
+            organization_id, company: _company, companies: _companies, visite_id: _visit,
+            company_signatures: _signatures, ...fields } = basePayload;
+          await outbox.enqueue('reserve_edit', {
+            id: crypto.randomUUID(), reserveId: editingReserveId, organization_id,
+            version: existing.version, patch: { ...fields, history: history.slice(-1) }, title,
+          });
+          closeReserveModal();
+          setNotice('Modification de réserve enregistrée dans la file hors connexion.');
+        } catch (cause) {
+          setError(cause instanceof Error ? cause.message : 'Impossible de conserver la modification hors connexion.');
+        } finally {
+          setSaving(false);
+        }
+        return;
+      }
       let photoPatch: Awaited<ReturnType<typeof buildReservePhotoPatch>>;
       let photoRowPlan: ReturnType<typeof planReservePhotoRowReconciliation>;
       try {
@@ -5024,6 +5148,33 @@ export default function BuildTrackWebPage() {
     if (error || !saved) throw new Error(error?.message || 'Ce procès-verbal a changé. Rechargez-le avant de réessayer.');
     setData(previous => ({ ...previous, oprs: [saved, ...previous.oprs.filter(row => row.id !== saved.id)] }));
     return saved.id as string;
+  }
+
+  async function saveLotWeb(draft: LotDraft, current?: LotRow) {
+    const organizationId = profile?.organization_id;
+    if (!organizationId || (current ? !canEdit(profile) : !canCreate(profile))) throw new Error('Enregistrement du lot non autorisé.');
+    const duplicate = data.lots.some(lot => lot.id !== current?.id && lot.organization_id === organizationId
+      && sameName(lot.name, draft.name));
+    if (duplicate) throw new Error('Un lot porte déjà ce nom.');
+    const query = current
+      ? supabaseBrowser.from('lots').update(draft).eq('id', current.id).eq('organization_id', organizationId)
+      : supabaseBrowser.from('lots').insert({ ...draft, id: `lot-custom-${crypto.randomUUID()}`, organization_id: organizationId });
+    const { data: row, error } = await query.select().maybeSingle();
+    if (error || !row) throw new Error(error?.message || 'Enregistrement du lot refusé.');
+    setData(previous => ({ ...previous, lots: [...previous.lots.filter(lot => lot.id !== row.id), row] }));
+  }
+
+  async function removeLotWeb(lot: LotRow) {
+    if (!profile?.organization_id || !canDelete(profile) || STANDARD_LOTS.some(standard => standard.id === lot.id)) {
+      throw new Error('Suppression du lot non autorisée.');
+    }
+    if ([...data.reserves, ...data.deletedReserves].some(reserve => reserve.lot_id === lot.id)) {
+      throw new Error('Ce lot est encore associé à des réserves.');
+    }
+    const { data: row, error } = await supabaseBrowser.from('lots').delete()
+      .eq('id', lot.id).eq('organization_id', profile.organization_id).select('id').maybeSingle();
+    if (error || !row) throw new Error(error?.message || 'Suppression du lot refusée.');
+    setData(previous => ({ ...previous, lots: previous.lots.filter(item => item.id !== lot.id) }));
   }
 
   async function createTaskWeb(payload: Record<string, any>) {
@@ -5625,8 +5776,9 @@ export default function BuildTrackWebPage() {
 
   async function createJournalEntryWeb(payload: Record<string, any>) {
     if (!profile || !canCreate(profile)) return null;
+    const id = `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const row = {
-      id: `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      id,
       organization_id: profile.organization_id ?? null,
       chantier_id: payload.chantier_id ?? null,
       entry_date: payload.date || todayISO(),
@@ -5642,6 +5794,7 @@ export default function BuildTrackWebPage() {
       visitors: String(payload.visitors ?? ''),
       author: userLabel(profile, authUser),
       author_id: profile.id ?? null,
+      ...(payload.photo instanceof File ? { photo_uri: await uploadWebFile('photos', payload.photo, `journal_${id}`) } : {}),
     };
     const { data: inserted, error: insertError } = await supabaseBrowser.from('journal_entries').insert(row).select().single();
     if (insertError) {
@@ -5656,8 +5809,9 @@ export default function BuildTrackWebPage() {
 
   async function createIncidentWeb(payload: Record<string, any>) {
     if (!profile || !canCreate(profile)) return null;
+    const id = `INC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
     const row = {
-      id: `INC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      id,
       organization_id: profile.organization_id ?? null,
       chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
       title: String(payload.title ?? '').trim(),
@@ -5669,6 +5823,7 @@ export default function BuildTrackWebPage() {
       reported_at: payload.reported_at || todayISO(),
       reported_by: userLabel(profile, authUser),
       actions: String(payload.actions ?? ''),
+      ...(payload.photo instanceof File ? { photo_uri: await uploadWebFile('photos', payload.photo, `incident_${id}`) } : {}),
     };
     if (!row.title) return null;
     const { data: inserted, error } = await supabaseBrowser.from('incidents').insert(row).select().single();
@@ -5702,14 +5857,16 @@ export default function BuildTrackWebPage() {
     const patch = {
       entry_date: payload.date || entry.entry_date,
       weather: String(payload.weather ?? entry.weather ?? ''),
-      weather_temp: payload.weatherTemp ?? entry.weather_temp ?? null,
-      weather_wind: payload.weatherWind ?? entry.weather_wind ?? null,
+      ...('weatherTemp' in payload ? { weather_temp: payload.weatherTemp } : {}),
+      ...('weatherWind' in payload ? { weather_wind: payload.weatherWind } : {}),
+      ...('weatherCode' in payload ? { weather_code: payload.weatherCode } : {}),
       worker_count: Number(payload.workerCount ?? entry.worker_count ?? 0),
       work_done: String(payload.workDone ?? entry.work_done ?? ''),
       materials: String(payload.materials ?? entry.materials ?? ''),
       incidents: String(payload.incidents ?? entry.incidents ?? ''),
       observations: String(payload.observations ?? entry.observations ?? ''),
       visitors: String(payload.visitors ?? entry.visitors ?? ''),
+      ...(payload.photo instanceof File ? { photo_uri: await uploadWebFile('photos', payload.photo, `journal_${entry.id}`) } : {}),
     };
     const { data: updated, error } = await supabaseBrowser.from('journal_entries').update(patch).eq('id', entry.id).select().single();
     if (error) {
@@ -5933,8 +6090,11 @@ export default function BuildTrackWebPage() {
     return data.chantiers.find(project => project.id === selectedProjectId)?.name ?? 'Chantier';
   }
 
-  async function generateWebReport(type: 'global_reserves' | 'plans' | 'individual_reserve' | 'visit_report', options?: {
+  async function generateWebReport(type: WebPdfReportType, options?: {
     visit?: any;
+    incident?: any;
+    company?: any;
+    meeting?: MeetingReport;
     reserve?: any;
     reserves?: any[];
     plans?: any[];
@@ -5953,7 +6113,10 @@ export default function BuildTrackWebPage() {
     setError('');
     try {
       const targetReserve = options?.reserve ?? selectedReserve;
-      const targetReserves = options?.reserves ?? filteredReserves;
+      const activeReserves = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve));
+      const targetReserves = type === 'daily' || type === 'weekly' ? activeReserves
+        : type === 'company_slip' ? activeReserves.filter(reserve => reserveMatchesCompanyIdOrName(reserve, options?.company))
+        : options?.reserves ?? filteredReserves;
       const targetPlans = options?.plans ?? projectScoped.plans;
       const reservePlanId = targetReserve?.plan_id ?? targetReserve?.planId;
       const reservePlan = reservePlanId ? projectScoped.plans.find((plan: any) => String(plan.id) === String(reservePlanId)) : null;
@@ -5973,11 +6136,11 @@ export default function BuildTrackWebPage() {
         : null;
       const reportPlans = type === 'plans'
         ? await toPdfPlanItemsForReport(targetPlans, targetReserves)
-        : targetPlans.map(toPdfPlanItem);
+        : [];
       const reportReserves = type === 'plans'
         ? await toPdfReserveItemsForPlanReport(targetReserves)
-        : type === 'global_reserves'
-          ? await withPdfRemoteReservePhotoList(targetReserves, REPORT_MAX_PHOTOS_PER_RESERVE)
+        : type === 'global_reserves' || type === 'company_slip'
+          ? await withPdfRemoteReservePhotoList(targetReserves, type === 'company_slip' ? 1 : REPORT_MAX_PHOTOS_PER_RESERVE)
           : targetReserves;
       const reportReserve = type === 'individual_reserve' && targetReserve
         ? await withPdfRemoteReservePhotos(targetReserve, INDIVIDUAL_RESERVE_MAX_PHOTOS)
@@ -6020,6 +6183,15 @@ export default function BuildTrackWebPage() {
             companies: reportCompanies,
             companyFilter: [options?.companyFilter, options?.statusFilter].filter(Boolean).join(' · ') || null,
             statusFilter: options?.statusFilter ?? null,
+            ...(type === 'daily' || type === 'weekly' ? {
+              companies: data.companies.filter(company => !profile?.organization_id || company.organization_id === profile.organization_id),
+              tasks: projectScoped.tasks,
+              incidents: projectScoped.incidents,
+              author: userLabel(profile, authUser),
+            } : {}),
+            ...(type === 'company_slip' ? { company: options?.company } : {}),
+            ...(type === 'incident' ? { incident: options?.incident, reserves: [] } : {}),
+            ...(type === 'meeting' ? { meeting: options?.meeting, reserves: [] } : {}),
             language,
             generatedAt: new Date().toISOString(),
           };
@@ -6040,7 +6212,11 @@ export default function BuildTrackWebPage() {
         return;
       }
       const filePart = selectedProjectName.replace(/[^a-z0-9]+/gi, '_').replace(/^_+|_+$/g, '') || 'BuildTrack';
-      const typePart = type === 'global_reserves' ? 'reserves' : type === 'plans' ? 'plans' : type === 'visit_report' ? 'visite' : 'reserve';
+      const typePart = {
+        global_reserves: 'reserves', individual_reserve: 'reserve', plans: 'plans', visit_report: 'visite',
+        daily: 'journalier', weekly: 'hebdomadaire', incident: 'incident', company_slip: 'bon_entreprise',
+        meeting: 'reunion',
+      }[type];
       const filename = `BuildTrack_${typePart}_${filePart}_${language}.pdf`;
       const { data: pdfAuthData } = await supabaseBrowser.auth.getSession();
       const requestPdfPayload = async (requestPayload: any): Promise<{ blob?: Blob; printHtml?: string }> => {
@@ -6112,6 +6288,20 @@ export default function BuildTrackWebPage() {
     }
   }
 
+  async function downloadReservesCsv() {
+    if (!canExport(profile)) return;
+    try {
+      const [{ buildCsvReport }, { toReserve }, { fieldReportTranslator }] = await Promise.all([
+        import('../../../lib/reserveCsv'), import('../../../lib/mappers'), import('@/lib/field-report-translation'),
+      ]);
+      const reserves = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve)).map(toReserve);
+      const csv = buildCsvReport(reserves, fieldReportTranslator(reportLanguage), localeForLang(reportLanguage));
+      downloadBlobFile(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }), `BuildTrack_reserves_${reportLanguage}.csv`);
+    } catch {
+      setError('Impossible de générer le CSV des réserves.');
+    }
+  }
+
   async function addGalleryPhoto(file: File) {
     if (!canCreate(profile) || !profile?.organization_id || selectedProjectId === 'all') {
       throw new Error('Sélectionnez un chantier où vous pouvez ajouter une photo.');
@@ -6164,12 +6354,18 @@ export default function BuildTrackWebPage() {
     if (!authUser || !organizationId || (current ? !canManageMessageChannel(current) : !canCreate(profile))) {
       throw new Error('Votre compte ne peut pas modifier ce canal.');
     }
-    const id = current?.id ?? 'channel-' + crypto.randomUUID();
+    const recipientId = draft.type === 'dm' ? draft.memberIds.find(memberId => memberId !== authUser.id) : null;
+    if (draft.type === 'dm' && (current || !recipientId || draft.memberIds.length !== 2 || !draft.memberIds.includes(authUser.id))) {
+      throw new Error('Sélectionnez un destinataire de votre organisation.');
+    }
+    const id = current?.id ?? (recipientId ? dmChannelIdByUserIds(authUser.id, recipientId) : 'channel-' + crypto.randomUUID());
+    if (recipientId && data.channels.some(channel => channel.id === id && channel.organization_id === organizationId)) return id;
     const fields = { name: draft.name, description: draft.description };
-    const result = draft.type === 'group'
+    const result = draft.type !== 'custom'
       ? await supabaseBrowser.rpc('upsert_private_channel', {
-        p_channel_id: id, p_type: 'group', p_name: draft.name, p_description: draft.description,
-        p_icon: 'people-circle', p_color: '#7C3AED', p_member_user_ids: draft.memberIds,
+        p_channel_id: id, p_type: draft.type, p_name: draft.name, p_description: draft.description,
+        p_icon: recipientId ? 'person-circle' : 'people-circle',
+        p_color: recipientId ? '#EC4899' : '#7C3AED', p_member_user_ids: draft.memberIds,
         p_organization_id: organizationId,
       })
       : await (current ? supabaseBrowser.from('channels').update(fields).eq('id', id)
@@ -6177,8 +6373,12 @@ export default function BuildTrackWebPage() {
           ...fields, id, type: 'custom', members: [], icon: 'chatbubbles', color: '#003082',
           created_by: userLabel(profile, authUser), created_by_user_id: authUser.id, organization_id: organizationId,
         })).select().maybeSingle();
-    const row = Array.isArray(result.data) ? result.data[0] : result.data;
-    if (result.error || !row) throw new Error(result.error?.message || 'Impossible d’enregistrer le canal.');
+    let row = Array.isArray(result.data) ? result.data[0] : result.data;
+    if (recipientId && result.error?.code === '23505') {
+      const existing = await supabaseBrowser.from('channels').select('*').eq('organization_id', organizationId).eq('id', id).eq('type', 'dm').maybeSingle();
+      row = existing.data;
+    }
+    if (!row) throw new Error(result.error?.message || 'Impossible d’enregistrer le canal.');
     setData(previous => ({ ...previous, channels: [row, ...previous.channels.filter(channel => channel.id !== id)] }));
     return id;
   }
@@ -6246,6 +6446,37 @@ export default function BuildTrackWebPage() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'reserve_edit' || operation.kind === 'reserve_status') {
+      if (!canEdit(profile) || operation.payload.organization_id !== profile?.organization_id) {
+        throw new Error('Votre compte ne peut plus modifier cette réserve.');
+      }
+      const reserveId = String(operation.payload.reserveId);
+      const operationId = String(operation.payload.id);
+      const isStatus = operation.kind === 'reserve_status';
+      const event = operation.payload.event as { to_status: string; from_status: string } | undefined;
+      const request = isStatus
+        ? { fn: 'append_reserve_status_event', event }
+        : { fn: 'apply_reserve_patch', reserve_id: reserveId, base_version: operation.payload.version, patch: operation.payload.patch };
+      const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(request)));
+      const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+      await assertOwner();
+      const { data: result, error } = isStatus
+        ? await supabaseBrowser.rpc(request.fn, { p_operation_id: operationId, p_request_hash: hash, p_event: event })
+        : await supabaseBrowser.rpc(request.fn, { p_operation_id: operationId, p_request_hash: hash, p_reserve_id: reserveId,
+          p_base_version: operation.payload.version, p_patch: operation.payload.patch });
+      if (error) throw error;
+      if (result?.status !== 'ok') throw new Error(result?.status === 'version_conflict'
+        ? 'La réserve a été modifiée entre-temps. Rechargez sa fiche et vérifiez votre modification avant de la ressaisir.'
+        : 'La modification de réserve a été refusée.');
+      if (!stillOwned()) return;
+      const { data: updated, error: readError } = await supabaseBrowser.from('reserves').select('*').eq('id', reserveId).maybeSingle();
+      if (readError) throw readError;
+      if (!stillOwned() || !updated) return;
+      setData(previous => ({ ...previous, reserves: previous.reserves.map(row => row.id === reserveId ? updated : row) }));
+      if (event && updated.status === event.to_status) triggerWebPush({ type: 'reserve-status-changed', reserveId,
+        newStatus: event.to_status, previousStatus: event.from_status });
+      return;
+    }
     if (operation.kind === 'send_message') {
       let attachment = typeof operation.prepared === 'string' ? operation.prepared : operation.payload.attachment_uri;
       if (!attachment && operation.files instanceof File) {
@@ -6440,7 +6671,7 @@ export default function BuildTrackWebPage() {
       const reserveId = state[WEB_RESERVE_HISTORY_STATE] ? String(state.reserveId ?? '') : '';
       const compactReservesOwnEvent = activeTab === 'reserves'
         && window.matchMedia('(max-width: 1180px)').matches;
-      if (compactReservesOwnEvent) return;
+      if (compactReservesOwnEvent && !state[WEB_PORTAL_RESERVE_STATE]) return;
       if (!reserveId) {
         if (activeTab === 'reserves') {
           setSelectedReserveId(null);
@@ -6492,6 +6723,16 @@ export default function BuildTrackWebPage() {
     if (opr?.chantier_id) setSelectedProjectId(opr.chantier_id);
     setActiveTab('opr');
   }, [data.oprs, loading, profile, requestedOprId]);
+
+  const openedChannelLink = useRef('');
+  useEffect(() => {
+    if (!requestedChannelId) { openedChannelLink.current = ''; return; }
+    const key = `${authUser?.id}:${requestedChannelId}`;
+    if (!profile || profile.role === 'magasinier' || openedChannelLink.current === key || !data.channels.some(channel => channel.id === requestedChannelId)) return;
+    openedChannelLink.current = key;
+    setSelectedChannelId(requestedChannelId);
+    setActiveTab('messages');
+  }, [authUser?.id, data.channels, profile, requestedChannelId]);
 
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
@@ -6818,7 +7059,12 @@ export default function BuildTrackWebPage() {
           && (!company.organization_id || company.organization_id === reserve.organization_id)
           && reserveMatchesCompanyIdOrName(reserve, company))
       : [];
-    return <PortalWorkspace company={company?.name} reserves={reserves} loading={loading || syncing} statusLabel={statusLabel} />;
+    return <PortalWorkspace company={company?.name} reserves={reserves} loading={loading || syncing} statusLabel={statusLabel}
+      openReserve={(id, href) => {
+        if (!openReserveDetailTab(id)) return;
+        window.history.pushState({ [WEB_RESERVE_HISTORY_STATE]: true, [WEB_PORTAL_RESERVE_STATE]: true, reserveId: id }, '', href);
+      }}
+    />;
   }
 
   function enterWebSupport(org: { id: string; name: string }) {
@@ -6936,11 +7182,13 @@ export default function BuildTrackWebPage() {
         onLogout={handleSignOut}
       >
 
+        {offlineSnapshotAt && <p className={styles.outbox} role="status">Hors connexion · Copie locale du {new Date(offlineSnapshotAt).toLocaleString(i18n.locale)}. Les fichiers distants nécessitent une connexion.</p>}
         {outbox.rows.length || outbox.storageError ? <section className={styles.outbox} aria-label="Synchronisation hors connexion">
           {outbox.storageError ? <p role="alert">{outbox.storageError}</p> : null}
           {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
             <ul>{outbox.rows.map(operation => <li key={operation.key}>
-              {operation.kind === 'create_reserve' ? 'Réserve ' + String(operation.payload.title ?? operation.payload.id) : 'Message'}
+              {operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
+                : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
             </li>)}</ul>
             <button type="button" disabled={outbox.syncing} onClick={() => void outbox.flush(true)}>{outbox.syncing ? 'Synchronisation…' : 'Réessayer les envois'}</button>
@@ -7268,7 +7516,7 @@ export default function BuildTrackWebPage() {
                 onDraftChange={setMessageDraft}
                 onSelectChannel={setSelectedChannelId}
                 onSend={sendMessage}
-                channelPeople={data.profiles.filter(person => person.membership_status === 'active' || !person.membership_status).map(person => ({ id: person.id, name: person.name || person.email || person.id }))}
+                channelPeople={data.profiles.filter(person => person.organization_id === profile?.organization_id && (person.membership_status === 'active' || !person.membership_status)).map(person => ({ id: person.id, name: person.name || person.email || person.id }))}
                 canCreateChannel={canCreate(profile)}
                 canManageChannel={canManageMessageChannel}
                 canModerate={isAdmin(profile)}
@@ -7303,6 +7551,7 @@ export default function BuildTrackWebPage() {
               <OprWorkspace
                 oprs={projectScoped.oprs}
                 reserves={projectScoped.reserves}
+                lotNames={[...new Set([...STANDARD_LOTS, ...data.lots].map(lot => String(lot.name)).filter(Boolean))]}
                 requestedId={requestedOprId}
                 canEdit={canEdit(profile)}
                 canCreate={canCreate(profile) && Boolean(profile?.organization_id) && selectedProjectId !== 'all'}
@@ -7331,16 +7580,32 @@ export default function BuildTrackWebPage() {
                 visites={projectScoped.visites}
                 incidents={projectScoped.incidents}
                 tasks={projectScoped.tasks}
+                companies={data.companies.filter(company => projectScoped.reserves.some(reserve => reserveMatchesCompanyIdOrName(reserve, company)))}
                 selectedReserve={selectedReserve}
                 language={reportLanguage}
                 setLanguage={setReportLanguage}
                 generatingReport={generatingReport}
                 canExport={canExport(profile)}
                 onGenerate={generateWebReport}
+                onDownloadCsv={downloadReservesCsv}
               />
             )}
+            {activeTab === 'meetings' && (profile?.role === 'sous_traitant' || profile?.role === 'magasinier' ? (
+              <RestrictedTool title="Comptes rendus de réunion" />
+            ) : selectedProjectId === 'all' ? (
+              <section className={styles.panel}><h2>Comptes rendus de réunion</h2><p>Sélectionnez un chantier pour ouvrir ses comptes rendus.</p></section>
+            ) : (
+              <MeetingsWorkspace key={`${authUser.id}:${profile?.organization_id}:${selectedProjectId}`}
+                scope={`${authUser.id}:${profile?.organization_id}:${selectedProjectId}`}
+                author={userLabel(profile, authUser)} reserves={projectScoped.reserves}
+                canCreate={canCreate(profile)} canEdit={canEdit(profile)} canDelete={canDelete(profile)}
+                exportReport={canExport(profile) ? meeting => void generateWebReport('meeting', { meeting }) : undefined}
+                exporting={Boolean(generatingReport)}
+              />
+            ))}
             {activeTab === 'equipes' && (
               canViewTeams(profile) ? (
+                <div className={styles.stack}>
                 <EquipesView
                   companies={data.companies}
                   reserves={projectScoped.reserves}
@@ -7348,6 +7613,13 @@ export default function BuildTrackWebPage() {
                   editable={canUpdateAttendance(profile)}
                   onUpdateCompanyField={updateCompanyField}
                 />
+                <LotsWorkspace key={profile?.organization_id}
+                  lots={data.lots.filter(lot => lot.organization_id === profile?.organization_id)}
+                  assignedLotIds={projectScoped.reserves.flatMap(reserve => reserve.lot_id ? [String(reserve.lot_id)] : [])}
+                  save={canCreate(profile) || canEdit(profile) ? saveLotWeb : undefined}
+                  remove={canDelete(profile) ? removeLotWeb : undefined}
+                />
+                </div>
               ) : (
                 <RestrictedTool title="Équipes chantier" />
               )
@@ -12937,16 +13209,22 @@ function RapportsView({
   visites,
   incidents,
   tasks,
+  companies,
   selectedReserve,
   language,
   setLanguage,
   generatingReport,
   canExport,
   onGenerate,
+  onDownloadCsv,
 }: any) {
   const disabled = Boolean(generatingReport) || !canExport;
   const [selectedVisitId, setSelectedVisitId] = useState('');
   const selectedVisit = visites.find((visit: any) => visit.id === selectedVisitId) ?? visites[0] ?? null;
+  const [selectedIncidentId, setSelectedIncidentId] = useState('');
+  const [selectedCompanyId, setSelectedCompanyId] = useState('');
+  const selectedIncident = incidents.find((item: any) => item.id === selectedIncidentId) ?? incidents[0];
+  const selectedCompany = companies.find((item: any) => item.id === selectedCompanyId) ?? companies[0];
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
@@ -12970,6 +13248,31 @@ function RapportsView({
           </div>
         </div>
         <div className={styles.reportGrid}>
+          <ReportCard title="Rapport journalier" text="Présences, tâches en cours, réserves et incidents."
+            disabled={disabled} loading={generatingReport === `daily-${language}`} onClick={() => onGenerate('daily')} />
+          <ReportCard title="Rapport hebdomadaire" text="Synthèse du chantier, avancement par entreprise et alertes."
+            disabled={disabled} loading={generatingReport === `weekly-${language}`} onClick={() => onGenerate('weekly')} />
+          <article className={styles.reportCard}>
+            <strong>Fiche incident</strong>
+            <select aria-label="Incident à exporter" value={selectedIncident?.id ?? ''} onChange={event => setSelectedIncidentId(event.target.value)}>
+              {!incidents.length && <option value="">Aucun incident</option>}
+              {incidents.map((item: any) => <option key={item.id} value={item.id}>{item.title}</option>)}
+            </select>
+            <button type="button" disabled={disabled || !selectedIncident} onClick={() => onGenerate('incident', { incident: selectedIncident })}>Télécharger PDF</button>
+          </article>
+          <article className={styles.reportCard}>
+            <strong>Bon de réserves par entreprise</strong>
+            <select aria-label="Entreprise à exporter" value={selectedCompany?.id ?? ''} onChange={event => setSelectedCompanyId(event.target.value)}>
+              {!companies.length && <option value="">Aucune entreprise avec des réserves</option>}
+              {companies.map((item: any) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </select>
+            <button type="button" disabled={disabled || !selectedCompany} onClick={() => onGenerate('company_slip', { company: selectedCompany })}>Télécharger PDF</button>
+          </article>
+          <article className={styles.reportCard}>
+            <strong>Réserves CSV</strong>
+            <p>Tableau des réserves du chantier, à ouvrir dans un tableur.</p>
+            <button type="button" disabled={disabled} onClick={onDownloadCsv}>Télécharger CSV</button>
+          </article>
           <ReportCard
             title="Rapport réserves"
             text="Liste détaillée, synthèse par statut et par entreprise."
@@ -13201,6 +13504,7 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
               { icon: 'clipboard' as TerrainHubIconName, title: 'Checklists', subtitle: 'Contrôle qualité', count: data.checklists?.length ?? 0, tab: 'checklists' as TabId, tone: 'green' as const },
               { icon: 'shield-checkmark' as TerrainHubIconName, title: 'Réglementaire', subtitle: 'PPSPS, DICT, DOE', count: scoped.regulatoryDocs.length, tab: 'reglementaire' as TabId, tone: 'amber' as const },
               { icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Journalier, hebdo', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const },
+              { icon: 'document-text' as TerrainHubIconName, title: 'Réunions', subtitle: 'Comptes rendus et actions', tab: 'meetings' as TabId, tone: 'green' as const },
             ]
           : []),
       ],
@@ -13276,6 +13580,7 @@ function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, on
       canEdit={Boolean(canEdit)}
       onCreate={async payload => onCreate?.(payload)}
       onUpdate={async (incident, patch) => onUpdate?.(incident, patch)}
+      renderPhoto={incident => incident.photo_uri ? <PrivateMediaImage className={styles.fieldPhoto} source={assetUrl(incident, 'photos')} alt="Photo du constat" /> : null}
     />
   );
 }
@@ -13365,6 +13670,7 @@ function RestrictedTool({ title }: { title: string }) {
 }
 
 function JournalView({ profile, projectName, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
+  const { lang } = useWebI18n();
   // Migration one-shot des anciennes entrées localStorage vers Supabase.
   useEffect(() => {
     if (!profile || typeof window === 'undefined') return;
@@ -13427,6 +13733,13 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
       onUpdate={onUpdate}
       onDelete={onDelete}
       onExport={exportJournal}
+      getWeather={async () => {
+        const [{ fetchAutoWeatherWeb }, { fieldReportTranslator }] = await Promise.all([
+          import('../../../lib/journalWeather'), import('@/lib/field-report-translation'),
+        ]);
+        return fetchAutoWeatherWeb(fieldReportTranslator(lang));
+      }}
+      renderPhoto={entry => entry.photoUri ? <PrivateMediaImage className={styles.fieldPhoto} source={assetUrl(entry, 'photos')} alt="Photo du journal" /> : null}
     />
   );
 }
@@ -13875,7 +14188,7 @@ function prefValue(preferences: any[], authUser: SupabaseUser | null, field: str
   return row?.[field] ?? fallback;
 }
 
-type SettingsTabId = 'compte' | 'notifications' | 'project' | 'attendance' | 'integrations';
+type SettingsTabId = 'compte' | 'notifications' | 'project' | 'attendance' | 'integrations' | 'subscription';
 type IonIconName =
   | 'albums-outline'
   | 'alert-circle-outline'
@@ -14012,6 +14325,7 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   const settingsTabs: Array<{ id: SettingsTabId; label: string; icon: IonIconName }> = [
     { id: 'compte', label: t('settings.account'), icon: 'person-circle-outline' },
     { id: 'notifications', label: t('settings.notifications'), icon: 'notifications-outline' },
+    ...(isAdmin(profile) && profile?.organization_id ? [{ id: 'subscription' as const, label: 'Abonnement', icon: 'shield-checkmark-outline' as const }] : []),
     ...(!isWarehouseUser ? [
       { id: 'project' as const, label: t('settings.project'), icon: 'construct-outline' as const },
       ...(!isSubcontractor ? [{ id: 'attendance' as const, label: t('settings.attendance'), icon: 'people-outline' as const }] : []),
@@ -14460,6 +14774,13 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
       </section>
       )}
 
+      {settingsTab === 'notifications' && authUser && profile?.organization_id && <BrowserPushSettings key={`${authUser.id}:${profile.organization_id}`} />}
+
+      {settingsTab === 'subscription' && isAdmin(profile) && profile?.organization_id && (
+        <SubscriptionOverview key={profile.organization_id} orgId={profile.organization_id} organization={organizationName}
+          locale={localeForLang(lang)} openAdmin={onOpenAdmin} />
+      )}
+
       {settingsTab === 'project' && (
       <section className={styles.panel}>
         <div className={styles.sectionHeader}>
@@ -14599,26 +14920,10 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
             <p>{t('settings.integrationsTab.subtitle')}</p>
           </div>
         </div>
-        {!canManageProject ? (
+        {!authUser || !isAdmin(profile) || !profile?.organization_id ? (
           <p className={styles.settingsNotice}>{t('settings.integrationsTab.adminOnlyText')}</p>
         ) : (
-          <div className={styles.integrationGrid}>
-            {[
-              t('settings.integrationsTab.projectManagement'),
-              t('settings.integrationsTab.bim'),
-              t('settings.integrationsTab.regulatoryDocs'),
-              t('settings.integrationsTab.geolocation'),
-              t('settings.integrationsTab.fieldForms'),
-              t('settings.integrationsTab.documentsSignature'),
-              t('settings.integrationsTab.weatherHr'),
-            ].map((label, index) => (
-              <div key={label} className={styles.integrationCard}>
-                <span>{String(index + 1).padStart(2, '0')}</span>
-                <strong>{label}</strong>
-                <small>{t('settings.integrationsTab.manage')}</small>
-              </div>
-            ))}
-          </div>
+          <OrganizationWebhookSettings key={`${authUser.id}:${profile.organization_id}`} userId={authUser.id} projectId={selectedProject?.id ?? null} />
         )}
       </section>
       )}

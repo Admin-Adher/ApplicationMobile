@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { MessageChannelRecord } from './messages-model';
 import styles from './MessagesWorkspace.module.css';
 
-export type ChannelDraft = { name: string; description: string; type: 'custom' | 'group'; memberIds: string[] };
+export type ChannelDraft = { name: string; description: string; type: 'custom' | 'group' | 'dm'; memberIds: string[] };
 export type ChannelPerson = { id: string; name: string };
 
 export default function ChannelEditor({ current, actorId, people, loadMembers, save, close }: {
@@ -17,7 +17,8 @@ export default function ChannelEditor({ current, actorId, people, loadMembers, s
 }) {
   const [name, setName] = useState(current?.name ?? '');
   const [description, setDescription] = useState(current?.description ?? '');
-  const [type, setType] = useState<'custom' | 'group'>(current?.type === 'group' ? 'group' : 'custom');
+  const [type, setType] = useState<ChannelDraft['type']>(current?.type === 'group' ? 'group' : 'custom');
+  const [recipientId, setRecipientId] = useState('');
   const [memberIds, setMemberIds] = useState<string[]>([actorId]);
   const [memberReady, setMemberReady] = useState(current?.type !== 'group');
   const [busy, setBusy] = useState(false);
@@ -37,7 +38,9 @@ export default function ChannelEditor({ current, actorId, people, loadMembers, s
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (!memberReady || !name.trim() || busy) return;
+    if (!memberReady || busy) return;
+    const recipient = type === 'dm' ? people.find(person => person.id === recipientId && person.id !== actorId) : null;
+    if (type === 'dm' ? !recipient : !name.trim()) return;
     if (type === 'group' && memberIds.length < 2) {
       setError('Sélectionnez au moins deux membres pour le groupe.');
       return;
@@ -45,7 +48,9 @@ export default function ChannelEditor({ current, actorId, people, loadMembers, s
     setBusy(true);
     setError('');
     try {
-      await save({ name: name.trim(), description: description.trim(), type, memberIds });
+      await save(recipient
+        ? { name: recipient.name, description: '', type, memberIds: [actorId, recipient.id] }
+        : { name: name.trim(), description: description.trim(), type, memberIds });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Enregistrement du canal impossible.');
     } finally {
@@ -55,12 +60,18 @@ export default function ChannelEditor({ current, actorId, people, loadMembers, s
 
   return (
     <form onSubmit={submit} className={styles.channelEditor} aria-label={current ? 'Modifier le canal' : 'Nouveau canal'}>
-      <label>Nom<input required value={name} maxLength={120} onChange={event => setName(event.target.value)} /></label>
-      <label>Description<input value={description} maxLength={300} onChange={event => setDescription(event.target.value)} /></label>
       {!current ? <label>Type<select value={type} onChange={event => setType(event.target.value as ChannelDraft['type'])}>
         <option value="custom">Canal chantier</option>
         <option value="group">Groupe privé</option>
+        <option value="dm">Message direct</option>
       </select></label> : null}
+      {type === 'dm' ? <label>Destinataire<select required value={recipientId} onChange={event => setRecipientId(event.target.value)}>
+        <option value="">Choisir un destinataire</option>
+        {people.filter(person => person.id !== actorId).map(person => <option key={person.id} value={person.id}>{person.name}</option>)}
+      </select></label> : <>
+        <label>Nom<input required value={name} maxLength={120} onChange={event => setName(event.target.value)} /></label>
+        <label>Description<input value={description} maxLength={300} onChange={event => setDescription(event.target.value)} /></label>
+      </>}
       {type === 'group' ? <fieldset disabled={!memberReady || busy}>
         <legend>Membres du groupe</legend>
         {people.map(person => <label key={person.id}>
@@ -72,7 +83,7 @@ export default function ChannelEditor({ current, actorId, people, loadMembers, s
         </label>)}
       </fieldset> : null}
       {error ? <p role="alert">{error}</p> : null}
-      <div><button type="button" onClick={close} disabled={busy}>Annuler</button><button type="submit" disabled={busy || !memberReady}>Enregistrer</button></div>
+      <div><button type="button" onClick={close} disabled={busy}>Annuler</button><button type="submit" disabled={busy || !memberReady}>{type === 'dm' ? 'Ouvrir la discussion' : 'Enregistrer'}</button></div>
     </form>
   );
 }

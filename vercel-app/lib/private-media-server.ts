@@ -8,6 +8,7 @@ const RESOURCE_TABLES = new Set([
   'site_plans',
   'regulatory_docs',
   'incidents',
+  'journal_entries',
   'inventory_products',
   'visites',
   'messages',
