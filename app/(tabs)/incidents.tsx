@@ -125,6 +125,9 @@ export default function IncidentsScreen() {
           { date: incident.reportedAt },
         ),
         building: incident.building,
+        level: incident.level ?? '',
+        zone: incident.zone ?? '',
+        ...(incident.chantierId ? { chantierId: incident.chantierId } : {}),
       },
     } as any);
   }

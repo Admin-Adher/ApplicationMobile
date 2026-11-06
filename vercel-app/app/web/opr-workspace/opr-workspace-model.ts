@@ -3,6 +3,11 @@ export type OprFilter = 'all' | OprStatus;
 export type OprItemStatus = 'ok' | 'reserve' | 'non_applicable';
 
 export type OprSource = Record<string, any>;
+
+export function canSignOprDirectly(opr: OprSource) {
+  return Boolean(opr.id) && opr.status !== 'signed' &&
+    !(Array.isArray(opr.signatories) && opr.signatories.length > 0);
+}
 export type ReserveSource = Record<string, any>;
 
 export type OprItemView = {

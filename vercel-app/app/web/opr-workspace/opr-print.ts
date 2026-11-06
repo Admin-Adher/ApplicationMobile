@@ -12,6 +12,9 @@ function escape(value: unknown) {
 }
 
 function signatureImage(value: unknown) {
+  if (typeof value === 'string' && /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(value)) {
+    return '<img alt="" src="' + value + '"/>';
+  }
   return typeof value === 'string' && /^\s*<svg\b/i.test(value)
     ? '<img alt="" src="data:image/svg+xml,' + escape(encodeURIComponent(value.trim())) + '"/>' : '';
 }

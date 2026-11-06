@@ -1,6 +1,8 @@
 'use client';
 
 import { useDeferredValue, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import type { ChantierBuilding } from '../../../../constants/types';
+import { fieldDateInput } from '@/lib/web-field-writes';
 import { WorkspaceIcon } from '../plan-reserve-workspace/WorkspaceChrome';
 import {
   buildIncidentsWorkspaceModel,
@@ -18,6 +20,9 @@ type IncidentDraft = {
   title: string;
   location: string;
   building: string;
+  level: string;
+  zone: string;
+  reportedDate: string;
   witnesses: string;
   severity: IncidentSeverity;
   status: IncidentStatus;
@@ -30,6 +35,9 @@ type IncidentDraft = {
 type IncidentsWorkspaceProps = {
   incidents: IncidentSource[];
   projectName: string;
+  defaultDate: string;
+  projectBuildings: (incident: IncidentSource | null) => ChantierBuilding[];
+  onCreateReserve?: (incident: IncidentSummary) => void;
   locale?: string;
   canCreate: boolean;
   canEdit: boolean;
@@ -61,11 +69,14 @@ const SEVERITY_COPY: Record<IncidentSeverity, string> = {
   critical: 'Critique',
 };
 
-function emptyDraft(): IncidentDraft {
+function emptyDraft(defaultDate: string): IncidentDraft {
   return {
     title: '',
     location: '',
     building: '',
+    level: '',
+    zone: '',
+    reportedDate: defaultDate,
     witnesses: '',
     severity: 'moderate',
     status: 'open',
@@ -82,6 +93,7 @@ function IncidentRecord({
   onStatusChange,
   onEdit,
   onDelete,
+  onCreateReserve,
   photo,
 }: {
   incident: IncidentSummary;
@@ -91,9 +103,10 @@ function IncidentRecord({
   onStatusChange: (incident: IncidentSummary, status: IncidentStatus) => void;
   onEdit?: () => void;
   onDelete?: () => void;
+  onCreateReserve?: () => void;
   photo?: ReactNode;
 }) {
-  const location = [incident.building, incident.location].filter(Boolean).join(' · ');
+  const location = [incident.building, incident.level, incident.zone, incident.location].filter(Boolean).join(' · ');
   const takingOwnership = pendingAction === `${incident.id}:investigating`;
   const resolving = pendingAction === `${incident.id}:resolved`;
   const isPending = takingOwnership || resolving;
@@ -137,9 +150,10 @@ function IncidentRecord({
             <span><strong>Mesures immédiates</strong>{incident.actions}</span>
           </p>
         ) : null}
-        {onEdit || onDelete ? (
+        {onEdit || onDelete || onCreateReserve ? (
           <div className={styles.recordActions}>
             {onEdit && <button type="button" disabled={Boolean(pendingAction)} onClick={onEdit}>Modifier</button>}
+            {onCreateReserve && <button type="button" disabled={Boolean(pendingAction)} onClick={onCreateReserve}>Créer une réserve</button>}
             {onDelete && <button type="button" disabled={Boolean(pendingAction)} onClick={onDelete}>Supprimer</button>}
           </div>
         ) : null}
@@ -177,6 +191,9 @@ function IncidentRecord({
 export default function IncidentsWorkspace({
   incidents,
   projectName,
+  defaultDate,
+  projectBuildings,
+  onCreateReserve,
   locale = 'fr-FR',
   canCreate,
   canEdit,
@@ -193,7 +210,7 @@ export default function IncidentsWorkspace({
   const [query, setQuery] = useState('');
   const deferredQuery = useDeferredValue(query);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [draft, setDraft] = useState<IncidentDraft>(emptyDraft);
+  const [draft, setDraft] = useState<IncidentDraft>(() => emptyDraft(defaultDate));
   const [editing, setEditing] = useState<IncidentSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
@@ -204,6 +221,11 @@ export default function IncidentsWorkspace({
     () => filterIncidentSummaries(model.summaries, filter, deferredQuery),
     [deferredQuery, filter, model.summaries],
   );
+  const buildings = projectBuildings(editing?.source ?? null);
+  const buildingLevels = buildings.find(building => building.name === draft.building)?.levels;
+  const levels = Array.isArray(buildingLevels) ? buildingLevels.filter(level => Boolean(level?.name)) : [];
+  const levelZones = levels.find(level => level.name === draft.level)?.zones;
+  const zones = Array.isArray(levelZones) ? levelZones.filter(zone => Boolean(zone?.name)) : [];
   const activeFilterLabel = FILTERS.find(item => item.key === filter)?.label ?? 'Tous';
   const resultLabel = `${visible.length} incident${visible.length > 1 ? 's' : ''} affiché${visible.length > 1 ? 's' : ''}`;
 
@@ -222,7 +244,7 @@ export default function IncidentsWorkspace({
     if (busy || composerOpen) return;
     setSubmissionError('');
     setEditing(null);
-    setDraft(emptyDraft());
+    setDraft(emptyDraft(defaultDate));
     setComposerOpen(true);
   }
 
@@ -233,6 +255,9 @@ export default function IncidentsWorkspace({
       title: incident.title,
       location: incident.location,
       building: incident.building,
+      level: incident.level,
+      zone: incident.zone,
+      reportedDate: fieldDateInput(incident.reportedAt),
       witnesses: String(incident.source.witnesses ?? ''),
       severity: incident.severity,
       status: incident.status,
@@ -257,13 +282,23 @@ export default function IncidentsWorkspace({
       setSubmissionError('Renseignez un titre court pour identifier l’incident.');
       return;
     }
+    const location = draft.location.trim();
+    if (!location) {
+      setSubmissionError('Renseignez le lieu de l’incident.');
+      return;
+    }
     setBusy(true);
     setSubmissionError('');
     try {
       const payload = {
         title,
-        location: draft.location.trim(),
+        location,
+        ...(editing && draft.reportedDate === fieldDateInput(editing.reportedAt) ? {} : {
+          reported_at: (draft.reportedDate || defaultDate).split('-').reverse().join('/'),
+        }),
         building: draft.building.trim(),
+        level: draft.level.trim() || null,
+        zone: draft.zone.trim() || null,
         witnesses: draft.witnesses.trim(),
         severity: draft.severity,
         description: draft.description.trim(),
@@ -277,7 +312,7 @@ export default function IncidentsWorkspace({
         setSubmissionError('Le signalement n’a pas été enregistré. Vérifiez le message affiché puis réessayez.');
         return;
       }
-      setDraft(emptyDraft());
+      setDraft(emptyDraft(defaultDate));
       setComposerOpen(false);
       window.requestAnimationFrame(() => signalAction.current?.focus({ preventScroll: true }));
     } catch (cause) {
@@ -396,6 +431,8 @@ export default function IncidentsWorkspace({
                   pendingAction={pendingAction}
                   onEdit={canEdit && !composerOpen ? () => editIncident(incident) : undefined}
                   onDelete={canDelete && !composerOpen ? () => void deleteIncident(incident) : undefined}
+                  onCreateReserve={onCreateReserve && !composerOpen && (incident.severity === 'major' || incident.severity === 'critical')
+                    ? () => onCreateReserve(incident) : undefined}
                   onStatusChange={changeIncidentStatus}
                   photo={renderPhoto?.(incident.source)}
                 />
@@ -443,12 +480,13 @@ export default function IncidentsWorkspace({
 
               <div className={styles.formPair}>
                 <label htmlFor={`${idPrefix}-location`}>
-                  <span>Lieu / zone <em>optionnel</em></span>
+                  <span>Lieu / zone <em>obligatoire</em></span>
                   <input
                     id={`${idPrefix}-location`}
                     value={draft.location}
                     onChange={event => setDraft(previous => ({ ...previous, location: event.target.value }))}
                     placeholder="Bâtiment A · Toiture"
+                    required
                   />
                 </label>
                 <label htmlFor={`${idPrefix}-severity`}>
@@ -464,7 +502,34 @@ export default function IncidentsWorkspace({
 
               <label>
                 <span>Bâtiment</span>
-                <input value={draft.building} onChange={event => setDraft(previous => ({ ...previous, building: event.target.value }))} />
+                <input list={`${idPrefix}-buildings`} value={draft.building}
+                  onChange={event => setDraft(previous => ({ ...previous, building: event.target.value, level: '', zone: '' }))} />
+                <datalist id={`${idPrefix}-buildings`}>
+                  {buildings.map(building => <option key={building.id} value={building.name} />)}
+                </datalist>
+              </label>
+              <div className={styles.formPair}>
+                <label>
+                  <span>Niveau</span>
+                  <input list={`${idPrefix}-levels`} value={draft.level}
+                    onChange={event => setDraft(previous => ({ ...previous, level: event.target.value, zone: '' }))} />
+                  <datalist id={`${idPrefix}-levels`}>
+                    {levels.map(level => <option key={level.id} value={level.name} />)}
+                  </datalist>
+                </label>
+                <label>
+                  <span>Zone</span>
+                  <input list={`${idPrefix}-zones`} value={draft.zone}
+                    onChange={event => setDraft(previous => ({ ...previous, zone: event.target.value }))} />
+                  <datalist id={`${idPrefix}-zones`}>
+                    {zones.map(zone => <option key={zone.id} value={zone.name} />)}
+                  </datalist>
+                </label>
+              </div>
+              <label>
+                <span>Date de l’incident</span>
+                <input type="date" required={!editing || Boolean(fieldDateInput(editing.reportedAt))} value={draft.reportedDate}
+                  onChange={event => setDraft(previous => ({ ...previous, reportedDate: event.target.value }))} />
               </label>
               {editing && <label>
                 <span>Statut</span>

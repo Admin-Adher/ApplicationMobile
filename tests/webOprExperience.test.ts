@@ -1,11 +1,23 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { canSignOprDirectly, summarizeOpr } from '../vercel-app/app/web/opr-workspace/opr-workspace-model';
+import { buildWebOprPrint } from '../vercel-app/app/web/opr-workspace/opr-print';
 
 const repositoryRoot = resolve(import.meta.dirname, '..');
 const read = (path: string) => readFileSync(resolve(repositoryRoot, path), 'utf8');
 
 describe('BuildTrack web OPR experience', () => {
+  it('keeps signing on site separate and prints both signature formats', () => {
+    expect(canSignOprDirectly({ id: 'OPR-1', status: 'draft' })).toBe(true);
+    expect(canSignOprDirectly({ id: 'OPR-1', status: 'signed' })).toBe(false);
+    expect(canSignOprDirectly({ id: 'OPR-1', status: 'draft', signatories: [{ id: 'remote' }] })).toBe(false);
+    const png = 'data:image/png;base64,YWJj';
+    const opr = summarizeOpr({ id: 'OPR-1', conducteur_signature: png, mo_signature: '<svg></svg>' });
+    const html = buildWebOprPrint(opr, 'Recette', [], 'pv');
+    expect(html).toContain('src="' + png + '"');
+    expect(html).toContain('data:image/svg+xml,');
+  });
   it('replaces generic KPI cards with a compact operational register', () => {
     const component = read('vercel-app/app/web/opr-workspace/OprWorkspace.tsx');
 

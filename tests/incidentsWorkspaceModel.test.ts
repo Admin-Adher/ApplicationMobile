@@ -71,6 +71,8 @@ describe('BuildTrack incidents workspace model', () => {
 
   it('formats date-only and timestamp values in the requested locale', () => {
     expect(formatIncidentDate('2026-08-29', 'fr-FR')).toContain('août');
+    expect(formatIncidentDate('29/08/2026', 'fr-FR')).toBe(formatIncidentDate('2026-08-29', 'fr-FR'));
+    expect(formatIncidentDate('17/09/2026 15:39', 'fr-FR')).toContain('15:39');
     expect(formatIncidentDate('2026-08-29T09:32:00Z', 'es-ES')).toContain('ago');
     expect(formatIncidentDate('', 'fr-FR')).toBe('Date non renseignée');
   });

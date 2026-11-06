@@ -3,6 +3,7 @@ import {
   buildMessagesProjection,
   mergeMessageReadState,
   messageMentions,
+  messageHistoryFilter,
   messagesCopy,
   messagesLocale,
   type AuthorizedMessagesSnapshot,
@@ -24,6 +25,13 @@ const snapshot: AuthorizedMessagesSnapshot = {
 };
 
 describe('BuildTrack messages workspace model', () => {
+  it('pages across equal timestamps and rows with a legacy null timestamp', () => {
+    const createdAt = '2026-11-06T10:00:00+00:00';
+    expect(messageHistoryFilter({ id: 'msg,2', createdAt })).toBe(
+      'created_at.lt."2026-11-06T10:00:00+00:00",and(created_at.eq."2026-11-06T10:00:00+00:00",id.lt."msg,2"),created_at.is.null',
+    );
+    expect(messageHistoryFilter({ id: 'last', createdAt: null })).toBe('and(created_at.is.null,id.lt."last")');
+  });
   it('retains canonical mention names without treating email addresses or prefixes as mentions', () => {
     const names = ['Camille', 'Camille Recette', 'André (BTP)', 'Éloïse'];
     expect(messageMentions('@camille recette, @André (BTP) et @Éloïse. @Camille Recette', names))
