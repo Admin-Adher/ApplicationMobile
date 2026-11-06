@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildVisitReportHtml } from '../vercel-app/lib/reportBuilder';
 import { visitSignatureImageSource } from '../vercel-app/lib/visit-signature';
-import { projectTerrainChanges, type WebTerrainChange } from '../vercel-app/lib/web-terrain-edits';
+import { projectPendingRowPatches, projectTerrainChanges, type WebTerrainChange } from '../vercel-app/lib/web-terrain-edits';
 import type { WebQueuedOperation } from '../vercel-app/lib/web-outbox';
 
 function operation(rowId: string, change: WebTerrainChange): WebQueuedOperation {
@@ -38,4 +38,20 @@ describe('Terrain web repairs', () => {
     expect(projected[0].comments).toEqual([remote, local]);
     expect(projectTerrainChanges(projected, [change], 'task_comment')[0].comments).toEqual([remote, local]);
   });
+  it('replays pending stock fields in order while keeping the latest unrelated data', () => {
+    const rows = [{ id: 'product', designation: 'Original', location: 'Nouveau rayon', current_stock: 12 }];
+    const first: WebQueuedOperation = {
+      key: 'first', owner: 'actor:organization', kind: 'inventory_product_edit', createdAt: 1,
+      payload: { rowId: 'product', patch: { designation: 'Premier nom' } },
+    };
+    const second: WebQueuedOperation = {
+      ...first, key: 'second', createdAt: 2, payload: { rowId: 'product', patch: { designation: 'Dernier nom' } },
+    };
+    expect(projectPendingRowPatches(rows, [first, second], 'inventory_product_edit')).toEqual([
+      { ...rows[0], designation: 'Dernier nom' },
+    ]);
+    expect(projectPendingRowPatches(rows, [first, { ...second, error: 'Conflit' }], 'inventory_product_edit')[0].designation).toBe('Premier nom');
+    expect(rows[0].designation).toBe('Original');
+  });
+
 });

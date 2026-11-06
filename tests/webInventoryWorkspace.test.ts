@@ -25,7 +25,9 @@ describe('BuildTrack web inventory workspace', () => {
     expect(workspace).toContain('sessionStorage.setItem(movementKey, JSON.stringify(mutation))');
     expect(workspace).toContain('confirmMovement(pendingMovement, false)');
     expect(operations).toContain("'record_inventory_movement'");
-    expect(operations).toContain("'update_inventory_product'");
+    expect(workspace).toContain('onSaveProduct(editingProduct,');
+    expect(page).toContain("await outbox.enqueue('inventory_product_edit'");
+    expect(page).toContain("rpc('apply_web_inventory_edit'");
     expect(operations).toContain("'admin_delete_inventory_product'");
     expect(operations).toContain('p_operation_id: input.operationId');
     expect(page).toContain('canDelete: isAdmin(profile)');

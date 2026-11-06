@@ -29,7 +29,6 @@ import {
   lookupInventoryBarcode,
   recordInventoryMovement,
   deleteInventoryProduct,
-  updateInventoryProduct,
   uploadInventoryPhoto,
   type InventoryMovementMutation,
 } from './inventory-operations';
@@ -198,6 +197,7 @@ export default function InventoryWorkspace({
   language,
   reportLanguage,
   onReportLanguageChange,
+  onSaveProduct,
   onReload,
 }: InventoryWorkspaceProps) {
   const copy = inventoryCopy(language);
@@ -815,25 +815,16 @@ export default function InventoryWorkspace({
 
     setSaving(true);
     try {
-      const photoUrl = editPhoto
-        ? await uploadInventoryPhoto(editPhoto, editingProduct.chantier_id, editingProduct.id)
-        : editingProduct.photo_url ?? null;
-      const outcome = await updateInventoryProduct({
-        productId: editingProduct.id,
-        patch: {
-          reference,
-          designation,
-          barcode: editForm.barcode.trim() || null,
-          photo_url: photoUrl,
-          min_stock: minStock,
-          location: editForm.location.trim() || null,
-          supplier: editForm.supplier.trim() || null,
-        },
-      });
-      if (!outcome || outcome.status !== 'ok') throw new Error(outcome?.message ?? copy.editRejected);
-      await onReload();
+      const saved = await onSaveProduct(editingProduct, {
+        reference,
+        designation,
+        barcode: editForm.barcode.trim() || null,
+        min_stock: minStock,
+        location: editForm.location.trim() || null,
+        supplier: editForm.supplier.trim() || null,
+      }, editPhoto);
+      if (!saved) throw new Error(copy.editRejected);
       closeProductEditor();
-      setNotice(copy.productUpdated(reference));
     } catch (editError: any) {
       setError(editError?.message ?? String(editError));
     } finally {

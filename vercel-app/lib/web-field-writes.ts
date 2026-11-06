@@ -11,6 +11,7 @@ export const fieldTables = {
   documents: { state: 'documents', label: 'Document GED', media: { bucket: 'documents', field: 'uri' } },
   photos: { state: 'photos', label: 'Photo de galerie', media: { bucket: 'photos', field: 'uri' } },
   oprs: { state: 'oprs', label: 'Procès-verbal OPR' },
+  site_plans: { state: 'sitePlans', label: 'Plan', media: { bucket: 'documents', field: 'uri' } },
 } as const;
 
 export type FieldTable = keyof typeof fieldTables;

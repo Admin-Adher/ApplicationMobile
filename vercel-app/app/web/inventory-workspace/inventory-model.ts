@@ -77,6 +77,7 @@ export type InventoryWorkspaceProps = {
   language: InventoryLanguage;
   reportLanguage: InventoryLanguage;
   onReportLanguageChange: (language: InventoryLanguage) => void;
+  onSaveProduct: (product: InventoryProductRow, patch: Record<string, unknown>, photo: File | null) => Promise<boolean>;
   onReload: () => Promise<void> | void;
 };
 
