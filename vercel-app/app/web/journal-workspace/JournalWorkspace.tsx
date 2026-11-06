@@ -355,6 +355,10 @@ export default function JournalWorkspace({
                 const photo = event.currentTarget.files?.[0];
                 setDraft(previous => ({ ...previous, photo }));
               }} /></label>
+              <label>Prendre une photo <input type="file" accept="image/*" capture="environment" onChange={event => {
+                const photo = event.currentTarget.files?.[0];
+                if (photo) setDraft(previous => ({ ...previous, photo }));
+              }} /></label>
             </fieldset>
 
             <fieldset>

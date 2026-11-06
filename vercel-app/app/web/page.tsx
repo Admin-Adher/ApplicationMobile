@@ -138,6 +138,9 @@ import type { ChannelDraft } from './messages-workspace/ChannelEditor';
 import OprWorkspace from './opr-workspace/OprWorkspace';
 import { buildWebOprPrint } from './opr-workspace/opr-print';
 import PortalWorkspace from './PortalWorkspace';
+import { getPdfCompanyPalette, renderPdfCompanyLabel } from '../../../lib/pdfCompanyColors';
+import { fieldTables, fieldUpdate, fieldWriteApplied, fieldWrites, projectFieldRows, type FieldTable, type FieldWrite } from '@/lib/web-field-writes';
+import { useWebAttendanceSettings } from './useWebAttendanceSettings';
 import OrganizationWebhookSettings from './OrganizationWebhookSettings';
 import BrowserPushSettings from './BrowserPushSettings';
 import SubscriptionOverview from './SubscriptionOverview';
@@ -2949,7 +2952,8 @@ type WebTextPromptRequest = {
   title: string;
   label?: string;
   defaultValue?: string;
-  resolve: (value: string | null) => void;
+  drawSignature?: boolean;
+  resolve: (value: string | null, drawing?: string) => void;
 };
 
 // Boîte de saisie maison remplaçant window.prompt (stylée, traduite par le bridge,
@@ -2964,10 +2968,35 @@ function askTextDialog(title: string, options: { label?: string; defaultValue?: 
 
 function TextPromptDialog({ request, onSubmit, onCancel }: {
   request: WebTextPromptRequest;
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string, drawing?: string) => void;
   onCancel: () => void;
 }) {
   const [value, setValue] = useState(request.defaultValue ?? '');
+  const canvas = useRef<HTMLCanvasElement | null>(null);
+  const drawing = useRef(false);
+  const [hasInk, setHasInk] = useState(false);
+
+  function movePen(event: PointerEvent<HTMLCanvasElement>, start = false) {
+    const pad = event.currentTarget;
+    const bounds = pad.getBoundingClientRect();
+    const context = pad.getContext('2d');
+    if (!context) return;
+    const x = (event.clientX - bounds.left) * pad.width / bounds.width;
+    const y = (event.clientY - bounds.top) * pad.height / bounds.height;
+    if (start) {
+      drawing.current = true;
+      pad.setPointerCapture(event.pointerId);
+      context.beginPath();
+      context.moveTo(x, y);
+      context.lineWidth = 3;
+      context.lineCap = 'round';
+      context.strokeStyle = '#003082';
+    } else if (drawing.current) {
+      context.lineTo(x, y);
+      context.stroke();
+      setHasInk(true);
+    }
+  }
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === 'Escape') onCancel();
@@ -2983,7 +3012,7 @@ function TextPromptDialog({ request, onSubmit, onCancel }: {
         onMouseDown={event => event.stopPropagation()}
         onSubmit={event => {
           event.preventDefault();
-          onSubmit(value.trim());
+          onSubmit(value.trim(), hasInk ? canvas.current?.toDataURL('image/png') : undefined);
         }}
       >
         <h3>{request.title}</h3>
@@ -2991,9 +3020,23 @@ function TextPromptDialog({ request, onSubmit, onCancel }: {
           {request.label ? <span>{request.label}</span> : null}
           <input autoFocus value={value} onChange={event => setValue(event.target.value)} />
         </label>
+        {request.drawSignature && (
+          <div className={styles.stack}>
+            <p>Tracez votre signature avec le doigt ou la souris. Si vous laissez le cadre vide, le nom saisi sera utilisé.</p>
+            <canvas ref={canvas} width={600} height={220} aria-label="Cadre de signature manuscrite"
+              style={{ width: '100%', height: 'auto', touchAction: 'none', background: '#fff', border: '1px solid #b5c4d5', borderRadius: 8 }}
+              onPointerDown={event => movePen(event, true)} onPointerMove={event => movePen(event)}
+              onPointerUp={() => { drawing.current = false; }} onPointerCancel={() => { drawing.current = false; }}
+              onLostPointerCapture={() => { drawing.current = false; }} />
+            <button type="button" disabled={!hasInk} onClick={() => {
+              canvas.current?.getContext('2d')?.clearRect(0, 0, 600, 220);
+              setHasInk(false);
+            }}>Effacer le tracé</button>
+          </div>
+        )}
         <div className={styles.modalActions}>
           <button type="button" onClick={onCancel}>Annuler</button>
-          <button type="submit">Valider</button>
+          <button type="submit" disabled={Boolean(request.drawSignature && !value.trim())}>Valider</button>
         </div>
       </form>
     </div>
@@ -3035,6 +3078,7 @@ function BuildTrackWebWorkspace() {
   const [data, setData] = useState<WebState>(EMPTY_DATA);
   const [offlineSnapshotAt, setOfflineSnapshotAt] = useState<number | null>(null);
   const outboxOwner = authUser && profile?.id === authUser.id && profile.organization_id ? authUser.id + ':' + profile.organization_id : '';
+  const attendanceSettings = useWebAttendanceSettings(outboxOwner);
   const outbox = useWebOutbox(outboxOwner, executeWebOperation);
   const previewCacheOwnerRef = useRef<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
@@ -3309,9 +3353,9 @@ function BuildTrackWebWorkspace() {
     };
   }, []);
 
-  function resolveTextPrompt(value: string | null) {
+  function resolveTextPrompt(value: string | null, drawing?: string) {
     if (!textPrompt) return;
-    textPrompt.resolve(value);
+    textPrompt.resolve(value, drawing);
     setTextPrompt(null);
   }
 
@@ -3797,18 +3841,23 @@ function BuildTrackWebWorkspace() {
     if (ownerId) await Promise.allSettled([clearPlanPreviewsForUser(ownerId), clearWorkspaceSnapshot(ownerId)]);
   }
 
-  async function patchReserveWeb(reserve: any, patch: Record<string, any>) {
+  async function patchReserveWeb(reserve: any, patch: Record<string, any>, expected: Record<string, any> = {}) {
     if (!reserve?.id) return false;
     setSaving(true);
     setError('');
-    const { data: updated, error: updateError } = await supabaseBrowser
+    let query = supabaseBrowser
       .from('reserves')
       .update(patch)
-      .eq('id', reserve.id)
+      .eq('id', reserve.id);
+    for (const [column, value] of Object.entries(expected)) {
+      query = value == null ? query.is(column, null)
+        : query.eq(column, typeof value === 'object' ? JSON.stringify(value) : value);
+    }
+    const { data: updated, error: updateError } = await query
       .select()
       .maybeSingle();
     if (updateError || !updated) {
-      setError(updateError?.message ?? 'La réserve n’a pas été mise à jour. Vérifiez que vous y avez toujours accès.');
+      setError(updateError?.message ?? 'La réserve a changé ou n’est plus accessible. Synchronisez avant de réessayer.');
     } else {
       setData(prev => ({
         ...prev,
@@ -4003,10 +4052,15 @@ function BuildTrackWebWorkspace() {
       return;
     }
     const defaultName = userLabel(profile, authUser);
-    const signataire = (await askTextDialog('Nom du signataire', { defaultValue: defaultName }))?.trim();
-    if (!signataire) return;
     const signedAt = todayISO();
-    const signature = makeTypedSignatureDataUrl(signataire, signedAt);
+    const result = await new Promise<{ signataire: string; signature: string } | null>(resolve => {
+      setTextPrompt({
+        title: 'Nom du signataire', defaultValue: defaultName, drawSignature: true,
+        resolve: (name, drawing) => resolve(name ? { signataire: name, signature: drawing ?? makeTypedSignatureDataUrl(name, signedAt) } : null),
+      });
+    });
+    if (!result) return;
+    const { signataire, signature } = result;
     const historyAction = companyName && isMultiCompany
       ? `Levée signée depuis le web (${companyName})`
       : 'Levée signée depuis le web';
@@ -4021,7 +4075,7 @@ function BuildTrackWebWorkspace() {
           ...(Array.isArray(reserve.history) ? reserve.history : []),
           makeHistory(historyAction, signataire),
         ],
-      });
+      }, { company_signatures: reserve.company_signatures, enterprise_acknowledged_at: acknowledgedAt, history: reserve.history });
       return;
     }
 
@@ -4032,7 +4086,7 @@ function BuildTrackWebWorkspace() {
         ...(Array.isArray(reserve.history) ? reserve.history : []),
         makeHistory(historyAction, signataire),
       ],
-    });
+    }, { enterprise_signature: reserve.enterprise_signature, enterprise_acknowledged_at: acknowledgedAt, history: reserve.history });
   }
 
   async function rejectReserveVerificationWeb(reserve: any) {
@@ -4593,39 +4647,9 @@ function BuildTrackWebWorkspace() {
 
   async function unlinkReserveFromVisitWeb(visit: any, reserve: any) {
     if (!canEdit(profile) || !visit?.id || !reserve?.id) return;
-    const confirmed = window.confirm(`Délier la réserve ${reserve.id} de la visite "${visit.title}" ? La réserve restera disponible dans l'onglet Réserves.`);
-    if (!confirmed) return;
-
-    setSaving(true);
-    setError('');
-    let unlinkError: any = null;
-    const rpcResult = await (supabaseBrowser as any).rpc('unlink_reserves_from_visite', {
-      p_visite_id: visit.id,
-      p_reserve_ids: [reserve.id],
-    });
-    unlinkError = rpcResult?.error ?? null;
-
-    if (unlinkError) {
-      const reserveIds = (visit.reserve_ids ?? []).filter((id: string) => id !== reserve.id);
-      const [visitResult, reserveResult] = await Promise.all([
-        supabaseBrowser.from('visites').update({ reserve_ids: reserveIds }).eq('id', visit.id),
-        supabaseBrowser.from('reserves').update({ visite_id: null }).eq('id', reserve.id).eq('visite_id', visit.id),
-      ]);
-      unlinkError = visitResult.error ?? reserveResult.error ?? null;
+    if (window.confirm(`Délier la réserve ${reserve.id} de la visite « ${visit.title} » ?`)) {
+      await enqueueVisitReserves(visit.id, [reserve.id], 'unlink');
     }
-
-    if (unlinkError) {
-      setError(unlinkError.message ?? 'Impossible de délier cette réserve de la visite.');
-    } else {
-      setData(prev => ({
-        ...prev,
-        visites: prev.visites.map(item => item.id === visit.id
-          ? { ...item, reserve_ids: (item.reserve_ids ?? []).filter((id: string) => id !== reserve.id) }
-          : item),
-        reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, visite_id: null } : item),
-      }));
-    }
-    setSaving(false);
   }
 
   async function buildReservePhotoPatch(
@@ -4886,16 +4910,7 @@ function BuildTrackWebWorkspace() {
     const singleLocation = hasBuildingHierarchy && visitDraft.visitedLocations.length === 1
       ? visitDraft.visitedLocations[0]
       : null;
-    let coverPhotoUri: string | null = visitDraft.coverPhoto?.existing ? visitDraft.coverPhoto.uri : null;
-    if (visitDraft.coverPhoto?.file) {
-      try {
-        coverPhotoUri = await uploadWebFile('photos', visitDraft.coverPhoto.file, 'visite_cover');
-      } catch (coverError: any) {
-        setError(coverError?.message ?? 'Upload de la photo de couverture impossible.');
-        setSaving(false);
-        return;
-      }
-    }
+    const coverPhotoUri = visitDraft.coverPhoto?.existing ? visitDraft.coverPhoto.uri : null;
     const basePayload = {
       chantier_id: visitDraft.chantierId || null,
       start_time: visitDraft.startTime || null,
@@ -4923,118 +4938,51 @@ function BuildTrackWebWorkspace() {
     };
     const payloads = recurrenceOffsets.map((offset, index) => ({
       ...basePayload,
-      id: `VIS-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      id: `VIS-${crypto.randomUUID()}`,
       title: recurrenceOffsets.length > 1 ? `${title} — ${visitWeekPrefix(webLang)}${index + 1}` : title,
       date: addDaysISO(visitDraft.date, offset),
       status: index === 0 ? visitDraft.status : 'planned',
     }));
 
-    const { data: inserted, error: insertError } = await supabaseBrowser
-      .from('visites')
-      .insert(payloads)
-      .select();
-    if (insertError) {
-      setError(insertError.message);
-    } else {
-      setData(prev => ({ ...prev, visites: [...(inserted ?? payloads), ...prev.visites] }));
+    const queued = await enqueueFieldWrites('visites', payloads.map(fields => ({
+      action: 'insert', id: fields.id, fields,
+    })), visitDraft.coverPhoto?.file ?? undefined);
+    if (queued) {
       setVisitModalOpen(false);
       setActiveTab('visites');
-      setNotice(payloads.length > 1 ? `${payloads.length} visites créées.` : 'Visite créée.');
     }
     setSaving(false);
   }
 
   async function updateVisitWeb(visit: any, patch: Record<string, any>) {
     if (!profile || !canEdit(profile) || !visit?.id) return;
-    setSaving(true);
-    setError('');
-    const { data: updated, error: updateError } = await supabaseBrowser
-      .from('visites')
-      .update(patch)
-      .eq('id', visit.id)
-      .select()
-      .single();
-    if (updateError) {
-      setError(updateError.message);
-    } else {
-      setData(prev => ({
-        ...prev,
-        visites: prev.visites.map(item => item.id === visit.id ? (updated ?? { ...item, ...patch }) : item),
-      }));
-    }
-    setSaving(false);
+    await enqueueFieldWrites('visites', [fieldUpdate(visit, patch)]);
   }
 
   async function attachReservesToVisitWeb(visit: any, reserveIds: string[]) {
-    if (!profile || !canCreate(profile) || !visit?.id || reserveIds.length === 0) return;
-    setSaving(true);
-    setError('');
-    let attachError: any = null;
-    const rpcResult = await (supabaseBrowser as any).rpc('attach_reserves_to_visite', {
-      p_visite_id: visit.id,
-      p_reserve_ids: reserveIds,
-    });
-    attachError = rpcResult?.error ?? null;
-
-    if (attachError) {
-      const nextReserveIds = Array.from(new Set([...(visit.reserve_ids ?? []), ...reserveIds]));
-      const [visitResult, reserveResult] = await Promise.all([
-        supabaseBrowser.from('visites').update({ reserve_ids: nextReserveIds }).eq('id', visit.id),
-        supabaseBrowser.from('reserves').update({ visite_id: visit.id }).in('id', reserveIds),
-      ]);
-      attachError = visitResult.error ?? reserveResult.error ?? null;
-    }
-
-    if (attachError) {
-      setError(attachError.message ?? 'Impossible de rattacher ces réserves à la visite.');
-    } else {
-      setData(prev => ({
-        ...prev,
-        visites: prev.visites.map(item => item.id === visit.id
-          ? { ...item, reserve_ids: Array.from(new Set([...(item.reserve_ids ?? []), ...reserveIds])) }
-          : item),
-        reserves: prev.reserves.map(item => reserveIds.includes(item.id) ? { ...item, visite_id: visit.id } : item),
-      }));
-    }
-    setSaving(false);
+    if (!canCreate(profile) || !visit?.id || !reserveIds.length) return;
+    await enqueueVisitReserves(visit.id, reserveIds, 'link');
   }
 
   async function deleteVisitWeb(visit: any) {
     if (!profile || !canDelete(profile) || !visit?.id) return;
-    const confirmed = window.confirm(`Supprimer la visite "${visit.title}" ? Les réserves rattachées resteront disponibles dans l'onglet Réserves.`);
-    if (!confirmed) return;
-    setSaving(true);
-    setError('');
-    const linkedReserveIds = new Set([...(visit.reserve_ids ?? []), ...data.reserves.filter(reserve => reserve.visite_id === visit.id).map(reserve => reserve.id)]);
-    const [reserveResult, deleteResult] = await Promise.all([
-      linkedReserveIds.size
-        ? supabaseBrowser.from('reserves').update({ visite_id: null }).in('id', Array.from(linkedReserveIds))
-        : Promise.resolve({ error: null }),
-      supabaseBrowser.from('visites').delete().eq('id', visit.id),
-    ]);
-    const deleteError = reserveResult.error ?? deleteResult.error;
-    if (deleteError) {
-      setError(deleteError.message ?? 'Suppression de la visite impossible.');
-    } else {
-      setData(prev => ({
-        ...prev,
-        visites: prev.visites.filter(item => item.id !== visit.id),
-        reserves: prev.reserves.map(item => linkedReserveIds.has(item.id) ? { ...item, visite_id: null } : item),
-      }));
-    }
-    setSaving(false);
+    if (!window.confirm(`Supprimer la visite « ${visit.title} » ? Les réserves resteront disponibles.`)) return;
+    await enqueueFieldWrites('visites', [{ action: 'delete', id: visit.id, organization: visit.organization_id ?? null }]);
   }
 
   async function updateCompanyField(companyId: string, field: 'planned_workers' | 'actual_workers' | 'hours_worked', value: number) {
     if (!canUpdateAttendance(profile)) return;
     const safeValue = Math.max(0, Number.isFinite(value) ? value : 0);
+    const patch = field === 'actual_workers' ? {
+      actual_workers: safeValue, hours_worked: safeValue * attendanceSettings.hours,
+    } : { [field]: safeValue };
     setData(prev => ({
       ...prev,
-      companies: prev.companies.map(company => company.id === companyId ? { ...company, [field]: safeValue } : company),
+      companies: prev.companies.map(company => company.id === companyId ? { ...company, ...patch } : company),
     }));
     const { error: companyError } = await supabaseBrowser
       .from('companies')
-      .update({ [field]: safeValue })
+      .update(patch)
       .eq('id', companyId);
     if (companyError) setError(companyError.message);
   }
@@ -5099,17 +5047,7 @@ function BuildTrackWebWorkspace() {
 
   async function updateTaskQuick(task: any, patch: Record<string, any>) {
     if (!canEdit(profile)) return false;
-    let query = supabaseBrowser.from('tasks').update(patch).eq('id', task.id);
-    if (Object.hasOwn(patch, 'comments')) {
-      query = task.comments == null ? query.is('comments', null) : query.eq('comments', JSON.stringify(task.comments));
-    }
-    const { data: saved, error } = await query.select().maybeSingle();
-    if (error || !saved) {
-      setError(error?.message || 'La tâche a changé. Synchronisez avant de réessayer.');
-      return false;
-    }
-    setData(previous => ({ ...previous, tasks: previous.tasks.map(row => row.id === task.id ? saved : row) }));
-    return true;
+    return enqueueFieldWrites('tasks', [fieldUpdate(task, patch)]);
   }
 
   async function addTaskComment(task: any, content: string) {
@@ -5118,11 +5056,25 @@ function BuildTrackWebWorkspace() {
     return await updateTaskQuick(task, { comments: [...(Array.isArray(task.comments) ? task.comments : []), comment] });
   }
 
+  async function changeTaskComment(task: any, commentId: string, action: 'edit' | 'delete') {
+    if (!authUser || !canEdit(profile) || !Array.isArray(task.comments)) return;
+    const comment = task.comments.find((item: any) => item.id === commentId);
+    if (!comment || (comment.authorId ? comment.authorId !== authUser.id : comment.author !== userLabel(profile, authUser))) return;
+    if (action === 'delete') {
+      if (window.confirm('Supprimer ce commentaire ?')) {
+        await updateTaskQuick(task, { comments: task.comments.filter((item: any) => item.id !== commentId) });
+      }
+      return;
+    }
+    const content = (await askTextDialog('Modifier le commentaire', { defaultValue: comment.content ?? comment.text ?? '' }))?.trim();
+    if (!content) return;
+    await updateTaskQuick(task, { comments: task.comments.map((item: any) => item.id === commentId
+      ? { ...item, content, ...(item.text != null ? { text: content } : {}), editedAt: new Date().toISOString() } : item) });
+  }
+
   async function deleteTaskWeb(task: any) {
     if (!canDelete(profile) || !window.confirm('Supprimer la tâche « ' + task.title + ' » ?')) return;
-    const { data: deleted, error } = await supabaseBrowser.from('tasks').delete().eq('id', task.id).select('id').maybeSingle();
-    if (error || !deleted) { setError(error?.message || 'Suppression de la tâche refusée.'); return; }
-    setData(previous => ({ ...previous, tasks: previous.tasks.filter(row => row.id !== task.id) }));
+    await enqueueFieldWrites('tasks', [{ action: 'delete', id: task.id, organization: task.organization_id ?? null }]);
   }
 
   async function createOprSignerLink(oprId: string, signerId: string) {
@@ -5183,7 +5135,7 @@ function BuildTrackWebWorkspace() {
   async function createTaskWeb(payload: Record<string, any>) {
     if (!canCreate(profile)) return null;
     const row = {
-      id: `TSK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      id: `TSK-${crypto.randomUUID()}`,
       organization_id: profile?.organization_id ?? null,
       chantier_id: selectedProjectId !== 'all' ? selectedProjectId : null,
       title: String(payload.title ?? '').trim(),
@@ -5197,15 +5149,7 @@ function BuildTrackWebWorkspace() {
       deadline: payload.deadline || '',
     };
     if (!row.title) return null;
-    const { data: inserted, error } = await supabaseBrowser.from('tasks').insert(row).select().single();
-    if (error) {
-      setError(error.message);
-      return null;
-    }
-    const saved = inserted ?? row;
-    setData(prev => ({ ...prev, tasks: [saved, ...prev.tasks] }));
-    setNotice('Tâche créée.');
-    return saved;
+    return await enqueueFieldWrites('tasks', [{ action: 'insert', id: row.id, fields: row }]) ? row : null;
   }
 
   async function updateProfileField(userId: string, patch: Partial<Profile>) {
@@ -5725,14 +5669,14 @@ function BuildTrackWebWorkspace() {
   }
 
   async function createTimeEntryWeb(payload: Record<string, any>) {
-    if (!profile || !(canUpdateAttendance(profile) || canCreate(profile))) return null;
+    if (!profile || !canUpdateAttendance(profile)) return null;
     const workerName = String(payload.worker_name ?? '').trim();
     if (!workerName) {
       setError('Le nom du compagnon est obligatoire.');
       return null;
     }
     const entry = {
-      id: `TIME-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      id: `TIME-${crypto.randomUUID()}`,
       date: payload.date || todayISO(),
       company_id: payload.company_id || null,
       company_name: payload.company_name || null,
@@ -5741,49 +5685,33 @@ function BuildTrackWebWorkspace() {
       arrival_time: payload.arrival_time || '08:00',
       departure_time: payload.departure_time || null,
       notes: String(payload.notes ?? '').trim() || null,
+      task_id: payload.task_id || null,
+      task_title: payload.task_title || null,
       recorded_by: userLabel(profile, authUser),
       organization_id: profile.organization_id ?? null,
     };
-    const { data: inserted, error: insertError } = await supabaseBrowser.from('time_entries').insert(entry).select().single();
-    if (insertError) {
-      setError(insertError.message);
-      return null;
-    }
-    const saved = inserted ?? entry;
-    setData(prev => ({ ...prev, timeEntries: [saved, ...prev.timeEntries] }));
-    return saved;
+    return await enqueueFieldWrites('time_entries', [{ action: 'insert', id: entry.id, fields: entry }]) ? entry : null;
   }
 
   async function updateTimeEntryWeb(entry: any, patch: Record<string, any>) {
-    if (!profile || !(canUpdateAttendance(profile) || canCreate(profile)) || !entry?.id) return null;
-    const payload = { ...patch, updated_by: userLabel(profile, authUser), updated_at: new Date().toISOString() };
-    const { data: updated, error: updateError } = await supabaseBrowser.from('time_entries').update(payload).eq('id', entry.id).select().single();
-    if (updateError) {
-      setError(updateError.message);
-      return null;
-    }
-    const saved = updated ?? { ...entry, ...payload };
-    setData(prev => ({ ...prev, timeEntries: prev.timeEntries.map(item => item.id === entry.id ? saved : item) }));
-    return saved;
+    if (!profile || !canUpdateAttendance(profile) || !entry?.id) return null;
+    return await enqueueFieldWrites('time_entries', [fieldUpdate(entry, patch)]) ? { ...entry, ...patch } : null;
+  }
+
+  async function recordTimeDeparturesWeb(entries: any[], time: string) {
+    if (!profile || !canUpdateAttendance(profile)) return false;
+    return enqueueFieldWrites('time_entries', entries.map(entry => fieldUpdate(entry, { departure_time: time })));
   }
 
   async function deleteTimeEntryWeb(entry: any) {
     if (!profile || !canDelete(profile) || !entry?.id) return false;
-    const confirmed = window.confirm(`Supprimer définitivement le pointage de ${entry.worker_name ?? 'ce compagnon'} ?`);
-    if (!confirmed) return false;
-    const { error: deleteError } = await supabaseBrowser.from('time_entries').delete().eq('id', entry.id);
-    if (deleteError) {
-      setError(deleteError.message);
-      return false;
-    }
-    setData(prev => ({ ...prev, timeEntries: prev.timeEntries.filter(item => item.id !== entry.id) }));
-    setNotice('Pointage supprimé.');
-    return true;
+    if (!window.confirm(`Supprimer définitivement le pointage de ${entry.worker_name ?? 'ce compagnon'} ?`)) return false;
+    return enqueueFieldWrites('time_entries', [{ action: 'delete', id: entry.id, organization: entry.organization_id ?? null }]);
   }
 
   async function createJournalEntryWeb(payload: Record<string, any>) {
     if (!profile || !canCreate(profile)) return null;
-    const id = `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const id = `JRN-${crypto.randomUUID()}`;
     const row = {
       id,
       organization_id: profile.organization_id ?? null,
@@ -5801,22 +5729,13 @@ function BuildTrackWebWorkspace() {
       visitors: String(payload.visitors ?? ''),
       author: userLabel(profile, authUser),
       author_id: profile.id ?? null,
-      ...(payload.photo instanceof File ? { photo_uri: await uploadWebFile('photos', payload.photo, `journal_${id}`) } : {}),
     };
-    const { data: inserted, error: insertError } = await supabaseBrowser.from('journal_entries').insert(row).select().single();
-    if (insertError) {
-      setError(insertError.message);
-      return null;
-    }
-    const saved = inserted ?? row;
-    setData(prev => ({ ...prev, journalEntries: [saved, ...prev.journalEntries] }));
-    setNotice('Entrée de journal enregistrée.');
-    return saved;
+    return await enqueueFieldWrites('journal_entries', [{ action: 'insert', id, fields: row }], payload.photo) ? row : null;
   }
 
   async function createIncidentWeb(payload: Record<string, any>) {
     if (!profile || !canCreate(profile)) return null;
-    const id = `INC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const id = `INC-${crypto.randomUUID()}`;
     const row = {
       id,
       organization_id: profile.organization_id ?? null,
@@ -5831,18 +5750,9 @@ function BuildTrackWebWorkspace() {
       reported_by: userLabel(profile, authUser),
       actions: String(payload.actions ?? ''),
       witnesses: String(payload.witnesses ?? ''),
-      ...(payload.photo instanceof File ? { photo_uri: await uploadWebFile('photos', payload.photo, `incident_${id}`) } : {}),
     };
     if (!row.title) return null;
-    const { data: inserted, error } = await supabaseBrowser.from('incidents').insert(row).select().single();
-    if (error) {
-      setError(error.message);
-      return null;
-    }
-    const saved = inserted ?? row;
-    setData(prev => ({ ...prev, incidents: [saved, ...prev.incidents] }));
-    setNotice('Incident signalé.');
-    return saved;
+    return await enqueueFieldWrites('incidents', [{ action: 'insert', id, fields: row }], payload.photo) ? row : null;
   }
 
   async function updateIncidentWeb(incident: any, { photo, removePhoto, ...patch }: Record<string, any>) {
@@ -5852,36 +5762,22 @@ function BuildTrackWebWorkspace() {
       ...patch,
       ...(patch.status === 'resolved' && currentStatus !== 'resolved' ? { closed_at: todayISO(), closed_by: userLabel(profile, authUser) } : {}),
       ...(patch.status && patch.status !== 'resolved' && currentStatus === 'resolved' ? { closed_at: null, closed_by: null } : {}),
-      ...(photo instanceof File ? { photo_uri: await uploadWebFile('photos', photo, `incident_${incident.id}`) } : removePhoto ? { photo_uri: null } : {}),
+      ...(removePhoto && !(photo instanceof File) ? { photo_uri: null } : {}),
     };
-    const update = supabaseBrowser.from('incidents').update(next).eq('id', incident.id);
-    const scopedUpdate = incident.organization_id ? update.eq('organization_id', incident.organization_id) : update.is('organization_id', null);
-    const { data: updated, error } = await scopedUpdate.select().single();
-    if (error) {
-      setError(error.message);
-      return null;
-    }
-    setData(prev => ({ ...prev, incidents: prev.incidents.map((item: any) => item.id === incident.id ? (updated ?? { ...item, ...next }) : item) }));
-    setNotice('Incident mis à jour.');
-    return updated;
+    const write = fieldUpdate(incident, next);
+    if (write.action === 'update' && photo instanceof File) write.before.photo_uri = incident.photo_uri ?? null;
+    return await enqueueFieldWrites('incidents', [write], photo) ? { ...incident, ...next } : null;
   }
 
   async function deleteIncidentWeb(incident: any) {
     if (!profile || !canDelete(profile) || !incident?.id) return false;
-    const deletion = supabaseBrowser.from('incidents').delete().eq('id', incident.id);
-    const scopedDeletion = incident.organization_id ? deletion.eq('organization_id', incident.organization_id) : deletion.is('organization_id', null);
-    const { data: deleted, error } = await scopedDeletion.select('id').single();
-    if (error || !deleted) {
-      setError(error?.message ?? 'Incident indisponible.');
-      return false;
-    }
-    setData(prev => ({ ...prev, incidents: prev.incidents.filter(item => item.id !== incident.id) }));
-    setNotice('Incident supprimé.');
-    return true;
+    return enqueueFieldWrites('incidents', [{ action: 'delete', id: incident.id, organization: incident.organization_id ?? null }]);
   }
 
   async function updateJournalEntryWeb(entry: any, payload: Record<string, any>) {
     if (!profile || !canCreate(profile) || !entry?.id) return null;
+    const current = fieldData.journalEntries.find(row => row.id === entry.id);
+    if (!current) return null;
     const patch = {
       entry_date: payload.date || entry.entry_date,
       weather: String(payload.weather ?? entry.weather ?? ''),
@@ -5894,35 +5790,23 @@ function BuildTrackWebWorkspace() {
       incidents: String(payload.incidents ?? entry.incidents ?? ''),
       observations: String(payload.observations ?? entry.observations ?? ''),
       visitors: String(payload.visitors ?? entry.visitors ?? ''),
-      ...(payload.photo instanceof File ? { photo_uri: await uploadWebFile('photos', payload.photo, `journal_${entry.id}`) } : {}),
     };
-    const { data: updated, error } = await supabaseBrowser.from('journal_entries').update(patch).eq('id', entry.id).select().single();
-    if (error) {
-      setError(error.message);
-      return null;
-    }
-    setData(prev => ({ ...prev, journalEntries: prev.journalEntries.map((item: any) => item.id === entry.id ? (updated ?? { ...item, ...patch }) : item) }));
-    setNotice('Entrée de journal mise à jour.');
-    return updated;
+    const write = fieldUpdate(current, patch);
+    if (write.action === 'update' && payload.photo instanceof File) write.before.photo_uri = current.photo_uri ?? null;
+    return await enqueueFieldWrites('journal_entries', [write], payload.photo) ? { ...entry, ...patch } : null;
   }
 
   async function deleteJournalEntryWeb(entry: any) {
     if (!profile || !canDelete(profile) || !entry?.id) return false;
     if (!window.confirm('Supprimer cette entrée de journal ?')) return false;
-    const { error: deleteError } = await supabaseBrowser.from('journal_entries').delete().eq('id', entry.id);
-    if (deleteError) {
-      setError(deleteError.message);
-      return false;
-    }
-    setData(prev => ({ ...prev, journalEntries: prev.journalEntries.filter(item => item.id !== entry.id) }));
-    setNotice('Entrée de journal supprimée.');
-    return true;
+    const current = fieldData.journalEntries.find(row => row.id === entry.id);
+    return current ? enqueueFieldWrites('journal_entries', [{ action: 'delete', id: current.id, organization: current.organization_id ?? null }]) : false;
   }
 
   async function migrateLocalJournalWeb(localEntries: any[], chantierId: string) {
     if (!profile || !localEntries.length) return true;
     const rows = localEntries.map(entry => ({
-      id: String(entry.id ?? `JRN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+      id: String(entry.id ?? `JRN-${crypto.randomUUID()}`),
       organization_id: profile.organization_id ?? null,
       chantier_id: chantierId !== 'all' ? chantierId : null,
       entry_date: String(entry.date ?? ''),
@@ -5954,7 +5838,7 @@ function BuildTrackWebWorkspace() {
     const isCreate = !payload.id;
     if (!profile || (isCreate ? !canCreate(profile) : !canEdit(profile))) return null;
     const row = {
-      id: String(payload.id ?? `CHK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+      id: String(payload.id ?? `CHK-${crypto.randomUUID()}`),
       organization_id: profile.organization_id ?? null,
       chantier_id: payload.chantier_id ?? null,
       title: String(payload.title ?? ''),
@@ -5962,63 +5846,32 @@ function BuildTrackWebWorkspace() {
       author: String(payload.author ?? userLabel(profile, authUser)),
       author_id: profile.id ?? null,
     };
-    const { data: saved, error: saveError } = await supabaseBrowser
-      .from('checklists')
-      .upsert(row, { onConflict: 'id' })
-      .select()
-      .single();
-    if (saveError) {
-      setError(saveError.message);
-      return null;
-    }
-    const next = saved ?? row;
-    setData(prev => {
-      const exists = prev.checklists.some((item: any) => item.id === next.id);
-      return {
-        ...prev,
-        checklists: exists ? prev.checklists.map((item: any) => item.id === next.id ? next : item) : [next, ...prev.checklists],
-      };
-    });
-    return next;
+    const current = payload.id ? fieldData.checklists.find(item => item.id === row.id) : null;
+    if (payload.id && !current) return null;
+    const write: FieldWrite = current ? fieldUpdate(current, { title: row.title, items: row.items })
+      : { action: 'insert', id: row.id, fields: row };
+    return await enqueueFieldWrites('checklists', [write]) ? row : null;
   }
 
   async function updateChecklistItemsWeb(checklistId: string, items: any[]) {
     if (!profile || !canEdit(profile) || !checklistId) return false;
-    const rows = checklistItemsToRows(items);
-    const previous = data.checklists;
-    setData(prev => ({
-      ...prev,
-      checklists: prev.checklists.map((item: any) => item.id === checklistId ? { ...item, items: rows, updated_at: nowISO() } : item),
-    }));
-    const { error: updateError } = await supabaseBrowser
-      .from('checklists')
-      .update({ items: rows, updated_at: nowISO() })
-      .eq('id', checklistId);
-    if (updateError) {
-      setData(prev => ({ ...prev, checklists: previous }));
-      setError(updateError.message);
-      return false;
-    }
-    return true;
+    const current = fieldData.checklists.find(row => row.id === checklistId);
+    return current ? enqueueFieldWrites('checklists', [fieldUpdate(current, {
+      items: checklistItemsToRows(items), updated_at: new Date().toISOString(),
+    })]) : false;
   }
 
   async function deleteChecklistWeb(checklist: any) {
     if (!profile || !canDelete(profile) || !checklist?.id) return false;
     if (!window.confirm(`Supprimer la checklist « ${checklist.title ?? ''} » ?`)) return false;
-    const { error: deleteError } = await supabaseBrowser.from('checklists').delete().eq('id', checklist.id);
-    if (deleteError) {
-      setError(deleteError.message);
-      return false;
-    }
-    setData(prev => ({ ...prev, checklists: prev.checklists.filter((item: any) => item.id !== checklist.id) }));
-    setNotice('Checklist supprimée.');
-    return true;
+    const current = fieldData.checklists.find(row => row.id === checklist.id);
+    return current ? enqueueFieldWrites('checklists', [{ action: 'delete', id: current.id, organization: current.organization_id ?? null }]) : false;
   }
 
   async function migrateLocalChecklistsWeb(localChecklists: any[], chantierId: string) {
     if (!profile || !localChecklists.length) return true;
     const rows = localChecklists.map(checklist => ({
-      id: String(checklist.id ?? `CHK-${crypto.randomUUID().slice(0, 8).toUpperCase()}`),
+      id: String(checklist.id ?? `CHK-${crypto.randomUUID()}`),
       organization_id: profile.organization_id ?? null,
       chantier_id: chantierId !== 'all' ? chantierId : null,
       title: String(checklist.title ?? ''),
@@ -6483,6 +6336,35 @@ function BuildTrackWebWorkspace() {
     if (result.created) triggerWebPush({ type: 'message-created', messageId: String(result.row.id) });
   }
 
+  async function enqueueVisitReserves(visitId: string, reserveIds: string[], action: 'link' | 'unlink') {
+    if (!profile?.organization_id) return;
+    try {
+      await outbox.enqueue('visit_reserves', {
+        id: crypto.randomUUID(), organization_id: profile.organization_id, visitId, reserveIds, action,
+      });
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Rattachement conservé sur ce navigateur. Il sera envoyé au retour du réseau.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver ce rattachement.');
+    }
+  }
+
+  async function enqueueFieldWrites(table: FieldTable, writes: FieldWrite[], file?: File) {
+    if (!profile?.organization_id || !writes.length) return false;
+    setError('');
+    try {
+      await outbox.enqueue('field_write', {
+        id: crypto.randomUUID(), organization_id: profile.organization_id, table, writes,
+      }, file);
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Saisie conservée sur ce navigateur. Elle sera envoyée au retour du réseau.');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver cette saisie.');
+      return false;
+    }
+  }
+
   async function executeWebOperation(operation: WebQueuedOperation, stillOwned: () => boolean) {
     const assertOwner = async () => {
       const { data: current } = await supabaseBrowser.auth.getSession();
@@ -6491,6 +6373,103 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'visit_reserves') {
+      const { visitId, reserveIds, action, organization_id } = operation.payload;
+      if (!profile?.organization_id || organization_id !== profile.organization_id ||
+          (action === 'link' ? !canCreate(profile) : action !== 'unlink' || !canEdit(profile))) {
+        throw new Error('Votre compte ne peut plus modifier ce rattachement.');
+      }
+      const result = await supabaseBrowser.rpc(action === 'link' ? 'link_reserves_to_visite' : 'unlink_reserves_from_visite', {
+        p_visite_id: visitId, p_reserve_ids: reserveIds,
+      });
+      if (result.error) throw Object.assign(result.error, { status: result.status });
+      if (stillOwned() && authUser) await loadEverything(authUser, { background: true });
+      return;
+    }
+    if (operation.kind === 'field_write') {
+      const change = fieldWrites(operation);
+      const org = profile?.organization_id;
+      if (!change || !org || org !== operation.payload.organization_id) throw new Error('Cette saisie n’appartient plus à la session.');
+      const { table, writes } = change;
+      if (writes.some(write => !(write.action === 'delete' ? canDelete(profile)
+        : table === 'time_entries' ? canUpdateAttendance(profile)
+          : write.action === 'insert' || table === 'journal_entries' ? canCreate(profile) : canEdit(profile)))) {
+        throw new Error('Votre compte ne peut plus enregistrer cette saisie.');
+      }
+      let photo = typeof operation.prepared === 'string' ? operation.prepared : null;
+      if (!photo && operation.files instanceof File) {
+        photo = await uploadWebFile('photos', operation.files, `${table}_${writes[0].id}`);
+        operation.prepared = photo;
+        operation.files = undefined;
+        await saveWebOperation(operation);
+      }
+
+      const state = fieldTables[table].state;
+      for (const [writeIndex, write] of writes.entries()) {
+        await assertOwner();
+        const rowOrg: string | null = write.action === 'insert' ? org : write.organization;
+        if (rowOrg && rowOrg !== org) throw new Error('Cette saisie appartient à une autre organisation.');
+        const scope = <T extends { eq: any; is: any }>(query: T): T => rowOrg
+          ? query.eq('organization_id', rowOrg) : query.is('organization_id', null);
+        let saved: any = null;
+        if (write.action === 'delete' && table === 'visites') {
+          const result = await supabaseBrowser.rpc('delete_web_visit', { p_visit_id: write.id });
+          if (result.error) throw Object.assign(result.error, { status: result.status });
+          if (stillOwned()) setData(previous => ({
+            ...previous, reserves: previous.reserves.map(reserve =>
+              reserve.visite_id === write.id ? { ...reserve, visite_id: null } : reserve),
+          }));
+        } else if (write.action === 'delete') {
+          const result = await scope(supabaseBrowser.from(table).delete().eq('id', write.id)).select('id').maybeSingle();
+          if (result.error) throw Object.assign(result.error, { status: result.status });
+          if (!result.data) {
+            const current = await scope(supabaseBrowser.from(table).select('id').eq('id', write.id)).maybeSingle();
+            if (current.error) throw Object.assign(current.error, { status: current.status });
+            if (current.data) throw new Error('La suppression a été refusée.');
+          }
+        } else {
+          const fields = {
+            ...write.fields,
+            ...(photo ? { [table === 'visites' ? 'cover_photo_uri' : 'photo_uri']: photo } : {}),
+          };
+          if (write.action === 'insert') {
+            const result = await supabaseBrowser.from(table).upsert({ ...fields, id: write.id, organization_id: org }, {
+              onConflict: 'id', ignoreDuplicates: true,
+            }).select().maybeSingle();
+            if (result.error) throw Object.assign(result.error, { status: result.status });
+            saved = result.data;
+          } else {
+            let query = scope(supabaseBrowser.from(table).update(fields).eq('id', write.id));
+            for (const [key, value] of Object.entries(write.before)) {
+              query = value == null ? query.is(key, null)
+                : query.eq(key, typeof value === 'object' ? JSON.stringify(value) : value);
+            }
+            const result = await query.select().maybeSingle();
+            if (result.error) throw Object.assign(result.error, { status: result.status });
+            saved = result.data;
+          }
+          if (!saved) {
+            const current = await scope(supabaseBrowser.from(table).select('*').eq('id', write.id)).maybeSingle();
+            if (current.error) throw Object.assign(current.error, { status: current.status });
+            if (!current.data || (write.action === 'update' && !fieldWriteApplied(current.data, fields))) {
+              throw new Error('La fiche a changé ou n’est plus accessible. La saisie est conservée dans la file.');
+            }
+            saved = current.data;
+          }
+        }
+        if (stillOwned()) setData(previous => {
+          const rows = previous[state];
+          const index = rows.findIndex(row => row.id === write.id);
+          return { ...previous, [state]: !saved ? rows.filter(row => row.id !== write.id)
+            : index < 0 ? [saved, ...rows] : rows.map(row => row.id === write.id ? saved : row) };
+        });
+        if (stillOwned() && writeIndex < writes.length - 1) {
+          operation.payload.writes = writes.slice(writeIndex + 1);
+          await saveWebOperation(operation);
+        }
+      }
+      return;
+    }
     if (operation.kind === 'reserve_edit_full') {
       if (!canEdit(profile) || operation.payload.organization_id !== profile?.organization_id) {
         throw new Error('Votre compte ne peut plus modifier cette réserve.');
@@ -6837,6 +6816,15 @@ function BuildTrackWebWorkspace() {
     setActiveTab('messages');
   }, [authUser?.id, data.channels, profile, requestedChannelId]);
 
+  const fieldData = useMemo(() => ({
+    timeEntries: projectFieldRows(data.timeEntries, 'time_entries', outbox.rows),
+    journalEntries: projectFieldRows(data.journalEntries, 'journal_entries', outbox.rows),
+    checklists: projectFieldRows(data.checklists, 'checklists', outbox.rows),
+    tasks: projectFieldRows(data.tasks, 'tasks', outbox.rows),
+    visites: projectFieldRows(data.visites, 'visites', outbox.rows),
+    incidents: projectFieldRows(data.incidents, 'incidents', outbox.rows),
+  }), [data, outbox.rows]);
+
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
     const visibleReserves = visibleReservesForProfile(data.reserves, profile, data.companies);
@@ -6861,17 +6849,17 @@ function BuildTrackWebWorkspace() {
         return reservePhotos.length ? { ...reserve, photos: reservePhotos, photo_uri: reserve.photo_uri ?? reservePhotos[0]?.uri ?? null } : reserve;
       }),
       plans: data.sitePlans.filter(byProject),
-      visites: data.visites.filter(byProject),
-      tasks: data.tasks.filter(byProject),
-      incidents: data.incidents.filter(byProject),
+      visites: fieldData.visites.filter(byProject),
+      tasks: fieldData.tasks.filter(byProject),
+      incidents: fieldData.incidents.filter(byProject),
       documents: profile?.role === 'sous_traitant' ? [] : data.documents.filter(byProject),
       photos,
       oprs: data.oprs.filter(byProject),
-      timeEntries: profile?.role === 'sous_traitant' ? [] : data.timeEntries,
+      timeEntries: profile?.role === 'sous_traitant' ? [] : fieldData.timeEntries,
       regulatoryDocs: profile?.role === 'sous_traitant' ? [] : data.regulatoryDocs,
-      journalEntries: (data.journalEntries ?? []).filter((item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId),
+      journalEntries: fieldData.journalEntries.filter((item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId),
     };
-  }, [data, selectedProjectId, profile, canViewReserveTrash]);
+  }, [data, fieldData, selectedProjectId, profile, canViewReserveTrash]);
 
   const notificationPreference = data.notificationPreferences.find(row => row.user_id === authUser?.id);
   const workspaceAlerts = useMemo(() => {
@@ -7313,9 +7301,15 @@ function BuildTrackWebWorkspace() {
           {outbox.storageError ? <p role="alert">{outbox.storageError}</p> : null}
           {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
             <ul>{outbox.rows.map(operation => <li key={operation.key}>
-              {operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
+              {operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
+              {(operation.kind === 'field_write' || operation.kind === 'visit_reserves') && operation.error && (
+                <button type="button" disabled={outbox.syncing} onClick={() => {
+                  if (window.confirm('Abandonner cette saisie refusée ?')) void outbox.discardFieldWrite(operation.key)
+                    .catch(() => setError('Impossible de retirer cette saisie de la file.'));
+                }}>Abandonner la saisie</button>
+              )}
               {canDiscardReserveChange(operation) && <div className={styles.outboxActions}>
                 {isReserveEditConflict(operation) && (
                   <button type="button" disabled={saving || outbox.syncing || Boolean(reserveModalMode) || !canEdit(profile)}
@@ -7347,7 +7341,7 @@ function BuildTrackWebWorkspace() {
         {textPrompt ? (
           <TextPromptDialog
             request={textPrompt}
-            onSubmit={value => resolveTextPrompt(value)}
+            onSubmit={resolveTextPrompt}
             onCancel={() => resolveTextPrompt(null)}
           />
         ) : null}
@@ -7525,17 +7519,22 @@ function BuildTrackWebWorkspace() {
               <PointageView
                 entries={projectScoped.timeEntries}
                 companies={data.companies}
+                tasks={projectScoped.tasks}
+                defaultArrivalTime={attendanceSettings.arrival}
                 projectName={projectName()}
                 profile={profile}
-                editable={canUpdateAttendance(profile) || canCreate(profile)}
+                editable={canUpdateAttendance(profile)}
                 canDelete={canDelete(profile)}
                 onCreate={createTimeEntryWeb}
                 onUpdate={updateTimeEntryWeb}
+                onDepartures={recordTimeDeparturesWeb}
                 onDelete={deleteTimeEntryWeb}
               />
             )}
             {activeTab === 'analytics' && (
               <AnalyticsView
+                lots={data.lots}
+                projectName={projectName()}
                 scoped={projectScoped}
                 companies={data.companies}
                 profile={profile}
@@ -7562,7 +7561,7 @@ function BuildTrackWebWorkspace() {
                 canCreate={canCreate(profile)}
                 canEdit={canEdit(profile)}
                 canDelete={canDelete(profile)}
-                rows={data.checklists}
+                rows={fieldData.checklists}
                 onSave={saveChecklistWeb}
                 onToggle={updateChecklistItemsWeb}
                 onDelete={deleteChecklistWeb}
@@ -7636,6 +7635,9 @@ function BuildTrackWebWorkspace() {
                  canCreate={canCreate(profile)}
                  onUpdateTask={updateTaskQuick}
                  onAddTaskComment={addTaskComment}
+                 onChangeTaskComment={changeTaskComment}
+                 commentUserId={authUser?.id}
+                 commentUserName={userLabel(profile, authUser)}
                  onDeleteTask={canDelete(profile) ? deleteTaskWeb : undefined}
                  onCreateTask={createTaskWeb}
                  onOpenReserve={openReserveDetailTab}
@@ -7800,6 +7802,7 @@ function BuildTrackWebWorkspace() {
             )}
             {activeTab === 'settings' && (
               <SettingsView
+                attendanceSettings={attendanceSettings}
                 profile={profile}
                 authUser={authUser}
                 data={data}
@@ -13237,7 +13240,7 @@ function VisitesView({
   );
 }
 
-function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites, initialTaskId }: any) {
+function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onChangeTaskComment, commentUserId, commentUserName, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites, initialTaskId }: any) {
   const { t, locale } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Planning" />;
   return (
@@ -13254,6 +13257,9 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
       visitStatusLabels={VISIT_STATUS_LABELS}
       onUpdateTask={onUpdateTask}
       onAddTaskComment={onAddTaskComment}
+      onChangeTaskComment={onChangeTaskComment}
+      commentUserId={commentUserId}
+      commentUserName={commentUserName}
       onDeleteTask={onDeleteTask}
       onCreateTask={onCreateTask}
       onOpenReserve={onOpenReserve}
@@ -13887,10 +13893,15 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
       .map(entry => `
       <tr>
         <td>${xmlEscape(entry.date)}</td>
-        <td>${xmlEscape(entry.weather || '—')}</td>
+        <td>${xmlEscape([
+          entry.weather || '—',
+          entry.weatherTemp == null ? null : `${entry.weatherTemp} °C`,
+          entry.weatherWind == null ? null : `${entry.weatherWind} km/h`,
+        ].filter(Boolean).join(' · '))}</td>
         <td>${Number(entry.workerCount ?? 0)}</td>
         <td>${xmlEscape(entry.workDone)}</td>
         <td>${xmlEscape(entry.materials || '')}</td>
+        <td>${xmlEscape(entry.observations || '')}</td>
         <td>${xmlEscape(entry.incidents || '')}</td>
         <td>${xmlEscape(entry.visitors || '')}</td>
         <td>${xmlEscape(entry.author || '')}</td>
@@ -13904,8 +13915,8 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
         <h1>Journal de chantier — ${xmlEscape(projectName)}</h1>
         <p>${entries.length} entrée(s) · Export ${todayISO()}</p>
         <table>
-          <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux</th><th>Matériaux</th><th>Incidents</th><th>Visiteurs</th><th>Auteur</th></tr></thead>
-          <tbody>${tableRows || '<tr><td colspan="8">Aucune entrée</td></tr>'}</tbody>
+          <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux</th><th>Matériaux</th><th>Observations</th><th>Incidents</th><th>Visiteurs</th><th>Auteur</th></tr></thead>
+          <tbody>${tableRows || '<tr><td colspan="9">Aucune entrée</td></tr>'}</tbody>
         </table>
       </body></html>
     `, `BuildTrack_journal_${projectName}.pdf`);
@@ -13937,13 +13948,15 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
   );
 }
 
-function PointageView({ entries, companies, projectName, profile, editable, canDelete, onCreate, onUpdate, onDelete }: any) {
+function PointageView({ entries, companies, tasks, defaultArrivalTime, projectName, profile, editable, canDelete, onCreate, onUpdate, onDepartures, onDelete }: any) {
   const { lang } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Pointage" />;
   return (
     <PointageWorkspace
       entries={entries}
       companies={companies}
+      tasks={tasks}
+      defaultArrivalTime={defaultArrivalTime}
       projectName={projectName}
       today={todayISO()}
       locale={localeForLang(lang)}
@@ -13952,12 +13965,13 @@ function PointageView({ entries, companies, projectName, profile, editable, canD
       canExport={resolveWebPermissions(profile).canExport}
       onCreate={onCreate}
       onUpdate={onUpdate}
+      onDepartures={onDepartures}
       onDelete={onDelete}
     />
   );
 }
 
-function AnalyticsView({ scoped, companies, profile, setTab }: any) {
+function AnalyticsView({ scoped, companies, lots, projectName, profile, setTab }: any) {
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Analytics" />;
   const reserves = scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve));
   const closed = reserves.filter((reserve: any) => reserve.status === 'closed').length;
@@ -13993,6 +14007,40 @@ function AnalyticsView({ scoped, companies, profile, setTab }: any) {
     };
   }).sort((a: any, b: any) => b.total - a.total);
 
+  function breakdown(label: (reserve: any) => string) {
+    const groups = new Map<string, { label: string; total: number; closed: number }>();
+    for (const reserve of reserves) {
+      const name = label(reserve);
+      const current = groups.get(name) ?? { label: name, total: 0, closed: 0 };
+      current.total += 1;
+      current.closed += Number(reserve.status === 'closed');
+      groups.set(name, current);
+    }
+    return [...groups.values()].sort((left, right) => right.total - left.total || left.label.localeCompare(right.label, 'fr'));
+  }
+  const lotNames = new Map(lots.map((lot: LotRow) => [String(lot.id), lot.name]));
+  const details = [
+    { title: 'Priorités', rows: breakdown(reserve => PRIORITY_LABELS[reserve.priority] ?? reserve.priority ?? 'Sans priorité') },
+    { title: 'Bâtiments', rows: breakdown(reserve => reserve.building || 'Sans bâtiment') },
+    { title: 'Lots', rows: breakdown(reserve => String(lotNames.get(String(reserve.lot_id ?? reserve.lotId)) || 'Sans lot')) },
+  ];
+
+  function printAnalytics() {
+    const palette = getPdfCompanyPalette(companies.map((company: any) => ({ name: company.name, color: company.color })));
+    const table = (title: string, headers: string[], rows: string[][]) => `<h2>${xmlEscape(title)}</h2><table>
+      <thead><tr>${headers.map(heading => `<th>${xmlEscape(heading)}</th>`).join('')}</tr></thead>
+      <tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    printHtmlReport(`<!doctype html><html lang="fr"><head><title>Analytique</title><style>
+      body{font-family:Arial,sans-serif;color:#172b4d;margin:2rem}table{width:100%;border-collapse:collapse}
+      th,td{padding:.45rem;border:1px solid #cdd7e4;text-align:left}h2{break-after:avoid}
+      </style></head><body><h1>Analytique · ${xmlEscape(projectName)}</h1>
+      <p>${reserves.length} réserve(s) · ${closureRate}% clôturées · ${overdue} en retard</p>
+      ${table('Tendance sur huit semaines', ['Semaine', 'Créations', 'Clôtures'], weekStats.map(row => [xmlEscape(row.label), String(row.created), String(row.closed)]))}
+      ${table('Entreprises', ['Entreprise', 'Total', 'Clôturées', 'Retards'], companyStats.map((row: any) => [renderPdfCompanyLabel(row.company.name, palette), String(row.total), String(row.closed), String(row.overdue)]))}
+      ${details.map(group => table(group.title, ['Libellé', 'Total', 'Clôturées'], group.rows.map(row => [xmlEscape(row.label), String(row.total), String(row.closed)]))).join('')}
+      </body></html>`, 'BuildTrack_Analytique.pdf');
+  }
+
   return (
     <div className={styles.stack}>
       <div className={styles.kpiGrid}>
@@ -14008,6 +14056,7 @@ function AnalyticsView({ scoped, companies, profile, setTab }: any) {
               <h2>Tendance 8 semaines</h2>
               <p>Créations et clôtures de réserves.</p>
             </div>
+            {canExport(profile) && <button type="button" onClick={printAnalytics}>Exporter PDF</button>}
           </div>
           <div className={styles.analyticsBars}>
             {weekStats.map(week => (
@@ -14042,6 +14091,19 @@ function AnalyticsView({ scoped, companies, profile, setTab }: any) {
             {!companyStats.length ? <p className={styles.empty}>Aucune donnée entreprise.</p> : null}
           </div>
         </section>
+      </div>
+      <div className={styles.reportGrid}>
+        {details.map(group => (
+          <section className={styles.panel} key={group.title}>
+            <h2>{group.title}</h2>
+            <div className={styles.compactList}>
+              {group.rows.map(row => <article key={row.label} className={styles.timelineCard}>
+                <div><strong>{row.label}</strong><small>{row.closed}/{row.total} clôturées</small></div>
+              </article>)}
+              {!group.rows.length && <p className={styles.empty}>Aucune réserve.</p>}
+            </div>
+          </section>
+        ))}
       </div>
     </div>
   );
@@ -14105,7 +14167,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, canCre
                 <span>{String(document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
                 <div>
                   <strong>{document.name ?? 'Document'}</strong>
-                  <small>{document.category ?? 'Documents'} · {document.size ?? '—'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
+                  <small>{document.category ?? 'Documents'} · v{document.version ?? 1} · {document.size ?? '—'} · {prettyDate(document.uploaded_at ?? document.created_at, true)}</small>
                 </div>
                 <div className={styles.inlineActions}>
                   {url ? <PrivateMediaLink className={styles.linkButton} source={url}>Ouvrir</PrivateMediaLink> : null}
@@ -14469,11 +14531,12 @@ function IonIcon({ name }: { name: IonIconName }) {
   return <i aria-hidden="true" className={styles.ionIcon}>{IONICON_CODEPOINTS[name]}</i>;
 }
 
-function SettingsView({ profile, authUser, data, scoped, selectedProjectId, preferences, languagePreference, deviceLanguage, onUpdateLanguagePreference, exportLanguage, onUpdateExportLanguage, onUpdateOwnProfile, onUpdateNotificationField, onUpdateProject, onUpdateCompanyField, onOpenTab, onOpenAdmin, onLogout }: {
+function SettingsView({ profile, authUser, data, scoped, attendanceSettings, selectedProjectId, preferences, languagePreference, deviceLanguage, onUpdateLanguagePreference, exportLanguage, onUpdateExportLanguage, onUpdateOwnProfile, onUpdateNotificationField, onUpdateProject, onUpdateCompanyField, onOpenTab, onOpenAdmin, onLogout }: {
   profile: Profile | null;
   authUser: SupabaseUser | null;
   data: WebState;
   scoped: any;
+  attendanceSettings: ReturnType<typeof useWebAttendanceSettings>;
   selectedProjectId: string;
   preferences: any[];
   languagePreference: WebLanguagePreference;
@@ -14506,8 +14569,9 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
   const [projectDescriptionDraft, setProjectDescriptionDraft] = useState(selectedProject?.description ?? '');
   const [savingProject, setSavingProject] = useState(false);
   const [projectMessage, setProjectMessage] = useState<{ ok: boolean; text: string } | null>(null);
-  const [defaultArrivalTime, setDefaultArrivalTime] = useState('08:00');
-  const [standardDayHours, setStandardDayHours] = useState(8);
+  const { arrival: defaultArrivalTime, hours: standardDayHours, snapshots, update: updateAttendanceSettings } = attendanceSettings;
+  const attendanceHistory = snapshots.filter(snapshot => snapshot.projectId === selectedProjectId);
+  const [snapshotSaved, setSnapshotSaved] = useState('');
   const [diagnosticOpen, setDiagnosticOpen] = useState(false);
   const profileInitials = initials(profile?.name ?? authUser?.email);
   const accountEmail = profile?.email ?? authUser?.email ?? '';
@@ -15059,7 +15123,7 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
               <span>{t('settings.attendanceTab.defaultArrival')}</span>
               <div>
                 {['06:30', '07:00', '07:30', '08:00', '08:30'].map(time => (
-                  <button key={time} type="button" className={defaultArrivalTime === time ? styles.settingsChipActive : ''} onClick={() => setDefaultArrivalTime(time)}>{time}</button>
+                  <button key={time} type="button" className={defaultArrivalTime === time ? styles.settingsChipActive : ''} aria-pressed={defaultArrivalTime === time} onClick={() => updateAttendanceSettings({ arrival: time })}>{time}</button>
                 ))}
               </div>
               <small>{t('settings.attendanceTab.defaultArrivalHint')}</small>
@@ -15069,7 +15133,7 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
               <span>{t('settings.attendanceTab.standardDay')}</span>
               <div>
                 {[6, 7, 8, 9, 10].map(hours => (
-                  <button key={hours} type="button" className={standardDayHours === hours ? styles.settingsChipActive : ''} onClick={() => setStandardDayHours(hours)}>{hours}h</button>
+                  <button key={hours} type="button" className={standardDayHours === hours ? styles.settingsChipActive : ''} aria-pressed={standardDayHours === hours} onClick={() => updateAttendanceSettings({ hours })}>{hours}h</button>
                 ))}
               </div>
             </div>
@@ -15084,7 +15148,7 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
                 {visibleCompanies.map(company => {
                   const actual = Number(company.actual_workers ?? company.actualWorkers ?? 0);
                   const planned = Number(company.planned_workers ?? company.plannedWorkers ?? 0);
-                  const hours = Number(company.hours_worked ?? company.hoursWorked ?? actual * standardDayHours);
+                  const hours = actual * standardDayHours;
                   return (
                     <div key={company.id} className={styles.attendanceRow}>
                       <span style={{ backgroundColor: company.color ?? '#003082' }} />
@@ -15105,8 +15169,28 @@ function SettingsView({ profile, authUser, data, scoped, selectedProjectId, pref
             ) : (
               <p className={styles.settingsNotice}>{t('settings.attendanceTab.noConfiguredCompany')}</p>
             )}
-            <button type="button" className={styles.settingsGhostButton} disabled>{t('settings.attendanceTab.saveSnapshotActionFull')}</button>
-            <p className={styles.settingsMuted}>{t('settings.attendanceTab.noHistoryText')}</p>
+            <button type="button" className={styles.settingsGhostButton} disabled={!canEditAttendance || !visibleCompanies.length} onClick={() => {
+              const date = todayISO();
+              const companies = visibleCompanies.map(company => {
+                const workers = Number(company.actual_workers ?? company.actualWorkers ?? 0);
+                return { id: String(company.id), name: String(company.name ?? ''), workers, hours: workers * standardDayHours };
+              });
+              if (updateAttendanceSettings({ snapshots: [
+                { date, projectId: selectedProjectId, companies },
+                ...snapshots.filter(row => row.date !== date || row.projectId !== selectedProjectId),
+              ] })) setSnapshotSaved(date);
+            }}>{t('settings.attendanceTab.saveSnapshotActionFull')}</button>
+            {attendanceSettings.error && <p role="alert">{attendanceSettings.error}</p>}
+            {snapshotSaved && !attendanceSettings.error && <p role="status">Instantané du {prettyDate(snapshotSaved)} enregistré sur ce navigateur.</p>}
+            {attendanceHistory.length ? (
+              <div className={styles.settingsSectionStack}>
+                <strong>Historique des présences</strong>
+                {attendanceHistory.map(snapshot => <details key={snapshot.date}>
+                  <summary>{prettyDate(snapshot.date)} · {snapshot.companies.reduce((total, company) => total + company.workers, 0)} présent(s)</summary>
+                  <ul>{snapshot.companies.map(company => <li key={company.id}>{company.name} · {company.workers} présent(s) · {company.hours} h</li>)}</ul>
+                </details>)}
+              </div>
+            ) : <p className={styles.settingsMuted}>{t('settings.attendanceTab.noHistoryText')}</p>}
           </div>
         </div>
       </section>
