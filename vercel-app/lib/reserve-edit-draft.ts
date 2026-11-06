@@ -4,6 +4,7 @@ export type ReserveDraft = {
   kind: 'reserve' | 'observation';
   title: string;
   description: string;
+  messageSource?: string;
   chantierId: string;
   building: string;
   buildingId: string;

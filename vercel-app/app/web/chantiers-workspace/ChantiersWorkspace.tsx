@@ -52,7 +52,7 @@ type ChantiersWorkspaceProps = {
   canEditProject: boolean;
   canDeleteProject: boolean;
   saving: boolean;
-  onSave: (draft: ChantierDraft) => Promise<unknown>;
+  onSave: (draft: ChantierDraft, base: ChantierSource | null, submissionId: string) => Promise<unknown>;
   onDelete: (project: ChantierSource) => Promise<unknown>;
   onRequestText: (title: string) => Promise<string | null>;
   locale?: string;
@@ -518,6 +518,8 @@ export default function ChantiersWorkspace({
   const deferredCompanyQuery = useDeferredValue(companyQuery);
   const [companyView, setCompanyView] = useState<CompanyView>('all');
   const [draft, setDraft] = useState<ChantierDraft>(() => draftFromProject());
+  const editBase = useRef<ChantierSource | null>(null);
+  const submissionId = useRef('');
   const [draftDirty, setDraftDirty] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const model = useMemo(
@@ -630,6 +632,8 @@ export default function ChantiersWorkspace({
   function openModal(project?: ChantierSource) {
     if (project ? !canEditProject : !canCreateProject) return;
     setDraft(draftFromProject(project));
+    editBase.current = project ?? null;
+    submissionId.current = project ? '' : crypto.randomUUID();
     setDraftDirty(false);
     setSubmissionError('');
     setModalSection('identity');
@@ -670,7 +674,7 @@ export default function ChantiersWorkspace({
     event.preventDefault();
     if (saving) return;
     setSubmissionError('');
-    const saved = await onSave({ ...draft, name: draft.name.trim() });
+    const saved = await onSave({ ...draft, name: draft.name.trim() }, editBase.current, submissionId.current);
     if (!saved) {
       setSubmissionError('Le chantier n’a pas été enregistré. Corrigez les informations signalées puis réessayez.');
       return;

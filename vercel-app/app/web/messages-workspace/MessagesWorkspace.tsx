@@ -50,6 +50,7 @@ type MessagesWorkspaceProps = {
   onSaveChannel: (draft: ChannelDraft, current: MessageChannelRecord | null) => Promise<string>;
   onDeleteChannel: (channel: MessageChannelRecord) => Promise<void>;
   onMessageAction: (message: MessageRecord, action: MessageAction) => Promise<void>;
+  onCreateReserveFromMessage?: (message: MessageRecord) => void;
 };
 
 type PendingAttachment = {
@@ -131,6 +132,7 @@ function MessageBubble({
   openLinkedItem,
   canModerate,
   onMessageAction,
+  onCreateReserveFromMessage,
 }: {
   message: MessageRecord;
   previousDay: string;
@@ -141,6 +143,7 @@ function MessageBubble({
   openLinkedItem?: () => void;
   canModerate: boolean;
   onMessageAction: MessagesWorkspaceProps['onMessageAction'];
+  onCreateReserveFromMessage?: MessagesWorkspaceProps['onCreateReserveFromMessage'];
 }) {
   const sender = String(message.sender ?? copy.unknownSender);
   const day = messageDayLabel(message, locale);
@@ -206,6 +209,9 @@ function MessageBubble({
               <button type="button" disabled={actionBusy} onClick={() => void change({ type: 'pin' })}>{message.is_pinned ? 'Désépingler' : 'Épingler'}</button>
               <button type="button" disabled={actionBusy} onClick={() => void change({ type: 'delete' })}>Supprimer</button>
             </> : null}
+            {onCreateReserveFromMessage && hasContent && (!message.type || message.type === 'message') && (
+              <button type="button" onClick={() => onCreateReserveFromMessage(message)}>Créer une réserve</button>
+            )}
             <button type="button" onClick={() => onReply(message)}>
               <MessageIcon name="reply" size={14} />
               {copy.reply}
@@ -232,7 +238,7 @@ export default function MessagesWorkspace({
   onDraftChange,
   onSend,
   channelPeople, linkedItems, selectedProjectId, onOpenLinkedItem, canCreateChannel, canManageChannel, canModerate,
-  loadChannelMembers, onSaveChannel, onDeleteChannel, onMessageAction,
+  loadChannelMembers, onSaveChannel, onDeleteChannel, onMessageAction, onCreateReserveFromMessage,
 }: MessagesWorkspaceProps) {
   const copy = messagesCopy(language);
   const locale = messagesLocale(language);
@@ -526,6 +532,7 @@ export default function MessagesWorkspace({
               openLinkedItem={linked ? () => onOpenLinkedItem(linked) : undefined}
               canModerate={canModerate}
               onMessageAction={onMessageAction}
+              onCreateReserveFromMessage={onCreateReserveFromMessage}
             />
             );
           })}
