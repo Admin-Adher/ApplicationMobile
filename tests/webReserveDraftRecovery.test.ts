@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { recoverReserveDraft, reserveEditPatch, reserveGalleryChanged, type ReserveDraft } from '../vercel-app/lib/reserve-edit-draft';
-import { isReserveEditConflict, type WebQueuedOperation } from '../vercel-app/lib/web-outbox';
+import { canDiscardReserveChange, isReserveEditConflict, type WebQueuedOperation } from '../vercel-app/lib/web-outbox';
 
 const base: ReserveDraft = {
   kind: 'reserve', title: 'Porte', description: 'Description initiale', chantierId: 'c1',
@@ -32,6 +32,20 @@ describe('Reprise des brouillons de réserve web', () => {
     const recovered = recoverReserveDraft({ ...base, photos: [newerRetained, removedHere, addedOnServer] }, {},
       undefined, { saved, base: oldPhotos, removeIds: ['p2'] });
     expect(recovered.photos).toEqual([{ ...newerRetained, kind: 'resolution', annotations: undefined }, addedOnServer, addedHere]);
+  });
+
+  it('autorise le retrait des modifications de réserve refusées déjà dans la file', () => {
+    const operation: WebQueuedOperation = {
+      owner: 'account:organization', key: 'old', kind: 'reserve_edit', payload: {}, createdAt: 1,
+      error: 'permission denied for table reserves',
+    };
+    expect(canDiscardReserveChange(operation)).toBe(true);
+    expect(canDiscardReserveChange({ ...operation, kind: 'reserve_edit_full' })).toBe(true);
+    expect(canDiscardReserveChange({ ...operation, kind: 'reserve_status' })).toBe(true);
+    expect(canDiscardReserveChange({ ...operation, kind: 'send_message' })).toBe(false);
+    expect(canDiscardReserveChange({ ...operation, error: undefined })).toBe(false);
+    expect(canDiscardReserveChange({ ...operation, error: undefined, failure: 'version_conflict' })).toBe(true);
+    expect(isReserveEditConflict(operation)).toBe(false);
   });
 
   it('reconnaît les conflits des anciennes files et conserve les photos serveur inconnues du brouillon', () => {

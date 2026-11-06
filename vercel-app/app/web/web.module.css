@@ -6382,6 +6382,13 @@
   background: #fff;
 }
 
+.documentRow:focus,
+.timelineCard:focus,
+.visitDetailPanel:focus {
+  outline: 2px solid #2563eb;
+  outline-offset: 3px;
+}
+
 .documentRow[aria-disabled="true"] {
   pointer-events: none;
 }

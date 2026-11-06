@@ -18,6 +18,11 @@ export function isReserveEditConflict(operation: WebQueuedOperation) {
       /^La réserve a (changé depuis cette modification|été modifiée entre-temps)\./.test(operation.error ?? ''));
 }
 
+export function canDiscardReserveChange(operation: WebQueuedOperation) {
+  return isReserveEditConflict(operation) || (Boolean(operation.error) &&
+    (operation.kind === 'reserve_edit' || operation.kind === 'reserve_edit_full' || operation.kind === 'reserve_status'));
+}
+
 const DB_NAME = 'buildtrack-web-outbox-v1';
 const STORE = 'operations';
 const listeners = new Set<() => void>();
@@ -73,8 +78,8 @@ export async function changeQueuedReserveEdit(owner: string, next: WebQueuedOper
     request.addEventListener('success', () => {
       const rows = request.result;
       const previous = rows.find(row => row.key === replaces);
-      if (replaces && (!previous || !isReserveEditConflict(previous) ||
-        (next && previous.payload.reserveId !== next.payload.reserveId))) {
+      if (replaces && (!previous || !canDiscardReserveChange(previous) ||
+        (next && (!isReserveEditConflict(previous) || previous.payload.reserveId !== next.payload.reserveId)))) {
         refusal = 'Ce brouillon a déjà été traité dans un autre onglet.';
         return;
       }

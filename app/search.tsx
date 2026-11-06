@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
+import { useReglementaire } from '@/context/ReglementaireContext';
 import { useIncidents } from '@/context/IncidentsContext';
 import Header from '@/components/Header';
 import PageContainer from '@/components/PageContainer';
@@ -13,6 +14,8 @@ import StatusBadge from '@/components/StatusBadge';
 import PriorityBadge from '@/components/PriorityBadge';
 import BottomNavBar from '@/components/BottomNavBar';
 import { reserveMatchesCompany } from '@/lib/reserveVisibility';
+import { getReserveCompanyNames } from '@/lib/planPinColor';
+import { matchesSearchText, normalizeSearchText } from '@/lib/searchText';
 
 const STATUS_LABEL_KEYS: Record<string, string> = {
   open: 'reserveLabels.status.open',
@@ -38,12 +41,13 @@ const INCIDENT_SEVERITY_COLORS: Record<string, string> = {
 export default function SearchScreen() {
   const { t } = useTranslation();
   const router = useRouter();
-  const { reserves, tasks, documents, visites, companies } = useApp();
+  const { reserves, tasks, documents, visites, companies, sitePlans, activeChantierId } = useApp();
+  const { docs: regulatoryDocs } = useReglementaire();
   const { user } = useAuth();
   const { incidents } = useIncidents();
   const [query, setQuery] = useState('');
 
-  const q = query.trim().toLowerCase();
+  const q = normalizeSearchText(query);
 
   const isSousTraitant = user?.role === 'sous_traitant';
   const userCompany = useMemo(() => {
@@ -61,56 +65,40 @@ export default function SearchScreen() {
     return tasks.filter(t => t.company === userCompany.name || t.company === userCompany.id);
   }, [isSousTraitant, userCompany, tasks]);
 
-  const filteredReserves = useMemo(() => {
-    if (!q || q.length < 2) return [];
-    return scopedReserves.filter(r =>
-      r.title.toLowerCase().includes(q) ||
-      r.id.toLowerCase().includes(q) ||
-      r.description.toLowerCase().includes(q) ||
-      (r.company ?? '').toLowerCase().includes(q) ||
-      r.zone.toLowerCase().includes(q)
-    ).slice(0, 8);
-  }, [scopedReserves, q]);
+  const filteredReserves = useMemo(() => scopedReserves.filter(r =>
+    matchesSearchText(q, r.id, r.title, r.description, r.building, r.level, r.zone, ...getReserveCompanyNames(r))
+  ).slice(0, 8), [scopedReserves, q]);
 
-  const filteredTasks = useMemo(() => {
-    if (!q || q.length < 2) return [];
-    return scopedTasks.filter(t =>
-      t.title.toLowerCase().includes(q) ||
-      t.description.toLowerCase().includes(q) ||
-      t.assignee.toLowerCase().includes(q)
-    ).slice(0, 6);
-  }, [scopedTasks, q]);
+  const filteredTasks = useMemo(() => scopedTasks.filter(task =>
+    matchesSearchText(q, task.title, task.description, task.assignee, task.company, task.status)
+  ).slice(0, 6), [scopedTasks, q]);
 
-  const filteredDocuments = useMemo(() => {
-    if (!q || q.length < 2) return [];
-    return documents.filter(d =>
-      d.name.toLowerCase().includes(q) ||
-      d.category.toLowerCase().includes(q)
-    ).slice(0, 5);
-  }, [documents, q]);
+  const filteredDocuments = useMemo(() => documents.filter(doc =>
+    matchesSearchText(q, doc.name, doc.category, doc.type)
+  ).slice(0, 5), [documents, q]);
 
-  const filteredIncidents = useMemo(() => {
-    if (isSousTraitant || !q || q.length < 2) return [];
-    return incidents.filter(i =>
-      i.title.toLowerCase().includes(q) ||
-      i.description.toLowerCase().includes(q) ||
-      i.location.toLowerCase().includes(q) ||
-      i.reportedBy.toLowerCase().includes(q)
-    ).slice(0, 6);
-  }, [incidents, isSousTraitant, q]);
+  const filteredIncidents = useMemo(() => isSousTraitant ? [] : incidents.filter(incident =>
+    matchesSearchText(q, incident.title, incident.description, incident.location, incident.reportedBy, incident.status)
+  ).slice(0, 6), [incidents, isSousTraitant, q]);
 
-  const filteredVisites = useMemo(() => {
-    if (isSousTraitant || !q || q.length < 2) return [];
-    return (visites ?? []).filter(v =>
-      v.title.toLowerCase().includes(q) ||
-      v.conducteur.toLowerCase().includes(q) ||
-      (v.notes ?? '').toLowerCase().includes(q) ||
-      (v.building ?? '').toLowerCase().includes(q) ||
-      (v.visitedLocations ?? []).some(loc => loc.buildingName.toLowerCase().includes(q))
-    ).slice(0, 6);
-  }, [visites, isSousTraitant, q]);
+  const filteredVisites = useMemo(() => isSousTraitant ? [] : visites.filter(visit =>
+    matchesSearchText(q, visit.title, visit.conducteur, visit.notes, visit.building, visit.level,
+      ...(visit.visitedLocations ?? []).map(location => location.buildingName))
+  ).slice(0, 6), [visites, isSousTraitant, q]);
 
-  const hasResults = filteredReserves.length > 0 || filteredTasks.length > 0 || filteredDocuments.length > 0 || filteredIncidents.length > 0 || filteredVisites.length > 0;
+  const filteredPlans = useMemo(() => sitePlans.filter(plan =>
+    plan.chantierId === activeChantierId && !plan.deletedAt && !plan.fileDeletedAt &&
+    matchesSearchText(q, plan.name, plan.building, plan.level, plan.revisionCode, plan.fileType, plan.dxfName)
+  ).slice(0, 6), [sitePlans, activeChantierId, q]);
+
+  const filteredRegulatoryDocs = useMemo(() => isSousTraitant ? [] : regulatoryDocs.filter(doc =>
+    matchesSearchText(q, doc.title, doc.type, doc.company, doc.reference, doc.status)
+  ).slice(0, 6), [regulatoryDocs, isSousTraitant, q]);
+
+  const hasResults = [
+    filteredReserves, filteredTasks, filteredDocuments, filteredIncidents, filteredVisites,
+    filteredPlans, filteredRegulatoryDocs,
+  ].some(results => results.length > 0);
   const hasQuery = q.length >= 2;
 
   return (
@@ -251,7 +239,7 @@ export default function SearchScreen() {
                 <TouchableOpacity
                   key={d.id}
                   style={styles.resultCard}
-                  onPress={() => router.push('/documents' as any)}
+                  onPress={() => router.push({ pathname: '/documents', params: { focusDocumentId: d.id } })}
                   activeOpacity={0.75}
                 >
                   <View style={styles.resultRow}>
@@ -277,7 +265,7 @@ export default function SearchScreen() {
                   <TouchableOpacity
                     key={i.id}
                     style={styles.resultCard}
-                    onPress={() => router.push('/incidents' as any)}
+                    onPress={() => router.push({ pathname: '/incident/[id]', params: { id: i.id } })}
                     activeOpacity={0.75}
                   >
                     <View style={styles.resultRow}>
@@ -334,6 +322,49 @@ export default function SearchScreen() {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+          )}
+
+          {filteredPlans.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="map-outline" size={14} color={C.inProgress} />
+                <Text style={styles.sectionTitle}>{t('searchScreen.sections.plans', { count: filteredPlans.length })}</Text>
+              </View>
+              {filteredPlans.map(plan => (
+                <TouchableOpacity
+                  key={plan.id}
+                  style={styles.resultCard}
+                  onPress={() => router.push({
+                    pathname: '/(tabs)/plans',
+                    params: { focusPlanId: plan.id, focusReserveId: '', focusPlanRequest: String(Date.now()) },
+                  })}
+                >
+                  <Text style={styles.resultTitle} numberOfLines={1}>{plan.name}</Text>
+                  <Text style={styles.resultMetaText}>{[plan.building, plan.level, plan.revisionCode].filter(Boolean).join(' · ')}</Text>
+                  <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {filteredRegulatoryDocs.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="shield-checkmark-outline" size={14} color={C.inProgress} />
+                <Text style={styles.sectionTitle}>{t('searchScreen.sections.regulatory', { count: filteredRegulatoryDocs.length })}</Text>
+              </View>
+              {filteredRegulatoryDocs.map(doc => (
+                <TouchableOpacity
+                  key={doc.id}
+                  style={styles.resultCard}
+                  onPress={() => router.push({ pathname: '/reglementaire', params: { focusDocumentId: doc.id } })}
+                >
+                  <Text style={styles.resultTitle} numberOfLines={1}>{doc.title}</Text>
+                  <Text style={styles.resultMetaText}>{[doc.company, doc.reference].filter(Boolean).join(' · ')}</Text>
+                  <Ionicons name="chevron-forward" size={14} color={C.textMuted} style={styles.chevron} />
+                </TouchableOpacity>
+              ))}
             </View>
           )}
 

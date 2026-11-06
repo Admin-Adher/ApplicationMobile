@@ -1,6 +1,7 @@
 import { View, Text, StyleSheet, SectionList, TouchableOpacity, TextInput, Platform, ActivityIndicator, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
@@ -42,6 +43,8 @@ function getDocType(mimeType: string | undefined, name: string): DocumentType {
 
 export default function DocumentsScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
+  const { focusDocumentId } = useLocalSearchParams<{ focusDocumentId?: string }>();
   const { documents, addDocument, deleteDocument, activeChantierId } = useApp();
   const { permissions } = useAuth();
   const [search, setSearch] = useState('');
@@ -49,9 +52,10 @@ export default function DocumentsScreen() {
 
   const filtered = useMemo(() => {
     return documents.filter(d =>
-      search === '' || d.name.toLowerCase().includes(search.toLowerCase()) || d.category.toLowerCase().includes(search.toLowerCase())
+      focusDocumentId ? d.id === focusDocumentId :
+        search === '' || d.name.toLowerCase().includes(search.toLowerCase()) || d.category.toLowerCase().includes(search.toLowerCase())
     );
-  }, [documents, search]);
+  }, [documents, focusDocumentId, search]);
 
   const grouped = useMemo(() => {
     const cats: Record<string, typeof filtered> = {};
@@ -217,7 +221,15 @@ export default function DocumentsScreen() {
       />
 
       <PageContainer maxWidth={1000}>
-      <View style={styles.searchWrap}>
+      {focusDocumentId ? (
+        <TouchableOpacity style={styles.searchWrap} onPress={() => {
+          setSearch('');
+          router.setParams({ focusDocumentId: '' });
+        }}>
+          <Ionicons name="arrow-back" size={16} color={C.primary} />
+          <Text style={{ color: C.primary }}>{t('searchScreen.showAllDocuments')}</Text>
+        </TouchableOpacity>
+      ) : <View style={styles.searchWrap}>
         <Ionicons name="search-outline" size={16} color={C.textMuted} />
         <TextInput
           style={styles.searchInput}
@@ -226,7 +238,7 @@ export default function DocumentsScreen() {
           value={search}
           onChangeText={setSearch}
         />
-      </View>
+      </View>}
 
       {permissions.canCreate && (
         <TouchableOpacity style={styles.uploadBar} onPress={handlePickDocument} disabled={loading}>

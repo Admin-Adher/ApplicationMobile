@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import DateInput from '@/components/DateInput';
 import { useState, useMemo } from 'react';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import { Ionicons } from '@expo/vector-icons';
 import { C } from '@/constants/colors';
@@ -41,6 +42,8 @@ function getTypeInfo(type: RegDocType) {
 
 export default function ReglementaireScreen() {
   const { t } = useTranslation();
+  const router = useRouter();
+  const { focusDocumentId } = useLocalSearchParams<{ focusDocumentId?: string }>();
   const { user, permissions } = useAuth();
   const { docs, addDoc, updateDoc, deleteDoc } = useReglementaire();
 
@@ -58,7 +61,7 @@ export default function ReglementaireScreen() {
   const [notes, setNotes] = useState('');
 
   const grouped = useMemo(() => {
-    const filtered = docs.filter(d => !filterStatus || d.status === filterStatus);
+    const filtered = docs.filter(d => focusDocumentId ? d.id === focusDocumentId : !filterStatus || d.status === filterStatus);
     const map: Record<string, RegulatoryDoc[]> = {};
     filtered.forEach(d => {
       const label = t(getTypeInfo(d.type).labelKey);
@@ -66,7 +69,7 @@ export default function ReglementaireScreen() {
       map[label].push(d);
     });
     return Object.entries(map).map(([title, data]) => ({ title, data }));
-  }, [docs, filterStatus, t]);
+  }, [docs, filterStatus, focusDocumentId, t]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { valid: 0, expiring: 0, expired: 0, missing: 0, in_progress: 0 };
@@ -162,7 +165,17 @@ export default function ReglementaireScreen() {
       />
 
       <PageContainer maxWidth={1000}>
-      <View style={styles.statusBar}>
+      {focusDocumentId ? (
+        <View style={styles.statusBar}>
+          <TouchableOpacity style={styles.statusChip} onPress={() => {
+            setFilterStatus('');
+            router.setParams({ focusDocumentId: '' });
+          }}>
+            <Ionicons name="arrow-back" size={16} color={C.primary} />
+            <Text style={[styles.statusChipText, { color: C.primary }]}>{t('searchScreen.showAllDocuments')}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : <View style={styles.statusBar}>
         {Object.entries(counts).filter(([, v]) => v > 0).map(([key, val]) => {
           const cfg = STATUS_CONFIG[key as RegDocStatus];
           return (
@@ -176,7 +189,7 @@ export default function ReglementaireScreen() {
             </TouchableOpacity>
           );
         })}
-      </View>
+      </View>}
 
       {alertCount > 0 && (
         <View style={styles.alertBanner}>

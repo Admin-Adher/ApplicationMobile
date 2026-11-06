@@ -36,6 +36,7 @@
   touch-action: manipulation;
 }
 
+.incidentRecord:focus,
 .workspace :is(button, input, select, textarea):focus-visible {
   outline: 3px solid rgba(0, 48, 130, 0.28);
   outline-offset: 2px;
