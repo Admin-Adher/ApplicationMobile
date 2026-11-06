@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
 import type { SupportedLang } from '@/lib/i18n';
 import { retryPrivateMedia } from '@/lib/private-media-client';
 import { usePrivateMediaAccess } from '../plan-reserve-workspace/usePrivateMedia';
@@ -13,6 +13,7 @@ import {
   messageListTimestamp,
   messageReactions,
   messageMentions,
+  MESSAGE_HISTORY_PAGE_SIZE,
   type MessageLinkedItem,
   messagesCopy,
   messagesLocale,
@@ -20,6 +21,7 @@ import {
   type MessageChannelFilter,
   type MessageChannelKind,
   type MessageRecord,
+  type MessageHistoryCursor,
   type MessageSendInput,
 } from './messages-model';
 import ChannelEditor, { type ChannelDraft, type ChannelPerson } from './ChannelEditor';
@@ -28,6 +30,8 @@ import styles from './MessagesWorkspace.module.css';
 
 type MessagesWorkspaceProps = {
   snapshot: AuthorizedMessagesSnapshot;
+  historyRevision: number;
+  onLoadHistory: (channelId: string, cursor: MessageHistoryCursor | null, signal: AbortSignal) => Promise<MessageHistoryCursor | null>;
   actor: { userId: string; displayName: string };
   language: SupportedLang;
   selectedChannelId: string | null;
@@ -232,6 +236,8 @@ export default function MessagesWorkspace({
   lastReadByChannel,
   pinnedChannelIds,
   onSetChannelPinned,
+  historyRevision,
+  onLoadHistory,
   draft,
   saving,
   onSelectChannel,
@@ -252,6 +258,10 @@ export default function MessagesWorkspace({
   const [replyTo, setReplyTo] = useState<MessageRecord | null>(null);
   const [linkedItem, setLinkedItem] = useState<MessageLinkedItem>();
   const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [history, setHistory] = useState<{
+    channelId: string; revision: number; cursor: MessageHistoryCursor | null; limit: number; error: boolean; loading: boolean;
+  }>();
+  const historyRequest = useRef<AbortController | null>(null);
   const [mentionCaret, setMentionCaret] = useState<number | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const mentionListRef = useRef<HTMLDivElement>(null);
@@ -279,6 +289,13 @@ export default function MessagesWorkspace({
   }), [actor.displayName, actor.userId, filter, language, lastReadByChannel, pinnedChannelIds, query, selectedChannelId, snapshot]);
 
   const selected = projection.selected;
+  const historyChannelId = selected?.channel.id;
+  const channelHistory = history?.channelId === historyChannelId && history?.revision === historyRevision ? history : undefined;
+  const historyLabels = {
+    fr: { more: 'Charger les messages plus anciens', loading: 'Chargement de l’historique…', failed: 'Impossible de charger l’historique du canal.', retry: 'Réessayer' },
+    en: { more: 'Load older messages', loading: 'Loading history…', failed: 'Could not load the channel history.', retry: 'Retry' },
+    es: { more: 'Cargar mensajes anteriores', loading: 'Cargando el historial…', failed: 'No se pudo cargar el historial del canal.', retry: 'Reintentar' },
+  }[language];
   const activeAttachment = pendingAttachment?.channelId === selected?.channel.id ? pendingAttachment : null;
   const canSend = Boolean(selected && (draft.trim() || activeAttachment?.file || linkedItem) && !saving);
   const linkTypes = ['reserve', 'plan', 'task', 'incident', 'visite', 'opr'] as const;
@@ -301,10 +318,34 @@ export default function MessagesWorkspace({
     });
   }
 
+  const selectedMessages = channelHistory?.limit && channelHistory.cursor
+    ? projection.selectedMessages.slice(-channelHistory.limit)
+    : projection.selectedMessages;
+  const latestMessageId = selectedMessages.at(-1)?.id;
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => threadEndRef.current?.scrollIntoView({ block: 'end' }));
     return () => window.cancelAnimationFrame(frame);
-  }, [projection.selectedMessages.length, selected?.channel.id]);
+  }, [latestMessageId, historyChannelId]);
+
+  const loadHistory = useCallback(async (channelId: string, cursor: MessageHistoryCursor | null, limit: number) => {
+    historyRequest.current?.abort();
+    const controller = new AbortController();
+    historyRequest.current = controller;
+    const pending = { channelId, revision: historyRevision, cursor, limit, error: false, loading: true };
+    setHistory(pending);
+    try {
+      const next = await onLoadHistory(channelId, cursor, controller.signal);
+      if (!controller.signal.aborted) setHistory({ ...pending, cursor: next, limit: limit + MESSAGE_HISTORY_PAGE_SIZE, loading: false });
+    } catch {
+      if (!controller.signal.aborted) setHistory({ ...pending, error: true, loading: false });
+    }
+  }, [historyRevision, onLoadHistory]);
+
+  useEffect(() => {
+    if (!historyChannelId) return;
+    void loadHistory(historyChannelId, null, 0);
+    return () => historyRequest.current?.abort();
+  }, [historyChannelId, loadHistory]);
 
   useEffect(() => () => {
     if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
@@ -516,7 +557,18 @@ export default function MessagesWorkspace({
           }} />
         ) : null}
         <div className={styles.thread} aria-live="polite">
-          {projection.selectedMessages.map((message, index) => {
+          {historyChannelId && (
+            <div className={styles.manageChannel}>
+              {(!channelHistory || channelHistory.loading) && <p role="status">{historyLabels.loading}</p>}
+              {channelHistory?.error && <p role="status">{historyLabels.failed}</p>}
+              {channelHistory && !channelHistory.loading && (channelHistory.error || channelHistory.cursor) && (
+                <button type="button" onClick={() => void loadHistory(historyChannelId, channelHistory.cursor, channelHistory.limit)}>
+                  {channelHistory.error ? historyLabels.retry : historyLabels.more}
+                </button>
+              )}
+            </div>
+          )}
+          {selectedMessages.map((message, index) => {
             const linked = message.linked_item_type && message.linked_item_id
               ? linkedByKey.get(message.linked_item_type + ':' + message.linked_item_id)
               : message.reserve_id ? linkedByKey.get('reserve:' + message.reserve_id) : undefined;
@@ -524,7 +576,7 @@ export default function MessagesWorkspace({
             <MessageBubble
               key={message.id}
               message={message}
-              previousDay={index ? messageDayLabel(projection.selectedMessages[index - 1], locale) : ''}
+              previousDay={index ? messageDayLabel(selectedMessages[index - 1], locale) : ''}
               actor={actor}
               locale={locale}
               copy={copy}
@@ -536,7 +588,7 @@ export default function MessagesWorkspace({
             />
             );
           })}
-          {!projection.selectedMessages.length ? (
+          {!selectedMessages.length && (!selected || (channelHistory?.limit && !channelHistory.loading && !channelHistory.error)) ? (
             <div className={styles.emptyConversation}>
               <span><MessageIcon name="message" size={28} /></span>
               <strong>{selected ? copy.emptyTitle : copy.noChannelSelected}</strong>

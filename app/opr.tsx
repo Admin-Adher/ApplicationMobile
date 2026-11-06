@@ -924,6 +924,8 @@ export default function OprScreen() {
   }
 
   function openSignModal(opr: Opr) {
+    conducteurPadRef.current?.clear();
+    moPadRef.current?.clear();
     setSignConducteurName(opr.conducteur ?? user?.name ?? '');
     setSignMoName(opr.maireOuvrage ?? '');
     setSignStep('conducteur');
@@ -1989,7 +1991,7 @@ export default function OprScreen() {
         transparent
         animationType="slide"
         onRequestClose={() => {
-          const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
+          const hasSig = conducteurPadRef.current?.isEmpty() === false || moPadRef.current?.isEmpty() === false;
           if (hasSig) {
             showAlert(
               t('oprScreen.closeWithoutSavingTitle'),
@@ -2050,8 +2052,8 @@ export default function OprScreen() {
               </TouchableOpacity>
             </View>
 
-            {signStep === 'conducteur' && (
-              <View style={styles.signBlock}>
+            {signModalOpr && (
+              <View style={signStep === 'conducteur' ? styles.signBlock : styles.hiddenSignBlock}>
                 <Text style={styles.modalLabel}>{t('oprScreen.managerNameUpper')}</Text>
                 <View style={styles.signInputWrap}>
                   <Ionicons name="person-outline" size={15} color={C.textMuted} />
@@ -2101,8 +2103,8 @@ export default function OprScreen() {
               </View>
             )}
 
-            {signStep === 'mo' && (
-              <View style={styles.signBlock}>
+            {signModalOpr && (
+              <View style={signStep === 'mo' ? styles.signBlock : styles.hiddenSignBlock}>
                 <Text style={styles.modalLabel}>{t('oprScreen.ownerNameUpper')}</Text>
                 <View style={styles.signInputWrap}>
                   <Ionicons name="business-outline" size={15} color={C.textMuted} />
@@ -2144,7 +2146,7 @@ export default function OprScreen() {
               <TouchableOpacity
                 style={styles.modalCancelBtn}
                 onPress={() => {
-                  const hasSig = !conducteurPadRef.current?.isEmpty() || !moPadRef.current?.isEmpty();
+                  const hasSig = conducteurPadRef.current?.isEmpty() === false || moPadRef.current?.isEmpty() === false;
                   if (hasSig) {
                     showAlert(
                       t('oprScreen.cancelSignatureTitle'),
@@ -2272,6 +2274,7 @@ const styles = StyleSheet.create({
   signStepTabActive: { backgroundColor: C.surface, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
   signStepTabText: { fontSize: 13, fontFamily: 'Inter_500Medium', color: C.textMuted },
 
+  hiddenSignBlock: { display: 'none' },
   signBlock: { gap: 8, marginBottom: 12 },
   modalLabel: { fontSize: 11, fontFamily: 'Inter_600SemiBold', color: C.textSub, textTransform: 'uppercase', letterSpacing: 0.5 },
   signInputWrap: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10 },

@@ -127,6 +127,7 @@ import { uploadInventoryPhoto } from './inventory-workspace/inventory-operations
 import type { InventoryProductRow } from './inventory-workspace/inventory-model';
 import ChantiersWorkspace from './chantiers-workspace/ChantiersWorkspace';
 import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace';
+import { type IncidentSource, type IncidentSummary } from './incidents-workspace/incidents-workspace-model';
 import { useWebAlertReads } from './useWebAlertReads';
 import { buildWorkspaceAlerts } from '../../../lib/workspaceAlerts';
 import { toNotificationPreferences } from '../../../lib/notificationPreferences';
@@ -135,6 +136,7 @@ import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import type { ChannelDraft } from './messages-workspace/ChannelEditor';
 import OprWorkspace from './opr-workspace/OprWorkspace';
+import { canSignOprDirectly } from './opr-workspace/opr-workspace-model';
 import { buildWebOprPrint } from './opr-workspace/opr-print';
 import PortalWorkspace from './PortalWorkspace';
 import { getPdfCompanyPalette, renderPdfCompanyLabel } from '../../../lib/pdfCompanyColors';
@@ -147,7 +149,7 @@ import { stopBrowserPush } from '@/lib/browser-push-client';
 import { clearWorkspaceSnapshot, readWorkspaceSnapshot, warmOfflineWorkspace, writeWorkspaceSnapshot } from '@/lib/web-workspace-cache';
 import LotsWorkspace, { type LotDraft, type LotRow } from './LotsWorkspace';
 import { STANDARD_LOTS } from '../../../constants/standardLots';
-import type { MeetingReport } from '../../../constants/types';
+import type { ChantierBuilding, MeetingReport } from '../../../constants/types';
 import PointageWorkspace from './pointage-workspace/PointageWorkspace';
 import PlanningWorkspace from './planning-workspace/PlanningWorkspace';
 import WebDxfPlan from './plan-reserve-workspace/WebDxfPlan';
@@ -159,6 +161,9 @@ import {
   type MessageAction,
   type MessageChannelRecord,
   type MessageRecord,
+  type MessageHistoryCursor,
+  messageHistoryFilter,
+  MESSAGE_HISTORY_PAGE_SIZE,
 } from './messages-workspace/messages-model';
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
@@ -2951,7 +2956,7 @@ type WebTextPromptRequest = {
   title: string;
   label?: string;
   defaultValue?: string;
-  drawSignature?: boolean;
+  drawSignature?: boolean | 'required';
   resolve: (value: string | null, drawing?: string) => void;
 };
 
@@ -3021,7 +3026,9 @@ function TextPromptDialog({ request, onSubmit, onCancel }: {
         </label>
         {request.drawSignature && (
           <div className={styles.stack}>
-            <p>Tracez votre signature avec le doigt ou la souris. Si vous laissez le cadre vide, le nom saisi sera utilisé.</p>
+            <p>{request.drawSignature === 'required'
+              ? 'Tracez votre signature avec le doigt ou la souris.'
+              : 'Tracez votre signature avec le doigt ou la souris. Si vous laissez le cadre vide, le nom saisi sera utilisé.'}</p>
             <canvas ref={canvas} width={600} height={220} aria-label="Cadre de signature manuscrite"
               style={{ width: '100%', height: 'auto', touchAction: 'none', background: '#fff', border: '1px solid #b5c4d5', borderRadius: 8 }}
               onPointerDown={event => movePen(event, true)} onPointerMove={event => movePen(event)}
@@ -3035,7 +3042,7 @@ function TextPromptDialog({ request, onSubmit, onCancel }: {
         )}
         <div className={styles.modalActions}>
           <button type="button" onClick={onCancel}>Annuler</button>
-          <button type="submit" disabled={Boolean(request.drawSignature && !value.trim())}>Valider</button>
+          <button type="submit" disabled={Boolean(request.drawSignature && (!value.trim() || (request.drawSignature === 'required' && !hasInk)))}>Valider</button>
         </div>
       </form>
     </div>
@@ -3076,6 +3083,8 @@ function BuildTrackWebWorkspace() {
   const [data, setData] = useState<WebState>(EMPTY_DATA);
   const [offlineSnapshotAt, setOfflineSnapshotAt] = useState<number | null>(null);
   const outboxOwner = authUser && profile?.id === authUser.id && profile.organization_id ? authUser.id + ':' + profile.organization_id : '';
+  const workspaceOwnerRef = useRef(outboxOwner);
+  workspaceOwnerRef.current = outboxOwner;
   const attendanceSettings = useWebAttendanceSettings(outboxOwner);
   const outbox = useWebOutbox(outboxOwner, executeWebOperation);
   const previewCacheOwnerRef = useRef<string | null>(null);
@@ -3118,6 +3127,7 @@ function BuildTrackWebWorkspace() {
   // plan pose sa pastille (via moveReservePinWeb). null = pas de placement.
   const [placementReserveId, setPlacementReserveId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
+  const [messageHistoryRevision, setMessageHistoryRevision] = useState(0);
   // Suivi des messages lus par canal (ISO de la dernière lecture), persisté en
   // localStorage par utilisateur — alimente le badge non-lus de la sidebar et
   // le compteur du titre d'onglet.
@@ -3789,6 +3799,7 @@ function BuildTrackWebWorkspace() {
       setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : null);
       setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
+      setMessageHistoryRevision(revision => revision + 1);
       if (failedTables.length) {
         setError(loadT('sync.partialLoad', { tables: failedTableList(loadT, failedTables) }));
       }
@@ -4256,14 +4267,19 @@ function BuildTrackWebWorkspace() {
 
   function openReserveCreate(prefill?: {
     plan?: any; visit?: any; pin?: ReservePinDraft;
-    message?: { content: string; source: string; projectId?: string };
+    origin?: { description: string; label: string; projectId?: string; building?: string; level?: string; zone?: string };
   }) {
     if (!canCreate(profile)) return;
     setError('');
     setEditingReserveId(null);
     const prefillPlan = prefill?.plan ?? (prefill?.pin?.planId ? data.sitePlans.find(plan => plan.id === prefill.pin?.planId) : null);
-    const baseDraft = createReserveDraft(prefill?.message?.projectId ?? currentProjectId(), prefillPlan, prefill?.visit, prefill?.pin);
+    const baseDraft = createReserveDraft(prefill?.origin?.projectId ?? currentProjectId(), prefillPlan, prefill?.visit, prefill?.pin);
     const project = data.chantiers.find(item => item.id === baseDraft.chantierId);
+    const incidentBuilding = prefill?.origin?.building;
+    const matchedBuilding = incidentBuilding && projectBuildings(project).find(building => sameName(building.name, incidentBuilding));
+    const incidentLevel = prefill?.origin?.level;
+    const matchedLevel = incidentLevel && matchedBuilding && Array.isArray(matchedBuilding.levels)
+      ? matchedBuilding.levels.find((level: any) => sameName(level.name, incidentLevel)) : null;
     const selectedPlan = prefillPlan ?? data.sitePlans.find(plan => plan.id === baseDraft.planId);
     const planLocation = selectedPlan ? getPlanDisplayLocation(selectedPlan, project) : null;
     const visitCompanyNames = getVisitCompanyIds(prefill?.visit)
@@ -4271,12 +4287,13 @@ function BuildTrackWebWorkspace() {
       .filter((name): name is string => !!name);
     setReserveDraft({
       ...baseDraft,
-      building: planLocation?.building || baseDraft.building,
-      buildingId: planLocation?.buildingId || baseDraft.buildingId,
-      level: planLocation?.level || baseDraft.level,
-      levelId: planLocation?.levelId || baseDraft.levelId,
+      building: planLocation?.building || incidentBuilding || baseDraft.building,
+      buildingId: planLocation?.buildingId || (matchedBuilding ? String(matchedBuilding.id ?? '') : '') || baseDraft.buildingId,
+      level: planLocation?.level || incidentLevel || baseDraft.level,
+      levelId: planLocation?.levelId || (matchedLevel ? String(matchedLevel.id ?? '') : '') || baseDraft.levelId,
+      zone: prefill?.origin?.zone || baseDraft.zone,
       companies: visitCompanyNames,
-      ...(prefill?.message ? { description: prefill.message.content, messageSource: prefill.message.source } : {}),
+      ...(prefill?.origin ? { description: prefill.origin.description, prefillSource: prefill.origin.label } : {}),
     });
     setReserveModalMode('create');
   }
@@ -4916,6 +4933,26 @@ function BuildTrackWebWorkspace() {
     return id as string;
   }
 
+  async function signOprWeb(opr: any) {
+    if (!canEdit(profile) || !outboxOwner || !canSignOprDirectly(opr) || hasPendingOpr(opr.id)) return;
+    const promptSignature = (title: string, defaultValue: string) =>
+      new Promise<{ name: string; signature: string } | null>(resolve => {
+        setTextPrompt({
+          title, label: 'Nom complet', defaultValue, drawSignature: 'required',
+          resolve: (name, drawing) => resolve(name && drawing ? { name, signature: drawing } : null),
+        });
+      });
+    const conducteur = await promptSignature('Signature du conducteur de travaux', opr.conducteur || userLabel(profile, authUser));
+    if (!conducteur || workspaceOwnerRef.current !== outboxOwner) return;
+    const owner = await promptSignature('Signature du maître d’ouvrage', opr.maire_ouvrage || '');
+    if (!owner || workspaceOwnerRef.current !== outboxOwner) return;
+    await saveOprWeb(opr, {
+      status: 'signed', signed_at: new Date().toISOString(), signed_by: conducteur.name,
+      conducteur: conducteur.name, maire_ouvrage: owner.name,
+      conducteur_signature: conducteur.signature, mo_signature: owner.signature,
+    });
+  }
+
   async function deleteOprWeb(opr: any) {
     if (!canDelete(profile) || !opr?.id || opr.status !== 'draft' || hasPendingOpr(opr.id) ||
         (Array.isArray(opr.signatories) && opr.signatories.some((signer: any) => signer?.signed))) return false;
@@ -5395,6 +5432,24 @@ function BuildTrackWebWorkspace() {
     return await enqueueFieldWrites('journal_entries', [{ action: 'insert', id, fields: row }], payload.photo) ? row : null;
   }
 
+  function incidentProjectBuildings(incident: IncidentSource | null): ChantierBuilding[] {
+    const projectId = incident ? String(incident.chantier_id ?? '') : selectedProjectId;
+    const project = data.chantiers.find(item => item.id === projectId);
+    return projectBuildings(project).filter(building => typeof building?.name === 'string' && building.name.trim());
+  }
+
+  function createReserveFromIncident(incident: IncidentSummary) {
+    const projectId = data.chantiers.find(project => project.id === incident.source.chantier_id)?.id;
+    openReserveCreate({ origin: {
+      description: `Issu d’un incident : ${incident.title}.${incident.description ? ' ' + incident.description : ''}`,
+      label: `Incident ${incident.severity === 'critical' ? 'critique' : 'majeur'} · ${incident.reportedAt}`,
+      projectId,
+      building: incident.building,
+      level: incident.level,
+      zone: incident.zone,
+    } });
+  }
+
   async function createIncidentWeb(payload: Record<string, any>) {
     if (!profile || !canCreate(profile)) return null;
     const id = `INC-${crypto.randomUUID()}`;
@@ -5408,12 +5463,14 @@ function BuildTrackWebWorkspace() {
       status: payload.status || 'open',
       location: String(payload.location ?? ''),
       building: String(payload.building ?? ''),
+      level: payload.level ?? null,
+      zone: payload.zone ?? null,
       reported_at: payload.reported_at || todayISO(),
       reported_by: userLabel(profile, authUser),
       actions: String(payload.actions ?? ''),
       witnesses: String(payload.witnesses ?? ''),
     };
-    if (!row.title) return null;
+    if (!row.title || !row.location.trim()) return null;
     return await enqueueFieldWrites('incidents', [{ action: 'insert', id, fields: row }], payload.photo) ? row : null;
   }
 
@@ -7021,6 +7078,30 @@ function BuildTrackWebWorkspace() {
     if (activeTab !== 'plans' && placementReserveId) setPlacementReserveId(null);
   }, [activeTab, placementReserveId]);
   const selectedChannel = data.channels.find(c => c.id === selectedChannelId) ?? data.channels[0] ?? null;
+  const loadChannelHistory = useCallback(async (
+    channelId: string, cursor: MessageHistoryCursor | null, signal: AbortSignal,
+  ): Promise<MessageHistoryCursor | null> => {
+    if (!profile?.organization_id || !outboxOwner) throw new Error('Session indisponible.');
+    const pageSize = MESSAGE_HISTORY_PAGE_SIZE;
+    let query = supabaseBrowser.from('messages').select('*')
+      .eq('organization_id', profile.organization_id)
+      .eq('channel_id', channelId)
+      .order('created_at', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .limit(pageSize + 1);
+    if (cursor) query = query.or(messageHistoryFilter(cursor));
+    const { data: rows, error } = await query.abortSignal(signal);
+    if (error) throw error;
+    if (signal.aborted || workspaceOwnerRef.current !== outboxOwner) return null;
+    const page = (rows ?? []).slice(0, pageSize);
+    if (page.length) setData(previous => {
+      const knownIds = new Set(previous.messages.map(message => message.id));
+      return { ...previous, messages: [...previous.messages, ...page.filter(message => !knownIds.has(message.id))] };
+    });
+    const last = page.at(-1);
+    return (rows?.length ?? 0) > pageSize && last ? { id: last.id, createdAt: last.created_at ?? null } : null;
+  }, [outboxOwner, profile?.organization_id]);
+
   const selectedChannelMessages = useMemo(() => selectedChannel
     ? data.messages
         .filter(m => m.channel_id === selectedChannel.id)
@@ -7341,6 +7422,7 @@ function BuildTrackWebWorkspace() {
         ) : null}
         {textPrompt ? (
           <TextPromptDialog
+            key={textPrompt.title}
             request={textPrompt}
             onSubmit={resolveTextPrompt}
             onCancel={() => resolveTextPrompt(null)}
@@ -7696,6 +7778,9 @@ function BuildTrackWebWorkspace() {
             )}
             {activeTab === 'messages' && (
               <MessagesWorkspace
+                key={outboxOwner}
+                historyRevision={messageHistoryRevision}
+                onLoadHistory={loadChannelHistory}
                 snapshot={{
                   channels: data.channels,
                   companies: data.companies,
@@ -7730,9 +7815,9 @@ function BuildTrackWebWorkspace() {
                   const projectId = channel?.type === 'building' && channel.id.startsWith('building-')
                     ? channel.id.slice('building-'.length) : '';
                   const project = data.chantiers.find(row => row.id === projectId);
-                  openReserveCreate({ message: {
-                    content: String(message.content ?? ''),
-                    source: `Message de ${message.sender || 'l’équipe'}${channel?.name ? ' · ' + channel.name : ''}`,
+                  openReserveCreate({ origin: {
+                    description: String(message.content ?? ''),
+                    label: `Message de ${message.sender || 'l’équipe'}${channel?.name ? ' · ' + channel.name : ''}`,
                     projectId: project?.id,
                   } });
                 } : undefined}
@@ -7757,6 +7842,9 @@ function BuildTrackWebWorkspace() {
                 profile={profile}
                 canCreate={canCreate(profile)}
                 canEdit={canEdit(profile)}
+                defaultDate={todayISO()}
+                projectBuildings={incidentProjectBuildings}
+                onCreateReserve={canCreate(profile) ? createReserveFromIncident : undefined}
                 onCreate={createIncidentWeb}
                 onUpdate={updateIncidentWeb}
                 canDelete={canDelete(profile)}
@@ -7776,6 +7864,7 @@ function BuildTrackWebWorkspace() {
                 onDelete={canDelete(profile) ? deleteOprWeb : undefined}
                 isPending={hasPendingOpr}
                 onSignerLink={createOprSignerLink}
+                onSign={signOprWeb}
                 onExport={(opr, kind) => printHtmlReport(buildWebOprPrint(opr, projectName(), projectScoped.reserves, kind, data.companies), 'OPR-' + kind + '-' + opr.id + '.pdf')}
                 projectName={projectName()}
                 onOpenReserve={openReserveDetailTab}
@@ -14065,13 +14154,16 @@ function TerrainView({ scoped, data, profile, canViewTeams, unreadAlertCount, se
   );
 }
 
-function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, canDelete, onCreate, onUpdate, onDelete }: {
+function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, canDelete, defaultDate, projectBuildings: incidentBuildings, onCreateReserve, onCreate, onUpdate, onDelete }: {
   incidents: any[];
   projectName: string;
   profile: any;
   canCreate?: boolean;
   canEdit?: boolean;
   canDelete: boolean;
+  defaultDate: string;
+  projectBuildings: (incident: IncidentSource | null) => ChantierBuilding[];
+  onCreateReserve?: (incident: IncidentSummary) => void;
   onCreate?: (payload: Record<string, any>) => Promise<any>;
   onUpdate?: (incident: any, patch: Record<string, any>) => Promise<any>;
   onDelete: (incident: any) => Promise<boolean>;
@@ -14082,6 +14174,9 @@ function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, ca
     <IncidentsWorkspace
       incidents={incidents}
       projectName={projectName}
+      defaultDate={defaultDate}
+      projectBuildings={incidentBuildings}
+      onCreateReserve={onCreateReserve}
       locale={localeForLang(lang)}
       canCreate={Boolean(canCreate)}
       canEdit={Boolean(canEdit)}
@@ -16432,7 +16527,7 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
             <p className={styles.eyebrow}>{mode === 'edit' ? 'Modification' : 'Création'}</p>
             <h2>{recoveryNotice ? 'Vérifier le brouillon' : mode === 'edit' ? 'Modifier la réserve' : 'Nouvelle réserve'}</h2>
             {recoveryNotice && <p role="status">{recoveryNotice}</p>}
-            {draft.messageSource && <p>{draft.messageSource}</p>}
+            {draft.prefillSource && <p>{draft.prefillSource}</p>}
             <span>{project?.name ?? 'Chantier'} · {previewId}</span>
           </div>
           <button type="button" onClick={onClose}>Fermer</button>

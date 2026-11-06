@@ -87,7 +87,7 @@ export default function NewReserveScreen() {
   const { user, permissions } = useAuth();
   const { isOnline } = useNetwork();
   const params = useLocalSearchParams<{
-    building?: string; level?: string; buildingId?: string; levelId?: string;
+    building?: string; level?: string; zone?: string; buildingId?: string; levelId?: string;
     planX?: string; planY?: string;
     prefill_description?: string; prefill_source?: string;
     chantierId?: string; planId?: string; visiteId?: string;
@@ -122,7 +122,7 @@ export default function NewReserveScreen() {
   const [description, setDescription] = useState(params.prefill_description ?? '');
   const [descriptionTouched, setDescriptionTouched] = useState(!!params.prefill_description);
   const [building, setBuilding] = useState(params.building ?? initialVisitLocation?.buildingName ?? sourceVisite?.building ?? '');
-  const [zone, setZone] = useState(sourceVisite?.zone ?? '');
+  const [zone, setZone] = useState(params.zone ?? sourceVisite?.zone ?? '');
   const [level, setLevel] = useState(params.level ?? sourceVisite?.level ?? '');
 
   const locationFromPlan = !!(params.planId && params.building && params.level);

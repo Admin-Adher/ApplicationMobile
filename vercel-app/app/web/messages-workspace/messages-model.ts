@@ -21,6 +21,18 @@ export type MessageCompanyRecord = {
   name?: string | null;
 };
 
+export const MESSAGE_HISTORY_PAGE_SIZE = 50;
+
+export type MessageHistoryCursor = { id: string; createdAt: string | null };
+
+// Quote values for the PostgREST logic grammar, including legacy message IDs.
+export function messageHistoryFilter(cursor: MessageHistoryCursor) {
+  const id = JSON.stringify(cursor.id);
+  if (!cursor.createdAt) return `and(created_at.is.null,id.lt.${id})`;
+  const timestamp = JSON.stringify(cursor.createdAt);
+  return `created_at.lt.${timestamp},and(created_at.eq.${timestamp},id.lt.${id}),created_at.is.null`;
+}
+
 export type MessageRecord = {
   id: string;
   channel_id: string;
@@ -439,7 +451,7 @@ export function buildMessagesProjection({
     messagesByChannel.set(channelId, bucket);
   }
   for (const messages of messagesByChannel.values()) {
-    messages.sort((a, b) => messageTime(a) - messageTime(b));
+    messages.sort((a, b) => messageTime(a) - messageTime(b) || a.id.localeCompare(b.id));
   }
 
   const channels = snapshot.channels.map((channel, originalIndex): MessageChannelSummary => {

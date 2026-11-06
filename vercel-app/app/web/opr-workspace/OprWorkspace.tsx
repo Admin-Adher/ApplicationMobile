@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from 'react';
 import {
   buildOprWorkspaceModel,
+  canSignOprDirectly,
   filterOprSummaries,
   formatOprDate,
   type OprFilter,
@@ -32,6 +33,7 @@ type OprWorkspaceProps = {
   onDelete?: (opr: OprSource) => Promise<boolean>;
   isPending?: (id: string) => boolean;
   onSignerLink: (oprId: string, signerId: string) => Promise<string>;
+  onSign: (opr: OprSource) => Promise<void>;
   onExport: (opr: OprSummary, kind: OprPrintKind) => void;
 };
 
@@ -84,7 +86,7 @@ function StatusBadge({ status }: { status: OprStatus }) {
   );
 }
 
-function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSignerLink, onExport }: {
+function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSignerLink, onSign, onExport }: {
   opr: OprSummary;
   open: boolean;
   onToggle: () => void;
@@ -92,6 +94,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   onEdit?: () => void;
   onDelete?: () => Promise<boolean>;
   onSignerLink?: OprWorkspaceProps['onSignerLink'];
+  onSign?: () => Promise<void>;
   onExport?: (kind: OprPrintKind) => void;
 }) {
   const reactId = useId().replace(/:/g, '');
@@ -103,6 +106,8 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   const [signerLink, setSignerLink] = useState<{ url: string; signerId: string } | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkError, setLinkError] = useState('');
+  const [signing, setSigning] = useState(false);
+  const [signError, setSignError] = useState('');
 
   async function prepareLink(signerId: string) {
     if (!onSignerLink || linkBusy) return;
@@ -165,8 +170,15 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
           </dl>
 
           <div className={editorStyles.actions}>
-            {onEdit ? <button type="button" disabled={deleting} onClick={onEdit}>Modifier</button> : null}
-            {onDelete ? <button type="button" disabled={deleting} onClick={async () => {
+            {onEdit ? <button type="button" disabled={deleting || signing} onClick={onEdit}>Modifier</button> : null}
+            {onSign && <button type="button" disabled={deleting || signing} onClick={async () => {
+              setSignError('');
+              setSigning(true);
+              try { await onSign(); }
+              catch (cause) { setSignError(cause instanceof Error ? cause.message : 'Signature indisponible.'); }
+              finally { setSigning(false); }
+            }}>Signer sur place</button>}
+            {onDelete ? <button type="button" disabled={deleting || signing} onClick={async () => {
               setDeleting(true);
               try { await onDelete(); } finally { setDeleting(false); }
             }}>Supprimer le brouillon</button> : null}
@@ -176,6 +188,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
               {opr.reserveCount ? <button type="button" onClick={() => onExport('levee')}>PDF de levée</button> : null}
             </> : null}
           </div>
+          {signError && <p role="alert">{signError}</p>}
           {opr.source.visit_contradictoire && !/^(true|false)$/i.test(String(opr.source.visit_contradictoire)) ? (
             <p>Visite contradictoire le {formatOprDate(String(opr.source.visit_contradictoire))}</p>
           ) : null}
@@ -244,7 +257,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   );
 }
 
-export default function OprWorkspace({ oprs, reserves, lotNames, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onDelete, isPending, onSignerLink, onExport }: OprWorkspaceProps) {
+export default function OprWorkspace({ oprs, reserves, lotNames, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onDelete, isPending, onSignerLink, onSign, onExport }: OprWorkspaceProps) {
   const [filter, setFilter] = useState<OprFilter>('all');
   const [openId, setOpenId] = useState<string | null>(requestedId || null);
   const [editor, setEditor] = useState<OprSource | null | undefined>(undefined);
@@ -345,6 +358,7 @@ export default function OprWorkspace({ oprs, reserves, lotNames, projectName, on
                   !(Array.isArray(opr.source.signatories) && opr.source.signatories.some(signer => signer?.signed))
                   ? () => onDelete(opr.source) : undefined}
                 onSignerLink={canEdit && !isPending?.(opr.id) ? onSignerLink : undefined}
+                onSign={canEdit && !isPending?.(opr.id) && canSignOprDirectly(opr.source) ? () => onSign(opr.source) : undefined}
                 onExport={canExport ? kind => onExport(opr, kind) : undefined}
               />
             ))}

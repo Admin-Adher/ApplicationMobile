@@ -1,3 +1,5 @@
+import { fieldDateInput } from '../../../lib/web-field-writes';
+
 export type IncidentStatus = 'open' | 'investigating' | 'resolved';
 
 export type IncidentSeverity = 'minor' | 'moderate' | 'major' | 'critical';
@@ -10,6 +12,8 @@ export type IncidentSource = {
   description?: string | null;
   location?: string | null;
   building?: string | null;
+  level?: string | null;
+  zone?: string | null;
   severity?: string | null;
   status?: string | null;
   reported_at?: string | null;
@@ -27,6 +31,8 @@ export type IncidentSummary = {
   description: string;
   location: string;
   building: string;
+  level: string;
+  zone: string;
   severity: IncidentSeverity;
   status: IncidentStatus;
   reportedAt: string;
@@ -95,6 +101,8 @@ export function summarizeIncident(incident: IncidentSource): IncidentSummary {
     description,
     location,
     building,
+    level: safeText(incident.level),
+    zone: safeText(incident.zone),
     severity: normalizeIncidentSeverity(incident.severity),
     status: normalizeIncidentStatus(incident.status),
     reportedAt,
@@ -112,7 +120,7 @@ function compareIncidentPriority(left: IncidentSummary, right: IncidentSummary) 
   return leftResolved - rightResolved
     || SEVERITY_ORDER[left.severity] - SEVERITY_ORDER[right.severity]
     || STATUS_ORDER[left.status] - STATUS_ORDER[right.status]
-    || right.reportedAt.localeCompare(left.reportedAt)
+    || (parseIncidentDate(right.reportedAt).getTime() || 0) - (parseIncidentDate(left.reportedAt).getTime() || 0)
     || left.title.localeCompare(right.title, 'fr-FR');
 }
 
@@ -149,6 +157,8 @@ export function filterIncidentSummaries(
       incident.description,
       incident.location,
       incident.building,
+      incident.level,
+      incident.zone,
       incident.reportedBy,
       incident.actions,
     ].join(' '));
@@ -156,12 +166,18 @@ export function filterIncidentSummaries(
   });
 }
 
+function parseIncidentDate(text: string): Date {
+  const calendarDate = fieldDateInput(text);
+  const frenchTime = /^\d{1,2}\/\d{1,2}\/\d{4} (\d{2}:\d{2}(?::\d{2})?)$/.exec(text);
+  return new Date(frenchTime && calendarDate ? `${calendarDate}T${frenchTime[1]}`
+    : calendarDate && !text.includes('T') && !/ \d{2}:\d{2}/.test(text) ? `${calendarDate}T12:00:00` : text);
+}
+
 export function formatIncidentDate(value: string, locale = 'fr-FR', includeTime = true) {
   const text = safeText(value);
-  if (!text) return 'Date non renseignée';
-  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text}T12:00:00` : text);
+  const date = parseIncidentDate(text);
   if (Number.isNaN(date.getTime())) return 'Date non renseignée';
-  const hasTime = includeTime && /T\d{2}:\d{2}/.test(text);
+  const hasTime = includeTime && /[T ]\d{2}:\d{2}/.test(text);
   return new Intl.DateTimeFormat(locale, {
     day: '2-digit',
     month: 'short',
