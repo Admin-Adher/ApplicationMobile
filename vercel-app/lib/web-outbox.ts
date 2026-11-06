@@ -1,7 +1,7 @@
 export type WebQueuedOperation = {
   key: string;
   owner: string;
-  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit' | 'reserve_edit_full' | 'field_write' | 'visit_reserves';
+  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit' | 'reserve_edit_full' | 'field_write' | 'visit_reserves' | 'reserve_lift';
   payload: Record<string, unknown>;
   createdAt: number;
   files?: unknown;
@@ -20,7 +20,7 @@ export function isReserveEditConflict(operation: WebQueuedOperation) {
 
 export function canDiscardReserveChange(operation: WebQueuedOperation) {
   return isReserveEditConflict(operation) || (Boolean(operation.error) &&
-    (operation.kind === 'reserve_edit' || operation.kind === 'reserve_edit_full' || operation.kind === 'reserve_status'));
+    (operation.kind === 'reserve_edit' || operation.kind === 'reserve_edit_full' || operation.kind === 'reserve_status' || operation.kind === 'reserve_lift'));
 }
 
 const DB_NAME = 'buildtrack-web-outbox-v1';

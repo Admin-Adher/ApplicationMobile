@@ -29,6 +29,8 @@ type OprWorkspaceProps = {
   canCreate: boolean;
   canExport: boolean;
   onSave: SaveOpr;
+  onDelete?: (opr: OprSource) => Promise<boolean>;
+  isPending?: (id: string) => boolean;
   onSignerLink: (oprId: string, signerId: string) => Promise<string>;
   onExport: (opr: OprSummary, kind: OprPrintKind) => void;
 };
@@ -82,12 +84,13 @@ function StatusBadge({ status }: { status: OprStatus }) {
   );
 }
 
-function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onSignerLink, onExport }: {
+function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSignerLink, onExport }: {
   opr: OprSummary;
   open: boolean;
   onToggle: () => void;
   onOpenReserve: (id: string) => void;
   onEdit?: () => void;
+  onDelete?: () => Promise<boolean>;
   onSignerLink?: OprWorkspaceProps['onSignerLink'];
   onExport?: (kind: OprPrintKind) => void;
 }) {
@@ -96,6 +99,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onSignerLink, onE
   const dateLabel = formatOprDate(opr.date);
   const locationLabel = opr.location || 'Localisation à préciser';
   const signers = Array.isArray(opr.source.signatories) ? opr.source.signatories : [];
+  const [deleting, setDeleting] = useState(false);
   const [signerLink, setSignerLink] = useState<{ url: string; signerId: string } | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkError, setLinkError] = useState('');
@@ -161,7 +165,11 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onSignerLink, onE
           </dl>
 
           <div className={editorStyles.actions}>
-            {onEdit ? <button type="button" onClick={onEdit}>Modifier</button> : null}
+            {onEdit ? <button type="button" disabled={deleting} onClick={onEdit}>Modifier</button> : null}
+            {onDelete ? <button type="button" disabled={deleting} onClick={async () => {
+              setDeleting(true);
+              try { await onDelete(); } finally { setDeleting(false); }
+            }}>Supprimer le brouillon</button> : null}
             {onExport ? <>
               <button type="button" onClick={() => onExport('pv')}>PDF du procès-verbal</button>
               <button type="button" onClick={() => onExport('convocation')}>PDF de convocation</button>
@@ -236,7 +244,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onSignerLink, onE
   );
 }
 
-export default function OprWorkspace({ oprs, reserves, lotNames, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onSignerLink, onExport }: OprWorkspaceProps) {
+export default function OprWorkspace({ oprs, reserves, lotNames, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onDelete, isPending, onSignerLink, onExport }: OprWorkspaceProps) {
   const [filter, setFilter] = useState<OprFilter>('all');
   const [openId, setOpenId] = useState<string | null>(requestedId || null);
   const [editor, setEditor] = useState<OprSource | null | undefined>(undefined);
@@ -331,9 +339,12 @@ export default function OprWorkspace({ oprs, reserves, lotNames, projectName, on
                 open={openId === opr.id}
                 onToggle={() => setOpenId(current => current === opr.id ? null : opr.id)}
                 onOpenReserve={onOpenReserve}
-                onEdit={canEdit && opr.status !== 'signed' && !(Array.isArray(opr.source.signatories) && opr.source.signatories.some(signer => signer?.signatureSource === 'web_link' && signer.signed))
+                onEdit={canEdit && !isPending?.(opr.id) && opr.status !== 'signed' && !(Array.isArray(opr.source.signatories) && opr.source.signatories.some(signer => signer?.signatureSource === 'web_link' && signer.signed))
                   ? () => setEditor(opr.source) : undefined}
-                onSignerLink={canEdit ? onSignerLink : undefined}
+                onDelete={onDelete && !isPending?.(opr.id) && opr.status === 'draft' &&
+                  !(Array.isArray(opr.source.signatories) && opr.source.signatories.some(signer => signer?.signed))
+                  ? () => onDelete(opr.source) : undefined}
+                onSignerLink={canEdit && !isPending?.(opr.id) ? onSignerLink : undefined}
                 onExport={canExport ? kind => onExport(opr, kind) : undefined}
               />
             ))}
