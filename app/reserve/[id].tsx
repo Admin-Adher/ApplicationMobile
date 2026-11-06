@@ -8,6 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useRef, useCallback, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
+import { showAlert } from '@/lib/appAlert';
 import * as ImagePicker from 'expo-image-picker';
 import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
@@ -1507,7 +1508,7 @@ export default function ReserveDetailScreen() {
   }
 
   function handleRejectVerification() {
-    if (!reserve) return;
+    if (!reserve || reserve.status !== 'verification' || !permissions.canEdit || user?.role === 'sous_traitant') return;
     const reason = rejectReason.trim();
     const companyCount = reserveCompanyNames.length;
     const doReject = () => {
@@ -1521,7 +1522,8 @@ export default function ReserveDetailScreen() {
       setTimeout(() => setSaveSuccess(false), 2500);
     };
     if (companyCount > 1) {
-      Alert.alert(
+      setShowRejectModal(false);
+      showAlert(
         t('reserveDetail.alerts.rejectTitle'),
         t('reserveDetail.alerts.rejectText', { count: companyCount }),
         [
@@ -2499,6 +2501,37 @@ export default function ReserveDetailScreen() {
             </ScrollView>
           </View>
         </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={showRejectModal} transparent animationType="slide" onRequestClose={() => setShowRejectModal(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={mStyles.overlay}>
+            <View style={mStyles.sheet} accessibilityViewIsModal>
+              <View style={mStyles.sheetHeader}>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={t('common.cancel')}
+                  onPress={() => setShowRejectModal(false)} style={mStyles.closeBtn}>
+                  <Text style={{ color: C.textSub }}>{t('common.cancel')}</Text>
+                </TouchableOpacity>
+                <Text style={mStyles.sheetTitle}>{t('reserveDetail.alerts.rejectTitle')}</Text>
+                <TouchableOpacity accessibilityRole="button" onPress={handleRejectVerification}
+                  style={[mStyles.saveBtn, { backgroundColor: C.open }]}>
+                  <Text style={mStyles.saveBtnText}>{t('reserveDetail.reject')}</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[mStyles.content, { paddingBottom: insets.bottom + 24 }]}>
+                <Text style={mStyles.label}>{t('reserveDetail.rejectReason')}</Text>
+                <TextInput
+                  accessibilityLabel={t('reserveDetail.rejectReason')}
+                  style={[mStyles.input, mStyles.textArea]}
+                  value={rejectReason}
+                  onChangeText={setRejectReason}
+                  multiline
+                  maxLength={2000}
+                />
+              </View>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 

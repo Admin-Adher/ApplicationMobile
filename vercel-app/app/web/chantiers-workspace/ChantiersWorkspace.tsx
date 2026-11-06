@@ -24,6 +24,7 @@ import {
   type ChantierSource,
   type CompanySource,
 } from './chantiers-workspace-model';
+import { fieldDateInput } from '@/lib/web-field-writes';
 import styles from './ChantiersWorkspace.module.css';
 
 type ChantierDraft = {
@@ -150,8 +151,8 @@ function draftFromProject(project?: ChantierSource): ChantierDraft {
     name: String(project.name ?? ''),
     address: String(project.address ?? ''),
     description: String(project.description ?? ''),
-    start_date: String(project.start_date ?? ''),
-    end_date: String(project.end_date ?? ''),
+    start_date: fieldDateInput(project.start_date),
+    end_date: fieldDateInput(project.end_date),
     status: String(project.status ?? 'active'),
     company_ids: (Array.isArray(project.company_ids)
       ? project.company_ids

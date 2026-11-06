@@ -5,6 +5,7 @@ export const fieldTables = {
   journal_entries: { state: 'journalEntries', label: 'Journal' },
   checklists: { state: 'checklists', label: 'Checklist' },
   tasks: { state: 'tasks', label: 'Planning' },
+  channels: { state: 'channels', label: 'Salon de chantier' },
   visites: { state: 'visites', label: 'Visite', media: { bucket: 'photos', field: 'cover_photo_uri' } },
   incidents: { state: 'incidents', label: 'Incident', media: { bucket: 'photos', field: 'photo_uri' } },
   regulatory_docs: { state: 'regulatoryDocs', label: 'Document réglementaire', media: { bucket: 'documents', field: 'uri' } },
