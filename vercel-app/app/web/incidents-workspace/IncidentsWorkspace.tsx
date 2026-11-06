@@ -100,6 +100,8 @@ function IncidentRecord({
 
   return (
     <article
+      id={'search-incidents-' + incident.id}
+      tabIndex={-1}
       className={styles.incidentRecord}
       data-status={incident.status}
       data-severity={incident.severity}

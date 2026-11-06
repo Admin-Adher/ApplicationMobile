@@ -15,6 +15,7 @@ import {
   escapeHtml,
 } from '@/lib/pdfBase';
 import { buildPdfFilename } from '@/lib/pdfFilename';
+import { getPdfCompanyPalette, renderPdfCompanyLabel } from '@/lib/pdfCompanyColors';
 import { getISOWeekKey } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
@@ -73,9 +74,10 @@ function buildAnalyticsPDF(
     `<tr><td>${escapeHtml(w.label)}</td><td style="color:#003082;font-weight:bold">${w.created}</td><td style="color:#059669;font-weight:bold">${w.closed}</td><td>${w.created > 0 ? Math.round((w.closed / w.created) * 100) : 0}%</td></tr>`
   ).join('');
 
+  const companyPalette = getPdfCompanyPalette(companyStats.map(c => ({ name: c.companyName, color: c.color })));
   const companyRows = companyStats.map(c =>
     `<tr>
-      <td><strong>${escapeHtml(c.companyName)}</strong></td>
+      <td><strong>${renderPdfCompanyLabel(c.companyName, companyPalette)}</strong></td>
       <td>${c.total}</td>
       <td style="color:#059669;font-weight:bold">${c.closed}</td>
       <td style="color:${c.rate >= 75 ? '#059669' : c.rate >= 50 ? '#F59E0B' : '#DC2626'};font-weight:bold">${c.rate}%</td>
@@ -109,7 +111,8 @@ function buildAnalyticsPDF(
 
 export default function AnalyticsScreen() {
   const { t } = useTranslation();
-  const { reserves, companies, lots } = useApp();
+  const { reserves: visibleReserves, companies, lots } = useApp();
+  const reserves = useMemo(() => visibleReserves.filter(reserve => !reserve.archivedAt), [visibleReserves]);
   const { user, permissions } = useAuth();
   const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();

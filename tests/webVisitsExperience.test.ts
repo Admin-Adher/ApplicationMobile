@@ -10,7 +10,8 @@ describe('BuildTrack web visits experience', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const visits = page.slice(page.indexOf('function VisitesView'), page.indexOf('function PlanningView'));
 
-    expect(visits).toContain('const visitWorkspace = useResponsiveWorkspaceNavigation({ hasDetail: Boolean(selectedVisit) })');
+    expect(visits).toMatch(/useResponsiveWorkspaceNavigation\(\{\s*hasDetail: Boolean\(selectedVisit\),\s*initialDetailOpen: Boolean\(initialVisitId\)/);
+    expect(visits).toContain('useState<string>(initialVisitId)');
     expect(visits).toContain('{visitWorkspace.showList && <section');
     expect(visits).toContain('{visitWorkspace.showDetail && <section');
     expect(visits).toContain('<WorkspaceBackButton label="Retour aux visites"');

@@ -906,10 +906,11 @@ export default function PlansScreen() {
   const {
     focusPlanId: focusPlanIdParam,
     focusReserveId: focusReserveIdParam,
+    focusPlanRequest: focusPlanRequestParam,
     placeReserveId: placeReserveIdParam,
     placePlanId: placePlanIdParam,
     placeNonce: placeNonceParam,
-  } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string; placeReserveId?: string; placePlanId?: string; placeNonce?: string }>();
+  } = useLocalSearchParams<{ focusPlanId?: string; focusReserveId?: string; focusPlanRequest?: string; placeReserveId?: string; placePlanId?: string; placeNonce?: string }>();
   const {
     reserves, companies, sitePlans, photos, activeChantierId, activeChantier, isLoading,
     addSitePlan, updateSitePlan, deleteSitePlan, addSitePlanVersion, migrateReservesToPlan,
@@ -2144,7 +2145,7 @@ export default function PlansScreen() {
   const handledFocusParamsRef = useRef<string>('');
   React.useEffect(() => {
     if (!focusPlanIdParam) return;
-    const key = `${focusPlanIdParam}|${focusReserveIdParam ?? ''}`;
+    const key = `${focusPlanIdParam}|${focusReserveIdParam ?? ''}|${focusPlanRequestParam ?? ''}`;
     if (handledFocusParamsRef.current === key) return;
     if (focusReserveIdParam && reserves.length === 0) return;
 
@@ -2207,7 +2208,7 @@ export default function PlansScreen() {
         setTimeout(() => releaseFocusedPinWhenPlanReady(focusPlanIdParam), 400);
       }
     }
-  }, [focusPlanIdParam, focusReserveIdParam, chantierPlans, chantierHierarchyBuildingsEarly, reserves, holdFocusedPinUntilPlanReady, releaseFocusedPinWhenPlanReady]);
+  }, [focusPlanIdParam, focusReserveIdParam, focusPlanRequestParam, chantierPlans, chantierHierarchyBuildingsEarly, reserves, holdFocusedPinUntilPlanReady, releaseFocusedPinWhenPlanReady]);
 
   // Deep-link « placement de pastille » depuis l'onglet Réserves :
   // placeReserveId (réserve à localiser) + placePlanId (plan choisi dans la

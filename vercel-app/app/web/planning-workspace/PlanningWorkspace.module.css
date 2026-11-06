@@ -986,6 +986,7 @@
   font-size: 10px;
 }
 
+.taskCard:focus,
 .planningRoot :is(button, input, select):focus-visible {
   outline: 3px solid rgba(29, 105, 198, 0.32);
   outline-offset: 2px;

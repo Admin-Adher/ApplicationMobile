@@ -82,7 +82,11 @@ export default function PlanningWorkspace({
 }: PlanningWorkspaceProps) {
   const taskHeadingId = useId();
   const agendaHeadingId = useId();
-  const [taskMode, setTaskMode] = useState<PlanningTaskMode>(initialTaskId ? 'late' : 'week');
+  const [taskMode, setTaskMode] = useState<PlanningTaskMode>(() => {
+    const target = initialTaskId ? tasks.find(task => String(task.id) === initialTaskId) : undefined;
+    if (!target) return 'week';
+    return isPlanningTaskLate(target, new Date()) ? 'late' : 'company';
+  });
   const [scheduleFilter, setScheduleFilter] = useState<PlanningScheduleFilter>('all');
   const [scheduleQuery, setScheduleQuery] = useState('');
   const deferredScheduleQuery = useDeferredValue(scheduleQuery);
@@ -298,7 +302,7 @@ export default function PlanningWorkspace({
                         const progress = Math.max(0, Math.min(100, Number(task.progress ?? 0)));
                         const late = isPlanningTaskLate(task, now);
                         return (
-                          <article key={task.id} id={'planning-task-' + task.id} className={styles.taskCard} data-late={late}>
+                          <article key={task.id} id={'planning-task-' + task.id} tabIndex={-1} className={styles.taskCard} data-late={late}>
                             <div className={styles.taskCardHeader}>
                               <div>
                                 <span className={styles.taskState}>{late ? 'En retard' : task.status === 'done' ? 'Terminée' : 'À suivre'}</span>

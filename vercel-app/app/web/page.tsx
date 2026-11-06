@@ -149,6 +149,7 @@ import type { MeetingReport } from '../../../constants/types';
 import PointageWorkspace from './pointage-workspace/PointageWorkspace';
 import PlanningWorkspace from './planning-workspace/PlanningWorkspace';
 import WebDxfPlan from './plan-reserve-workspace/WebDxfPlan';
+import { matchesSearchText, normalizeSearchText } from '../../../lib/searchText';
 import {
   mergeMessageReadState,
   type MessageSendInput,
@@ -401,6 +402,7 @@ const TABS = [
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
+type SearchResultTab = 'documents' | 'incidents' | 'visites' | 'planning' | 'reglementaire';
 type NavIconName = typeof TABS[number]['icon'];
 
 const NAV_GROUPS: { label: string; items: TabId[] }[] = [
@@ -1370,14 +1372,6 @@ function sameName(a?: string | null, b?: string | null) {
 
 function getChantierId(item: any) {
   return item?.chantier_id ?? item?.chantierId ?? '';
-}
-
-function normalizeSearchText(value: any) {
-  return String(value ?? '')
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .trim()
-    .toLowerCase();
 }
 
 function initials(value?: string | null) {
@@ -3048,6 +3042,16 @@ function BuildTrackWebWorkspace() {
   const initialReserveDeepLinkHandledRef = useRef(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
+  const [searchTarget, setSearchTarget] = useState<{ tab: SearchResultTab; id: string } | null>(null);
+  useEffect(() => {
+    if (!searchTarget || activeTab !== searchTarget.tab) return;
+    const prefix = activeTab === 'planning' ? 'planning-task' : 'search-' + activeTab;
+    const row = document.getElementById(prefix + '-' + searchTarget.id);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView({ block: 'center' });
+    setSearchTarget(null);
+  }, [activeTab, searchTarget]);
+
   const [alertTaskId, setAlertTaskId] = useState('');
   useEffect(() => {
     if (activeTab === 'planning' && alertTaskId) setAlertTaskId('');
@@ -7568,9 +7572,14 @@ function BuildTrackWebWorkspace() {
               <SearchView
                 scoped={projectScoped}
                 data={data}
+                restricted={profile?.role === 'sous_traitant'}
                 setTab={setActiveTab}
                 onOpenReserve={openReserveDetailTab}
                 setSelectedPlanId={setSelectedPlanId}
+                onOpenResult={(tab: SearchResultTab, id: string) => {
+                  setSearchTarget({ tab, id });
+                  setActiveTab(tab);
+                }}
               />
             )}
             {activeTab === 'visites' && (
@@ -7579,6 +7588,7 @@ function BuildTrackWebWorkspace() {
                 visites={projectScoped.visites}
                 reserves={projectScoped.reserves}
                 companies={data.companies}
+                initialVisitId={searchTarget?.tab === 'visites' ? searchTarget.id : undefined}
                 onCreateVisit={openVisitCreate}
                 onCreateReserveFromVisit={(visit: any) => openReserveCreate({ visit })}
                 onOpenReserve={(reserve: any) => {
@@ -7616,7 +7626,7 @@ function BuildTrackWebWorkspace() {
                  onCreateTask={createTaskWeb}
                  onOpenReserve={openReserveDetailTab}
                  onOpenVisites={() => setActiveTab('visites')}
-                initialTaskId={alertTaskId}
+                initialTaskId={searchTarget?.tab === 'planning' ? searchTarget.id : alertTaskId}
                />
             )}
             {activeTab === 'notifications' && (
@@ -12241,6 +12251,7 @@ function PlansView({
 }
 
 function VisitesView({
+  initialVisitId = '',
   data,
   visites,
   reserves,
@@ -12268,7 +12279,7 @@ function VisitesView({
   const [statusFilter, setStatusFilter] = useState<'all' | VisitDraft['status']>('all');
   const [visitSearch, setVisitSearch] = useState('');
   const deferredVisitSearch = useDeferredValue(visitSearch);
-  const [selectedVisitId, setSelectedVisitId] = useState<string>('');
+  const [selectedVisitId, setSelectedVisitId] = useState<string>(initialVisitId);
   const [attachVisitId, setAttachVisitId] = useState<string>('');
   const [attachSearch, setAttachSearch] = useState('');
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
@@ -12375,7 +12386,10 @@ function VisitesView({
   const selectedVisitChecklist = selectedVisit ? visitChecklist(selectedVisit) : [];
   const selectedVisitChecklistDone = selectedVisitChecklist.filter(item => item.checked).length;
   const selectedVisitParticipants = selectedVisit ? visitParticipants(selectedVisit) : [];
-  const visitWorkspace = useResponsiveWorkspaceNavigation({ hasDetail: Boolean(selectedVisit) });
+  const visitWorkspace = useResponsiveWorkspaceNavigation({
+    hasDetail: Boolean(selectedVisit),
+    initialDetailOpen: Boolean(initialVisitId),
+  });
   const attachVisit = sortedVisits.find((visit: any) => visit.id === attachVisitId) ?? null;
   const attachVisitReserveIds = attachVisit ? visitReserveIds(attachVisit) : new Set<string>();
   const attachVisitedNames = new Set(getVisitLocations(attachVisit).map(location => location.buildingName || location.building_name).filter(Boolean));
@@ -12730,7 +12744,11 @@ function VisitesView({
         </div>
       </section>}
 
-      {visitWorkspace.showDetail && <section className={styles.visitDetailPanel}>
+      {visitWorkspace.showDetail && <section
+        className={styles.visitDetailPanel}
+        id={selectedVisit ? 'search-visites-' + selectedVisit.id : undefined}
+        tabIndex={-1}
+      >
         {selectedVisit ? (
           <>
             {visitWorkspace.isCompact ? (
@@ -13943,7 +13961,7 @@ function AnalyticsView({ scoped, companies, profile, setTab }: any) {
     }
     for (const reserve of reserves) {
       const created = getReserveCreatedDate(reserve);
-      const closedDate = getReserveClosedDate(reserve);
+      const closedDate = reserve.status === 'closed' ? getReserveClosedDate(reserve) : null;
       if (created) weeks.get(getWeekKey(created)) && (weeks.get(getWeekKey(created))!.created += 1);
       if (closedDate) weeks.get(getWeekKey(closedDate)) && (weeks.get(getWeekKey(closedDate))!.closed += 1);
     }
@@ -13951,7 +13969,7 @@ function AnalyticsView({ scoped, companies, profile, setTab }: any) {
   })();
   const maxWeek = Math.max(1, ...weekStats.flatMap(item => [item.created, item.closed]));
   const companyStats = companies.map((company: any) => {
-    const companyReserves = reserves.filter((reserve: any) => reserveMatchesCompanyName(reserve, company.name));
+    const companyReserves = reserves.filter((reserve: any) => reserveMatchesCompanyIdOrName(reserve, company));
     const total = companyReserves.length;
     const companyClosed = companyReserves.filter((reserve: any) => reserve.status === 'closed').length;
     return {
@@ -14071,7 +14089,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, canCre
           {filtered.map((document: any) => {
             const url = assetUrl(document, 'documents');
             return (
-              <article key={document.id} className={styles.documentRow}>
+              <article key={document.id} id={'search-documents-' + document.id} tabIndex={-1} className={styles.documentRow}>
                 <span>{String(document.type ?? 'DOC').slice(0, 4).toUpperCase()}</span>
                 <div>
                   <strong>{document.name ?? 'Document'}</strong>
@@ -14262,7 +14280,7 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
         </div>
         <div className={styles.compactList}>
           {filtered.map((doc: any) => (
-            <article key={doc.id} className={styles.timelineCard}>
+            <article key={doc.id} id={'search-reglementaire-' + doc.id} tabIndex={-1} className={styles.timelineCard}>
               <span className={`${styles.statusDot} ${doc.status === 'valid' ? styles.dotDone : ['expired', 'missing'].includes(doc.status) ? styles.dotLate : ''}`} />
               <div>
                 <strong>{doc.title}</strong>
@@ -14306,20 +14324,28 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
   );
 }
 
-function SearchView({ scoped, data, setTab, onOpenReserve, setSelectedPlanId }: any) {
+function SearchView({ scoped, data, restricted, setTab, onOpenReserve, setSelectedPlanId, onOpenResult }: any) {
   const [query, setQuery] = useState('');
   // Recherche différée + mémoïsée : 7 collections scannées seulement quand la frappe se stabilise.
   const deferredQuery = useDeferredValue(query);
   const q = normalizeSearchText(deferredQuery);
   const results = useMemo(() => q.length < 2 ? [] : [
-    ...scoped.reserves.filter((item: any) => normalizeSearchText([item.id, item.title, item.description, item.building, item.level, item.zone, reserveCompanies(item).join(' ')].join(' ')).includes(q)).map((item: any) => ({ type: 'Réserve', title: item.title, meta: item.id, action: () => onOpenReserve(item.id) })),
-    ...scoped.plans.filter((item: any) => normalizeSearchText([item.name, item.building, item.level, item.revision_code].join(' ')).includes(q)).map((item: any) => ({ type: 'Plan', title: item.name, meta: getPlanDisplayLocation(item, data.chantiers.find((project: any) => project.id === item.chantier_id)).building, action: () => { setSelectedPlanId(item.id); setTab('plans'); } })),
-    ...scoped.documents.filter((item: any) => normalizeSearchText([item.name, item.category, item.type].join(' ')).includes(q)).map((item: any) => ({ type: 'Document', title: item.name, meta: item.category, action: () => setTab('documents') })),
-    ...scoped.incidents.filter((item: any) => normalizeSearchText([item.title, item.description, item.location, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Incident', title: item.title, meta: item.status, action: () => setTab('incidents') })),
-    ...scoped.visites.filter((item: any) => normalizeSearchText([item.title, item.notes, item.building, item.level].join(' ')).includes(q)).map((item: any) => ({ type: 'Visite', title: item.title, meta: prettyDate(item.date), action: () => setTab('visites') })),
-    ...scoped.tasks.filter((item: any) => normalizeSearchText([item.title, item.description, item.company, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Tâche', title: item.title, meta: item.company, action: () => setTab('planning') })),
-    ...scoped.regulatoryDocs.filter((item: any) => normalizeSearchText([item.title, item.company, item.reference, item.status].join(' ')).includes(q)).map((item: any) => ({ type: 'Réglementaire', title: item.title, meta: REGULATORY_STATUS_LABELS[item.status] ?? item.status, action: () => setTab('reglementaire') })),
-  ].slice(0, 80), [q, scoped, data.chantiers, onOpenReserve, setTab, setSelectedPlanId]);
+    ...scoped.reserves.filter((item: any) => matchesSearchText(q, item.id, item.title, item.description, item.building, item.level, item.zone, ...reserveCompanies(item)))
+      .map((item: any) => ({ type: 'Réserve', title: item.title, meta: item.id, action: () => onOpenReserve(item.id) })),
+    ...scoped.plans.filter((item: any) => !item.deleted_at && !item.file_deleted_at && matchesSearchText(q, item.name, item.building, item.level, item.revision_code, item.file_type, item.dxf_name))
+      .map((item: any) => ({ type: 'Plan', title: item.name, meta: getPlanDisplayLocation(item, data.chantiers.find((project: any) => project.id === item.chantier_id)).building, action: () => { setSelectedPlanId(item.id); setTab('plans'); } })),
+    ...scoped.documents.filter((item: any) => matchesSearchText(q, item.name, item.category, item.type))
+      .map((item: any) => ({ type: 'Document', title: item.name, meta: item.category, action: () => onOpenResult('documents', item.id) })),
+    ...(restricted ? [] : scoped.incidents.filter((item: any) => matchesSearchText(q, item.title, item.description, item.location, item.reported_by, item.status))
+      .map((item: any) => ({ type: 'Incident', title: item.title, meta: item.status, action: () => onOpenResult('incidents', item.id) }))),
+    ...(restricted ? [] : scoped.visites.filter((item: any) => matchesSearchText(q, item.title, item.conducteur, item.notes, item.building, item.level,
+      ...getVisitLocations(item).map(location => location?.buildingName)))
+      .map((item: any) => ({ type: 'Visite', title: item.title, meta: prettyDate(item.date), action: () => onOpenResult('visites', item.id) }))),
+    ...(restricted ? [] : scoped.tasks.filter((item: any) => matchesSearchText(q, item.title, item.description, item.assignee, item.company, item.status))
+      .map((item: any) => ({ type: 'Tâche', title: item.title, meta: item.company, action: () => onOpenResult('planning', item.id) }))),
+    ...scoped.regulatoryDocs.filter((item: any) => matchesSearchText(q, item.title, item.type, item.company, item.reference, item.status))
+      .map((item: any) => ({ type: 'Réglementaire', title: item.title, meta: REGULATORY_STATUS_LABELS[item.status] ?? item.status, action: () => onOpenResult('reglementaire', item.id) })),
+  ].slice(0, 80), [q, scoped, data.chantiers, restricted, onOpenReserve, setTab, setSelectedPlanId, onOpenResult]);
 
   return (
     <div className={styles.stack}>
