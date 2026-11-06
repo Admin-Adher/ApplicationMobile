@@ -30,6 +30,8 @@ type MessagesWorkspaceProps = {
   language: SupportedLang;
   selectedChannelId: string | null;
   lastReadByChannel: Record<string, string>;
+  pinnedChannelIds: readonly string[];
+  onSetChannelPinned: (id: string, pinned: boolean) => Promise<'limit' | 'saved'>;
   draft: string;
   saving: boolean;
   onSelectChannel: (channelId: string) => void;
@@ -55,6 +57,7 @@ type PendingAttachment = {
 const FILTERS: Array<{ id: MessageChannelFilter; icon?: MessageIconName }> = [
   { id: 'all' },
   { id: 'unread' },
+  { id: 'pinned', icon: 'pin' },
   { id: 'company', icon: 'building' },
   { id: 'dm', icon: 'dm' },
   { id: 'site', icon: 'channel' },
@@ -79,6 +82,7 @@ function initials(value: string) {
 
 function filterLabel(filter: MessageChannelFilter, copy: ReturnType<typeof messagesCopy>) {
   if (filter === 'unread') return copy.filterUnread;
+  if (filter === 'pinned') return copy.filterPinned;
   if (filter === 'company') return copy.filterCompanies;
   if (filter === 'dm') return copy.filterDirect;
   if (filter === 'site') return copy.filterSite;
@@ -206,6 +210,8 @@ export default function MessagesWorkspace({
   language,
   selectedChannelId,
   lastReadByChannel,
+  pinnedChannelIds,
+  onSetChannelPinned,
   draft,
   saving,
   onSelectChannel,
@@ -219,6 +225,8 @@ export default function MessagesWorkspace({
   const [query, setQuery] = useState('');
   const [editingChannel, setEditingChannel] = useState<MessageChannelRecord | null | undefined>(undefined);
   const [channelError, setChannelError] = useState('');
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState('');
   const [filter, setFilter] = useState<MessageChannelFilter>('all');
   const [compactView, setCompactView] = useState<'list' | 'thread'>('list');
   const [replyTo, setReplyTo] = useState<MessageRecord | null>(null);
@@ -232,12 +240,13 @@ export default function MessagesWorkspace({
     snapshot,
     selectedChannelId,
     lastReadByChannel,
+    pinnedChannelIds,
     currentUserId: actor.userId,
     currentUserName: actor.displayName,
     query,
     filter,
     language,
-  }), [actor.displayName, actor.userId, filter, language, lastReadByChannel, query, selectedChannelId, snapshot]);
+  }), [actor.displayName, actor.userId, filter, language, lastReadByChannel, pinnedChannelIds, query, selectedChannelId, snapshot]);
 
   const selected = projection.selected;
   const activeAttachment = pendingAttachment?.channelId === selected?.channel.id ? pendingAttachment : null;
@@ -369,7 +378,7 @@ export default function MessagesWorkspace({
                 <span className={styles.channelIcon}><MessageIcon name={kindIcon(summary.kind)} size={19} /></span>
                 <span className={styles.channelBody}>
                   <span className={styles.channelNameRow}>
-                    <strong>{summary.label}</strong>
+                    <strong>{summary.channelPinned ? <span aria-label={copy.filterPinned}><MessageIcon name="pin" size={13} /> </span> : null}{summary.label}</strong>
                     <time>{messageListTimestamp(summary.latest, locale)}</time>
                   </span>
                   <span className={styles.channelPreview}>{summary.latestPreview || summary.typeLabel}</span>
@@ -412,6 +421,21 @@ export default function MessagesWorkspace({
           )}
         </header>
 
+        {selected ? <div className={styles.manageChannel}>
+          <button type="button" disabled={pinBusy || !actor.userId} onClick={async () => {
+            setPinError('');
+            setPinBusy(true);
+            try {
+              const result = await onSetChannelPinned(selected.channel.id, !selected.channelPinned);
+              if (result === 'limit') setPinError(copy.pinChannelLimit);
+            } catch {
+              setPinError(copy.pinChannelError);
+            } finally {
+              setPinBusy(false);
+            }
+          }}><MessageIcon name="pin" size={15} /> {selected.channelPinned ? copy.unpinChannel : copy.pinChannel}</button>
+        </div> : null}
+        {pinError ? <p role="alert">{pinError}</p> : null}
         {selected && canManageChannel(selected.channel) ? <div className={styles.manageChannel}>
           <button type="button" onClick={() => { setChannelError(''); setEditingChannel(selected.channel); }}>Gérer le canal</button>
           <button type="button" onClick={async () => {

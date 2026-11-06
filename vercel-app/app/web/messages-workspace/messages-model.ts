@@ -3,7 +3,7 @@
 import type { SupportedLang } from '../../../lib/i18n';
 
 export type MessageChannelKind = 'dm' | 'company' | 'building' | 'channel';
-export type MessageChannelFilter = 'all' | 'unread' | 'company' | 'dm' | 'site';
+export type MessageChannelFilter = 'all' | 'unread' | 'pinned' | 'company' | 'dm' | 'site';
 
 export type MessageChannelRecord = {
   id: string;
@@ -68,6 +68,7 @@ export type MessageChannelSummary = {
   latestPreview: string;
   participants: string[];
   pinnedCount: number;
+  channelPinned: boolean;
   originalIndex: number;
 };
 
@@ -92,6 +93,11 @@ type MessagesCopy = {
   searchPlaceholder: string;
   filterAll: string;
   filterUnread: string;
+  filterPinned: string;
+  pinChannel: string;
+  unpinChannel: string;
+  pinChannelLimit: string;
+  pinChannelError: string;
   filterCompanies: string;
   filterDirect: string;
   filterSite: string;
@@ -146,6 +152,11 @@ const COPY: Record<SupportedLang, MessagesCopy> = {
     searchPlaceholder: 'Canal, entreprise ou dernier message…',
     filterAll: 'Tous',
     filterUnread: 'Non lus',
+    filterPinned: 'Épinglées',
+    pinChannel: 'Épingler la conversation',
+    unpinChannel: 'Désépingler la conversation',
+    pinChannelLimit: 'Vous pouvez épingler jusqu’à 5 conversations.',
+    pinChannelError: 'Épinglage impossible. Réessayez.',
     filterCompanies: 'Entreprises',
     filterDirect: 'Directs',
     filterSite: 'Chantier',
@@ -198,6 +209,11 @@ const COPY: Record<SupportedLang, MessagesCopy> = {
     searchPlaceholder: 'Channel, company or latest message…',
     filterAll: 'All',
     filterUnread: 'Unread',
+    filterPinned: 'Pinned',
+    pinChannel: 'Pin conversation',
+    unpinChannel: 'Unpin conversation',
+    pinChannelLimit: 'You can pin up to 5 conversations.',
+    pinChannelError: 'Unable to update the pin. Try again.',
     filterCompanies: 'Companies',
     filterDirect: 'Direct',
     filterSite: 'Site',
@@ -250,6 +266,11 @@ const COPY: Record<SupportedLang, MessagesCopy> = {
     searchPlaceholder: 'Canal, empresa o último mensaje…',
     filterAll: 'Todos',
     filterUnread: 'No leídos',
+    filterPinned: 'Fijadas',
+    pinChannel: 'Fijar conversación',
+    unpinChannel: 'Desfijar conversación',
+    pinChannelLimit: 'Puedes fijar hasta 5 conversaciones.',
+    pinChannelError: 'No se pudo actualizar la conversación fijada. Inténtalo de nuevo.',
     filterCompanies: 'Empresas',
     filterDirect: 'Directos',
     filterSite: 'Obra',
@@ -373,6 +394,7 @@ export function buildMessagesProjection({
   snapshot,
   selectedChannelId,
   lastReadByChannel,
+  pinnedChannelIds = [],
   currentUserId,
   currentUserName,
   query,
@@ -382,6 +404,7 @@ export function buildMessagesProjection({
   snapshot: AuthorizedMessagesSnapshot;
   selectedChannelId: string | null;
   lastReadByChannel: Record<string, string>;
+  pinnedChannelIds?: readonly string[];
   currentUserId: string;
   currentUserName: string;
   query: string;
@@ -389,6 +412,7 @@ export function buildMessagesProjection({
   language: SupportedLang;
 }): MessagesProjection {
   const copy = messagesCopy(language);
+  const pinnedChannels = new Set(pinnedChannelIds);
   const messagesByChannel = new Map<string, MessageRecord[]>();
   for (const message of snapshot.messages) {
     const channelId = String(message.channel_id ?? '');
@@ -431,9 +455,11 @@ export function buildMessagesProjection({
       latestPreview: previewForMessage(latest, copy),
       participants,
       pinnedCount: messages.filter(message => Boolean(message.is_pinned)).length,
+      channelPinned: pinnedChannels.has(channel.id),
       originalIndex,
     };
   }).sort((a, b) => {
+    if (a.channelPinned !== b.channelPinned) return a.channelPinned ? -1 : 1;
     const activityDelta = messageTime(b.latest ?? { id: '', channel_id: '' }) - messageTime(a.latest ?? { id: '', channel_id: '' });
     if (activityDelta) return activityDelta;
     return a.originalIndex - b.originalIndex;
@@ -442,6 +468,7 @@ export function buildMessagesProjection({
   const normalizedQuery = normalized(query);
   const visibleChannels = channels.filter(summary => {
     if (filter === 'unread' && summary.unreadCount === 0) return false;
+    if (filter === 'pinned' && !summary.channelPinned) return false;
     if (filter === 'company' && summary.kind !== 'company') return false;
     if (filter === 'dm' && summary.kind !== 'dm') return false;
     if (filter === 'site' && (summary.kind === 'company' || summary.kind === 'dm')) return false;

@@ -31,7 +31,7 @@ export type WorkspaceProject = {
 export type WorkspaceChromeAction = {
   id: string;
   label: string;
-  icon: 'reserve' | 'visit' | 'sync';
+  icon: 'reserve' | 'visit' | 'sync' | 'notification';
   variant?: 'primary' | 'secondary' | 'quiet';
   disabled?: boolean;
   busy?: boolean;
@@ -82,6 +82,11 @@ function ChromeIcon({ name }: { name: WorkspaceChromeAction['icon'] | 'close' | 
   };
 
   const paths: Record<string, ReactNode> = {
+    notification: (
+      <>
+        <path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" {...common} />
+      </>
+    ),
     reserve: (
       <>
         <path d="M12 5v14M5 12h14" {...common} />

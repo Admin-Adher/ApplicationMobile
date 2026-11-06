@@ -1,7 +1,7 @@
 import { buildMeetingHTML } from '@/lib/meetingReportHtml';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Modal, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -23,6 +23,8 @@ import PageContainer from '@/components/PageContainer';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 import { formatDate } from '@/lib/reserveUtils';
 import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
+import { supabase } from '@/lib/supabase';
+import { useProjectMeetingReports } from '@/hooks/useProjectMeetingReports';
 
 const CRR_TEMPLATE_DEFS = [
   {
@@ -51,15 +53,39 @@ export default function MeetingReportScreen() {
   const { user, permissions } = useAuth();
   const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();
-  const { reserves, companies, activeChantierId } = useApp();
-  const [reports, setReports] = useState<MeetingReport[]>([]);
+  const { reserves, companies, activeChantierId, activeChantier } = useApp();
+  const chantierId = activeChantierId ?? null;
+  const allowed = user?.role !== 'sous_traitant' && user?.role !== 'magasinier';
+  const shared = useProjectMeetingReports(supabase, allowed ? user?.id : undefined, user?.organizationId, chantierId);
+  const draftKey = user?.id ? `buildtrack_meetings_v2:${user.id}:${user.organizationId ?? ''}:${chantierId ?? ''}` : null;
+  const draftKeyRef = useRef(draftKey);
+  draftKeyRef.current = draftKey;
+  const [drafts, setDrafts] = useState<{ key: string; reports: MeetingReport[] } | null>(null);
+  const [legacyReports, setLegacyReports] = useState<MeetingReport[]>([]);
+  const [busy, setBusy] = useState(false);
+  const writing = useRef(false);
+  const sharedById = new Map(shared.rows.map(row => [row.report.id, row]));
+  const localReports = drafts && drafts.key === draftKey ? drafts.reports : [];
+  const reports = [...shared.rows.map(row => row.report), ...[...localReports, ...legacyReports].filter(report => !sharedById.has(report.id))];
 
   useEffect(() => {
     AsyncStorage.getItem(MEETING_KEY).then(raw => {
-      if (raw) { try { setReports(JSON.parse(raw)); } catch {} }
-    });
+      const value = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(value)) setLegacyReports(value);
+    }).catch(() => {});
   }, []);
+  useEffect(() => {
+    if (!draftKey) return;
+    let current = true;
+    AsyncStorage.getItem(draftKey).then(raw => {
+      const value = raw ? JSON.parse(raw) : [];
+      if (current && Array.isArray(value)) setDrafts({ key: draftKey, reports: value });
+    }).catch(() => {});
+    return () => { current = false; };
+  }, [draftKey]);
   const [showNew, setShowNew] = useState(false);
+  const [formScope, setFormScope] = useState(draftKey);
+  const [editing, setEditing] = useState<{ report: MeetingReport; version?: number } | null>(null);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [subject, setSubject] = useState('');
   const [date, setDate] = useState(formatDateFR(new Date()));
@@ -85,15 +111,44 @@ export default function MeetingReportScreen() {
     agendaNote: t(`meetingReport.templates.${def.id}.agendaNote`),
   })), [t]);
 
-  function updateReportData(reportId: string, updater: (r: MeetingReport) => MeetingReport) {
-    setReports(prev => {
-      const updated = prev.map(r => r.id === reportId ? updater(r) : r);
-      AsyncStorage.setItem(MEETING_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
+  async function write(operation: () => Promise<boolean>) {
+    if (writing.current || draftKeyRef.current !== draftKey) return false;
+    writing.current = true;
+    setBusy(true);
+    try {
+      if (!await operation()) throw new Error();
+      return true;
+    } catch {
+      showAlert(t('common.error'), t('meetingReport.syncWriteFailed'));
+      return false;
+    } finally {
+      writing.current = false;
+      setBusy(false);
+    }
   }
 
-  function addActionToReport(reportId: string) {
+  async function storeLocal(reportId: string, update: (items: MeetingReport[]) => MeetingReport[]) {
+    if (legacyReports.some(report => report.id === reportId)) {
+      const next = update(legacyReports);
+      await AsyncStorage.setItem(MEETING_KEY, JSON.stringify(next));
+      setLegacyReports(next);
+      return true;
+    }
+    if (!draftKey || drafts?.key !== draftKey) return false;
+    const next = update(drafts.reports);
+    await AsyncStorage.setItem(draftKey, JSON.stringify(next));
+    setDrafts(current => current?.key === draftKey ? { key: draftKey, reports: next } : current);
+    return true;
+  }
+
+  function updateReportData(reportId: string, updater: (r: MeetingReport) => MeetingReport) {
+    if (!permissions.canEdit) return Promise.resolve(false);
+    const row = sharedById.get(reportId);
+    if (row) return write(() => shared.save(updater(row.report), 'update', row.version));
+    return write(() => storeLocal(reportId, items => items.map(item => item.id === reportId ? updater(item) : item)));
+  }
+
+  async function addActionToReport(reportId: string) {
     if (!actionDesc.trim() || !actionResp.trim() || !actionDeadline.trim()) {
       showAlert(t('meetingReport.requiredFieldsTitle'), t('meetingReport.actionRequiredText'));
       return;
@@ -106,7 +161,7 @@ export default function MeetingReportScreen() {
       status: 'pending',
       reserveId: actionReserveId.trim() || undefined,
     };
-    updateReportData(reportId, r => ({ ...r, actions: [...r.actions, action] }));
+    if (!await updateReportData(reportId, r => ({ ...r, actions: [...r.actions, action] }))) return;
     setActionDesc(''); setActionResp(''); setActionDeadline(''); setActionReserveId('');
     setShowAddAction(false);
   }
@@ -124,7 +179,7 @@ export default function MeetingReportScreen() {
     showAlert(t('meetingReport.deleteActionTitle'), t('meetingReport.deleteActionText'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('common.delete'), style: 'destructive', onPress: () =>
-        updateReportData(reportId, r => ({ ...r, actions: r.actions.filter(a => a.id !== actionId) }))
+        void updateReportData(reportId, r => ({ ...r, actions: r.actions.filter(a => a.id !== actionId) }))
       },
     ]);
   }
@@ -134,6 +189,7 @@ export default function MeetingReportScreen() {
   );
 
   const resetForm = () => {
+    setEditing(null);
     setSubject(''); setDate(formatDateFR(new Date())); setLocation('');
     setParticipants(''); setAgenda(''); setNotes(''); setDecisions(''); setNextMeeting('');
   };
@@ -152,16 +208,31 @@ export default function MeetingReportScreen() {
     }
     if (companyNames) setParticipants(companyNames + (user?.name ? '\n' + user.name : ''));
     setShowTemplateModal(false);
+    setFormScope(draftKey);
     setShowNew(true);
   }
 
-  const handleCreate = useCallback(() => {
+  function openEditor(report: MeetingReport) {
+    setEditing({ report, version: sharedById.get(report.id)?.version });
+    setSubject(report.subject); setDate(report.date); setLocation(report.location);
+    setParticipants(report.participants); setAgenda(report.agenda); setNotes(report.notes);
+    setDecisions(report.decisions.join('\n')); setNextMeeting(report.nextMeeting);
+    setFormScope(draftKey);
+    setShowNew(true);
+  }
+
+  async function handleCreate() {
+    if (editing ? !permissions.canEdit : !permissions.canCreate) return;
+    if (formScope !== draftKey) {
+      showAlert(t('common.error'), t('meetingReport.scopeChanged'));
+      return;
+    }
     if (!subject.trim()) {
       showAlert(t('meetingReport.requiredFieldTitle'), t('meetingReport.subjectRequired'));
       return;
     }
     const report: MeetingReport = {
-      id: genId(),
+      id: editing?.report.id ?? genId(),
       subject: subject.trim(),
       date,
       location: location.trim() || t('meetingReport.notSpecified'),
@@ -169,19 +240,41 @@ export default function MeetingReportScreen() {
       agenda: agenda.trim(),
       notes: notes.trim(),
       decisions: decisions.split('\n').map(s => s.trim()).filter(Boolean),
-      actions: [],
+      actions: editing?.report.actions ?? [],
       nextMeeting: nextMeeting.trim(),
-      redactedBy: user?.name ?? t('common.system'),
-      createdAt: nowTimestampFR(),
+      redactedBy: editing?.report.redactedBy ?? user?.name ?? t('common.system'),
+      createdAt: editing?.report.createdAt ?? nowTimestampFR(),
     };
-    setReports(prev => {
-      const updated = [report, ...prev];
-      AsyncStorage.setItem(MEETING_KEY, JSON.stringify(updated)).catch(() => {});
-      return updated;
-    });
+    const saved = await write(() => editing?.version !== undefined || (!editing && shared.ready)
+      ? shared.save(report, editing ? 'update' : 'create', editing?.version)
+      : storeLocal(report.id, items => editing ? items.map(item => item.id === report.id ? report : item) : [report, ...items]));
+    if (!saved) return;
     resetForm();
     setShowNew(false);
-  }, [subject, date, location, participants, agenda, notes, decisions, nextMeeting, user, t]);
+  }
+
+  function shareReport(report: MeetingReport) {
+    if (!activeChantier || !permissions.canCreate) return;
+    showAlert(t('meetingReport.shareOnSite'), t('meetingReport.shareOnSiteConfirm', { project: activeChantier.name }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('meetingReport.shareOnSite'), onPress: () => void write(async () => {
+        const actions = report.actions.map(action => action.reserveId && !reserves.some(reserve =>
+          reserve.id === action.reserveId && reserve.chantierId === chantierId
+        ) ? { ...action, reserveId: undefined } : action);
+        if (!await shared.save({ ...report, actions }, 'create')) return false;
+        return storeLocal(report.id, items => items.filter(item => item.id !== report.id));
+      }) },
+    ]);
+  }
+
+  function deleteReport(report: MeetingReport) {
+    if (!permissions.canDelete) return;
+    showAlert(t('common.delete'), t('meetingReport.deleteReportConfirm', { subject: report.subject }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => void write(() => sharedById.has(report.id)
+        ? shared.remove(report.id) : storeLocal(report.id, items => items.filter(item => item.id !== report.id))) },
+    ]);
+  }
 
   async function handleExportPDF(report: MeetingReport) {
     if (!permissions.canExport) {
@@ -197,7 +290,7 @@ export default function MeetingReportScreen() {
     }
   }
 
-  if (user?.role === 'sous_traitant') {
+  if (!allowed) {
     return (
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F8FAFC', padding: 32 }}>
         <Ionicons name="lock-closed-outline" size={48} color="#94A3B8" />
@@ -222,12 +315,18 @@ export default function MeetingReportScreen() {
         subtitle={t('meetingReport.subtitle')}
         showBack
         rightLabel={permissions.canCreate ? (showNew ? t('common.cancel') : t('messages.new')) : undefined}
-        onRightPress={permissions.canCreate ? () => { if (showNew) { setShowNew(false); resetForm(); } else setShowNew(true); } : undefined}
+        onRightPress={permissions.canCreate ? () => { if (showNew) { setShowNew(false); resetForm(); } else { setFormScope(draftKey); setShowNew(true); } } : undefined}
       />
 
       <PageContainer maxWidth={1000}>
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
 
+        {chantierId && (
+          <TouchableOpacity style={styles.templateBanner} disabled={busy} onPress={() => void shared.refresh()}>
+            <Ionicons name="refresh" size={18} color={C.primary} />
+            <Text style={styles.templateBannerTitle}>{t(shared.failed ? 'meetingReport.syncUnavailable' : 'meetingReport.refreshShared')}</Text>
+          </TouchableOpacity>
+        )}
         {!showNew && permissions.canCreate && (
           <TouchableOpacity style={styles.templateBanner} onPress={() => setShowTemplateModal(true)}>
             <Ionicons name="flash" size={18} color={C.primary} />
@@ -242,12 +341,13 @@ export default function MeetingReportScreen() {
         {showNew && (
           <View style={styles.card}>
             <View style={styles.formTopRow}>
-              <Text style={styles.sectionTitle}>{t('meetingReport.newReport')}</Text>
-              <TouchableOpacity style={styles.tplBtn} onPress={() => setShowTemplateModal(true)}>
+              <Text style={styles.sectionTitle}>{t(editing ? 'meetingReport.editReport' : 'meetingReport.newReport')}</Text>
+              {!editing && <TouchableOpacity style={styles.tplBtn} onPress={() => setShowTemplateModal(true)}>
                 <Ionicons name="flash-outline" size={13} color={C.primary} />
                 <Text style={styles.tplBtnText}>{t('meetingReport.template')}</Text>
-              </TouchableOpacity>
+              </TouchableOpacity>}
             </View>
+            {!editing && <Text style={styles.reportMeta}>{t(shared.ready ? 'meetingReport.sharedReport' : 'meetingReport.localReport')}</Text>}
             <Text style={styles.label}>{t('meetingReport.subject')}</Text>
             <TextInput style={styles.input} placeholder={t('meetingReport.subjectPlaceholder')} placeholderTextColor={C.textMuted} value={subject} onChangeText={setSubject} />
             <Text style={styles.label}>{t('meetingReport.date')}</Text>
@@ -264,10 +364,11 @@ export default function MeetingReportScreen() {
             <TextInput style={[styles.input, styles.multiline]} placeholder={t('meetingReport.decisionsPlaceholder')} placeholderTextColor={C.textMuted} value={decisions} onChangeText={setDecisions} multiline numberOfLines={3} />
             <Text style={styles.label}>{t('meetingReport.nextMeeting')}</Text>
             <TextInput style={styles.input} placeholder={t('meetingReport.nextMeetingPlaceholder')} placeholderTextColor={C.textMuted} value={nextMeeting} onChangeText={setNextMeeting} />
-            <TouchableOpacity style={styles.createBtn} onPress={handleCreate}>
+            <TouchableOpacity style={styles.createBtn} disabled={busy} onPress={() => void handleCreate()}>
               <Ionicons name="document-text" size={18} color="#fff" />
-              <Text style={styles.createBtnText}>{t('meetingReport.createReport')}</Text>
+              <Text style={styles.createBtnText}>{t(editing ? 'common.save' : 'meetingReport.createReport')}</Text>
             </TouchableOpacity>
+            {editing && <TouchableOpacity disabled={busy} onPress={() => { resetForm(); setShowNew(false); }}><Text style={styles.tplBtnText}>{t('common.cancel')}</Text></TouchableOpacity>}
           </View>
         )}
 
@@ -277,7 +378,7 @@ export default function MeetingReportScreen() {
             <Text style={styles.emptyTitle}>{t('meetingReport.emptyTitle')}</Text>
             <Text style={styles.emptyText}>{t('meetingReport.emptyText')}</Text>
             {permissions.canCreate && (
-              <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowNew(true)}>
+              <TouchableOpacity style={styles.emptyBtn} onPress={() => { setFormScope(draftKey); setShowNew(true); }}>
                 <Ionicons name="add-circle" size={18} color={C.primary} />
                 <Text style={styles.emptyBtnText}>{t('meetingReport.newShort')}</Text>
               </TouchableOpacity>
@@ -288,11 +389,13 @@ export default function MeetingReportScreen() {
         {reports.map(report => {
           const isExpanded = expandedReportId === report.id;
           const doneCount = report.actions.filter(a => a.status === 'done').length;
+          const isShared = sharedById.has(report.id);
           return (
             <View key={report.id} style={styles.card}>
               <View style={styles.reportHeader}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.reportTitle}>{report.subject}</Text>
+                  <Text style={styles.reportMeta}>{t(isShared ? 'meetingReport.sharedReport' : 'meetingReport.localReport')}</Text>
                   <Text style={styles.reportMeta}>{report.date} — {report.location}</Text>
                   <Text style={styles.reportMeta}>
                     {t('meetingReport.redactedBy', { name: report.redactedBy })}
@@ -306,6 +409,16 @@ export default function MeetingReportScreen() {
                   </TouchableOpacity>
                 )}
               </View>
+
+              {permissions.canEdit && !showNew && (
+                <TouchableOpacity style={styles.addActionBtn} disabled={busy} onPress={() => openEditor(report)}><Text style={styles.addActionBtnText}>{t('meetingReport.editReport')}</Text></TouchableOpacity>
+              )}
+              {permissions.canCreate && !isShared && shared.ready && (
+                <TouchableOpacity style={styles.addActionBtn} disabled={busy} onPress={() => shareReport(report)}><Text style={styles.addActionBtnText}>{t('meetingReport.shareOnSite')}</Text></TouchableOpacity>
+              )}
+              {permissions.canDelete && (
+                <TouchableOpacity style={styles.addActionBtn} disabled={busy || showNew} onPress={() => deleteReport(report)}><Text style={styles.addActionBtnText}>{t('common.delete')}</Text></TouchableOpacity>
+              )}
 
               {report.decisions.length > 0 && (
                 <View style={styles.decisionsBox}>
@@ -355,6 +468,7 @@ export default function MeetingReportScreen() {
                       <View key={action.id} style={styles.actionRow}>
                         <TouchableOpacity
                           onPress={() => toggleAction(report.id, action.id!)}
+                          disabled={busy || !permissions.canEdit}
                           hitSlop={8}
                           style={[
                             styles.actionCheck,
@@ -384,7 +498,7 @@ export default function MeetingReportScreen() {
                             </View>
                           )}
                         </View>
-                        {permissions.canCreate && (
+                        {permissions.canEdit && (
                           <TouchableOpacity
                             onPress={() => removeAction(report.id, action.id!)}
                             hitSlop={8}
@@ -396,7 +510,7 @@ export default function MeetingReportScreen() {
                     );
                   })}
 
-                  {permissions.canCreate && !showAddAction && (
+                  {permissions.canEdit && !showAddAction && (
                     <TouchableOpacity
                       style={styles.addActionBtn}
                       onPress={() => setShowAddAction(true)}

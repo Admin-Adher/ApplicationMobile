@@ -280,7 +280,7 @@ export async function uploadRegisteredWebFile(
   });
   const reservation = await reservationResponse.json().catch(() => ({}));
   if (!reservationResponse.ok || !reservation?.assetId || !reservation?.mediaRef) {
-    throw new Error(reservation?.error || `Réservation média impossible (HTTP ${reservationResponse.status}).`);
+    throw Object.assign(new Error(reservation?.error || `Réservation média impossible (HTTP ${reservationResponse.status}).`), { status: reservationResponse.status });
   }
 
   if (reservation.provider === 'r2') {
@@ -290,7 +290,7 @@ export async function uploadRegisteredWebFile(
       headers: { 'Content-Type': contentType },
       body: file,
     });
-    if (!upload.ok) throw new Error(`Téléversement R2 impossible (HTTP ${upload.status}).`);
+    if (!upload.ok) throw Object.assign(new Error(`Téléversement R2 impossible (HTTP ${upload.status}).`), { status: upload.status });
   } else {
     const { error } = await supabaseBrowser.storage
       .from(String(reservation.bucket ?? bucket))
@@ -309,7 +309,7 @@ export async function uploadRegisteredWebFile(
   });
   const completed = await completeResponse.json().catch(() => ({}));
   if (!completeResponse.ok || completed?.ok !== true) {
-    throw new Error(completed?.error || `Validation média impossible (HTTP ${completeResponse.status}).`);
+    throw Object.assign(new Error(completed?.error || `Validation média impossible (HTTP ${completeResponse.status}).`), { status: completeResponse.status });
   }
   return String(reservation.mediaRef);
 }

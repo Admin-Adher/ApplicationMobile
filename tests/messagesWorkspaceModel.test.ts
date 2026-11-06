@@ -58,6 +58,24 @@ describe('BuildTrack messages workspace model', () => {
     expect(projection.visibleChannels.map(channel => channel.channel.id)).toContain('dm-1');
   });
 
+  it('prioritizes pinned conversations and filters only authorized conversations', () => {
+    const projection = buildMessagesProjection({
+      snapshot,
+      selectedChannelId: 'company-company-a',
+      lastReadByChannel: {},
+      pinnedChannelIds: ['building-a', 'inaccessible-channel'],
+      currentUserId: 'user-me',
+      currentUserName: 'Alex',
+      query: '',
+      filter: 'pinned',
+      language: 'fr',
+    });
+
+    expect(projection.channels.map(channel => channel.channel.id)).toEqual(['building-a', 'company-company-a', 'dm-1']);
+    expect(projection.visibleChannels.map(channel => channel.channel.id)).toEqual(['building-a']);
+    expect(projection.selected).toMatchObject({ channelPinned: false, pinnedCount: 1 });
+  });
+
   it('combines accent-insensitive search and semantic channel filters', () => {
     const projection = buildMessagesProjection({
       snapshot,
