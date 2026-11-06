@@ -103,7 +103,8 @@ import {
   type PlanDrawingTool,
 } from '../../../lib/plan-annotations/model';
 import { getCanonicalPlanAnnotationSignature } from '../../../lib/plan-annotations/pending-snapshots';
-import { planAnnotationDelta, projectPlanAnnotations, projectReserveComments, type PlanAnnotationDelta, type ReserveCommentChange } from '@/lib/web-terrain-edits';
+import { planAnnotationDelta, projectPlanAnnotations, projectReserveComments, projectTerrainChanges, terrainActionLabels, type PlanAnnotationDelta, type ReserveCommentChange, type WebTerrainChange } from '@/lib/web-terrain-edits';
+import { visitSignatureHasInk, visitSignatureImageSource } from '@/lib/visit-signature';
 import type { Comment } from '../../../constants/types';
 import { renderPlanAnnotationsToCanvas } from '../../../lib/plan-annotations/canvas-renderer';
 import {
@@ -4122,16 +4123,25 @@ function BuildTrackWebWorkspace() {
     }
   }
 
+  async function enqueueTerrainChange(rowId: string, change: WebTerrainChange, id = crypto.randomUUID()) {
+    const organization = profile?.organization_id;
+    if (!organization || !rowId || !canEdit(profile)) return false;
+    setError('');
+    try {
+      await outbox.enqueue('terrain_action', { id, rowId, organization_id: organization, change });
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Modification conservée sur ce navigateur.');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver cette modification.');
+      return false;
+    }
+  }
+
   async function toggleArchive(reserve: any) {
-    if (!canEdit(profile)) return;
-    setSaving(true);
-    const next = reserve.archived_at
-      ? { archived_at: null, archived_by: null }
-      : { archived_at: new Date().toISOString(), archived_by: profile?.name ?? profile?.email ?? 'Web' };
-    const { error: archiveError } = await supabaseBrowser.from('reserves').update(next).eq('id', reserve.id);
-    if (archiveError) setError(archiveError.message);
-    else setData(prev => ({ ...prev, reserves: prev.reserves.map(r => r.id === reserve.id ? { ...r, ...next } : r) }));
-    setSaving(false);
+    await enqueueTerrainChange(reserve.id, {
+      action: 'reserve_archive', archived: !reserve.archived_at, at: nowISO(), actor: userLabel(profile, authUser),
+    });
   }
 
   async function deleteReserveWeb(reserve: any) {
@@ -4841,6 +4851,10 @@ function BuildTrackWebWorkspace() {
     return enqueueFieldWrites('visites', [fieldUpdate(visit, patch)], file);
   }
 
+  async function updateVisitChecklistItem(visit: any, itemId: string, checked: boolean) {
+    return enqueueTerrainChange(visit.id, { action: 'visit_checklist_item', itemId, checked });
+  }
+
   async function attachReservesToVisitWeb(visit: any, reserveIds: string[]) {
     if (!canCreate(profile) || !visit?.id || !reserveIds.length) return;
     await enqueueVisitReserves(visit.id, reserveIds, 'link');
@@ -4935,7 +4949,7 @@ function BuildTrackWebWorkspace() {
   async function addTaskComment(task: any, content: string) {
     if (!authUser || !content.trim()) return false;
     const comment = { id: crypto.randomUUID(), author: userLabel(profile, authUser), authorId: authUser.id, content: content.trim(), createdAt: new Date().toISOString() };
-    return await updateTaskQuick(task, { comments: [...(Array.isArray(task.comments) ? task.comments : []), comment] });
+    return enqueueTerrainChange(task.id, { action: 'task_comment', change: { action: 'add', comment } }, comment.id);
   }
 
   async function changeTaskComment(task: any, commentId: string, action: 'edit' | 'delete') {
@@ -4944,14 +4958,16 @@ function BuildTrackWebWorkspace() {
     if (!comment || (comment.authorId ? comment.authorId !== authUser.id : comment.author !== userLabel(profile, authUser))) return;
     if (action === 'delete') {
       if (window.confirm('Supprimer ce commentaire ?')) {
-        await updateTaskQuick(task, { comments: task.comments.filter((item: any) => item.id !== commentId) });
+        await enqueueTerrainChange(task.id, { action: 'task_comment', change: { action, commentId } });
       }
       return;
     }
-    const content = (await askTextDialog('Modifier le commentaire', { defaultValue: comment.content ?? comment.text ?? '' }))?.trim();
+    const previousContent = comment.content ?? comment.text ?? '';
+    const content = (await askTextDialog('Modifier le commentaire', { defaultValue: previousContent }))?.trim();
     if (!content) return;
-    await updateTaskQuick(task, { comments: task.comments.map((item: any) => item.id === commentId
-      ? { ...item, content, ...(item.text != null ? { text: content } : {}), editedAt: new Date().toISOString() } : item) });
+    await enqueueTerrainChange(task.id, {
+      action: 'task_comment', change: { action, commentId, content, previousContent, editedAt: nowISO() },
+    });
   }
 
   async function deleteTaskWeb(task: any) {
@@ -5448,76 +5464,48 @@ function BuildTrackWebWorkspace() {
   }
 
   async function createSitePlanRevisionWeb(parentPlan: any, draft: any, file: File | null, migrateReserves: boolean) {
-    if (!profile || !canCreate(profile) || !parentPlan?.id) return null;
-    const parentRevisionNumber = Number(parentPlan.revision_number ?? parentPlan.revisionNumber ?? 1) || 1;
-    const revisionNumber = parentRevisionNumber + 1;
-    const revisionCode = String(draft.revision_code ?? '').trim() || `R${String(revisionNumber).padStart(2, '0')}`;
-    setSaving(true);
-    setError('');
-    let uri: string | null = null;
-    let fileType: string | null = null;
-    let dxfName: string | null = null;
-    if (file) {
-      const detected = detectWebPlanFileType(file);
-      if (!detected) {
-        setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
-        setSaving(false);
-        return null;
-      }
-      uri = await uploadWebFile('documents', file, `revision_${parentPlan.name}_${revisionCode}`);
-      fileType = detected;
-      dxfName = detected === 'dxf' ? file.name : null;
+    const org = profile?.organization_id;
+    if (!org || !canCreate(profile) || !parentPlan?.id) return false;
+    if (outbox.rows.some(operation => operation.kind === 'plan_revision' && operation.payload.parentId === parentPlan.id)) {
+      setError('Une révision de ce plan est déjà dans la file de synchronisation.');
+      return false;
     }
+    const fileType = file ? detectWebPlanFileType(file) : null;
+    if (file && !fileType) {
+      setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
+      return false;
+    }
+    const revisionNumber = (Number(parentPlan.revision_number ?? parentPlan.revisionNumber ?? 1) || 1) + 1;
+    const revisionCode = String(draft.revision_code ?? '').trim() || `R${String(revisionNumber).padStart(2, '0')}`;
     const newPlan = {
-      id: `PLAN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+      id: `PLAN-${crypto.randomUUID()}`,
       chantier_id: parentPlan.chantier_id ?? parentPlan.chantierId,
       name: String(draft.name ?? '').trim() || parentPlan.name,
       building: String(draft.building ?? parentPlan.building ?? '').trim() || null,
       level: String(draft.level ?? parentPlan.level ?? '').trim() || null,
       building_id: draft.building_id ?? parentPlan.building_id ?? null,
       level_id: draft.level_id ?? parentPlan.level_id ?? null,
-      uri,
       file_type: fileType,
-      dxf_name: dxfName,
+      dxf_name: fileType === 'dxf' ? file?.name ?? null : null,
       uploaded_at: todayISO(),
       size: file ? formatWebFileSize(file.size) : null,
       revision_code: revisionCode,
       revision_number: revisionNumber,
-      parent_plan_id: parentPlan.id,
-      is_latest_revision: true,
       revision_note: String(draft.revision_note ?? '').trim() || null,
-      annotations: [],
-      organization_id: profile.organization_id ?? null,
     };
-    const { data: revisionResult, error: revisionError } = await (supabaseBrowser as any).rpc('create_site_plan_revision_with_reserve_migration', {
-      p_parent_plan_id: String(parentPlan.id),
-      p_new_plan: newPlan,
-      p_migrate_reserves: migrateReserves,
-    });
-    if (revisionError) {
-      setError(revisionError.message ?? 'Création de la révision impossible.');
+    setSaving(true);
+    setError('');
+    try {
+      await outbox.enqueue('plan_revision', { id: newPlan.id, parentId: parentPlan.id, organization_id: org, newPlan, migrateReserves }, file ?? undefined);
+      setNotice('Révision conservée sur ce navigateur en attendant sa synchronisation.');
+      if (navigator.onLine) void outbox.flush();
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver cette révision.');
+      return false;
+    } finally {
       setSaving(false);
-      return null;
     }
-    const rpcPayload = Array.isArray(revisionResult) ? revisionResult[0] : revisionResult;
-    const insertedPlan = rpcPayload?.plan ?? newPlan;
-    const migratedCount = Number(rpcPayload?.migrated_count ?? 0);
-    setData(prev => ({
-      ...prev,
-      sitePlans: [
-        insertedPlan,
-        ...prev.sitePlans.map(item => item.id === parentPlan.id ? { ...item, is_latest_revision: false, revision_number: parentRevisionNumber } : item),
-      ],
-      reserves: prev.reserves.map(item => (
-        migrateReserves && migratedCount > 0 && getReservePlanId(item) === String(parentPlan.id) &&
-        item.status != null && !isReserveClosed(item) && !isReserveArchived(item) && !isReserveDeleted(item)
-          ? { ...item, plan_id: insertedPlan.id }
-          : item
-      )),
-    }));
-    setSelectedPlanId(insertedPlan.id);
-    setSaving(false);
-    return { plan: insertedPlan, migratedCount };
   }
 
   async function createDocumentWeb(payload: Record<string, any>, file: File | null) {
@@ -6221,6 +6209,69 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'terrain_action') {
+      const org = profile?.organization_id;
+      const { id, rowId, organization_id, change: value } = operation.payload;
+      if (!org || org !== organization_id || !canEdit(profile)) throw new Error('Votre compte ne peut plus effectuer cette modification.');
+      const change = value as WebTerrainChange;
+      const comment = change.action === 'task_comment' ? change.change : null;
+      const { data: row, error, status } = await supabaseBrowser.rpc('apply_web_terrain_action', {
+        p_organization_id: org, p_id: rowId, p_operation_id: id, p_action: change.action,
+        p_payload: !comment ? change : comment.action === 'add'
+          ? { mutation: comment.action, content: comment.comment.content }
+          : { ...comment, mutation: comment.action },
+      });
+      if (error) throw Object.assign(error, { status });
+      if (!row?.id) throw new Error('La modification n’a pas été enregistrée.');
+      if (stillOwned()) setData(previous => {
+        if (change.action === 'reserve_archive') return {
+          ...previous, reserves: previous.reserves.map(reserve => reserve.id === row.id && Number(reserve.version ?? 0) <= Number(row.version ?? 0) ? row : reserve),
+        };
+        if (change.action === 'visit_checklist_item') return {
+          ...previous, visites: previous.visites.map(visit => visit.id === row.id ? { ...visit, checklist_items: row.checklist_items, status: row.status } : visit),
+        };
+        return { ...previous, tasks: previous.tasks.map(task => task.id === row.id ? { ...task, comments: row.comments } : task) };
+      });
+      return;
+    }
+    if (operation.kind === 'plan_revision') {
+      const org = profile?.organization_id;
+      const { parentId, organization_id, newPlan, migrateReserves } = operation.payload;
+      if (!org || org !== organization_id || !canCreate(profile)) throw new Error('Votre compte ne peut plus créer cette révision.');
+      const draft = newPlan as Record<string, unknown>;
+      let media = typeof operation.prepared === 'string' ? operation.prepared : null;
+      if (!media && operation.files instanceof File) {
+        media = await uploadWebFile('documents', operation.files, `revision_${draft.id}`);
+        operation.prepared = media;
+        operation.files = undefined;
+        await saveWebOperation(operation);
+      }
+      await assertOwner();
+      const { data: result, error, status } = await supabaseBrowser.rpc('create_web_plan_revision', {
+        p_organization_id: org, p_parent_plan_id: parentId, p_new_plan: { ...draft, uri: media }, p_migrate_reserves: migrateReserves,
+      });
+      if (error) throw Object.assign(error, { status });
+      if (!result?.plan?.id) throw new Error('La révision n’a pas été enregistrée.');
+      if (!stillOwned()) return;
+      const saved = result.plan;
+      setSelectedPlanId(current => current === parentId && saved.is_latest_revision ? saved.id : current);
+      if (result.replayed && authUser) {
+        await loadEverything(authUser, { background: true });
+      } else {
+        setData(previous => ({
+          ...previous,
+          sitePlans: [saved, ...previous.sitePlans.filter(plan => plan.id !== saved.id).map(plan => plan.id === parentId
+            ? { ...plan, is_latest_revision: false, replaced_by_plan_id: saved.id, revision_number: plan.revision_number ?? (saved.revision_number - 1) } : plan)],
+          reserves: previous.reserves.map(reserve => Number(result.migrated_count) > 0 && getReservePlanId(reserve) === parentId
+            && reserve.status != null && !isReserveClosed(reserve) && !isReserveArchived(reserve) && !isReserveDeleted(reserve)
+            ? { ...reserve, plan_id: saved.id } : reserve),
+        }));
+      }
+      setNotice(Number(result.migrated_count) > 0
+        ? `Révision enregistrée. ${result.migrated_count} réserve(s) migrée(s).`
+        : 'Révision de plan enregistrée.');
+      return;
+    }
     if (operation.kind === 'reserve_comment' || operation.kind === 'plan_annotation') {
       const org = profile?.organization_id;
       if (!org || operation.payload.organization_id !== org) throw new Error('Cette saisie n’appartient plus à la session.');
@@ -6744,14 +6795,14 @@ function BuildTrackWebWorkspace() {
     timeEntries: projectFieldRows(data.timeEntries, 'time_entries', outbox.rows),
     journalEntries: projectFieldRows(data.journalEntries, 'journal_entries', outbox.rows),
     checklists: projectFieldRows(data.checklists, 'checklists', outbox.rows),
-    tasks: projectFieldRows(data.tasks, 'tasks', outbox.rows),
-    visites: projectFieldRows(data.visites, 'visites', outbox.rows),
+    tasks: projectTerrainChanges(projectFieldRows(data.tasks, 'tasks', outbox.rows), outbox.rows, 'task_comment'),
+    visites: projectTerrainChanges(projectFieldRows(data.visites, 'visites', outbox.rows), outbox.rows, 'visit_checklist_item'),
     incidents: projectFieldRows(data.incidents, 'incidents', outbox.rows),
     regulatoryDocs: projectFieldRows(data.regulatoryDocs, 'regulatory_docs', outbox.rows),
     documents: projectFieldRows(data.documents, 'documents', outbox.rows),
     photos: projectFieldRows(data.photos, 'photos', outbox.rows),
     oprs: projectFieldRows(data.oprs, 'oprs', outbox.rows),
-    reserves: projectReserveComments(data.reserves, outbox.rows),
+    reserves: projectTerrainChanges(projectReserveComments(data.reserves, outbox.rows), outbox.rows, 'reserve_archive'),
     sitePlans: projectPlanAnnotations(data.sitePlans, outbox.rows),
   }), [data, outbox.rows]);
 
@@ -7271,7 +7322,8 @@ function BuildTrackWebWorkspace() {
           {outbox.storageError ? <p role="alert">{outbox.storageError}</p> : null}
           {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
             <ul>{outbox.rows.map(operation => <li key={operation.key}>
-              {operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
+              {operation.kind === 'terrain_action' ? terrainActionLabels[(operation.payload.change as WebTerrainChange).action] :
+                operation.kind === 'plan_revision' ? 'Révision de plan · ' + String((operation.payload.newPlan as Record<string, unknown>).name) : operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
               {canDiscardFieldOperation(operation) && (
@@ -7586,6 +7638,7 @@ function BuildTrackWebWorkspace() {
                 onArchiveReserve={toggleArchive}
                 onDeleteReserve={deleteReserveWeb}
                 onUpdateVisit={updateVisitWeb}
+                onUpdateChecklistItem={updateVisitChecklistItem}
                 onDeleteVisit={deleteVisitWeb}
                 onGenerateVisitReport={(visit: any, language: 'fr' | 'en' | 'es') => generateWebReport('visit_report', { visit, language })}
                 reportLanguage={reportLanguage}
@@ -10732,7 +10785,6 @@ function PlansView({
   const [planDraft, setPlanDraft] = useState<any>({});
   const [planFile, setPlanFile] = useState<File | null>(null);
   const [migrateRevisionReserves, setMigrateRevisionReserves] = useState(true);
-  const [planActionMessage, setPlanActionMessage] = useState('');
   const [planActionsOpen, setPlanActionsOpen] = useState(false);
   const [pinCreateMode, setPinCreateMode] = useState(false);
   const [cachedPlanPreview, setCachedPlanPreview] = useState<{
@@ -10838,7 +10890,6 @@ function PlansView({
     setPlanDraft(makePlanDraft(mode, plan ?? selectedPlan));
     setPlanFile(null);
     setMigrateRevisionReserves(true);
-    setPlanActionMessage('');
     setPlanModalMode(mode);
   }
 
@@ -10899,15 +10950,8 @@ function PlansView({
       result = await onUpdatePlan?.(selectedPlan, patch, planFile);
     } else if (planModalMode === 'revision' && selectedPlan) {
       result = await onCreateRevision?.(selectedPlan, patch, planFile, migrateRevisionReserves);
-      if (result?.migratedCount != null) {
-        setPlanActionMessage(`${result.migratedCount} réserve(s) migrée(s) vers la nouvelle révision.`);
-      }
     }
-    if (result && planModalMode !== 'revision') {
-      setPlanModalMode(null);
-    } else if (result?.plan) {
-      window.setTimeout(() => setPlanModalMode(null), 700);
-    }
+    if (result) setPlanModalMode(null);
   }
 
   async function handleDeleteSelectedPlanFile() {
@@ -12076,7 +12120,6 @@ function PlansView({
                   <span>Migrer les réserves non clôturées vers cette nouvelle révision</span>
                 </label>
               )}
-              {planActionMessage ? <p className={styles.successText}>{planActionMessage}</p> : null}
               <div className={styles.modalActions}>
                 <button type="button" onClick={() => setPlanModalMode(null)} disabled={saving}>Annuler</button>
                 <button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button>
@@ -12421,6 +12464,7 @@ function VisitesView({
   onArchiveReserve,
   onDeleteReserve,
   onUpdateVisit,
+  onUpdateChecklistItem,
   onDeleteVisit,
   onGenerateVisitReport,
   generatingReport,
@@ -12454,8 +12498,9 @@ function VisitesView({
   const [signatureVisitId, setSignatureVisitId] = useState('');
   const [signatureTab, setSignatureTab] = useState<'conducteur' | 'entreprise'>('conducteur');
   const [signatureData, setSignatureData] = useState<{ conducteur?: string | null; entreprise?: string | null }>({});
-  const [signatureDrawing, setSignatureDrawing] = useState(false);
-  const [signatureStrokes, setSignatureStrokes] = useState(0);
+  const signatureStrokeRef = useRef<{ pointerId: number; x: number; y: number; drawn: boolean } | null>(null);
+  const [signatureReady, setSignatureReady] = useState(false);
+  const [savingSignature, setSavingSignature] = useState(false);
   const [signatureName, setSignatureName] = useState('');
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -12606,16 +12651,22 @@ function VisitesView({
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.strokeStyle = '#0f172a';
-    const dataUrl = signatureTab === 'conducteur' ? signatureData.conducteur : signatureData.entreprise;
-    if (dataUrl) {
-      const image = new Image();
-      image.onload = () => {
-        ctx.clearRect(0, 0, width, height);
-        ctx.drawImage(image, 0, 0, (rect.width || 520), (rect.height || 180));
-      };
-      image.src = dataUrl;
-    }
-  }, [signatureVisit, signatureTab, signatureData.conducteur, signatureData.entreprise]);
+    signatureStrokeRef.current = null;
+    const source = visitSignatureImageSource(signatureData[signatureTab]);
+    setSignatureReady(!source);
+    if (!source) return;
+    const image = new Image();
+    image.onload = () => {
+      ctx.drawImage(image, 0, 0, (rect.width || 520), (rect.height || 180));
+      setSignatureReady(true);
+    };
+    image.onerror = () => setSignatureReady(true);
+    image.src = source;
+    return () => {
+      image.onload = null;
+      image.onerror = null;
+    };
+  }, [signatureVisit, signatureTab, signatureData]);
 
   const stats = {
     total: sortedVisits.length,
@@ -12643,11 +12694,8 @@ function VisitesView({
   }
 
   function toggleChecklist(visit: any, itemId: string) {
-    const nextChecklist = visitChecklist(visit).map(item => item.id === itemId ? { ...item, checked: !item.checked } : item);
-    onUpdateVisit(visit, {
-      checklist_items: nextChecklist,
-      status: visitStatus(visit) === 'planned' ? 'in_progress' : visitStatus(visit),
-    });
+    const item = visitChecklist(visit).find(entry => entry.id === itemId);
+    if (item) void onUpdateChecklistItem(visit, item.id, !item.checked);
   }
 
   function openLocationModal(visit: any) {
@@ -12735,7 +12783,7 @@ function VisitesView({
       entreprise: visit.entreprise_signature ?? visit.entrepriseSignature ?? null,
     });
     setSignatureName(visit.entreprise_signataire ?? visit.entrepriseSignataire ?? '');
-    setSignatureStrokes(0);
+    setSignatureReady(false);
   }
 
   function signaturePoint(event: PointerEvent<HTMLCanvasElement>) {
@@ -12749,35 +12797,39 @@ function VisitesView({
   }
 
   function beginSignature(event: PointerEvent<HTMLCanvasElement>) {
-    const canvas = signatureCanvasRef.current;
-    const ctx = canvas?.getContext('2d');
-    if (!canvas || !ctx) return;
+    const ctx = signatureCanvasRef.current?.getContext('2d');
+    if (!ctx || !signatureReady || savingSignature || signatureStrokeRef.current || event.button !== 0) return;
     event.currentTarget.setPointerCapture(event.pointerId);
     const { x, y } = signaturePoint(event);
+    signatureStrokeRef.current = { pointerId: event.pointerId, x, y, drawn: false };
     ctx.beginPath();
     ctx.moveTo(x, y);
-    setSignatureDrawing(true);
   }
 
   function drawSignature(event: PointerEvent<HTMLCanvasElement>) {
-    if (!signatureDrawing) return;
+    const stroke = signatureStrokeRef.current;
     const ctx = signatureCanvasRef.current?.getContext('2d');
-    if (!ctx) return;
+    if (!stroke || stroke.pointerId !== event.pointerId || !ctx) return;
     const { x, y } = signaturePoint(event);
+    if (!stroke.drawn && Math.hypot(x - stroke.x, y - stroke.y) < 1) return;
     ctx.lineTo(x, y);
     ctx.stroke();
+    stroke.drawn = true;
   }
 
-  function endSignature() {
+  function endSignature(event: PointerEvent<HTMLCanvasElement>) {
+    const stroke = signatureStrokeRef.current;
     const canvas = signatureCanvasRef.current;
-    if (!signatureDrawing || !canvas) return;
-    setSignatureDrawing(false);
-    const dataUrl = canvas.toDataURL('image/png');
-    setSignatureData(prev => ({ ...prev, [signatureTab]: dataUrl }));
-    setSignatureStrokes(prev => prev + 1);
+    if (!stroke || stroke.pointerId !== event.pointerId || !canvas) return;
+    signatureStrokeRef.current = null;
+    if (stroke.drawn) {
+      const dataUrl = canvas.toDataURL('image/png');
+      setSignatureData(prev => ({ ...prev, [signatureTab]: dataUrl }));
+    }
   }
 
   function clearSignature() {
+    signatureStrokeRef.current = null;
     const canvas = signatureCanvasRef.current;
     const ctx = canvas?.getContext('2d');
     if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -12785,23 +12837,31 @@ function VisitesView({
   }
 
   async function saveSignature() {
-    if (!signatureVisit) return;
-    if (!signatureData.conducteur && !signatureData.entreprise) {
-      window.alert('Ajoutez au moins une signature avant d’enregistrer.');
-      return;
+    if (!signatureVisit || savingSignature) return;
+    setSavingSignature(true);
+    try {
+      const [conducteurInk, entrepriseInk] = await Promise.all([
+        visitSignatureHasInk(signatureData.conducteur),
+        visitSignatureHasInk(signatureData.entreprise),
+      ]);
+      if (!conducteurInk && !entrepriseInk) {
+        window.alert('Ajoutez au moins une signature avant d’enregistrer.');
+        return;
+      }
+      if (entrepriseInk && !signatureName.trim()) {
+        window.alert('Renseignez le nom du signataire entreprise.');
+        return;
+      }
+      if (await onUpdateVisit(signatureVisit, {
+        conducteur_signature: conducteurInk ? signatureData.conducteur : null,
+        entreprise_signature: entrepriseInk ? signatureData.entreprise : null,
+        entreprise_signataire: entrepriseInk ? signatureName.trim() : null,
+        signed_at: todayISO(),
+        status: 'completed',
+      })) setSignatureVisitId('');
+    } finally {
+      setSavingSignature(false);
     }
-    if (signatureData.entreprise && !signatureName.trim()) {
-      window.alert('Renseignez le nom du signataire entreprise.');
-      return;
-    }
-    await onUpdateVisit(signatureVisit, {
-      conducteur_signature: signatureData.conducteur ?? null,
-      entreprise_signature: signatureData.entreprise ?? null,
-      entreprise_signataire: signatureName.trim() || null,
-      signed_at: todayISO(),
-      status: 'completed',
-    });
-    setSignatureVisitId('');
   }
 
   if (restricted) {
@@ -13322,14 +13382,14 @@ function VisitesView({
                   aria-label="Zone de signature"
                 />
                 <div className={styles.visitSignatureActions}>
-                  <button type="button" onClick={clearSignature}>Effacer cette signature</button>
-                  <span>{signatureStrokes > 0 ? 'Signature capturée.' : 'Tracez la signature avec la souris ou le doigt.'}</span>
+                  <button type="button" onClick={clearSignature} disabled={savingSignature}>Effacer cette signature</button>
+                  <span>{signatureData[signatureTab] ? 'Signature présente.' : 'Tracez la signature avec la souris ou le doigt.'}</span>
                 </div>
               </section>
             </div>
             <div className={styles.modalActions}>
               <button type="button" onClick={() => setSignatureVisitId('')}>Annuler</button>
-              <button type="button" onClick={saveSignature}>Enregistrer les signatures</button>
+              <button type="button" onClick={saveSignature} disabled={savingSignature}>Enregistrer les signatures</button>
             </div>
           </div>
         </div>

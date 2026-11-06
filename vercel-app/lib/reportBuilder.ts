@@ -1,3 +1,4 @@
+import { visitSignatureImageSource } from './visit-signature';
 ﻿import { getPdfCompanyPalette, getPdfReservePinColor, renderPdfCompanyLabel, renderPdfReserveCompanies } from '../../lib/pdfCompanyColors';
 import { getReserveCompanyNames } from '../../lib/planPinColor';
 import type { PdfReportPayload, PdfPlanItem, PdfReserveItem } from '../types/pdfReport';
@@ -571,6 +572,8 @@ export function buildVisitReportHtml(payload: any): string {
   const palette = getPdfCompanyPalette(companies);
   const participants = Array.isArray(visit.participants) ? visit.participants : [];
   const coverPhotoUri = visit.cover_photo_uri ?? visit.coverPhotoUri ?? null;
+  const conducteurSignature = visitSignatureImageSource(visit.conducteur_signature ?? visit.conducteurSignature);
+  const entrepriseSignature = visitSignatureImageSource(visit.entreprise_signature ?? visit.entrepriseSignature);
   const companyIds: string[] = Array.isArray(visit.concerned_company_ids)
     ? visit.concerned_company_ids
     : Array.isArray(visit.concernedCompanyIds)
@@ -713,8 +716,8 @@ export function buildVisitReportHtml(payload: any): string {
   </table>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:34px">
-    <div style="min-height:54px;border-bottom:2px solid #1e293b">${visit.conducteur_signature || visit.conducteurSignature ? `<img src="${escapeHtml(visit.conducteur_signature || visit.conducteurSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
-    <div style="min-height:54px;border-bottom:2px solid #1e293b">${visit.entreprise_signature || visit.entrepriseSignature ? `<img src="${escapeHtml(visit.entreprise_signature || visit.entrepriseSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
+    <div style="min-height:54px;border-bottom:2px solid #1e293b">${conducteurSignature ? `<img src="${escapeHtml(conducteurSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
+    <div style="min-height:54px;border-bottom:2px solid #1e293b">${entrepriseSignature ? `<img src="${escapeHtml(entrepriseSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
     <div style="text-align:center;color:#64748b;font-size:10px">${copy.manager}</div>
     <div style="text-align:center;color:#64748b;font-size:10px">${copy.signature}</div>
   </div>
