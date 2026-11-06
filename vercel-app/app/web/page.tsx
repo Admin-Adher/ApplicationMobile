@@ -103,7 +103,7 @@ import {
   type PlanDrawingTool,
 } from '../../../lib/plan-annotations/model';
 import { getCanonicalPlanAnnotationSignature } from '../../../lib/plan-annotations/pending-snapshots';
-import { planAnnotationDelta, projectPlanAnnotations, projectReserveComments, projectTerrainChanges, terrainActionLabels, type PlanAnnotationDelta, type ReserveCommentChange, type WebTerrainChange } from '@/lib/web-terrain-edits';
+import { planAnnotationDelta, projectPlanAnnotations, projectReserveComments, projectTerrainChanges, projectPendingRowPatches, terrainActionLabels, type PlanAnnotationDelta, type ReserveCommentChange, type WebTerrainChange } from '@/lib/web-terrain-edits';
 import { visitSignatureHasInk, visitSignatureImageSource } from '@/lib/visit-signature';
 import type { Comment } from '../../../constants/types';
 import { renderPlanAnnotationsToCanvas } from '../../../lib/plan-annotations/canvas-renderer';
@@ -123,6 +123,8 @@ import {
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
 import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
+import { uploadInventoryPhoto } from './inventory-workspace/inventory-operations';
+import type { InventoryProductRow } from './inventory-workspace/inventory-model';
 import ChantiersWorkspace from './chantiers-workspace/ChantiersWorkspace';
 import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace';
 import { useWebAlertReads } from './useWebAlertReads';
@@ -4021,54 +4023,28 @@ function BuildTrackWebWorkspace() {
   }
 
   async function moveReservePinWeb(reserve: any, plan: any, x: number, y: number) {
-    if (!canMovePins(profile) || !reserve?.id || !plan?.id) return false;
-    const nextX = normalizePlanPercent(x);
-    const nextY = normalizePlanPercent(y);
-    const storedX = normalizeStoredPlanPercent(nextX);
-    const storedY = normalizeStoredPlanPercent(nextY);
-    if (nextX == null || nextY == null || storedX == null || storedY == null) return false;
-
-    const history = [
-      ...(Array.isArray(reserve.history) ? reserve.history : []),
-      makeHistory('Épingle déplacée depuis le web', userLabel(profile, authUser)),
-    ];
+    const org = profile?.organization_id;
+    if (!org || !canMovePins(profile) || !reserve?.id || !plan?.id) return false;
+    const storedX = normalizeStoredPlanPercent(normalizePlanPercent(x));
+    const storedY = normalizeStoredPlanPercent(normalizePlanPercent(y));
+    if (storedX == null || storedY == null) return false;
     const patch = {
-      plan_id: plan.id,
-      plan_x: storedX,
-      plan_y: storedY,
+      plan_id: plan.id, plan_x: storedX, plan_y: storedY,
       building: getPlanBuildingName(plan) || reserve.building || '',
       building_id: plan.building_id ?? plan.buildingId ?? reserve.building_id ?? reserve.buildingId ?? null,
       level: getPlanLevelName(plan) || reserve.level || '',
       level_id: plan.level_id ?? plan.levelId ?? reserve.level_id ?? reserve.levelId ?? null,
-      history,
     };
-    const previousReserve = data.reserves.find(item => item.id === reserve.id) ?? reserve;
     setError('');
-
-    setData(prev => ({
-      ...prev,
-      reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, ...patch } : item),
-    }));
-
-    const { data: savedReserve, error: pinError } = await supabaseBrowser
-      .from('reserves')
-      .update(patch)
-      .eq('id', reserve.id)
-      .select('id, plan_id, plan_x, plan_y, building, building_id, level, level_id, history')
-      .maybeSingle();
-    if (pinError || !savedReserve) {
-      setData(prev => ({
-        ...prev,
-        reserves: prev.reserves.map(item => item.id === reserve.id ? previousReserve : item),
-      }));
-      setError(pinError?.message ?? "Déplacement refusé : la réserve n'a pas été mise à jour côté serveur.");
+    try {
+      await outbox.enqueue('reserve_pin', { id: crypto.randomUUID(), rowId: reserve.id, organization_id: org, patch });
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Épingle conservée sur ce navigateur.');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver cette épingle.');
       return false;
     }
-    setData(prev => ({
-      ...prev,
-      reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, ...savedReserve } : item),
-    }));
-    return true;
   }
 
   // Démarre le flux « Placer sur le plan » depuis la fiche d'une réserve sans
@@ -4883,7 +4859,7 @@ function BuildTrackWebWorkspace() {
     if (companyError) setError(companyError.message);
   }
 
-  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string; logo_url?: string }) {
+  async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string; logo_url?: string | null }) {
     if (!isAdmin(profile) || !payload.name.trim()) return null;
     const row = {
       id: crypto.randomUUID(),
@@ -4913,10 +4889,14 @@ function BuildTrackWebWorkspace() {
   }
 
   async function updateCompanyWeb(companyId: string, payload: Record<string, any>) {
-    if (!isAdmin(profile)) return;
-    setData(prev => ({ ...prev, companies: prev.companies.map(item => item.id === companyId ? { ...item, ...payload } : item) }));
-    const { error } = await supabaseBrowser.from('companies').update(payload).eq('id', companyId);
-    if (error) setError(error.message);
+    if (!isAdmin(profile)) return false;
+    const { data: updated, error } = await supabaseBrowser.from('companies').update(payload).eq('id', companyId).select().maybeSingle();
+    if (error || !updated) {
+      setError(error?.message || 'Modification de l’entreprise refusée.');
+      return false;
+    }
+    setData(prev => ({ ...prev, companies: prev.companies.map(item => item.id === companyId ? updated : item) }));
+    return true;
   }
 
   async function deleteCompanyWeb(companyId: string) {
@@ -5286,121 +5266,58 @@ function BuildTrackWebWorkspace() {
   }
 
   async function createSitePlanWeb(draft: any, file: File | null) {
-    if (!profile || !canCreate(profile)) return null;
+    if (!profile?.organization_id || !canCreate(profile)) return false;
     const name = String(draft.name ?? '').trim();
     const chantierId = String(draft.chantier_id || (selectedProjectId !== 'all' ? selectedProjectId : '')).trim();
     if (!name || !chantierId) {
       setError('Le nom du plan et le chantier sont obligatoires.');
-      return null;
+      return false;
     }
-    setSaving(true);
-    setError('');
-    let uri: string | null = null;
-    let fileType: string | null = null;
-    let dxfName: string | null = null;
-    if (file) {
-      const detected = detectWebPlanFileType(file);
-      if (!detected) {
-        setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
-        setSaving(false);
-        return null;
-      }
-      try {
-        uri = await uploadWebFile('documents', file, `plan_${name}`);
-      } catch (uploadError: any) {
-        setError(uploadError?.message ?? "Échec de l'upload du fichier plan.");
-        setSaving(false);
-        return null;
-      }
-      fileType = detected;
-      dxfName = detected === 'dxf' ? file.name : null;
+    const fileType = file ? detectWebPlanFileType(file) : null;
+    if (file && !fileType) {
+      setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
+      return false;
     }
     const payload = {
-      id: `PLAN-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-      chantier_id: chantierId,
-      name,
+      id: `PLAN-${crypto.randomUUID()}`, chantier_id: chantierId, name,
       building: String(draft.building ?? '').trim() || null,
       level: String(draft.level ?? '').trim() || null,
-      building_id: draft.building_id || null,
-      level_id: draft.level_id || null,
-      uri,
-      file_type: fileType,
-      dxf_name: dxfName,
-      uploaded_at: todayISO(),
-      size: file ? formatWebFileSize(file.size) : null,
+      building_id: draft.building_id || null, level_id: draft.level_id || null,
+      uri: null, file_type: fileType, dxf_name: fileType === 'dxf' ? file?.name ?? null : null,
+      uploaded_at: todayISO(), size: file ? formatWebFileSize(file.size) : null,
       revision_code: String(draft.revision_code ?? '').trim() || null,
       revision_number: draft.revision_code ? 1 : null,
-      parent_plan_id: null,
-      is_latest_revision: true,
+      parent_plan_id: null, is_latest_revision: true,
       revision_note: String(draft.revision_note ?? '').trim() || null,
-      annotations: [],
-      organization_id: profile.organization_id ?? null,
+      annotations: [], organization_id: profile.organization_id,
     };
-    const { data: inserted, error: insertError } = await supabaseBrowser.from('site_plans').insert(payload).select().single();
-    if (insertError) {
-      setError(insertError.message);
+    setSaving(true);
+    try {
+      return await enqueueFieldWrites('site_plans', [{ action: 'insert', id: payload.id, fields: payload }], file ?? undefined);
+    } finally {
       setSaving(false);
-      return null;
     }
-    const plan = inserted ?? payload;
-    setData(prev => ({ ...prev, sitePlans: [plan, ...prev.sitePlans] }));
-    setSelectedPlanId(plan.id);
-    setActiveTab('plans');
-    setSaving(false);
-    setNotice('Plan enregistré.');
-    return plan;
   }
 
   async function updateSitePlanWeb(plan: any, patch: Record<string, any>, file?: File | null) {
-    if (!profile || !canCreate(profile) || !plan?.id) return null;
+    if (!profile?.organization_id || !canCreate(profile) || !plan?.id) return false;
+    const fileType = file ? detectWebPlanFileType(file) : null;
+    if (file && !fileType) {
+      setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
+      return false;
+    }
+    const changed = Object.fromEntries(Object.entries(patch).filter(([key, value]) => key !== 'chantier_id' && (plan[key] ?? null) !== value));
+    const fields = file ? {
+      ...changed, uri: plan.uri ?? null, file_type: fileType, dxf_name: fileType === 'dxf' ? file.name : null,
+      size: formatWebFileSize(file.size), uploaded_at: todayISO(), pdf_page_count: null,
+    } : changed;
+    if (!Object.keys(fields).length) return true;
     setSaving(true);
-    setError('');
-    const payload = { ...patch };
-    if (file) {
-      const detected = detectWebPlanFileType(file);
-      if (!detected) {
-        setError('Format plan non supporté. Utilisez PDF, image ou DXF.');
-        setSaving(false);
-        return null;
-      }
-      try {
-        payload.uri = await uploadWebFile('documents', file, `plan_${patch.name ?? plan.name ?? plan.id}`);
-      } catch (uploadError: any) {
-        setError(uploadError?.message ?? "Échec de l'upload du fichier plan.");
-        setSaving(false);
-        return null;
-      }
-      payload.file_type = detected;
-      payload.dxf_name = detected === 'dxf' ? file.name : null;
-      payload.size = formatWebFileSize(file.size);
-      payload.uploaded_at = todayISO();
-    }
-    const result = file
-      ? await (supabaseBrowser as any).rpc('replace_site_plan_file_safely', {
-          p_plan_id: String(plan.id),
-          p_patch: payload,
-          p_reason: 'web_update_site_plan_file',
-        })
-      : await supabaseBrowser
-          .from('site_plans')
-          .update(payload)
-          .eq('id', plan.id)
-          .select()
-          .single();
-    const updated = (result as any).data;
-    const updateError = (result as any).error;
-    if (updateError) {
-      setError(updateError.message);
+    try {
+      return await enqueueFieldWrites('site_plans', [fieldUpdate(plan, fields)], file ?? undefined);
+    } finally {
       setSaving(false);
-      return null;
     }
-    const nextPlan = updated ?? { ...plan, ...payload };
-    setData(prev => ({
-      ...prev,
-      sitePlans: prev.sitePlans.map(item => item.id === plan.id ? nextPlan : item),
-    }));
-    setSaving(false);
-    return nextPlan;
   }
 
   async function deleteSitePlanFileWeb(plan: any) {
@@ -6043,10 +5960,10 @@ function BuildTrackWebWorkspace() {
     setData(previous => ({ ...previous, photos: previous.photos.filter(row => row.id !== photo.id) }));
   }
 
-  async function shareGalleryPhoto(photo: any, channelId: string) {
+  async function shareGalleryPhoto(photo: any, channelId: string, caption: string) {
     const attachmentRef = assetUrl(photo, 'photos');
     if (!attachmentRef || !data.channels.some(channel => channel.id === channelId)) throw new Error('Photo ou canal indisponible.');
-    const sent = await sendMessage({ channelId, content: '', attachmentRef }, false);
+    const sent = await sendMessage({ channelId, content: caption.trim() || photo.comment || '', attachmentRef }, false);
     if (!sent) throw new Error('La photo n’a pas pu être partagée dans le canal.');
   }
 
@@ -6201,6 +6118,26 @@ function BuildTrackWebWorkspace() {
     }
   }
 
+  async function saveInventoryProductWeb(product: InventoryProductRow, fields: Record<string, unknown>, file: File | null) {
+    const org = profile?.organization_id;
+    if (!org || !canManageInventoryProducts(profile)) return false;
+    const original = product as InventoryProductRow & Record<string, unknown>;
+    const patch = Object.fromEntries(Object.entries(fields).filter(([key, value]) => (original[key] ?? null) !== value));
+    const before = Object.fromEntries(Object.keys(patch).map(key => [key, original[key] ?? null]));
+    if (file) before.photo_url = original.photo_url ?? null;
+    if (!Object.keys(patch).length && !file) return true;
+    try {
+      await outbox.enqueue('inventory_product_edit', {
+        id: crypto.randomUUID(), rowId: product.id, projectId: product.chantier_id, organization_id: org, before, patch,
+      }, file ?? undefined);
+      if (navigator.onLine) void outbox.flush();
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver la fiche produit.');
+      return false;
+    }
+  }
+
   async function executeWebOperation(operation: WebQueuedOperation, stillOwned: () => boolean) {
     const assertOwner = async () => {
       const { data: current } = await supabaseBrowser.auth.getSession();
@@ -6209,6 +6146,45 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'reserve_pin') {
+      const org = profile?.organization_id;
+      const { id, rowId, organization_id, patch } = operation.payload;
+      if (!org || org !== organization_id || !canMovePins(profile)) throw new Error('Votre compte ne peut plus déplacer cette épingle.');
+      const pin = patch as Record<string, unknown>;
+      const { data: row, error, status } = await supabaseBrowser.rpc('apply_web_reserve_pin', {
+        p_organization_id: org, p_reserve_id: rowId, p_plan_id: pin.plan_id, p_operation_id: id, p_x: pin.plan_x, p_y: pin.plan_y,
+      });
+      if (error) throw Object.assign(error, { status });
+      if (!row?.id) throw new Error('L’épingle n’a pas été enregistrée.');
+      if (stillOwned()) setData(previous => ({
+        ...previous,
+        reserves: previous.reserves.map(reserve => reserve.id === row.id && Number(reserve.version ?? 0) <= Number(row.version ?? 0) ? row : reserve),
+      }));
+      return;
+    }
+    if (operation.kind === 'inventory_product_edit') {
+      const org = profile?.organization_id;
+      const { rowId, projectId, organization_id, before, patch } = operation.payload;
+      if (!org || org !== organization_id || !canManageInventoryProducts(profile)) throw new Error('Votre compte ne peut plus modifier cette fiche produit.');
+      let media = typeof operation.prepared === 'string' ? operation.prepared : null;
+      if (!media && operation.files instanceof File) {
+        media = await uploadInventoryPhoto(operation.files, String(projectId), String(rowId));
+        operation.prepared = media;
+        operation.files = undefined;
+        await saveWebOperation(operation);
+      }
+      await assertOwner();
+      const fields = { ...(patch as Record<string, unknown>), ...(media ? { photo_url: media } : {}) };
+      const { data: saved, error, status } = await supabaseBrowser.rpc('apply_web_inventory_edit', {
+        p_organization_id: org, p_product_id: rowId, p_before: before, p_patch: fields,
+      });
+      if (error) throw Object.assign(error, { status });
+      if (!saved?.id) throw new Error('La fiche produit n’a pas été enregistrée.');
+      if (stillOwned()) setData(previous => ({
+        ...previous, inventoryProducts: previous.inventoryProducts.map(row => row.id === saved.id && Number(row.version ?? 0) <= Number(saved.version ?? 0) ? saved : row),
+      }));
+      return;
+    }
     if (operation.kind === 'terrain_action') {
       const org = profile?.organization_id;
       const { id, rowId, organization_id, change: value } = operation.payload;
@@ -6358,7 +6334,8 @@ function BuildTrackWebWorkspace() {
       if (!change || !org || org !== operation.payload.organization_id) throw new Error('Cette saisie n’appartient plus à la session.');
       const { table, writes } = change;
       if (writes.some(write => !(write.action === 'delete' ? canDelete(profile)
-        : table === 'time_entries' ? canUpdateAttendance(profile)
+        : table === 'site_plans' ? canCreate(profile)
+          : table === 'time_entries' ? canUpdateAttendance(profile)
           : write.action === 'insert' || table === 'journal_entries' ? canCreate(profile) : canEdit(profile)))) {
         throw new Error('Votre compte ne peut plus enregistrer cette saisie.');
       }
@@ -6413,6 +6390,12 @@ function BuildTrackWebWorkspace() {
             }).select().maybeSingle();
             if (result.error) throw Object.assign(result.error, { status: result.status });
             saved = result.data;
+          } else if (table === 'site_plans' && media) {
+            const result = await supabaseBrowser.rpc('replace_web_plan_file', {
+              p_organization_id: org, p_plan_id: write.id, p_before: write.before, p_patch: fields,
+            });
+            if (result.error) throw Object.assign(result.error, { status: result.status });
+            saved = result.data;
           } else {
             const query = matchBefore(scope(supabaseBrowser.from(table).update(fields).eq('id', write.id)), write.before);
             const result = await query.select().maybeSingle();
@@ -6434,6 +6417,10 @@ function BuildTrackWebWorkspace() {
           return { ...previous, [state]: !saved ? rows.filter(row => row.id !== write.id)
             : index < 0 ? [saved, ...rows] : rows.map(row => row.id === write.id ? saved : row) };
         });
+        if (stillOwned() && table === 'site_plans' && saved) {
+          if (write.action === 'insert') setSelectedPlanId(saved.id);
+          setNotice('Plan enregistré.');
+        }
         if (stillOwned() && writeIndex < writes.length - 1) {
           operation.payload.writes = writes.slice(writeIndex + 1);
           await saveWebOperation(operation);
@@ -6802,7 +6789,8 @@ function BuildTrackWebWorkspace() {
     documents: projectFieldRows(data.documents, 'documents', outbox.rows),
     photos: projectFieldRows(data.photos, 'photos', outbox.rows),
     oprs: projectFieldRows(data.oprs, 'oprs', outbox.rows),
-    reserves: projectTerrainChanges(projectReserveComments(data.reserves, outbox.rows), outbox.rows, 'reserve_archive'),
+    reserves: projectPendingRowPatches(projectTerrainChanges(projectReserveComments(data.reserves, outbox.rows), outbox.rows, 'reserve_archive'), outbox.rows, 'reserve_pin'),
+    inventoryProducts: projectPendingRowPatches(data.inventoryProducts, outbox.rows, 'inventory_product_edit'),
     sitePlans: projectPlanAnnotations(data.sitePlans, outbox.rows),
   }), [data, outbox.rows]);
 
@@ -6817,7 +6805,7 @@ function BuildTrackWebWorkspace() {
     const photos = fieldData.photos.filter(photo => {
       const reserveId = photo.reserve_id ?? photo.reserveId;
       if (profile?.role === 'sous_traitant') return reserveId && visibleReserveIds.has(String(reserveId));
-      return byProject(photo) || (reserveId && reserveIds.has(String(reserveId)));
+      return byProject(photo) || (reserveId ? reserveIds.has(String(reserveId)) : !(photo.chantier_id ?? photo.chantierId));
     });
     const photosByReserve = buildReservePhotoIndex(photos);
     return {
@@ -7323,6 +7311,8 @@ function BuildTrackWebWorkspace() {
           {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
             <ul>{outbox.rows.map(operation => <li key={operation.key}>
               {operation.kind === 'terrain_action' ? terrainActionLabels[(operation.payload.change as WebTerrainChange).action] :
+                operation.kind === 'reserve_pin' ? 'Épingle · ' + String(operation.payload.rowId) :
+                operation.kind === 'inventory_product_edit' ? 'Fiche produit · ' + String(operation.payload.rowId) :
                 operation.kind === 'plan_revision' ? 'Révision de plan · ' + String((operation.payload.newPlan as Record<string, unknown>).name) : operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
@@ -7379,7 +7369,7 @@ function BuildTrackWebWorkspace() {
                   key={outboxOwner}
                   movementOwner={outboxOwner}
                   snapshot={{
-                    products: data.inventoryProducts,
+                    products: fieldData.inventoryProducts,
                     movements: data.inventoryMovements,
                     projects: data.chantiers,
                     companies: data.companies,
@@ -7395,6 +7385,7 @@ function BuildTrackWebWorkspace() {
                   language={webLang}
                   reportLanguage={reportLanguage}
                   onReportLanguageChange={setReportLanguage}
+                  onSaveProduct={saveInventoryProductWeb}
                   onReload={async () => {
                     if (session.user) await loadEverything(session.user, { background: true });
                   }}
@@ -13507,13 +13498,14 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
   onAddPhoto?: (file: File, details: GalleryPhotoDetails) => Promise<void>;
   onEditPhoto?: (photo: any, details: GalleryPhotoDetails) => Promise<void>;
   onDeletePhoto?: (photo: any) => Promise<void>;
-  onSharePhoto?: (photo: any, channelId: string) => Promise<void>; canExportPhoto: boolean;
+  onSharePhoto?: (photo: any, channelId: string, caption: string) => Promise<void>; canExportPhoto: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [sharingId, setSharingId] = useState('');
   const [draftPhoto, setDraftPhoto] = useState<File | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<any>(null);
   const [channelId, setChannelId] = useState('');
+  const [shareCaption, setShareCaption] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [error, setError] = useState('');
@@ -13593,7 +13585,7 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
                 <small>{photo.location || photo.building || 'Sans localisation'} · {prettyDate(photo.taken_at ?? photo.takenAt ?? photo.created_at, true)}</small>
               </PrivateMediaLink>
               <div className={styles.galleryActions}>
-                {ref && onSharePhoto && channels.length ? <button type="button" onClick={() => { setSharingId(photo.id); setChannelId(''); }}>Partager dans un canal</button> : null}
+                {ref && onSharePhoto && channels.length ? <button type="button" onClick={() => { setSharingId(photo.id); setChannelId(''); setShareCaption(photo.comment ?? ''); }}>Partager dans un canal</button> : null}
                 {ref && canExportPhoto ? <button type="button" disabled={busy} onClick={() => void run(() => exportPhoto(photo))}>Partager ou télécharger</button> : null}
                 {onEditPhoto && !photo.reserve_id && !photo.reserveId ? (
                   <button type="button" disabled={busy} onClick={() => setEditingPhoto(photo)}>Modifier la légende ou l’emplacement</button>
@@ -13612,8 +13604,9 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
               ) : null}
               {sharingId === photo.id && onSharePhoto ? <form className={styles.galleryActions} onSubmit={event => {
                 event.preventDefault();
-                if (channelId) void run(async () => { await onSharePhoto(photo, channelId); setSharingId(''); }, 'Photo partagée.');
+                if (channelId) void run(async () => { await onSharePhoto(photo, channelId, shareCaption); setSharingId(''); }, 'Photo partagée.');
               }}>
+                <label>Légende du message<input value={shareCaption} onChange={event => setShareCaption(event.target.value)} /></label>
                 <label>Canal<select required value={channelId} onChange={event => setChannelId(event.target.value)}>
                   <option value="">Choisir un canal</option>
                   {channels.map(channel => <option key={channel.id} value={channel.id}>{channel.name || channel.id}</option>)}
@@ -17532,8 +17525,8 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   profile: Profile | null;
   onUpdateProfile: (userId: string, patch: Partial<Profile>) => Promise<void> | void;
   onEnterSupport?: (org: { id: string; name: string }) => void;
-  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string; logo_url?: string }) => Promise<any>;
-  onUpdateCompany?: (companyId: string, payload: Record<string, any>) => Promise<void> | void;
+  onCreateCompany?: (payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string; logo_url?: string | null }) => Promise<any>;
+  onUpdateCompany?: (companyId: string, payload: Record<string, any>) => Promise<boolean>;
   onDeleteCompany?: (companyId: string) => Promise<void> | void;
   onRemoveUser?: (userId: string) => Promise<void> | void;
 }) {
@@ -17553,6 +17546,8 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
   const [companyDraft, setCompanyDraft] = useState(emptyCompanyDraft);
   const [editingCompanyId, setEditingCompanyId] = useState<string | null>(null);
   const [companySheetOpen, setCompanySheetOpen] = useState(false);
+  const [companySheetBusy, setCompanySheetBusy] = useState(false);
+  const [companySheetError, setCompanySheetError] = useState('');
   const [rightsUserId, setRightsUserId] = useState<string | null>(null);
   const [license, setLicense] = useState<{ status: string; planName: string; maxUsers: number; trialEndsAt?: string | null; startedAt?: string | null } | null>(null);
   const [pendingInvites, setPendingInvites] = useState<Array<{ id: string; email: string; role: string; expires_at?: string; company_id?: string | null; resend_count?: number; last_resent_at?: string | null }>>([]);
@@ -17986,6 +17981,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
             <button type="button" className={styles.pilotagePrimary} onClick={() => {
               setEditingCompanyId(null);
               setCompanyDraft(emptyCompanyDraft);
+              setCompanySheetError('');
               setCompanySheetOpen(true);
             }}>{t('pilotage.newCompany')}</button>
           </div>
@@ -17997,7 +17993,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
               return (
                 <article key={company.id} className={styles.pilotageCompanyCard}>
                   <div className={styles.pilotageCompanyMark} style={{ background: company.color || '#003082' }}>
-                    {company.logo_url ? <img src={assetUrl({ uri: company.logo_url }, 'photos')} alt="" /> : (company.short_name || company.name || '?').slice(0, 3).toUpperCase()}
+                    {company.logo_url ? <PrivateMediaImage source={assetUrl({ uri: company.logo_url }, 'photos')} alt="" /> : (company.short_name || company.name || '?').slice(0, 3).toUpperCase()}
                   </div>
                   <div>
                     <strong>{company.name}</strong>
@@ -18021,6 +18017,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
                         logoFile: null,
                         logoPreview: company.logo_url ? assetUrl({ uri: company.logo_url }, 'photos') : '',
                       });
+                      setCompanySheetError('');
                       setCompanySheetOpen(true);
                     }}>{t('common.edit')}</button>
                     <button type="button" className={styles.pilotageDanger} onClick={() => {
@@ -18039,41 +18036,53 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
         <div className={styles.pilotageRightsOverlay} role="dialog" aria-modal="true">
           <form className={styles.pilotageCompanySheet} onSubmit={async event => {
             event.preventDefault();
-            if (!companyDraft.name.trim()) return;
-            let logoUrl = companyDraft.logo_url || '';
-            if (companyDraft.logoFile) {
-              logoUrl = await uploadWebFile('photos', companyDraft.logoFile, `company_logo_${editingCompanyId ?? 'new'}`) || logoUrl;
+            if (!companyDraft.name.trim() || companySheetBusy) return;
+            setCompanySheetBusy(true);
+            setCompanySheetError('');
+            try {
+              let logoUrl = companyDraft.logo_url || '';
+              if (companyDraft.logoFile) {
+                logoUrl = await uploadWebFile('photos', companyDraft.logoFile, `company_logo_${editingCompanyId ?? 'new'}`);
+                setCompanyDraft(previous => ({ ...previous, logo_url: logoUrl, logoFile: null }));
+              }
+              const payload = {
+                name: companyDraft.name.trim(),
+                short_name: companyDraft.short_name.trim() || companyDraft.name.trim().slice(0, 3).toUpperCase(),
+                email: companyDraft.email,
+                contact: companyDraft.contact,
+                siret: companyDraft.siret,
+                insurance: companyDraft.insurance,
+                lots: companyDraft.lots,
+                color: companyDraft.color,
+                logo_url: logoUrl || null,
+              };
+              const saved = editingCompanyId
+                ? await onUpdateCompany?.(editingCompanyId, payload)
+                : await onCreateCompany?.(payload);
+              if (!saved) throw new Error('L’entreprise n’a pas été enregistrée. Vérifiez les informations et réessayez.');
+              setCompanyDraft(emptyCompanyDraft);
+              setEditingCompanyId(null);
+              setCompanySheetOpen(false);
+            } catch (cause) {
+              setCompanySheetError(cause instanceof Error ? cause.message : 'Enregistrement de l’entreprise impossible.');
+            } finally {
+              setCompanySheetBusy(false);
             }
-            const payload = {
-              name: companyDraft.name.trim(),
-              short_name: companyDraft.short_name.trim() || companyDraft.name.trim().slice(0, 3).toUpperCase(),
-              email: companyDraft.email,
-              contact: companyDraft.contact,
-              siret: companyDraft.siret,
-              insurance: companyDraft.insurance,
-              lots: companyDraft.lots,
-              color: companyDraft.color,
-              logo_url: logoUrl || undefined,
-            };
-            if (editingCompanyId) await onUpdateCompany?.(editingCompanyId, payload);
-            else await onCreateCompany?.(payload);
-            setCompanyDraft(emptyCompanyDraft);
-            setEditingCompanyId(null);
-            setCompanySheetOpen(false);
           }}>
             <header>
               <div>
                 <p>{editingCompanyId ? t('common.edit') : t('pilotage.newCompany')}</p>
                 <h2>{editingCompanyId ? t('pilotage.editCompany') : t('pilotage.newCompany')}</h2>
               </div>
-              <button type="button" className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Fermer</button>
+              <button type="button" disabled={companySheetBusy} className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Fermer</button>
             </header>
+            {companySheetError ? <p role="alert">{companySheetError}</p> : null}
             <div className={styles.pilotageCompanyLayout}>
               <aside className={styles.pilotageCompanyPreview}>
                 <div className={styles.pilotageCompanyPreviewCard} style={{ '--company-color': companyDraft.color } as any}>
                   <label className={styles.pilotageLogoUpload}>
                     <div className={styles.pilotageCompanyMark} style={{ background: companyDraft.color }}>
-                      {companyDraft.logoPreview ? <img src={companyDraft.logoPreview} alt="" /> : (companyDraft.short_name || companyDraft.name || '…').slice(0, 3).toUpperCase()}
+                      {companyDraft.logoPreview ? <PrivateMediaImage source={companyDraft.logoPreview} alt="" /> : (companyDraft.short_name || companyDraft.name || '…').slice(0, 3).toUpperCase()}
                     </div>
                     <input type="file" accept="image/*" hidden onChange={event => {
                       const file = event.target.files?.[0];
@@ -18135,7 +18144,7 @@ function AdminView({ data, profile, onUpdateProfile, onEnterSupport, onCreateCom
             </div>
             <footer>
               <button type="button" className={styles.pilotageGhost} onClick={() => { setCompanySheetOpen(false); setEditingCompanyId(null); }}>Annuler</button>
-              <button type="submit" className={styles.pilotagePrimary}>{editingCompanyId ? t('pilotage.saveCompany') : t('pilotage.createCompany')}</button>
+              <button type="submit" disabled={companySheetBusy} className={styles.pilotagePrimary}>{editingCompanyId ? t('pilotage.saveCompany') : t('pilotage.createCompany')}</button>
             </footer>
           </form>
         </div>

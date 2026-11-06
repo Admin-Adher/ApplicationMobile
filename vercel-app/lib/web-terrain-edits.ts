@@ -89,3 +89,16 @@ export function projectTerrainChanges<T extends Record<string, unknown>>(
     };
   }, row));
 }
+
+export function projectPendingRowPatches<T extends Record<string, unknown>>(
+  rows: T[], operations: WebQueuedOperation[], kind: 'reserve_pin' | 'inventory_product_edit',
+): T[] {
+  const patches = new Map<unknown, Record<string, unknown>>();
+  for (const operation of operations) {
+    if (operation.kind !== kind || operation.error) continue;
+    const { rowId, patch } = operation.payload;
+    patches.set(rowId, { ...patches.get(rowId), ...(patch as Record<string, unknown>) });
+  }
+  if (!patches.size) return rows;
+  return rows.map(row => patches.has(row.id) ? { ...row, ...patches.get(row.id) } : row);
+}
