@@ -1,7 +1,10 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { isWebNetworkFailure, listWebOperations, listenWebOperations, removeWebOperation, saveWebOperation, type WebQueuedOperation } from './web-outbox';
+import {
+  changeQueuedReserveEdit, isReserveEditConflict, isWebNetworkFailure, listWebOperations,
+  listenWebOperations, removeWebOperation, ReserveEditConflict, saveWebOperation, type WebQueuedOperation,
+} from './web-outbox';
 
 export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperation, stillOwned: () => boolean) => Promise<void>) {
   const [rows, setRows] = useState<WebQueuedOperation[]>([]);
@@ -34,15 +37,17 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
         const pending = await listWebOperations(scope);
         for (const operation of pending) {
           if (!stillOwned() || !navigator.onLine) return;
-          if (operation.error && !retryFailed) continue;
+          if (isReserveEditConflict(operation) || (operation.error && !retryFailed)) continue;
           try {
             await executeRef.current(operation, stillOwned);
             if (stillOwned()) await removeWebOperation(operation.key);
           } catch (cause) {
-            if (!stillOwned() || !navigator.onLine || isWebNetworkFailure(cause)) return;
+            if (!stillOwned()) return;
+            const conflict = cause instanceof ReserveEditConflict;
+            if (!conflict && (!navigator.onLine || isWebNetworkFailure(cause))) return;
             const message = typeof cause === 'object' && cause && 'message' in cause
               ? String(cause.message).slice(0, 240) : 'Opération refusée par le serveur.';
-            await saveWebOperation({ ...operation, error: message });
+            await saveWebOperation({ ...operation, error: message, failure: conflict ? 'version_conflict' : undefined });
           }
         }
       };
@@ -88,5 +93,22 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
     if (ownerRef.current === scope) await refresh(scope);
   }
 
-  return { rows: rows.filter(row => row.owner === owner), syncing, storageError, enqueue, flush };
+  async function changeReserveEdit(next: WebQueuedOperation | null, previous?: WebQueuedOperation) {
+    const scope = ownerRef.current;
+    if (!scope || (previous && previous.owner !== scope) || (next && next.owner !== scope)) {
+      throw new Error('La session de synchronisation a changé.');
+    }
+    const write = async () => {
+      if (ownerRef.current !== scope) throw new Error('La session de synchronisation a changé.');
+      await changeQueuedReserveEdit(scope, next, previous?.key);
+    };
+    if (previous && navigator.locks) await navigator.locks.request('buildtrack-outbox:' + scope, write);
+    else await write();
+    if (ownerRef.current === scope) await refresh(scope);
+  }
+
+  return {
+    rows: rows.filter(row => row.owner === owner), syncing, storageError, enqueue, flush, changeReserveEdit,
+    owns: (operation: WebQueuedOperation) => ownerRef.current === operation.owner,
+  };
 }

@@ -159,7 +159,11 @@ import {
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
 import { useWebOutbox } from '@/lib/use-web-outbox';
-import { isWebNetworkFailure, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
+import { isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
+import {
+  recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
+  type ReserveDraft, type WebPhotoAnnotation, type WebPhotoAnnotationPoint, type WebPhotoAnnotationTool, type WebPhotoDraft,
+} from '@/lib/reserve-edit-draft';
 
 const webPlanAnnotationWriteQueue = new LatestWriteQueue<PlanDrawing[]>();
 const MeetingsWorkspace = dynamic(() => import('./MeetingsWorkspace'));
@@ -275,70 +279,6 @@ type StorageUsageGuardrail = {
   warning_mb?: number;
   critical_mb?: number;
   object_count?: number;
-};
-
-type ReserveDraft = {
-  kind: 'reserve' | 'observation';
-  title: string;
-  description: string;
-  chantierId: string;
-  building: string;
-  buildingId: string;
-  level: string;
-  levelId: string;
-  zone: string;
-  priority: string;
-  status: string;
-  deadline: string;
-  planId: string;
-  planX?: number | null;
-  planY?: number | null;
-  lotId: string;
-  visiteId: string;
-  companies: string[];
-  photos: WebPhotoDraft[];
-};
-
-type WebPhotoAnnotationPoint = {
-  x: number;
-  y: number;
-};
-
-type WebPhotoAnnotationTool = 'dot' | 'arrow' | 'rect' | 'text' | 'measure' | 'pen';
-
-type WebPhotoAnnotation = {
-  id: string;
-  x: number;
-  y: number;
-  color: string;
-  label: string;
-  tool?: WebPhotoAnnotationTool;
-  x2?: number;
-  y2?: number;
-  width?: number;
-  height?: number;
-  text?: string;
-  fontSize?: number;
-  points?: WebPhotoAnnotationPoint[];
-  strokeWidth?: number;
-  // Convention commune web/mobile : 'image' = x, y et points sont des % du
-  // rectangle réel de l'image (dimensions naturelles). Absent = annotation
-  // legacy, % du conteneur d'origine (rendue sur toute la surface du cadre).
-  coordSpace?: 'image';
-};
-
-type WebPhotoDraft = {
-  id: string;
-  uri: string;
-  name?: string;
-  kind?: 'defect' | 'resolution';
-  file?: File;
-  existing?: boolean;
-  annotations?: WebPhotoAnnotation[];
-  // Objet photo JSONB d'origine (photos existantes) : sert de base au patch de
-  // sauvegarde pour ne pas réécrire takenAt/takenBy ni perdre les champs non
-  // re-mappés (label, gpsLat/gpsLon/gpsAccuracy...).
-  original?: Record<string, any>;
 };
 
 type UploadedReservePhoto = { url: string; takenAt: string };
@@ -3140,7 +3080,13 @@ function BuildTrackWebWorkspace() {
   const [reserveModalMode, setReserveModalMode] = useState<'create' | 'edit' | null>(null);
   const [reserveDraft, setReserveDraft] = useState<ReserveDraft>(() => createReserveDraft(''));
   const [editingReserveId, setEditingReserveId] = useState<string | null>(null);
-  const reserveEditBase = useRef<{ row: WebState['reserves'][number]; draft: ReserveDraft; galleryRows: WebState['photos'] } | null>(null);
+  const reserveEditBase = useRef<{
+    row: WebState['reserves'][number];
+    draft: ReserveDraft;
+    galleryRows: WebState['photos'];
+    recovered?: WebQueuedOperation;
+  } | null>(null);
+  const recoveredPhotoUrls = useRef<string[]>([]);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [visitDraft, setVisitDraft] = useState<VisitDraft>(() => createVisitDraft('', ''));
   const [initialReportLanguage] = useState<SupportedLang | null>(readStoredExportLanguage);
@@ -4477,9 +4423,91 @@ function BuildTrackWebWorkspace() {
   }
 
   function closeReserveModal() {
+    for (const url of recoveredPhotoUrls.current) URL.revokeObjectURL(url);
+    recoveredPhotoUrls.current = [];
     reserveEditBase.current = null;
     setReserveModalMode(null);
     setEditingReserveId(null);
+  }
+
+  async function loadReserveEditSource(operation: WebQueuedOperation) {
+    const id = String(operation.payload.reserveId);
+    const organizationId = String(operation.payload.organization_id);
+    const [reserve, photos] = await Promise.all([
+      supabaseBrowser.from('reserves').select('*').eq('id', id)
+        .eq('organization_id', organizationId).is('deleted_at', null).maybeSingle(),
+      supabaseBrowser.from('photos').select('*').eq('reserve_id', id)
+        .eq('organization_id', organizationId).is('deleted_at', null),
+    ]);
+    if (reserve.error || photos.error || !reserve.data) return null;
+    const row = reserve.data;
+    const galleryRows = photos.data ?? [];
+    if (outbox.owns(operation)) {
+      setData(previous => ({
+        ...previous,
+        reserves: previous.reserves.map(item => item.id === id ? row : item),
+        photos: [...previous.photos.filter(photo => photo.reserve_id !== id), ...galleryRows],
+      }));
+    }
+    return { row: { ...row, photos: reservePhotoItems(row, galleryRows) }, galleryRows };
+  }
+
+  async function resumeReserveEdit(operation: WebQueuedOperation) {
+    if (saving || reserveModalMode || !canEdit(profile) || !outbox.owns(operation)) return;
+    if (!navigator.onLine) {
+      setError('Reconnectez-vous pour charger la dernière version de la réserve.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const source = await loadReserveEditSource(operation);
+      if (!outbox.owns(operation)) return;
+      if (!source) {
+        throw new Error('Impossible de charger la version actuelle de la réserve. Le brouillon est conservé.');
+      }
+      const { row, galleryRows } = source;
+      const base = reserveToDraft(row);
+      const saved = operation.files as ReserveDraft | undefined;
+      const status = (operation.payload.event as { to_status?: string } | undefined)?.to_status;
+      const recovered = recoverReserveDraft(base, operation.payload.patch as Record<string, unknown>, status, saved ? {
+        saved: saved.photos,
+        base: operation.payload.basePhotos as WebPhotoDraft[] | undefined,
+        removeIds: (operation.payload.removePhotoIds as unknown[] | undefined) ?? [],
+      } : undefined);
+      const photos = recovered.photos.map(photo => {
+        if (!photo.file) return photo;
+        const uri = URL.createObjectURL(photo.file);
+        recoveredPhotoUrls.current.push(uri);
+        return { ...photo, uri };
+      });
+      reserveEditBase.current = { row, draft: base, galleryRows, recovered: operation };
+      setEditingReserveId(row.id);
+      setReserveDraft({ ...recovered, photos });
+      setReserveModalMode('edit');
+    } catch (cause) {
+      if (outbox.owns(operation)) setError(cause instanceof Error ? cause.message : 'Impossible de reprendre le brouillon.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function discardReserveEdit(operation: WebQueuedOperation) {
+    if (saving || reserveModalMode || !outbox.owns(operation)) return;
+    if (!window.confirm('Abandonner ce brouillon et les photos qui y sont conservées ?')) return;
+    setSaving(true);
+    setError('');
+    try {
+      // Refresh before releasing the draft, so the next editor starts on the
+      // current server version even when the realtime channel missed an update.
+      const fresh = navigator.onLine ? await loadReserveEditSource(operation) : null;
+      await outbox.changeReserveEdit(null, operation);
+      setNotice(fresh ? 'Brouillon retiré de la file.' : 'Brouillon retiré de la file. Synchronisez la fiche avant de la modifier.');
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de retirer ce brouillon.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   // Fermeture demandée par l'utilisateur (Annuler, Fermer, Échap) :
@@ -4648,7 +4676,7 @@ function BuildTrackWebWorkspace() {
   async function submitReserve(event: React.FormEvent) {
     event.preventDefault();
     const isEditingReserve = reserveModalMode === 'edit' && Boolean(editingReserveId);
-    if (!profile || (isEditingReserve ? !canEdit(profile) : !canCreate(profile))) return;
+    if (saving || !profile || (isEditingReserve ? !canEdit(profile) : !canCreate(profile))) return;
     const title = reserveDraft.title.trim();
     if (!title) {
       setError('Le titre de la réserve est obligatoire.');
@@ -4668,21 +4696,9 @@ function BuildTrackWebWorkspace() {
     }
     setSaving(true);
     setError('');
-    const offlineEditBase = !navigator.onLine && reserveEditBase.current?.row.id === editingReserveId ? reserveEditBase.current : null;
-    const existing = offlineEditBase?.row ?? (editingReserveId ? data.reserves.find(r => r.id === editingReserveId) : null);
+    const editBase = isEditingReserve && reserveEditBase.current?.row.id === editingReserveId ? reserveEditBase.current : null;
     const companies = reserveDraft.companies;
-    const previousCompanies = existing ? reserveCompanies(existing).map(name => name.trim()).filter(Boolean).sort() : [];
-    const nextCompanies = companies.map(name => name.trim()).filter(Boolean).sort();
-    const companiesChanged = Boolean(existing) && previousCompanies.join('|') !== nextCompanies.join('|');
-    const history = [
-      ...(existing?.history ?? []),
-      reserveModalMode === 'edit'
-        ? makeHistory('Modifiée depuis le web', userLabel(profile, authUser))
-        : makeHistory(reserveDraft.kind === 'observation' ? 'Observation créée depuis le web' : 'Réserve créée depuis le web', userLabel(profile, authUser)),
-    ];
-    if (companiesChanged) {
-      history.push(makeHistory('Entreprise responsable modifiée — AR et signatures réinitialisés', userLabel(profile, authUser)));
-    }
+    const author = userLabel(profile, authUser);
     const basePayload = {
       kind: reserveDraft.kind,
       title,
@@ -4697,8 +4713,8 @@ function BuildTrackWebWorkspace() {
       priority: reserveDraft.priority,
       status: reserveDraft.status,
       deadline: reserveDraft.deadline || null,
-      comments: existing?.comments ?? [],
-      history,
+      comments: [],
+      history: [makeHistory(reserveDraft.kind === 'observation' ? 'Observation créée depuis le web' : 'Réserve créée depuis le web', author)],
       plan_id: reserveDraft.planId || null,
       plan_x: reserveDraft.planId ? normalizeStoredPlanPercent(reserveDraft.planX) : null,
       plan_y: reserveDraft.planId ? normalizeStoredPlanPercent(reserveDraft.planY) : null,
@@ -4706,139 +4722,66 @@ function BuildTrackWebWorkspace() {
       visite_id: reserveDraft.visiteId || null,
       chantier_id: reserveDraft.chantierId || null,
       organization_id: profile.organization_id ?? null,
-      closed_at: reserveDraft.status === 'closed' ? (existing?.closed_at ?? todayISO()) : null,
-      closed_by: reserveDraft.status === 'closed' ? userLabel(profile, authUser) : null,
-      ...(companiesChanged ? {
-        enterprise_signature: null,
-        enterprise_signataire: null,
-        enterprise_acknowledged_at: null,
-        company_signatures: null,
-      } : {}),
+      closed_at: reserveDraft.status === 'closed' ? todayISO() : null,
+      closed_by: reserveDraft.status === 'closed' ? author : null,
     };
 
-    if (reserveModalMode === 'edit' && editingReserveId) {
-      if (!navigator.onLine && existing) {
-        try {
-          if (!offlineEditBase) throw new Error('Rouvrez la fiche pour modifier cette réserve hors connexion.');
-          const initial = offlineEditBase.draft;
-          const photosChanged = reserveDraft.photos.some(photo => photo.file)
-            || JSON.stringify(reserveDraft.photos.map(photo => [photo.uri, photo.kind, photo.annotations]))
-              !== JSON.stringify(initial.photos.map(photo => [photo.uri, photo.kind, photo.annotations]));
-          if (initial.status !== reserveDraft.status) {
-            throw new Error('Utilisez le bouton de statut pour changer l’état hors connexion.');
-          }
-          if (typeof existing.version !== 'number' || outbox.rows.some(row => row.payload.reserveId === editingReserveId)) {
-            throw new Error('Synchronisez d’abord cette réserve avant de préparer une nouvelle modification hors connexion.');
-          }
-          const { status: _status, comments: _comments, closed_at: _closedAt, closed_by: _closedBy,
-            organization_id, company: _company, companies: _companies, visite_id: _visit,
-            company_signatures: _signatures, enterprise_signature: _signature, enterprise_signataire: _signer,
-            enterprise_acknowledged_at: _acknowledged, ...fields } = basePayload;
-          const visitChanged = initial.visiteId !== reserveDraft.visiteId;
-          const needsFullEdit = photosChanged || companiesChanged || visitChanged;
-          const staleRows = photosChanged ? planReservePhotoRowReconciliation(
-            offlineEditBase.galleryRows, editingReserveId, reserveDraft.photos
-              .filter(photo => photo.existing && photo.uri)
-              .map(photo => ({ id: photo.id, uri: photo.original?.uri ?? photo.uri })),
-          ).staleRows : [];
-          if (staleRows.some(row => !String(row.id ?? '').trim()) || (staleRows.length && !canDelete(profile))) {
-            throw new Error('La suppression de ces photos de la galerie n’est pas autorisée.');
-          }
-          await outbox.enqueue(needsFullEdit ? 'reserve_edit_full' : 'reserve_edit', {
-            id: crypto.randomUUID(), reserveId: editingReserveId, organization_id,
-            version: existing.version,
-            patch: {
-              ...fields, history: history.slice(companiesChanged ? -2 : -1),
-              ...(companiesChanged ? { companies } : {}),
-              ...(visitChanged ? { visite_id: _visit } : {}),
-            },
-            removePhotoIds: staleRows.map(row => row.id), title,
-          }, photosChanged ? {
+    if (isEditingReserve && editingReserveId) {
+      try {
+        if (!editBase || typeof editBase.row.version !== 'number') {
+          throw new Error('Synchronisez et rouvrez la fiche avant de modifier cette réserve.');
+        }
+        const patch = reserveEditPatch(editBase.draft, reserveDraft, basePayload);
+        const history = [makeHistory('Modifiée depuis le web', author)];
+        if (patch.companies) {
+          history.push(
+            makeHistory('Entreprise responsable modifiée — AR et signatures réinitialisés', author),
+          );
+        }
+        patch.history = history;
+        const statusChanged = editBase.draft.status !== reserveDraft.status;
+        const statusEvent = statusChanged ? {
+          from_status: editBase.draft.status, to_status: reserveDraft.status, actor_name: author,
+          closed_at: reserveDraft.status === 'closed' ? todayISO() : null,
+          history_entry: makeHistory('Statut modifié depuis le web', author,
+            statusLabel(editBase.draft.status), statusLabel(reserveDraft.status)),
+        } : undefined;
+        const photosChanged = reserveGalleryChanged(editBase.draft.photos, reserveDraft.photos);
+        const staleRows = photosChanged ? planReservePhotoRowReconciliation(
+          editBase.galleryRows, editingReserveId, reserveDraft.photos
+            .filter(photo => photo.existing && photo.uri)
+            .map(photo => ({ id: photo.id, uri: photo.original?.uri ?? photo.uri })),
+        ).staleRows : [];
+        if (staleRows.some(row => !String(row.id ?? '').trim()) || (staleRows.length && !canDelete(profile))) {
+          throw new Error('La suppression de ces photos de la galerie n’est pas autorisée.');
+        }
+
+        const id = crypto.randomUUID();
+        const kind = photosChanged || patch.companies || Object.hasOwn(patch, 'visite_id') || statusEvent
+          ? 'reserve_edit_full' : 'reserve_edit';
+        await outbox.changeReserveEdit({
+          key: outboxOwner + ':' + kind + ':' + id,
+          owner: outboxOwner,
+          kind,
+          createdAt: Date.now(),
+          payload: {
+            id, reserveId: editingReserveId, organization_id: profile.organization_id, version: editBase.row.version,
+            patch, event: statusEvent, removePhotoIds: staleRows.map(row => row.id),
+            basePhotos: photosChanged ? editBase.draft.photos : undefined, editFormat: 'field-delta', title,
+          },
+          files: photosChanged ? {
             ...reserveDraft,
             photos: reserveDraft.photos.map(photo => photo.file ? { ...photo, uri: '' } : photo),
-          } : undefined);
-          closeReserveModal();
-          setNotice('Modification de réserve enregistrée dans la file hors connexion.');
-        } catch (cause) {
-          setError(cause instanceof Error ? cause.message : 'Impossible de conserver la modification hors connexion.');
-        } finally {
-          setSaving(false);
-        }
-        return;
-      }
-      let photoPatch: Awaited<ReturnType<typeof buildReservePhotoPatch>>;
-      let photoRowPlan: ReturnType<typeof planReservePhotoRowReconciliation>;
-      try {
-        photoPatch = await buildReservePhotoPatch(editingReserveId, reserveDraft);
-        photoRowPlan = planReservePhotoRowReconciliation(
-          data.photos,
-          editingReserveId,
-          photoPatch.photos ?? [],
-        );
-        const rowsWithoutId = [...photoRowPlan.rowsToUpdate.map(item => item.row), ...photoRowPlan.staleRows]
-          .filter(row => !String(row.id ?? '').trim());
-        if (rowsWithoutId.length) {
-          throw new Error('Une ligne photo sans identifiant empêche la réconciliation de la galerie.');
-        }
-        const reconciliationResults = await Promise.all([
-          ...photoRowPlan.rowsToUpdate.map(item => supabaseBrowser
-            .from('photos')
-            .update(item.patch)
-            .eq('id', String(item.row.id))
-            .eq('reserve_id', editingReserveId)),
-          ...photoRowPlan.staleRows.map(row => (supabaseBrowser as any).rpc('soft_delete_photo', {
-            p_photo_id: String(row.id),
-            p_reason: 'reserve_gallery_reconciliation_web',
-          })),
-        ]);
-        const reconciliationError = reconciliationResults.find(result => result?.error)?.error;
-        if (reconciliationError) throw reconciliationError;
-      } catch (photoError: any) {
-        setError(photoError?.message ?? 'Réconciliation des photos impossible.');
-        setSaving(false);
-        return;
-      }
-      const { data: updated, error: updateError } = await supabaseBrowser
-        .from('reserves')
-        .update({ ...basePayload, photos: photoPatch.photos, photo_uri: photoPatch.photo_uri })
-        .eq('id', editingReserveId)
-        .select()
-        .single();
-      if (updateError) {
-        setError(updateError.message);
-      } else {
-        let photoRowInsertError: any = null;
-        if (photoPatch.photoRows.length) {
-          const insertResult = await supabaseBrowser.from('photos').insert(photoPatch.photoRows);
-          photoRowInsertError = insertResult.error;
-        }
-        const stalePhotoRowIds = new Set(photoRowPlan.staleRows.map(row => String(row.id)));
-        const updatedPhotoRows = new Map(photoRowPlan.rowsToUpdate.map(item => [String(item.row.id), item.patch]));
-        setData(prev => ({
-          ...prev,
-          reserves: prev.reserves.map(r => r.id === editingReserveId
-            ? (updated ?? { ...r, ...basePayload, photos: photoPatch.photos, photo_uri: photoPatch.photo_uri })
-            : r),
-          photos: [
-            ...(photoRowInsertError ? [] : photoPatch.photoRows),
-            ...prev.photos
-              .filter(row => !stalePhotoRowIds.has(String(row.id)))
-              .map(row => updatedPhotoRows.has(String(row.id))
-                ? { ...row, ...updatedPhotoRows.get(String(row.id)) }
-                : row),
-          ],
-        }));
-        await syncVisitReserveLink(editingReserveId, reserveDraft.visiteId || null, existing?.visite_id ?? null);
-        const previousStatus = String(existing?.status ?? '');
-        if (basePayload.status && basePayload.status !== previousStatus) {
-          triggerWebPush({ type: 'reserve-status-changed', reserveId: String(editingReserveId), newStatus: basePayload.status, previousStatus });
-        }
+          } : undefined,
+          prepared: photosChanged ? editBase.recovered?.prepared : undefined,
+        }, editBase.recovered);
         closeReserveModal();
-        if (photoRowInsertError) {
-          setError(`Réserve enregistrée, mais l'index photo n'a pas pu être complété : ${photoRowInsertError.message ?? 'erreur inconnue'}`);
-        } else {
-          setNotice('Réserve mise à jour.');
-        }
+        setNotice('Modification de réserve conservée dans la file de synchronisation.');
+        if (navigator.onLine) await outbox.flush();
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Impossible de conserver la modification.');
+      } finally {
+        setSaving(false);
       }
     } else {
       const id = generateReserveId(data.reserves, data.lots, reserveDraft.lotId);
@@ -6536,11 +6479,12 @@ function BuildTrackWebWorkspace() {
       const uploaded = (operation.prepared ?? {}) as Record<string, UploadedReservePhoto>;
       const remaining = draft?.photos.filter(photo => photo.file && !uploaded[photo.id]) ?? [];
       if (remaining.length) {
-        const { data: current, error } = await supabaseBrowser.from('reserves')
+        const { data: current, error, status } = await supabaseBrowser.from('reserves')
           .select('version').eq('id', reserveId).eq('organization_id', operation.payload.organization_id).maybeSingle();
-        if (error) throw error;
-        if (current?.version !== operation.payload.version) {
-          throw new Error('La réserve a changé depuis cette modification. Les photos sont conservées dans la file.');
+        if (error) throw Object.assign(error, { status });
+        if (!current) throw new Error('La réserve n’est plus accessible.');
+        if (current.version !== operation.payload.version) {
+          throw new ReserveEditConflict('La réserve a changé depuis cette modification. Le brouillon est conservé dans la file.');
         }
       }
       for (const photo of remaining) {
@@ -6554,18 +6498,30 @@ function BuildTrackWebWorkspace() {
       }
       await assertOwner();
       const gallery = draft ? await buildReservePhotoPatch(reserveId, draft, uploaded) : null;
-      const { data: result, error } = await supabaseBrowser.rpc('apply_web_reserve_edit', {
+      const event = operation.payload.event as { from_status: string; to_status: string } | undefined;
+      const { data: result, error, status } = await supabaseBrowser.rpc(event ? 'apply_web_reserve_form' : 'apply_web_reserve_edit', {
         p_operation_id: operation.payload.id, p_reserve_id: reserveId, p_base_version: operation.payload.version,
         p_patch: operation.payload.patch,
         p_gallery: gallery ? {
           photos: gallery.photos ?? [], rows: gallery.photoRows, remove_ids: operation.payload.removePhotoIds,
         } : null,
+        ...(event ? { p_status_event: event } : {}),
       });
-      if (error) throw error;
-      if (result?.status !== 'ok') throw new Error(result?.status === 'version_conflict'
-        ? 'La réserve a changé depuis cette modification. Le brouillon est conservé dans la file.'
-        : 'La modification de réserve a été refusée.');
+      if (error) throw Object.assign(error, { status });
+      if (result?.status === 'version_conflict') {
+        throw new ReserveEditConflict('La réserve a changé depuis cette modification. Le brouillon est conservé dans la file.');
+      }
+      if (result?.status !== 'ok') throw new Error('La modification de réserve a été refusée.');
       if (stillOwned() && authUser) await loadEverything(authUser, { background: true });
+      if (stillOwned()) {
+        setNotice('Réserve mise à jour.');
+        if (event) {
+          const { data: current } = await supabaseBrowser.from('reserves').select('status').eq('id', reserveId).maybeSingle();
+          if (stillOwned() && current?.status === event.to_status) triggerWebPush({
+            type: 'reserve-status-changed', reserveId, newStatus: event.to_status, previousStatus: event.from_status,
+          });
+        }
+      }
       return;
     }
     if (operation.kind === 'reserve_edit' || operation.kind === 'reserve_status') {
@@ -6582,19 +6538,21 @@ function BuildTrackWebWorkspace() {
       const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(request)));
       const hash = Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
       await assertOwner();
-      const { data: result, error } = isStatus
+      const { data: result, error, status } = isStatus
         ? await supabaseBrowser.rpc(request.fn, { p_operation_id: operationId, p_request_hash: hash, p_event: event })
         : await supabaseBrowser.rpc(request.fn, { p_operation_id: operationId, p_request_hash: hash, p_reserve_id: reserveId,
           p_base_version: operation.payload.version, p_patch: operation.payload.patch });
-      if (error) throw error;
-      if (result?.status !== 'ok') throw new Error(result?.status === 'version_conflict'
-        ? 'La réserve a été modifiée entre-temps. Rechargez sa fiche et vérifiez votre modification avant de la ressaisir.'
-        : 'La modification de réserve a été refusée.');
+      if (error) throw Object.assign(error, { status });
+      if (result?.status === 'version_conflict') {
+        throw new ReserveEditConflict('La réserve a changé depuis cette modification. Le brouillon est conservé dans la file.');
+      }
+      if (result?.status !== 'ok') throw new Error('La modification de réserve a été refusée.');
       if (!stillOwned()) return;
-      const { data: updated, error: readError } = await supabaseBrowser.from('reserves').select('*').eq('id', reserveId).maybeSingle();
-      if (readError) throw readError;
+      const { data: updated, error: readError, status: readStatus } = await supabaseBrowser.from('reserves').select('*').eq('id', reserveId).maybeSingle();
+      if (readError) throw Object.assign(readError, { status: readStatus });
       if (!stillOwned() || !updated) return;
       setData(previous => ({ ...previous, reserves: previous.reserves.map(row => row.id === reserveId ? updated : row) }));
+      if (!isStatus) setNotice('Réserve mise à jour.');
       if (event && updated.status === event.to_status) triggerWebPush({ type: 'reserve-status-changed', reserveId,
         newStatus: event.to_status, previousStatus: event.from_status });
       return;
@@ -7335,8 +7293,16 @@ function BuildTrackWebWorkspace() {
               {operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
+              {isReserveEditConflict(operation) && <div className={styles.outboxActions}>
+                <button type="button" disabled={saving || outbox.syncing || Boolean(reserveModalMode) || !canEdit(profile)}
+                  onClick={() => void resumeReserveEdit(operation)}>Reprendre le brouillon</button>
+                <button type="button" disabled={saving || outbox.syncing || Boolean(reserveModalMode)}
+                  onClick={() => void discardReserveEdit(operation)}>Abandonner le brouillon</button>
+              </div>}
             </li>)}</ul>
-            <button type="button" disabled={outbox.syncing} onClick={() => void outbox.flush(true)}>{outbox.syncing ? 'Synchronisation…' : 'Réessayer les envois'}</button>
+            {outbox.rows.some(operation => !isReserveEditConflict(operation)) && (
+              <button type="button" disabled={outbox.syncing} onClick={() => void outbox.flush(true)}>{outbox.syncing ? 'Synchronisation…' : 'Réessayer les envois'}</button>
+            )}
           </> : null}
         </section> : null}
         {error ? (
@@ -7844,6 +7810,11 @@ function BuildTrackWebWorkspace() {
           data={data}
           selectedProjectId={selectedProjectId}
           saving={saving}
+          recoveryNotice={reserveEditBase.current?.recovered
+            ? reserveEditBase.current.recovered.payload.editFormat === 'field-delta'
+              ? 'Vos modifications sont reportées sur la dernière version. Vérifiez le résultat avant d’enregistrer.'
+              : 'Cet ancien brouillon contient tous les champs de la fiche. Vérifiez les valeurs proposées avant d’enregistrer.'
+            : undefined}
           onClose={requestCloseReserveModal}
           onSubmit={submitReserve}
           onToggleCompany={toggleReserveCompany}
@@ -15756,13 +15727,14 @@ function PhotoAnnotatorModal({
   );
 }
 
-function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, onClose, onSubmit, onToggleCompany }: {
+function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, recoveryNotice, onClose, onSubmit, onToggleCompany }: {
   mode: 'create' | 'edit';
   draft: ReserveDraft;
   setDraft: React.Dispatch<React.SetStateAction<ReserveDraft>>;
   data: WebState;
   selectedProjectId: string;
   saving: boolean;
+  recoveryNotice?: string;
   onClose: () => void;
   onSubmit: (event: React.FormEvent) => void;
   onToggleCompany: (companyName: string) => void;
@@ -15990,7 +15962,8 @@ function ReserveModal({ mode, draft, setDraft, data, selectedProjectId, saving, 
         <div className={styles.modalHeader}>
           <div>
             <p className={styles.eyebrow}>{mode === 'edit' ? 'Modification' : 'Création'}</p>
-            <h2>{mode === 'edit' ? 'Modifier la réserve' : 'Nouvelle réserve'}</h2>
+            <h2>{recoveryNotice ? 'Vérifier le brouillon' : mode === 'edit' ? 'Modifier la réserve' : 'Nouvelle réserve'}</h2>
+            {recoveryNotice && <p role="status">{recoveryNotice}</p>}
             <span>{project?.name ?? 'Chantier'} · {previewId}</span>
           </div>
           <button type="button" onClick={onClose}>Fermer</button>
