@@ -105,7 +105,7 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(page).toContain("previousActiveTab === 'reserves'");
     expect(page).toContain('const targetProjectId = String(getChantierId(target) || selectedProjectId)');
     expect(page).toContain('openReserveDetailTab(id, finalReserve)');
-    expect(page.match(/setSelectedReserveId\(current => current === reserve\.id \? null : current\)/g)).toHaveLength(3);
+    expect(page.match(/setSelectedReserveId\(current => current === (?:reserve|row)\.id \? null : current\)/g)).toHaveLength(3);
     expect(page).toContain('if (props.onOpenReserveDetail(reserveId)) return');
     expect(page).toContain("reserveId !== String(explicitlySelectedReserve.id)");
     expect(page).toContain('pushReserveDetailHistory');

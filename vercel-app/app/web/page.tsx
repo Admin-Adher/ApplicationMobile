@@ -3102,6 +3102,10 @@ function BuildTrackWebWorkspace() {
   }, [activeTab, searchTarget]);
 
   const [alertTaskId, setAlertTaskId] = useState('');
+  const [correctiveReserve, setCorrectiveReserve] = useState<any>(null);
+  useEffect(() => {
+    if (activeTab !== 'planning') setCorrectiveReserve(null);
+  }, [activeTab]);
   useEffect(() => {
     if (activeTab === 'planning' && alertTaskId) setAlertTaskId('');
   }, [activeTab, alertTaskId]);
@@ -3940,17 +3944,32 @@ function BuildTrackWebWorkspace() {
     }
   }
 
+  async function enqueueReserveWorkflow(
+    reserve: any, action: 'acknowledge' | 'restore' | 'reject_lift' | 'corrective_task',
+    fields: Record<string, unknown> = {},
+  ) {
+    const organization = profile?.organization_id;
+    if (!organization || !reserve?.id || reserve.organization_id !== organization) return false;
+    if (outbox.rows.some(item => item.kind === 'reserve_workflow' && !item.error &&
+      item.payload.reserveId === reserve.id && item.payload.action === action)) return false;
+    setError('');
+    try {
+      await outbox.enqueue('reserve_workflow', {
+        id: crypto.randomUUID(), reserveId: reserve.id, organization_id: organization, action, fields,
+      });
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Action sur la réserve conservée sur ce navigateur.');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver cette action.');
+      return false;
+    }
+  }
+
   async function acknowledgeReserveWeb(reserve: any) {
     if (!reserve?.id || hasEnterpriseAck(reserve)) return;
     if (!canEdit(profile) && !reserveCompanies(reserve).some(company => canSignReserveCompany(profile, data.companies, company))) return;
-    const author = userLabel(profile, authUser);
-    await patchReserveWeb(reserve, {
-      enterprise_acknowledged_at: todayISO(),
-      history: [
-        ...(Array.isArray(reserve.history) ? reserve.history : []),
-        makeHistory('Réception accusée depuis le web', author),
-      ],
-    });
+    await enqueueReserveWorkflow(reserve, 'acknowledge');
   }
 
   async function signReserveWeb(reserve: any, companyName?: string) {
@@ -4004,22 +4023,9 @@ function BuildTrackWebWorkspace() {
 
   async function rejectReserveVerificationWeb(reserve: any) {
     if (!canEdit(profile) || !reserve?.id || reserve.status !== 'verification') return;
-    const reason = (await askTextDialog('Motif du refus de levée (optionnel)'))?.trim() ?? '';
-    const author = userLabel(profile, authUser);
-    const comments = reason
-      ? [
-        ...(Array.isArray(reserve.comments) ? reserve.comments : []),
-        { id: crypto.randomUUID(), author, content: `Levée rejetée : ${reason}`, createdAt: nowISO() },
-      ]
-      : reserve.comments ?? [];
-    await patchReserveWeb(reserve, {
-      status: 'in_progress',
-      comments,
-      history: [
-        ...(Array.isArray(reserve.history) ? reserve.history : []),
-        makeHistory('Levée rejetée depuis le web', author, statusLabel('verification'), statusLabel('in_progress')),
-      ],
-    });
+    const reason = await askTextDialog('Motif du refus de levée (optionnel)');
+    if (reason === null) return;
+    await enqueueReserveWorkflow(reserve, 'reject_lift', { reason: reason.trim(), version: reserve.version });
   }
 
   async function moveReservePinWeb(reserve: any, plan: any, x: number, y: number) {
@@ -4154,36 +4160,9 @@ function BuildTrackWebWorkspace() {
   }
 
   async function restoreReserveWeb(reserve: any) {
-    if (!canEdit(profile) || !reserve?.id) return;
-    const confirmed = window.confirm(`Restaurer la réserve ${reserve.id} dans la liste active ?`);
-    if (!confirmed) return;
-    setSaving(true);
-    setError('');
-    const restoredBy = profile?.name ?? profile?.email ?? 'Web';
-    const patch = {
-      deleted_at: null,
-      deleted_by: null,
-      history: [
-        ...(Array.isArray(reserve.history) ? reserve.history : []),
-        makeHistory('Restaurée depuis la corbeille web', restoredBy, 'Corbeille', 'Active'),
-      ],
-    };
-    const { error: restoreError } = await supabaseBrowser.from('reserves').update(patch).eq('id', reserve.id);
-    if (restoreError) {
-      setError(restoreError.message);
-    } else {
-      setData(prev => {
-        const restoredReserve = { ...reserve, ...patch };
-        const deletedReserves = prev.deletedReserves.filter(item => item.id !== reserve.id);
-        setSelectedReserveId(current => current === reserve.id ? null : current);
-        return {
-          ...prev,
-          deletedReserves,
-          reserves: [restoredReserve, ...prev.reserves.filter(item => item.id !== reserve.id)],
-        };
-      });
-    }
-    setSaving(false);
+    if (!canEdit(profile) || !reserve?.id || !reserve.deleted_at) return;
+    if (!window.confirm(`Restaurer la réserve ${reserve.id} dans la liste active ?`)) return;
+    await enqueueReserveWorkflow(reserve, 'restore', { deletedAt: reserve.deleted_at });
   }
 
   async function permanentlyDeleteReserveWeb(reserve: any) {
@@ -5149,12 +5128,13 @@ function BuildTrackWebWorkspace() {
     }
     const buildings = projectBuildings({ buildings: draft.buildings });
     const projectId = draft.id || `CH-${crypto.randomUUID().slice(0, 8).toUpperCase()}`;
+    const current = draft.id ? data.chantiers.find(project => project.id === draft.id) : null;
     const payload = {
       name,
       address: String(draft.address ?? '').trim() || null,
       description: String(draft.description ?? '').trim() || null,
-      start_date: draft.start_date || null,
-      end_date: draft.end_date || null,
+      start_date: current && draft.start_date === fieldDateInput(current.start_date) ? current.start_date ?? null : draft.start_date || null,
+      end_date: current && draft.end_date === fieldDateInput(current.end_date) ? current.end_date ?? null : draft.end_date || null,
       status: draft.status || 'active',
       company_ids: Array.isArray(draft.company_ids) ? draft.company_ids : [],
       buildings: buildings.length ? JSON.stringify(buildings) : null,
@@ -5186,20 +5166,14 @@ function BuildTrackWebWorkspace() {
     }
     const savedProject = saved ?? { id: projectId, ...payload };
     if (isCreate) {
-      try {
-        await supabaseBrowser.from('channels').upsert({
-          id: `building-${projectId}`,
-          name,
-          description: payload.description ?? '',
-          icon: 'business',
-          color: '#3B82F6',
-          type: 'building',
-          members: profile.name ? [profile.name] : [],
-          created_by: profile.name ?? null,
-          organization_id: profile.organization_id ?? null,
-        });
-      } catch {
-        // Non bloquant : le chantier existe même si le salon bâtiment sera recréé par synchronisation mobile.
+      const channelId = `building-${projectId}`;
+      if (!await enqueueFieldWrites('channels', [{
+        action: 'insert', id: channelId, fields: {
+          name, description: payload.description ?? '', icon: 'business', color: '#3B82F6', type: 'building',
+          members: profile.name ? [profile.name] : [], created_by: profile.name ?? null,
+        },
+      }])) {
+        setError('Le chantier est enregistré, mais ce navigateur n’a pas pu conserver la création de son salon.');
       }
     }
     setData(prev => ({
@@ -6146,6 +6120,45 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'reserve_workflow') {
+      const { id, reserveId, organization_id, action, fields } = operation.payload;
+      if (!profile?.organization_id || organization_id !== profile.organization_id ||
+          !(canEdit(profile) || (action === 'acknowledge' && isSubcontractor(profile))) ||
+          (action === 'corrective_task' && !canCreate(profile))) {
+        throw new Error('Votre compte ne peut plus effectuer cette action.');
+      }
+      const { data: result, error, status } = await supabaseBrowser.rpc('apply_web_reserve_workflow', {
+        p_organization_id: organization_id, p_reserve_id: reserveId, p_operation_id: id, p_action: action, p_payload: fields,
+      });
+      if (error) throw Object.assign(error, { status });
+      const row = result?.reserve;
+      if (!row?.id) throw new Error('L’action sur la réserve n’a pas été enregistrée.');
+      if (!stillOwned()) return;
+      setData(previous => {
+        const current = [...previous.reserves, ...previous.deletedReserves].find(reserve => reserve.id === row.id);
+        const next = current && Number(current.version ?? 0) > Number(row.version ?? 0) ? current : row;
+        const updateRows = (rows: any[], include: boolean) => {
+          if (!include) return rows.filter(reserve => reserve.id !== row.id);
+          if (!rows.some(reserve => reserve.id === row.id)) return [next, ...rows];
+          return rows.map(reserve => reserve.id === row.id ? next : reserve);
+        };
+        return {
+          ...previous,
+          reserves: updateRows(previous.reserves, !next.deleted_at),
+          deletedReserves: updateRows(previous.deletedReserves, Boolean(next.deleted_at)),
+          tasks: result.task && !previous.tasks.some(task => task.id === result.task.id)
+            ? [result.task, ...previous.tasks] : previous.tasks,
+        };
+      });
+      if (action === 'restore' && !row.deleted_at) {
+        setSelectedReserveId(current => current === row.id ? null : current);
+        setNotice('Réserve restaurée.');
+      }
+      if (action === 'reject_lift' && !result.replayed && row.status === 'in_progress') {
+        triggerWebPush({ type: 'reserve-status-changed', reserveId: row.id, previousStatus: 'verification', newStatus: 'in_progress' });
+      }
+      return;
+    }
     if (operation.kind === 'reserve_pin') {
       const org = profile?.organization_id;
       const { id, rowId, organization_id, patch } = operation.payload;
@@ -7310,7 +7323,8 @@ function BuildTrackWebWorkspace() {
           {outbox.storageError ? <p role="alert">{outbox.storageError}</p> : null}
           {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
             <ul>{outbox.rows.map(operation => <li key={operation.key}>
-              {operation.kind === 'terrain_action' ? terrainActionLabels[(operation.payload.change as WebTerrainChange).action] :
+              {operation.kind === 'reserve_workflow' ? 'Action sur la réserve · ' + String(operation.payload.reserveId) :
+                operation.kind === 'terrain_action' ? terrainActionLabels[(operation.payload.change as WebTerrainChange).action] :
                 operation.kind === 'reserve_pin' ? 'Épingle · ' + String(operation.payload.rowId) :
                 operation.kind === 'inventory_product_edit' ? 'Fiche produit · ' + String(operation.payload.rowId) :
                 operation.kind === 'plan_revision' ? 'Révision de plan · ' + String((operation.payload.newPlan as Record<string, unknown>).name) : operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
@@ -7433,6 +7447,20 @@ function BuildTrackWebWorkspace() {
                 onStatus={updateReserveStatus}
                 onRequestLift={requestReserveLiftWeb}
                 onAcknowledge={acknowledgeReserveWeb}
+                correctiveTasks={profile?.role === 'sous_traitant' ? [] : fieldData.tasks}
+                pendingWorkflow={outbox.rows.filter(row => row.kind === 'reserve_workflow' && !row.error)}
+                onOpenCorrectiveTask={task => {
+                  if (task.chantier_id && selectedProjectId !== 'all' && selectedProjectId !== task.chantier_id) {
+                    setSelectedProjectId(task.chantier_id);
+                  }
+                  setSearchTarget(null);
+                  setAlertTaskId(task.id);
+                  setActiveTab('planning');
+                }}
+                onCreateCorrectiveTask={canCreate(profile) && canEdit(profile) ? reserve => {
+                  setCorrectiveReserve(reserve);
+                  setActiveTab('planning');
+                } : undefined}
                 onSign={signReserveWeb}
                 onRejectVerification={rejectReserveVerificationWeb}
                 onArchive={toggleArchive}
@@ -7657,7 +7685,11 @@ function BuildTrackWebWorkspace() {
                  commentUserId={authUser?.id}
                  commentUserName={userLabel(profile, authUser)}
                  onDeleteTask={canDelete(profile) ? deleteTaskWeb : undefined}
-                 onCreateTask={createTaskWeb}
+                 correctiveReserve={correctiveReserve}
+                 onCloseCorrectiveTask={() => setCorrectiveReserve(null)}
+                 onCreateTask={correctiveReserve
+                   ? (draft: Record<string, string>) => enqueueReserveWorkflow(correctiveReserve, 'corrective_task', draft)
+                   : createTaskWeb}
                  onOpenReserve={openReserveDetailTab}
                  onOpenVisites={() => setActiveTab('visites')}
                 initialTaskId={searchTarget?.tab === 'planning' ? searchTarget.id : alertTaskId}
@@ -7945,6 +7977,10 @@ function ReservesView(props: {
   onStatus: (id: string, status: string) => void;
   onRequestLift: (reserve: any, payload: { comment: string; file: File | null }) => Promise<void> | void;
   onAcknowledge: (reserve: any) => void;
+  correctiveTasks: any[];
+  pendingWorkflow: WebQueuedOperation[];
+  onOpenCorrectiveTask: (task: any) => void;
+  onCreateCorrectiveTask?: (reserve: any) => void;
   onSign: (reserve: any, companyName?: string) => void;
   onRejectVerification: (reserve: any) => void;
   onArchive: (reserve: any) => void;
@@ -8049,6 +8085,14 @@ function ReservesView(props: {
   const mobileDetailReserve = reserveDetailOpen ? explicitlySelectedReserve : null;
   const showMobileReserveDetail = isCompactReserveView && !!mobileDetailReserve;
   const detailReserve = showMobileReserveDetail ? mobileDetailReserve : selectedReserve;
+  const correctiveTask = detailReserve && (
+    props.correctiveTasks.find(task => task.id === detailReserve.linked_task_id) ??
+    props.correctiveTasks.find(task => task.reserve_id === detailReserve.id)
+  );
+  const reserveActionPending = props.pendingWorkflow.some(row => row.payload.reserveId === detailReserve?.id);
+  const correctiveTaskPending = props.pendingWorkflow.some(row =>
+    row.payload.reserveId === detailReserve?.id && row.payload.action === 'corrective_task',
+  );
   const reserveNavigatorModel = useMemo(
     () => buildReserveNavigatorModel(reserves, effectiveReserveNavigatorState, props.selectedReserveId),
     [effectiveReserveNavigatorState, props.selectedReserveId, reserves],
@@ -9182,6 +9226,24 @@ function ReservesView(props: {
                     <span>Signature réservée à l’entreprise concernée.</span>
                   )}
                   {detailReserveAllCompaniesSigned && detailReserveIsMultiCompany && <span>Toutes les entreprises ont signé.</span>}
+                </div>
+              </section>
+            )}
+            {reserveActionPending && <p role="status">Action conservée, en attente de synchronisation.</p>}
+            {detailReserve && !isReserveDeleted(detailReserve) && (correctiveTask || props.onCreateCorrectiveTask) && (
+              <section className={styles.reserveWorkflowCard} aria-label="Tâche corrective">
+                <div className={styles.reserveWorkflowBlock}>
+                  <p>Tâche corrective</p>
+                  <div className={styles.reserveWorkflowActions}>
+                    {correctiveTask ? (
+                      <button type="button" onClick={() => props.onOpenCorrectiveTask(correctiveTask)}>{correctiveTask.title}</button>
+                    ) : (
+                      <button type="button" disabled={correctiveTaskPending || !detailReserve.chantier_id}
+                        onClick={() => props.onCreateCorrectiveTask?.(detailReserve)}>
+                        Créer une tâche corrective
+                      </button>
+                    )}
+                  </div>
                 </div>
               </section>
             )}
@@ -13442,7 +13504,7 @@ function VisitesView({
   );
 }
 
-function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onChangeTaskComment, commentUserId, commentUserName, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites, initialTaskId }: any) {
+function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onChangeTaskComment, commentUserId, commentUserName, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites, initialTaskId, correctiveReserve, onCloseCorrectiveTask }: any) {
   const { t, locale } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Planning" />;
   return (
@@ -13467,6 +13529,8 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
       onOpenReserve={onOpenReserve}
       onOpenVisites={onOpenVisites}
       initialTaskId={initialTaskId}
+      correctiveReserve={correctiveReserve}
+      onCloseCorrectiveTask={onCloseCorrectiveTask}
     />
   );
 }

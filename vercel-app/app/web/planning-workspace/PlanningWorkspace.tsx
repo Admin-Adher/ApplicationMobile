@@ -39,6 +39,8 @@ type PlanningWorkspaceProps = {
   onOpenReserve?: (reserveId: string) => void;
   onOpenVisites?: () => void;
   initialTaskId?: string;
+  correctiveReserve?: { id: string; title: string; description?: string; deadline?: string; company?: string };
+  onCloseCorrectiveTask?: () => void;
 };
 
 const TASK_MODES: Array<{ id: PlanningTaskMode; label: string }> = [
@@ -142,6 +144,8 @@ export default function PlanningWorkspace({
   onOpenReserve,
   onOpenVisites,
   initialTaskId = '',
+  correctiveReserve,
+  onCloseCorrectiveTask,
 }: PlanningWorkspaceProps) {
   const taskHeadingId = useId();
   const agendaHeadingId = useId();
@@ -154,13 +158,25 @@ export default function PlanningWorkspace({
   const [scheduleQuery, setScheduleQuery] = useState('');
   const deferredScheduleQuery = useDeferredValue(scheduleQuery);
   const [visibleScheduleCount, setVisibleScheduleCount] = useState(PLANNING_SCHEDULE_BATCH_SIZE);
-  const [showForm, setShowForm] = useState(false);
+  const [showForm, setShowForm] = useState(Boolean(correctiveReserve));
   const [showGantt, setShowGantt] = useState(false);
   const [detailId, setDetailId] = useState(initialTaskId);
   const [taskComment, setTaskComment] = useState('');
   const [editingTask, setEditingTask] = useState<any>(null);
   const [commentBusy, setCommentBusy] = useState(false);
-  const [draft, setDraft] = useState({ title: '', start_date: '', deadline: '', company: '', assignee: '' });
+  const emptyDraft = { title: '', description: '', start_date: '', deadline: '', company: '', assignee: '' };
+  const [draft, setDraft] = useState(() => correctiveReserve ? {
+    ...emptyDraft, title: 'Lever : ' + correctiveReserve.title, description: correctiveReserve.description ?? '',
+    deadline: fieldDateInput(correctiveReserve.deadline), company: correctiveReserve.company ?? '',
+  } : emptyDraft);
+
+  function closeComposer() {
+    setShowForm(false);
+    if (correctiveReserve) {
+      setDraft(emptyDraft);
+      onCloseCorrectiveTask?.();
+    }
+  }
   const [busy, setBusy] = useState(false);
   const now = useMemo(() => new Date(), []);
   const weekRange = useMemo(() => getPlanningWeekRange(now, locale), [locale, now]);
@@ -217,7 +233,8 @@ export default function PlanningWorkspace({
     try {
       const saved = await onCreateTask?.(draft);
       if (saved) {
-        setDraft({ title: '', start_date: '', deadline: '', company: '', assignee: '' });
+        onCloseCorrectiveTask?.();
+        setDraft(emptyDraft);
         setShowForm(false);
       }
     } finally {
@@ -273,7 +290,7 @@ export default function PlanningWorkspace({
               className={styles.primaryAction}
               aria-expanded={showForm}
               aria-controls="planning-task-composer"
-              onClick={() => setShowForm(value => !value)}
+              onClick={() => showForm ? closeComposer() : setShowForm(true)}
             >
               <WorkspaceIcon name={showForm ? 'close' : 'plus'} size={19} />
               {showForm ? 'Fermer le formulaire' : 'Nouvelle tâche'}
@@ -286,7 +303,7 @@ export default function PlanningWorkspace({
             <div className={styles.composerIntro}>
               <span><WorkspaceIcon name="edit" size={20} /></span>
               <div>
-                <strong>Préparer une tâche</strong>
+                <strong>{correctiveReserve ? 'Tâche corrective · ' + correctiveReserve.id : 'Préparer une tâche'}</strong>
                 <small>Ajoutez le responsable et l’échéance pour la rendre immédiatement actionnable.</small>
               </div>
             </div>
@@ -295,6 +312,10 @@ export default function PlanningWorkspace({
                 <span>Titre de la tâche</span>
                 <input value={draft.title} onChange={event => setDraft(previous => ({ ...previous, title: event.target.value }))} required autoFocus />
               </label>
+              {correctiveReserve && <label className={styles.composerTitle}>
+                <span>Description</span>
+                <textarea value={draft.description} onChange={event => setDraft(previous => ({ ...previous, description: event.target.value }))} />
+              </label>}
               <label>
                 <span>Début</span>
                 <input type="date" value={draft.start_date} onChange={event => setDraft(previous => ({ ...previous, start_date: event.target.value }))} />
@@ -316,7 +337,7 @@ export default function PlanningWorkspace({
               </label>
             </div>
             <div className={styles.composerActions}>
-              <button type="button" onClick={() => setShowForm(false)}>Annuler</button>
+              <button type="button" onClick={closeComposer}>Annuler</button>
               <button type="submit" disabled={busy}>{busy ? 'Création…' : 'Créer la tâche'}</button>
             </div>
           </form>
