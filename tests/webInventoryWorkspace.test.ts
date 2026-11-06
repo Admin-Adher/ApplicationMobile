@@ -21,7 +21,9 @@ describe('BuildTrack web inventory workspace', () => {
     expect(model).toContain('AuthorizedInventorySnapshot');
     expect(model).toContain('InventoryCapabilities');
     expect(workspace).not.toContain('supabaseBrowser');
-    expect(workspace).toContain('recordInventoryMovement({');
+    expect(workspace).toContain('recordInventoryMovement(mutation)');
+    expect(workspace).toContain('sessionStorage.setItem(movementKey, JSON.stringify(mutation))');
+    expect(workspace).toContain('confirmMovement(pendingMovement, false)');
     expect(operations).toContain("'record_inventory_movement'");
     expect(operations).toContain("'update_inventory_product'");
     expect(operations).toContain("'admin_delete_inventory_product'");

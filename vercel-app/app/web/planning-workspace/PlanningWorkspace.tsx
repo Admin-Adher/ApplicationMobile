@@ -3,6 +3,7 @@
 import { useDeferredValue, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { WorkspaceIcon, WorkspaceSearch } from '../plan-reserve-workspace/WorkspaceChrome';
 import styles from './PlanningWorkspace.module.css';
+import { fieldDateInput } from '@/lib/web-field-writes';
 import PlanningGantt from './PlanningGantt';
 import {
   PLANNING_SCHEDULE_BATCH_SIZE,
@@ -60,6 +61,62 @@ function formatTaskDate(value: string | null | undefined, locale: string) {
   return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
 }
 
+function TaskEditForm({ task, companies, onSave, onClose }: {
+  task: any;
+  companies: any[];
+  onSave: NonNullable<PlanningWorkspaceProps['onUpdateTask']>;
+  onClose: () => void;
+}) {
+  const initial = {
+    title: String(task.title ?? ''),
+    description: String(task.description ?? ''),
+    company: String(task.company ?? ''),
+    assignee: String(task.assignee ?? ''),
+    start_date: fieldDateInput(task.start_date),
+    deadline: fieldDateInput(task.deadline),
+    priority: String(task.priority ?? 'medium'),
+    progress: Number(task.progress ?? 0),
+  };
+  const [draft, setDraft] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const companyId = useId();
+
+  async function save(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft.title.trim() || busy) return;
+    const patch = Object.fromEntries(Object.entries(draft)
+      .filter(([key, value]) => initial[key as keyof typeof initial] !== value)
+      .map(([key, value]) => [key, key === 'start_date' || key === 'deadline' ? value || null : typeof value === 'string' ? value.trim() : value]));
+    setBusy(true);
+    try {
+      if (!Object.keys(patch).length || await onSave(task, patch)) onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className={styles.taskComposer} aria-label="Modifier la tâche" onSubmit={save}>
+      <div className={styles.composerGrid}>
+        <label className={styles.composerTitle}><span>Titre de la tâche</span><input value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} required autoFocus /></label>
+        <label className={styles.composerTitle}><span>Description</span><textarea rows={3} value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
+        <label><span>Début</span><input type="date" value={draft.start_date} onChange={event => setDraft({ ...draft, start_date: event.target.value })} /></label>
+        <label><span>Échéance</span><input type="date" value={draft.deadline} onChange={event => setDraft({ ...draft, deadline: event.target.value })} /></label>
+        <label><span>Entreprise</span><input list={companyId} value={draft.company} onChange={event => setDraft({ ...draft, company: event.target.value })} /><datalist id={companyId}>{companies.map(company => <option key={company.id} value={company.name} />)}</datalist></label>
+        <label><span>Responsable</span><input value={draft.assignee} onChange={event => setDraft({ ...draft, assignee: event.target.value })} /></label>
+        <label><span>Priorité</span><select value={draft.priority} onChange={event => setDraft({ ...draft, priority: event.target.value })}>
+          <option value="low">Basse</option><option value="medium">Normale</option><option value="high">Haute</option><option value="critical">Critique</option>
+        </select></label>
+        <label><span>Avancement (%)</span><input type="number" min={0} max={100} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: event.target.valueAsNumber })} /></label>
+      </div>
+      <div className={styles.taskActions}>
+        <button type="button" onClick={onClose} disabled={busy}>Annuler</button>
+        <button type="submit" disabled={busy || !draft.title.trim()}>Enregistrer la tâche</button>
+      </div>
+    </form>
+  );
+}
+
 function countLabel(value: number, singular: string, plural: string) {
   return `${value} ${value === 1 ? singular : plural}`;
 }
@@ -101,6 +158,7 @@ export default function PlanningWorkspace({
   const [showGantt, setShowGantt] = useState(false);
   const [detailId, setDetailId] = useState(initialTaskId);
   const [taskComment, setTaskComment] = useState('');
+  const [editingTask, setEditingTask] = useState<any>(null);
   const [commentBusy, setCommentBusy] = useState(false);
   const [draft, setDraft] = useState({ title: '', start_date: '', deadline: '', company: '', assignee: '' });
   const [busy, setBusy] = useState(false);
@@ -327,6 +385,11 @@ export default function PlanningWorkspace({
                               else setDetailId(current => current === String(task.id) ? '' : current);
                             }}>
                               <summary>Détails de la tâche</summary>
+                              {editable && onUpdateTask ? (
+                                editingTask?.id === task.id
+                                  ? <TaskEditForm key={task.id} task={editingTask} companies={companies} onSave={onUpdateTask} onClose={() => setEditingTask(null)} />
+                                  : <div className={styles.taskActions}><button type="button" onClick={() => setEditingTask(task)}>Modifier la tâche</button></div>
+                              ) : null}
                               <p>{task.description || 'Aucune description.'}</p>
                               {task.start_date ? <p>Début {formatTaskDate(task.start_date, locale)}</p> : null}
                               {Array.isArray(task.comments) ? task.comments.map((comment: any, index: number) => (

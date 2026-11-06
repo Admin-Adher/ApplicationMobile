@@ -38,6 +38,7 @@ export type MessageRecord = {
   linked_item_type?: string | null;
   linked_item_id?: string | null;
   linked_item_title?: string | null;
+  reserve_id?: string | null;
 };
 
 export type AuthorizedMessagesSnapshot = {
@@ -48,10 +49,24 @@ export type AuthorizedMessagesSnapshot = {
 
 export type MessageAction = { type: 'reaction'; emoji: string } | { type: 'pin' } | { type: 'delete' };
 
+export type MessageLinkedItemType = 'reserve' | 'plan' | 'task' | 'incident' | 'visite' | 'opr';
+export type MessageLinkedItem = { type: MessageLinkedItemType; id: string; title: string; projectId: string };
+
+export function messageMentions(content: string, names: string[]): string[] {
+  const ordered = [...new Set(names.map(name => name.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
+  if (!ordered.length) return [];
+  const escaped = ordered.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp('(?:^|[^\\p{L}\\p{N}._%+@-])@(' + escaped.join('|') + ')(?![\\p{L}\\p{N}_@-])', 'giu');
+  const canonical = new Map(ordered.map(name => [name.toLowerCase(), name]));
+  return [...new Set(Array.from(content.matchAll(pattern), match => canonical.get(match[1].toLowerCase()) ?? match[1]))];
+}
+
 export type MessageSendInput = {
   channelId: string;
   content: string;
   attachmentRef?: string | null;
+  mentions?: string[];
+  linkedItem?: MessageLinkedItem;
   attachmentFile?: File;
   replyTo?: Pick<MessageRecord, 'id' | 'content' | 'sender'> | null;
 };

@@ -31,6 +31,7 @@ import {
   deleteInventoryProduct,
   updateInventoryProduct,
   uploadInventoryPhoto,
+  type InventoryMovementMutation,
 } from './inventory-operations';
 import {
   buildInventoryProjection,
@@ -191,6 +192,7 @@ function ProjectTag({ name }: { name: string }) {
 
 export default function InventoryWorkspace({
   snapshot,
+  movementOwner,
   selectedProjectId,
   capabilities,
   language,
@@ -212,6 +214,22 @@ export default function InventoryWorkspace({
   const [editForm, setEditForm] = useState<ProductEditState>(EMPTY_PRODUCT_EDIT);
   const [editPhoto, setEditPhoto] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
+  const [pendingMovement, setPendingMovement] = useState<InventoryMovementMutation | null>(null);
+  const movementBusy = useRef(false);
+  const movementKey = 'buildtrack-inventory-pending-v1:' + movementOwner;
+  useEffect(() => {
+    try {
+      const stored = window.sessionStorage.getItem(movementKey);
+      setPendingMovement(stored ? JSON.parse(stored) : null);
+    } catch {
+      setPendingMovement(null);
+    }
+  }, [movementKey]);
+  const retryCopy = {
+    fr: ['Mouvement en attente de confirmation', 'Réessayer le mouvement'],
+    en: ['Movement awaiting confirmation', 'Retry movement'],
+    es: ['Movimiento pendiente de confirmación', 'Reintentar movimiento'],
+  }[language];
   const [refreshing, setRefreshing] = useState(false);
   const [exporting, setExporting] = useState<ExportKind | null>(null);
   const [error, setError] = useState('');
@@ -422,6 +440,7 @@ export default function InventoryWorkspace({
   }
 
   function transitionToMode(nextMode: InventoryMode) {
+    if (movementBusy.current) return;
     stopScanner();
     setMode(nextMode);
     setLookupState('idle');
@@ -503,6 +522,7 @@ export default function InventoryWorkspace({
   }
 
   function openMovement(nextMode: 'in' | 'out', product?: InventoryProductRow) {
+    if (movementBusy.current || pendingMovement) return;
     stopScanner();
     clearFeedback();
     setPhoto(null);
@@ -645,10 +665,10 @@ export default function InventoryWorkspace({
 
   async function submitMovement(event: React.FormEvent) {
     event.preventDefault();
-    if (mode !== 'in' && mode !== 'out') return;
+    if ((mode !== 'in' && mode !== 'out') || pendingMovement || movementBusy.current) return;
     setError('');
     setNotice('');
-    if (!capabilities.canRecord) return setError(copy.recordForbidden);
+    if (!movementOwner || !capabilities.canRecord) return setError(copy.recordForbidden);
     if (!operationProjectId) return setError(copy.selectProjectError);
     const existing = selectedProduct ?? resolveTypedProduct();
     const reference = form.reference.trim().toUpperCase();
@@ -663,6 +683,7 @@ export default function InventoryWorkspace({
       return setError(copy.insufficientStock(numberValue(existing.current_stock)));
     }
 
+    movementBusy.current = true;
     setSaving(true);
     try {
       const productId = existing?.id ?? crypto.randomUUID();
@@ -672,7 +693,7 @@ export default function InventoryWorkspace({
       const photoUrl = photo ? await uploadInventoryPhoto(photo, operationProjectId, productId) : existing?.photo_url ?? null;
       const designation = (existing?.designation ?? form.designation).trim() || reference;
       const movementDestination = toInventoryMovementDestination(form.destination);
-      const outcome = await recordInventoryMovement({
+      const mutation: InventoryMovementMutation = {
         operationId,
         movement: {
           id: movementId,
@@ -702,30 +723,61 @@ export default function InventoryWorkspace({
           supplier: form.supplier.trim() || existing?.supplier || null,
         },
         allowNegative: capabilities.canAdjust && form.allowNegative,
-      });
-      if (!outcome || outcome.status !== 'ok') throw new Error(outcome?.message ?? copy.operationRejected);
-      await onReload();
-      const movementName = mode === 'in' ? copy.receive : copy.dispatch;
-      setNotice(`${copy.movementSaved(movementName, numberValue(outcome.stockAfter))} ${copy.scanNext}`);
-      if (operationProjectId && mode === 'in') {
-        if (form.supplier.trim()) window.localStorage.setItem(`buildtrack-inventory-last-supplier-${operationProjectId}`, form.supplier.trim());
-        if (form.location.trim()) window.localStorage.setItem(`buildtrack-inventory-last-location-${operationProjectId}`, form.location.trim());
-      }
-      setForm({
-        ...EMPTY_FORM,
-        supplier: mode === 'in' ? form.supplier.trim() : '',
-        location: mode === 'in' ? form.location.trim() : '',
-      });
-      setSelectedProductId(null);
-      setPhoto(null);
-      setLookupState('idle');
-      locationEdited.current = false;
-      lastProductCode.current = '';
-      setConfirmingLocation(false);
-      void startScanner('product');
+      };
+      // Persist the complete request before dispatch. Supabase checks both the
+      // operation ID and its payload when resolving a retry.
+      window.sessionStorage.setItem(movementKey, JSON.stringify(mutation));
+      setPendingMovement(mutation);
+      await confirmMovement(mutation, true);
     } catch (submitError: any) {
       setError(submitError?.message ?? String(submitError));
     } finally {
+      movementBusy.current = false;
+      setSaving(false);
+    }
+  }
+
+  async function confirmMovement(mutation: InventoryMovementMutation, continueScanning: boolean) {
+    const outcome = await recordInventoryMovement(mutation);
+    if (!outcome.status) throw new Error(copy.operationRejected);
+    window.sessionStorage.removeItem(movementKey);
+    setPendingMovement(null);
+    if (outcome.status !== 'ok') throw new Error(outcome.message ?? copy.operationRejected);
+
+    const entry = mutation.movement.movement_type === 'in';
+    const projectId = String(mutation.movement.chantier_id);
+    const supplier = String(mutation.movement.supplier ?? '');
+    const location = String(mutation.movement.location ?? '');
+    if (entry) {
+      try {
+        if (supplier) window.localStorage.setItem(`buildtrack-inventory-last-supplier-${projectId}`, supplier);
+        if (location) window.localStorage.setItem(`buildtrack-inventory-last-location-${projectId}`, location);
+      } catch { /* Optional form preferences. */ }
+    }
+    setForm({ ...EMPTY_FORM, supplier: entry ? supplier : '', location: entry ? location : '' });
+    setSelectedProductId(null);
+    setPhoto(null);
+    setLookupState('idle');
+    locationEdited.current = false;
+    lastProductCode.current = '';
+    setConfirmingLocation(false);
+    const movementName = entry ? copy.receive : copy.dispatch;
+    setNotice(`${copy.movementSaved(movementName, numberValue(outcome.stockAfter))} ${continueScanning ? copy.scanNext : ''}`.trim());
+    if (continueScanning) void startScanner('product');
+    await onReload();
+  }
+
+  async function retryMovement() {
+    if (!pendingMovement || !capabilities.canRecord || movementBusy.current) return;
+    movementBusy.current = true;
+    setSaving(true);
+    setError('');
+    try {
+      await confirmMovement(pendingMovement, false);
+    } catch (cause: any) {
+      setError(cause?.message ?? String(cause));
+    } finally {
+      movementBusy.current = false;
       setSaving(false);
     }
   }
@@ -994,7 +1046,19 @@ export default function InventoryWorkspace({
       {notice ? <div className={styles.notice} role="status"><InventoryIcon name="check" /><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label={copy.dismiss}><InventoryIcon name="close" /></button></div> : null}
       {scanError ? <div className={styles.error} role="alert"><InventoryIcon name="camera" /><span>{scanError}</span><button type="button" onClick={() => setScanError('')} aria-label={copy.dismiss}><InventoryIcon name="close" /></button></div> : null}
 
-      {(mode === 'in' || mode === 'out') ? (
+      {pendingMovement ? (
+        <section className={styles.operationPanel} aria-label={retryCopy[0]}>
+          <div className={styles.panelHeading}>
+            <div>
+              <h3>{retryCopy[0]}</h3>
+              <p>{String(pendingMovement.movement.reference)} · {numberValue(pendingMovement.movement.quantity)}</p>
+            </div>
+            <button type="button" className={styles.primaryButton} disabled={saving || !capabilities.canRecord} onClick={() => void retryMovement()}>
+              {saving ? copy.saving : retryCopy[1]}
+            </button>
+          </div>
+        </section>
+      ) : (mode === 'in' || mode === 'out') ? (
         <section ref={operationPanelRef} className={styles.operationPanel} aria-labelledby="inventory-movement-title">
           <div className={styles.panelHeading}>
             <div>

@@ -139,7 +139,7 @@ import OprWorkspace from './opr-workspace/OprWorkspace';
 import { buildWebOprPrint } from './opr-workspace/opr-print';
 import PortalWorkspace from './PortalWorkspace';
 import { getPdfCompanyPalette, renderPdfCompanyLabel } from '../../../lib/pdfCompanyColors';
-import { fieldTables, fieldUpdate, fieldWriteApplied, fieldWrites, projectFieldRows, type FieldTable, type FieldWrite } from '@/lib/web-field-writes';
+import { fieldDateInput, fieldTables, fieldUpdate, fieldWriteApplied, fieldWrites, projectFieldRows, type FieldTable, type FieldWrite } from '@/lib/web-field-writes';
 import { useWebAttendanceSettings } from './useWebAttendanceSettings';
 import OrganizationWebhookSettings from './OrganizationWebhookSettings';
 import BrowserPushSettings from './BrowserPushSettings';
@@ -156,6 +156,7 @@ import { matchesSearchText, normalizeSearchText } from '../../../lib/searchText'
 import {
   mergeMessageReadState,
   type MessageSendInput,
+  type MessageLinkedItem,
   type MessageAction,
   type MessageChannelRecord,
   type MessageRecord,
@@ -405,7 +406,7 @@ const TABS = [
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
-type SearchResultTab = 'documents' | 'incidents' | 'visites' | 'planning' | 'reglementaire';
+type SearchResultTab = 'documents' | 'incidents' | 'visites' | 'planning' | 'reglementaire' | 'plans';
 type NavIconName = typeof TABS[number]['icon'];
 
 const NAV_GROUPS: { label: string; items: TabId[] }[] = [
@@ -4954,9 +4955,9 @@ function BuildTrackWebWorkspace() {
     setSaving(false);
   }
 
-  async function updateVisitWeb(visit: any, patch: Record<string, any>) {
-    if (!profile || !canEdit(profile) || !visit?.id) return;
-    await enqueueFieldWrites('visites', [fieldUpdate(visit, patch)]);
+  async function updateVisitWeb(visit: any, patch: Record<string, any>, file?: File) {
+    if (!profile || !canEdit(profile) || !visit?.id) return false;
+    return enqueueFieldWrites('visites', [fieldUpdate(visit, patch)], file);
   }
 
   async function attachReservesToVisitWeb(visit: any, reserveIds: string[]) {
@@ -5893,77 +5894,45 @@ function BuildTrackWebWorkspace() {
     return true;
   }
 
-  async function saveRegulatoryDocWeb(draft: any, file: File | null) {
+  async function saveRegulatoryDocWeb(draft: any, file: File | null, base?: any) {
     if (!profile || (draft.id ? !canEdit(profile) : !canCreate(profile))) return null;
     const title = String(draft.title ?? '').trim();
     if (!title) {
       setError('Le titre du document réglementaire est obligatoire.');
       return null;
     }
-    setSaving(true);
-    setError('');
-    let uri = draft.uri ?? null;
-    if (file) {
-      try {
-        uri = await uploadWebFile('documents', file, `reglementaire_${title}`);
-      } catch (uploadError: any) {
-        setError(uploadError?.message ?? "Échec de l'upload du document.");
-        setSaving(false);
-        return null;
-      }
-    }
     const payload = {
       type: draft.type || 'autre',
       title,
       company: String(draft.company ?? '').trim() || null,
       reference: String(draft.reference ?? '').trim() || null,
-      issue_date: draft.issue_date || null,
-      expiry_date: draft.expiry_date || null,
+      issue_date: base && draft.issue_date === fieldDateInput(base.issue_date) ? base.issue_date ?? null : draft.issue_date || null,
+      expiry_date: base && draft.expiry_date === fieldDateInput(base.expiry_date) ? base.expiry_date ?? null : draft.expiry_date || null,
       status: draft.status || 'missing',
       notes: String(draft.notes ?? '').trim() || null,
-      uri,
+      uri: draft.uri ?? null,
       created_by: draft.created_by ?? userLabel(profile, authUser),
       organization_id: profile.organization_id ?? null,
     };
-    const query = draft.id
-      ? supabaseBrowser.from('regulatory_docs').update(payload).eq('id', draft.id).select().single()
-      : supabaseBrowser.from('regulatory_docs').insert({
-          id: `REG-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
-          ...payload,
-          created_at: nowISO(),
-        }).select().single();
-    const { data: saved, error: saveError } = await query;
-    if (saveError) {
-      setError(saveError.message);
-      setSaving(false);
-      return null;
-    }
-    const row = saved ?? { id: draft.id, ...payload };
-    setData(prev => ({
-      ...prev,
-      regulatoryDocs: draft.id
-        ? prev.regulatoryDocs.map(item => item.id === draft.id ? row : item)
-        : [row, ...prev.regulatoryDocs],
-    }));
-    setSaving(false);
-    return row;
+    const row = {
+      id: draft.id || `REG-${crypto.randomUUID().toUpperCase()}`,
+      ...payload,
+      created_at: draft.created_at ?? nowISO(),
+    };
+    if (draft.id && base?.id !== draft.id) return null;
+    const write: FieldWrite = base
+      ? fieldUpdate(base, Object.fromEntries(Object.entries(payload).filter(([key, value]) =>
+          key !== 'organization_id' && key !== 'created_by' && (value !== (base[key] ?? null) || (key === 'uri' && file)),
+        )))
+      : { action: 'insert', id: row.id, fields: row };
+    if (write.action === 'update' && !Object.keys(write.fields).length) return row;
+    return await enqueueFieldWrites('regulatory_docs', [write], file ?? undefined) ? row : null;
   }
 
   async function deleteRegulatoryDocWeb(doc: any) {
     if (!profile || !canDelete(profile) || !doc?.id) return false;
-    const confirmed = window.confirm(`Supprimer le document réglementaire "${doc.title}" ?`);
-    if (!confirmed) return false;
-    setSaving(true);
-    setError('');
-    const { error: deleteError } = await supabaseBrowser.from('regulatory_docs').delete().eq('id', doc.id);
-    if (deleteError) {
-      setError(deleteError.message);
-      setSaving(false);
-      return false;
-    }
-    setData(prev => ({ ...prev, regulatoryDocs: prev.regulatoryDocs.filter(item => item.id !== doc.id) }));
-    setSaving(false);
-    return true;
+    if (!window.confirm(`Supprimer le document réglementaire "${doc.title}" ?`)) return false;
+    return enqueueFieldWrites('regulatory_docs', [{ action: 'delete', id: doc.id, organization: doc.organization_id ?? null }]);
   }
 
   function projectName() {
@@ -6396,10 +6365,10 @@ function BuildTrackWebWorkspace() {
           : write.action === 'insert' || table === 'journal_entries' ? canCreate(profile) : canEdit(profile)))) {
         throw new Error('Votre compte ne peut plus enregistrer cette saisie.');
       }
-      let photo = typeof operation.prepared === 'string' ? operation.prepared : null;
-      if (!photo && operation.files instanceof File) {
-        photo = await uploadWebFile('photos', operation.files, `${table}_${writes[0].id}`);
-        operation.prepared = photo;
+      let media = typeof operation.prepared === 'string' ? operation.prepared : null;
+      if (!media && operation.files instanceof File) {
+        media = await uploadWebFile(table === 'regulatory_docs' ? 'documents' : 'photos', operation.files, `${table}_${writes[0].id}`);
+        operation.prepared = media;
         operation.files = undefined;
         await saveWebOperation(operation);
       }
@@ -6430,7 +6399,7 @@ function BuildTrackWebWorkspace() {
         } else {
           const fields = {
             ...write.fields,
-            ...(photo ? { [table === 'visites' ? 'cover_photo_uri' : 'photo_uri']: photo } : {}),
+            ...(media ? { [table === 'regulatory_docs' ? 'uri' : table === 'visites' ? 'cover_photo_uri' : 'photo_uri']: media } : {}),
           };
           if (write.action === 'insert') {
             const result = await supabaseBrowser.from(table).upsert({ ...fields, id: write.id, organization_id: org }, {
@@ -6604,7 +6573,7 @@ function BuildTrackWebWorkspace() {
   }
 
   async function sendMessage(input: MessageSendInput, clearComposer = true) {
-    if (!input.channelId || (!input.content.trim() && !input.attachmentRef && !input.attachmentFile) || !profile) return false;
+    if (!input.channelId || (!input.content.trim() && !input.attachmentRef && !input.attachmentFile && !input.linkedItem) || !profile) return false;
     setSaving(true);
     setError('');
     const payload = {
@@ -6617,7 +6586,11 @@ function BuildTrackWebWorkspace() {
       read_by: [profile.name || profile.email].filter(Boolean),
       reactions: {},
       is_pinned: false,
-      mentions: [],
+      mentions: input.mentions ?? [],
+      reserve_id: input.linkedItem?.type === 'reserve' ? input.linkedItem.id : null,
+      linked_item_type: input.linkedItem?.type ?? null,
+      linked_item_id: input.linkedItem?.id ?? null,
+      linked_item_title: input.linkedItem?.title ?? null,
       attachment_uri: input.attachmentRef ?? null,
       reply_to_id: input.replyTo?.id ?? null,
       reply_to_content: input.replyTo?.content ?? null,
@@ -6823,6 +6796,7 @@ function BuildTrackWebWorkspace() {
     tasks: projectFieldRows(data.tasks, 'tasks', outbox.rows),
     visites: projectFieldRows(data.visites, 'visites', outbox.rows),
     incidents: projectFieldRows(data.incidents, 'incidents', outbox.rows),
+    regulatoryDocs: projectFieldRows(data.regulatoryDocs, 'regulatory_docs', outbox.rows),
   }), [data, outbox.rows]);
 
   const projectScoped = useMemo(() => {
@@ -6856,10 +6830,50 @@ function BuildTrackWebWorkspace() {
       photos,
       oprs: data.oprs.filter(byProject),
       timeEntries: profile?.role === 'sous_traitant' ? [] : fieldData.timeEntries,
-      regulatoryDocs: profile?.role === 'sous_traitant' ? [] : data.regulatoryDocs,
+      regulatoryDocs: profile?.role === 'sous_traitant' ? [] : fieldData.regulatoryDocs,
       journalEntries: fieldData.journalEntries.filter((item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId),
     };
   }, [data, fieldData, selectedProjectId, profile, canViewReserveTrash]);
+
+  const messageLinkedItems = useMemo(() => {
+    const sources: Array<[MessageLinkedItem['type'], any[]]> = [
+      ['reserve', visibleReservesForProfile(data.reserves, profile, data.companies)],
+    ];
+    if (profile && !['magasinier', 'sous_traitant'].includes(profile.role)) {
+      sources.push(
+        ['plan', data.sitePlans.filter(plan => !plan.deleted_at)],
+        ['task', fieldData.tasks],
+        ['incident', fieldData.incidents],
+        ['visite', fieldData.visites],
+        ['opr', data.oprs],
+      );
+    }
+    return sources.flatMap(([type, rows]) => rows.map(row => ({
+      type, id: String(row.id), title: String(row.title || row.name || row.description || row.id),
+      projectId: String(getChantierId(row) || ''),
+    })));
+  }, [data, fieldData, profile]);
+  const [linkedOprId, setLinkedOprId] = useState('');
+
+  function openMessageLinkedItem(item: MessageLinkedItem) {
+    if (item.type === 'reserve') {
+      openReserveDetailTab(item.id);
+      return;
+    }
+    if (item.projectId && item.projectId !== selectedProjectId) setSelectedProjectId(item.projectId);
+    if (item.type === 'plan') {
+      setSearchTarget({ tab: 'plans', id: item.id });
+      setSelectedPlanId(item.id);
+      setActiveTab('plans');
+    } else if (item.type === 'opr') {
+      setLinkedOprId(item.id);
+      setActiveTab('opr');
+    } else {
+      const tab = { task: 'planning', incident: 'incidents', visite: 'visites' } as const;
+      setSearchTarget({ tab: tab[item.type], id: item.id });
+      setActiveTab(tab[item.type]);
+    }
+  }
 
   const notificationPreference = data.notificationPreferences.find(row => row.user_id === authUser?.id);
   const workspaceAlerts = useMemo(() => {
@@ -7354,6 +7368,8 @@ function BuildTrackWebWorkspace() {
             {activeTab === 'inventory' && (
               canViewInventory(profile) ? (
                 <InventoryWorkspace
+                  key={outboxOwner}
+                  movementOwner={outboxOwner}
                   snapshot={{
                     products: data.inventoryProducts,
                     movements: data.inventoryMovements,
@@ -7456,6 +7472,7 @@ function BuildTrackWebWorkspace() {
                 selectedProject={selectedProjectId === 'all' ? (data.chantiers[0] ?? null) : (data.chantiers.find(project => project.id === selectedProjectId) ?? null)}
                 selectedProjectId={selectedProjectId}
                 selectedPlan={selectedPlan}
+                openLinkedPlan={searchTarget?.tab === 'plans'}
                 setSelectedPlanId={setSelectedPlanId}
                 onOpenReserve={openReserveDetailTab}
                 placementReserve={placementReserveId ? (projectScoped.reserves.find((r: any) => r.id === placementReserveId) ?? null) : null}
@@ -7576,7 +7593,6 @@ function BuildTrackWebWorkspace() {
                 canCreate={canCreate(profile)}
                 canEdit={canEdit(profile)}
                 canDelete={canDelete(profile)}
-                saving={saving}
                 onSave={saveRegulatoryDocWeb}
                 onDelete={deleteRegulatoryDocWeb}
               />
@@ -7688,6 +7704,9 @@ function BuildTrackWebWorkspace() {
                 onDraftChange={setMessageDraft}
                 onSelectChannel={setSelectedChannelId}
                 onSend={sendMessage}
+                linkedItems={messageLinkedItems}
+                selectedProjectId={selectedProjectId}
+                onOpenLinkedItem={openMessageLinkedItem}
                 channelPeople={data.profiles.filter(person => person.organization_id === profile?.organization_id && (person.membership_status === 'active' || !person.membership_status)).map(person => ({ id: person.id, name: person.name || person.email || person.id }))}
                 canCreateChannel={canCreate(profile)}
                 canManageChannel={canManageMessageChannel}
@@ -7728,7 +7747,7 @@ function BuildTrackWebWorkspace() {
                 oprs={projectScoped.oprs}
                 reserves={projectScoped.reserves}
                 lotNames={[...new Set([...STANDARD_LOTS, ...data.lots].map(lot => String(lot.name)).filter(Boolean))]}
-                requestedId={requestedOprId}
+                requestedId={linkedOprId || requestedOprId}
                 canEdit={canEdit(profile)}
                 canCreate={canCreate(profile) && Boolean(profile?.organization_id) && selectedProjectId !== 'all'}
                 canExport={canExport(profile)}
@@ -10572,6 +10591,7 @@ function PlansView({
   selectedProject,
   selectedProjectId,
   selectedPlan,
+  openLinkedPlan,
   setSelectedPlanId,
   onOpenReserve,
   placementReserve,
@@ -10600,6 +10620,7 @@ function PlansView({
   const workspaceCopy = PLAN_RESERVE_WORKSPACE_COPY[lang].plans;
   const planWorkspace = useResponsiveWorkspaceNavigation({
     hasDetail: Boolean(selectedPlan),
+    initialDetailOpen: Boolean(openLinkedPlan && selectedPlan),
     forceDetailOpen: Boolean(placementReserve && selectedPlan),
   });
   const isCompactPlanView = planWorkspace.isCompact;
@@ -12265,6 +12286,49 @@ function PlansView({
   );
 }
 
+function VisitDetailsEditor({ visit, onSave, onClose }: {
+  visit: any;
+  onSave: (visit: any, patch: Record<string, any>, file?: File) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const initial = {
+    title: String(visit.title ?? ''),
+    date: fieldDateInput(visit.date),
+    notes: String(visit.notes ?? ''),
+  };
+  const [draft, setDraft] = useState(initial);
+  const [file, setFile] = useState<File>();
+  const [busy, setBusy] = useState(false);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!draft.title.trim() || busy) return;
+    const patch = Object.fromEntries(Object.entries(draft)
+      .filter(([key, value]) => value !== initial[key as keyof typeof initial])
+      .map(([key, value]) => [key, value.trim()]));
+    if (file) patch.cover_photo_uri = visit.cover_photo_uri ?? visit.coverPhotoUri ?? null;
+    setBusy(true);
+    try {
+      if (!Object.keys(patch).length || await onSave(visit, patch, file)) onClose();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className={styles.formGrid} aria-label="Modifier la visite" onSubmit={submit}>
+      <label><span>Titre de la visite</span><input value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} required autoFocus /></label>
+      <label><span>Date de la visite</span><input type="date" value={draft.date} onChange={event => setDraft({ ...draft, date: event.target.value })} required /></label>
+      <label className={styles.fullSpan}><span>Notes et objectifs</span><textarea rows={3} value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} /></label>
+      <label className={styles.fullSpan}><span>Photo de couverture</span><input type="file" accept="image/*" onChange={event => setFile(event.target.files?.[0])} /></label>
+      <div className={styles.modalActions}>
+        <button type="button" onClick={onClose} disabled={busy}>Annuler</button>
+        <button type="submit" disabled={busy || !draft.title.trim()}>Enregistrer la visite</button>
+      </div>
+    </form>
+  );
+}
+
 function VisitesView({
   initialVisitId = '',
   data,
@@ -12295,6 +12359,7 @@ function VisitesView({
   const [visitSearch, setVisitSearch] = useState('');
   const deferredVisitSearch = useDeferredValue(visitSearch);
   const [selectedVisitId, setSelectedVisitId] = useState<string>(initialVisitId);
+  const [editingVisit, setEditingVisit] = useState<any>(null);
   const [attachVisitId, setAttachVisitId] = useState<string>('');
   const [attachSearch, setAttachSearch] = useState('');
   const [attachScopeOnly, setAttachScopeOnly] = useState(true);
@@ -12824,11 +12889,19 @@ function VisitesView({
             </dl>
             {editable ? (
               <div className={styles.visitDetailQuickActions}>
+                <button type="button" onClick={() => setEditingVisit(selectedVisit)}>
+                  <WorkspaceIcon name="edit" size={18} />
+                  <span>Modifier la visite</span>
+                </button>
                 <button type="button" onClick={() => openLocationModal(selectedVisit)}>
                   <WorkspaceIcon name="pin" size={18} />
                   <span>Modifier le périmètre</span>
                 </button>
               </div>
+            ) : null}
+
+            {editable && editingVisit?.id === selectedVisit.id ? (
+              <VisitDetailsEditor key={selectedVisit.id} visit={editingVisit} onSave={onUpdateVisit} onClose={() => setEditingVisit(null)} />
             ) : null}
 
             <nav className={styles.visitSectionNav} aria-label="Sommaire de la visite">
@@ -14299,23 +14372,26 @@ const REGULATORY_STATUS_LABELS: Record<string, string> = {
   in_progress: 'En cours',
 };
 
-function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDelete, saving, onSave, onDelete }: any) {
+function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDelete, onSave, onDelete }: any) {
   const [filter, setFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<any>({});
+  const [base, setBase] = useState<any>(null);
+  const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const filtered = docs.filter((doc: any) => !filter || doc.status === filter);
 
   function openDoc(doc?: any) {
     if (doc ? !canEdit : !canCreate) return;
+    setBase(doc ?? null);
     setDraft(doc ? {
       id: doc.id,
       type: doc.type ?? 'autre',
       title: doc.title ?? '',
       company: doc.company ?? '',
       reference: doc.reference ?? '',
-      issue_date: doc.issue_date ?? '',
-      expiry_date: doc.expiry_date ?? '',
+      issue_date: fieldDateInput(doc.issue_date),
+      expiry_date: fieldDateInput(doc.expiry_date),
       status: doc.status ?? 'missing',
       notes: doc.notes ?? '',
       uri: doc.uri ?? null,
@@ -14327,8 +14403,14 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
 
   async function submitDoc(event: React.FormEvent) {
     event.preventDefault();
-    const saved = await onSave(draft, file);
-    if (saved) setModalOpen(false);
+    if (busy) return;
+    setBusy(true);
+    try {
+      const saved = await onSave(draft, file, base);
+      if (saved) setModalOpen(false);
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Réglementaire" />;
@@ -14372,11 +14454,11 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
         </div>
       </section>
       {modalOpen && (
-        <div className={styles.modalBackdrop} role="dialog" aria-modal="true" onMouseDown={() => !saving && setModalOpen(false)}>
+        <div className={styles.modalBackdrop} role="dialog" aria-modal="true" onMouseDown={() => !busy && setModalOpen(false)}>
           <section className={styles.modalPanel} onMouseDown={event => event.stopPropagation()}>
             <div className={styles.modalHeader}>
               <div><p className={styles.eyebrow}>Réglementaire</p><h2>{draft.id ? 'Modifier document' : 'Nouveau document'}</h2></div>
-              <button type="button" onClick={() => setModalOpen(false)} disabled={saving}>Fermer</button>
+              <button type="button" onClick={() => setModalOpen(false)} disabled={busy}>Fermer</button>
             </div>
             <form className={styles.formGrid} onSubmit={submitDoc}>
               <label><span>Type</span><select value={draft.type} onChange={event => setDraft((prev: any) => ({ ...prev, type: event.target.value }))}>{REGULATORY_TYPES.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
@@ -14389,7 +14471,7 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
               <label><span>Date expiration</span><input type="date" value={draft.expiry_date ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, expiry_date: event.target.value }))} /></label>
               <label className={styles.fullSpan}><span>Notes</span><textarea rows={3} value={draft.notes ?? ''} onChange={event => setDraft((prev: any) => ({ ...prev, notes: event.target.value }))} /></label>
               <label className={styles.fullSpan}><span>Fichier optionnel</span><input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} /></label>
-              <div className={styles.modalActions}><button type="button" onClick={() => setModalOpen(false)} disabled={saving}>Annuler</button><button type="submit" disabled={saving}>{saving ? 'Enregistrement...' : 'Enregistrer'}</button></div>
+              <div className={styles.modalActions}><button type="button" onClick={() => setModalOpen(false)} disabled={busy}>Annuler</button><button type="submit" disabled={busy}>{busy ? 'Enregistrement...' : 'Enregistrer'}</button></div>
             </form>
           </section>
         </div>

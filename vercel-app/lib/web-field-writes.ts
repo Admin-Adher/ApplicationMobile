@@ -7,6 +7,7 @@ export const fieldTables = {
   tasks: { state: 'tasks', label: 'Planning' },
   visites: { state: 'visites', label: 'Visite' },
   incidents: { state: 'incidents', label: 'Incident' },
+  regulatory_docs: { state: 'regulatoryDocs', label: 'Document réglementaire' },
 } as const;
 
 export type FieldTable = keyof typeof fieldTables;
@@ -65,4 +66,17 @@ export function fieldWriteApplied(row: Fields, fields: Fields): boolean {
     // have applied the same business change.
     key === 'updated_at' || sameFieldValue(value, row[key]),
   );
+}
+
+// Older mobile records contain French dates. Keep the calendar day when
+// opening them in native HTML date fields.
+export function fieldDateInput(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  const date = value.trim();
+  const iso = /^\d{4}-\d{2}-\d{2}(?=$|[T ])/u.exec(date);
+  if (iso) return iso[0];
+  const french = /^(\d{1,2})\/(\d{1,2})\/(\d{4})(?=$|[T ])/u.exec(date);
+  if (!french) return '';
+  const [, day, month, year] = french;
+  return year + '-' + month.padStart(2, '0') + '-' + day.padStart(2, '0');
 }
