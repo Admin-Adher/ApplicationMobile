@@ -316,6 +316,50 @@
   font-weight: 850;
 }
 
+.companyFilter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  padding: 12px 20px;
+  border-bottom: 1px solid var(--pointage-border);
+  color: var(--pointage-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.companyFilter select {
+  max-width: 100%;
+  min-height: 36px;
+  padding: 6px 8px;
+  border: 1px solid var(--pointage-border);
+  border-radius: 8px;
+  background: var(--pointage-surface);
+  color: inherit;
+}
+
+.workerSuggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.composerForm label.overnight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.composerForm .overnight input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+}
+
 .actionError {
   display: flex;
   gap: 8px;

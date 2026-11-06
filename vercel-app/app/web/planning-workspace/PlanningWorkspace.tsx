@@ -198,6 +198,10 @@ export default function PlanningWorkspace({
     [locale, now, visibleSchedule],
   );
 
+  const reserveLinks = useMemo(() => ({
+    byId: new Map(reserves.map(reserve => [String(reserve.id), reserve])),
+    byTask: new Map(reserves.filter(reserve => reserve.linked_task_id).map(reserve => [String(reserve.linked_task_id), reserve])),
+  }), [reserves]);
   const visibleTasks = useMemo(() => filterPlanningTasks(tasks, taskMode, now), [now, taskMode, tasks]);
   const taskGroups = useMemo(
     () => groupPlanningTasks(visibleTasks, companies, taskMode),
@@ -386,6 +390,7 @@ export default function PlanningWorkspace({
                         const company = companies.find(item => item.id === task.company || item.name === task.company);
                         const progress = Math.max(0, Math.min(100, Number(task.progress ?? 0)));
                         const late = isPlanningTaskLate(task, now);
+                        const linkedReserve = reserveLinks.byId.get(String(task.reserve_id ?? '')) ?? reserveLinks.byTask.get(String(task.id));
                         return (
                           <article key={task.id} id={'planning-task-' + task.id} tabIndex={-1} className={styles.taskCard} data-late={late}>
                             <div className={styles.taskCardHeader}>
@@ -410,6 +415,13 @@ export default function PlanningWorkspace({
                                 editingTask?.id === task.id
                                   ? <TaskEditForm key={task.id} task={editingTask} companies={companies} onSave={onUpdateTask} onClose={() => setEditingTask(null)} />
                                   : <div className={styles.taskActions}><button type="button" onClick={() => setEditingTask(task)}>Modifier la tâche</button></div>
+                              ) : null}
+                              {linkedReserve && onOpenReserve ? (
+                                <div className={styles.taskActions}>
+                                  <button type="button" onClick={() => onOpenReserve(linkedReserve.id)}>
+                                    Réserve liée · {linkedReserve.title ?? linkedReserve.id}
+                                  </button>
+                                </div>
                               ) : null}
                               <p>{task.description || 'Aucune description.'}</p>
                               {task.start_date ? <p>Début {formatTaskDate(task.start_date, locale)}</p> : null}

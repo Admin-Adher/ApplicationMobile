@@ -11,6 +11,7 @@ import {
   type TimeEntrySource,
   type TimeEntrySummary,
 } from './pointage-workspace-model';
+import { normalizeSearchText } from '../../../../lib/searchText';
 import styles from './PointageWorkspace.module.css';
 
 type CompanySource = {
@@ -24,6 +25,7 @@ type PointageDraft = {
   companyId: string;
   arrivalTime?: string;
   departureTime: string;
+  departureNextDay: boolean;
   notes: string;
   taskId: string;
 };
@@ -50,6 +52,7 @@ function initialDraft(companyId = ''): PointageDraft {
     workerName: '',
     companyId,
     departureTime: '',
+    departureNextDay: false,
     notes: '',
     taskId: '',
   };
@@ -145,6 +148,8 @@ export default function PointageWorkspace({
   const idPrefix = useId().replace(/:/g, '');
   const composerTitle = useRef<HTMLHeadingElement | null>(null);
   const [date, setDate] = useState(today);
+  const [companyFilter, setCompanyFilter] = useState('');
+  const [showWorkerSuggestions, setShowWorkerSuggestions] = useState(false);
   const [draft, setDraft] = useState<PointageDraft>(() => initialDraft(companies[0]?.id ?? ''));
   const [editing, setEditing] = useState<TimeEntrySource | null>(null);
   const [departure, setDeparture] = useState<{ entries: TimeEntrySummary[]; time: string } | null>(null);
@@ -153,9 +158,31 @@ export default function PointageWorkspace({
   const [actionError, setActionError] = useState('');
   const [actionPending, setActionPending] = useState('');
   const model = useMemo(() => buildPointageWorkspaceModel(entries, date), [date, entries]);
+  const dailyCompanies = useMemo(() => [...new Map(model.dayEntries.map(entry =>
+    [entry.companyId || entry.companyName, entry.companyName],
+  )).entries()].sort(([, left], [, right]) => left.localeCompare(right, locale)), [model.dayEntries, locale]);
+  const activeCompanyFilter = dailyCompanies.some(([id]) => id === companyFilter) ? companyFilter : '';
+  const matchesCompany = (entry: TimeEntrySummary) =>
+    !activeCompanyFilter || (entry.companyId || entry.companyName) === activeCompanyFilter;
+  const visiblePresent = model.presentEntries.filter(matchesCompany);
+  const visibleDeparted = model.departedEntries.filter(matchesCompany);
+  const workerNames = useMemo(() => {
+    const unique = new Map<string, string>();
+    for (const entry of entries) {
+      const name = String(entry.worker_name ?? entry.workerName ?? '').trim();
+      const key = normalizeSearchText(name);
+      if (key && !unique.has(key)) unique.set(key, name);
+    }
+    return [...unique];
+  }, [entries]);
+  const workerQuery = normalizeSearchText(draft.workerName);
+  const workerSuggestions = showWorkerSuggestions && workerQuery.length >= 2
+    ? workerNames.filter(([key]) => key !== workerQuery && key.includes(workerQuery)).slice(0, 5)
+    : [];
   const effectiveCompanyId = draft.companyId || companies[0]?.id || '';
   const selectedCompany = companies.find(company => company.id === effectiveCompanyId) ?? null;
   const arrivalTime = draft.arrivalTime ?? defaultArrivalTime;
+  const overnightDeparture = Boolean(draft.departureTime && draft.departureTime < arrivalTime);
   const isToday = date === today;
   const historyLabel = `${model.totalEntries} pointage${model.totalEntries > 1 ? 's' : ''} au total`;
   const presenceSummary = model.presentEntries.length
@@ -177,6 +204,8 @@ export default function PointageWorkspace({
   function changeDate(nextDate: string) {
     setDate(nextDate);
     setDeparture(null);
+    setShowWorkerSuggestions(false);
+    setDraft(current => ({ ...current, departureNextDay: false }));
     if (editing) {
       setEditing(null);
       setDraft(initialDraft());
@@ -199,6 +228,10 @@ export default function PointageWorkspace({
     }
     if (draft.departureTime && draft.departureTime === arrivalTime) {
       setSubmissionError('L’heure de départ doit être différente de l’heure d’arrivée.');
+      return;
+    }
+    if (overnightDeparture && !draft.departureNextDay) {
+      setSubmissionError('Le départ précède l’arrivée. Corrigez l’heure ou confirmez le départ le lendemain.');
       return;
     }
     const duplicate = model.dayEntries.some(entry =>
@@ -241,8 +274,10 @@ export default function PointageWorkspace({
     setEditing(entry.source);
     setDraft({
       workerName: entry.workerName, companyId: entry.companyId, arrivalTime: entry.arrivalTime,
-      departureTime: entry.departureTime, notes: entry.notes, taskId: String(entry.source.task_id ?? ''),
+      departureTime: entry.departureTime, departureNextDay: Boolean(entry.departureTime && entry.departureTime < entry.arrivalTime),
+      notes: entry.notes, taskId: String(entry.source.task_id ?? ''),
     });
+    setShowWorkerSuggestions(false);
     setSubmissionError('');
     focusComposer();
   }
@@ -348,6 +383,18 @@ export default function PointageWorkspace({
             <span className={styles.boardCount} role="status" aria-live="polite">{passageLabel}</span>
           </header>
 
+          {dailyCompanies.length > 1 && (
+            <label className={styles.companyFilter}>
+              <span id={`${idPrefix}-company-filter`}>Filtrer par entreprise</span>
+              <select aria-labelledby={`${idPrefix}-company-filter`} value={activeCompanyFilter} onChange={event => {
+                setCompanyFilter(event.target.value);
+                setDeparture(null);
+              }}>
+                <option value="">Toutes les entreprises</option>
+                {dailyCompanies.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+              </select>
+            </label>
+          )}
           {actionError ? <p className={styles.actionError} role="alert"><WorkspaceIcon name="warning" size={18} />{actionError}</p> : null}
 
           {!model.dayEntries.length ? (
@@ -360,9 +407,9 @@ export default function PointageWorkspace({
           ) : (
             <div className={styles.dayRegister}>
               <section className={styles.registerSection} aria-labelledby={`${idPrefix}-present-title`}>
-                {editable && model.presentEntries.length > 0 && (
+                {editable && visiblePresent.length > 0 && (
                   <button className={styles.departureAction} type="button" disabled={Boolean(actionPending)}
-                    onClick={() => setDeparture({ entries: model.presentEntries, time: currentTime() })}>
+                    onClick={() => setDeparture({ entries: visiblePresent, time: currentTime() })}>
                     Enregistrer un départ groupé
                   </button>
                 )}
@@ -379,25 +426,26 @@ export default function PointageWorkspace({
                 )}
                 <header>
                   <div><span className={styles.sectionMarker} data-status="present" /><h3 id={`${idPrefix}-present-title`}>Présents maintenant</h3></div>
-                  <strong>{model.presentEntries.length}</strong>
+                  <strong>{visiblePresent.length}</strong>
                 </header>
-                {model.presentEntries.length ? (
+                {visiblePresent.length ? (
                   <div className={styles.entryList}>
-                    {model.presentEntries.map(entry => (
+                    {visiblePresent.map(entry => (
                       <AttendanceRow key={entry.id} entry={entry} editable={editable} canDelete={canDelete} actionPending={actionPending} onDeparture={entry => setDeparture({ entries: [entry], time: currentTime() })} onEdit={editEntry} onDelete={removeEntry} />
                     ))}
                   </div>
-                ) : <p className={styles.emptySegment}>Tous les départs de la journée ont été enregistrés.</p>}
+                ) : <p className={styles.emptySegment}>{activeCompanyFilter
+                  ? 'Aucune personne de cette entreprise sur site.' : 'Tous les départs de la journée ont été enregistrés.'}</p>}
               </section>
 
               <section className={styles.registerSection} aria-labelledby={`${idPrefix}-departed-title`}>
                 <header>
                   <div><span className={styles.sectionMarker} data-status="departed" /><h3 id={`${idPrefix}-departed-title`}>Départs enregistrés</h3></div>
-                  <strong>{model.departedEntries.length}</strong>
+                  <strong>{visibleDeparted.length}</strong>
                 </header>
-                {model.departedEntries.length ? (
+                {visibleDeparted.length ? (
                   <div className={styles.entryList}>
-                    {model.departedEntries.map(entry => (
+                    {visibleDeparted.map(entry => (
                       <AttendanceRow key={entry.id} entry={entry} editable={editable} canDelete={canDelete} actionPending={actionPending} onDeparture={entry => setDeparture({ entries: [entry], time: currentTime() })} onEdit={editEntry} onDelete={removeEntry} />
                     ))}
                   </div>
@@ -422,8 +470,21 @@ export default function PointageWorkspace({
                 <legend>Compagnon</legend>
                 <label htmlFor={`${idPrefix}-worker`}>
                   <span>Nom complet <em>obligatoire</em></span>
-                  <input id={`${idPrefix}-worker`} value={draft.workerName} onChange={event => setDraft(previous => ({ ...previous, workerName: event.target.value }))} autoComplete="off" required />
+                  <input id={`${idPrefix}-worker`} value={draft.workerName} onChange={event => {
+                    setDraft(previous => ({ ...previous, workerName: event.target.value }));
+                    setShowWorkerSuggestions(true);
+                  }} onKeyDown={event => { if (event.key === 'Escape') setShowWorkerSuggestions(false); }} autoComplete="off" required />
                 </label>
+                {workerSuggestions.length > 0 && (
+                  <ul className={styles.workerSuggestions} aria-label="Compagnons déjà pointés">
+                    {workerSuggestions.map(([key, name]) => <li key={key}>
+                      <button className={styles.deleteAction} type="button" onClick={() => {
+                        setDraft(previous => ({ ...previous, workerName: name }));
+                        setShowWorkerSuggestions(false);
+                      }}>{name}</button>
+                    </li>)}
+                  </ul>
+                )}
                 <label htmlFor={`${idPrefix}-company`}>
                   <span>Entreprise <em>obligatoire</em></span>
                   <select id={`${idPrefix}-company`} value={effectiveCompanyId} onChange={event => setDraft(previous => ({ ...previous, companyId: event.target.value }))} required disabled={!companies.length}>
@@ -438,15 +499,20 @@ export default function PointageWorkspace({
                 <div className={styles.timeFields}>
                   <label htmlFor={`${idPrefix}-arrival`}>
                     <span>Arrivée</span>
-                    <input id={`${idPrefix}-arrival`} type="time" value={arrivalTime} onChange={event => setDraft(previous => ({ ...previous, arrivalTime: event.target.value }))} required />
-                    <button type="button" onClick={() => setDraft(previous => ({ ...previous, arrivalTime: currentTime() }))}>Utiliser l’heure actuelle</button>
+                    <input id={`${idPrefix}-arrival`} type="time" value={arrivalTime} onChange={event => setDraft(previous => ({ ...previous, arrivalTime: event.target.value, departureNextDay: false }))} required />
+                    <button type="button" onClick={() => setDraft(previous => ({ ...previous, arrivalTime: currentTime(), departureNextDay: false }))}>Utiliser l’heure actuelle</button>
                   </label>
                   <label htmlFor={`${idPrefix}-departure`}>
                     <span>Départ <em>optionnel</em></span>
-                    <input id={`${idPrefix}-departure`} type="time" value={draft.departureTime} onChange={event => setDraft(previous => ({ ...previous, departureTime: event.target.value }))} />
+                    <input id={`${idPrefix}-departure`} type="time" value={draft.departureTime} onChange={event => setDraft(previous => ({ ...previous, departureTime: event.target.value, departureNextDay: false }))} />
                     <small>Laissez vide si la personne est encore sur site.</small>
                   </label>
                 </div>
+                {overnightDeparture && <label className={styles.overnight}>
+                  <input type="checkbox" checked={draft.departureNextDay} onChange={event =>
+                    setDraft(previous => ({ ...previous, departureNextDay: event.target.checked }))} />
+                  <span>Confirmer le départ le lendemain</span>
+                </label>}
                 <label htmlFor={`${idPrefix}-task`}>Tâche liée
                   <select id={`${idPrefix}-task`} value={draft.taskId} onChange={event => setDraft(previous => ({ ...previous, taskId: event.target.value }))}>
                     <option value="">Aucune tâche</option>
