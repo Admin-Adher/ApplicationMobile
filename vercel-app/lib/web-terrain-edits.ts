@@ -51,3 +51,41 @@ export function projectPlanAnnotations<T extends { id: string; annotations?: unk
     return { ...row, annotations: changes.reduce((current, operation) => applyPlanAnnotationDelta(current, operation.payload.delta as PlanAnnotationDelta), annotations) };
   });
 }
+
+export type WebTerrainChange =
+  | { action: 'reserve_archive'; archived: boolean; actor: string; at: string }
+  | { action: 'visit_checklist_item'; itemId: string; checked: boolean }
+  | { action: 'task_comment'; change: ReserveCommentChange };
+
+export const terrainActionLabels: Record<WebTerrainChange['action'], string> = {
+  reserve_archive: 'Archivage de réserve',
+  visit_checklist_item: 'Point de contrôle de visite',
+  task_comment: 'Commentaire de tâche',
+};
+
+export function projectTerrainChanges<T extends Record<string, unknown>>(
+  rows: T[], operations: WebQueuedOperation[], action: WebTerrainChange['action'],
+): T[] {
+  const pending = operations.filter(operation => operation.kind === 'terrain_action' && !operation.error &&
+    (operation.payload.change as WebTerrainChange).action === action);
+  if (!pending.length) return rows;
+  return rows.map(row => pending.reduce((current, operation) => {
+    if (operation.payload.rowId !== row.id) return current;
+    const change = operation.payload.change as WebTerrainChange;
+    if (change.action === 'reserve_archive') {
+      return { ...current, archived_at: change.archived ? change.at : null, archived_by: change.archived ? change.actor : null };
+    }
+    if (change.action === 'task_comment') {
+      const task = current as T & { comments?: Comment[] };
+      return { ...current, comments: applyCommentChange(Array.isArray(task.comments) ? task.comments : [], change.change) };
+    }
+    const visit = current as T & { checklist_items?: Array<{ id: string; checked: boolean }>; checklistItems?: Array<{ id: string; checked: boolean }>; status?: string };
+    const items = visit.checklist_items ?? visit.checklistItems;
+    if (!Array.isArray(items) || !items.some(item => item.id === change.itemId)) return current;
+    return {
+      ...current,
+      checklist_items: items.map(item => item.id === change.itemId ? { ...item, checked: change.checked } : item),
+      status: !visit.status || visit.status === 'planned' ? 'in_progress' : visit.status,
+    };
+  }, row));
+}
