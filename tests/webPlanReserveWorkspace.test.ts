@@ -269,7 +269,7 @@ describe('BuildTrack web plan and reserve workspaces', () => {
 
     expect(page).toContain('readPlanPreview({ userId: authUserId, planKey: selectedPlanPreviewKey })');
     expect(page).toContain("cachedPlanPreview.ownerId === authUserId");
-    expect(page).toContain('selectedPlan.file_type === \'pdf\' && (selectedPlanResolvedUri || activeCachedPlanPreview)');
+    expect(page).toContain('[\'pdf\', \'image\'].includes(selectedPlan.file_type) && (selectedPlanResolvedUri || activeCachedPlanPreview)');
     expect(page).toContain('data-plan-preview-source="cache"');
     expect(page).toContain('rasterizePlanPreview(canvas)');
     expect(cache).toContain("const PLAN_PREVIEW_CACHE = 'buildtrack-private-plan-previews-v1'");
@@ -289,8 +289,8 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(pdfClient).toContain('GlobalWorkerOptions.workerPort = null');
     expect(pdfClient).toContain('createDedicatedPdfLoadingTask');
     expect(pdfClient).toContain('connection?.saveData');
-    expect(page).toContain('}, [retryVersion, uri]);');
-    expect(page).toContain('}, [isFullscreen, onPreviewReady, pdfPageVersion, previewCacheKey, scale]);');
+    expect(page).toContain('}, [retryVersion, uri, isImage]);');
+    expect(page).toContain('}, [isFullscreen, onPreviewReady, pageNumber, pdfPageVersion, previewCacheKey, scale]);');
     expect(page).not.toContain('cdn.jsdelivr.net/npm/pdfjs-dist');
   });
 });

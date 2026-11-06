@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  changeQueuedReserveEdit, isReserveEditConflict, isWebNetworkFailure, listWebOperations,
+  canDiscardFieldOperation, changeQueuedReserveEdit, isReserveEditConflict, isWebNetworkFailure, listWebOperations,
   listenWebOperations, removeWebOperation, ReserveEditConflict, saveWebOperation, type WebQueuedOperation,
 } from './web-outbox';
+
+let lastEnqueueTime = 0;
 
 export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperation, stillOwned: () => boolean) => Promise<void>) {
   const [rows, setRows] = useState<WebQueuedOperation[]>([]);
@@ -98,9 +100,10 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
   async function enqueue(kind: WebQueuedOperation['kind'], payload: Record<string, unknown>, files?: unknown, prepared?: unknown) {
     const scope = ownerRef.current;
     if (!scope || typeof payload.id !== 'string') throw new Error('Une session de chantier est nécessaire pour sauvegarder hors connexion.');
+    lastEnqueueTime = Math.max(Date.now(), lastEnqueueTime + 1);
     await saveWebOperation({
       key: scope + ':' + kind + ':' + payload.id, owner: scope, kind, payload,
-      createdAt: Date.now(), files, prepared,
+      createdAt: lastEnqueueTime, files, prepared,
     });
     if (ownerRef.current === scope) await refresh(scope);
   }
@@ -124,7 +127,7 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
     if (!scope || busyRef.current) return;
     const discard = async () => {
       const queued = (await listWebOperations(scope)).find(row => row.key === key);
-      if (ownerRef.current === scope && queued?.error && (queued.kind === 'field_write' || queued.kind === 'visit_reserves')) {
+      if (ownerRef.current === scope && queued && canDiscardFieldOperation(queued)) {
         await removeWebOperation(key);
       }
     };
