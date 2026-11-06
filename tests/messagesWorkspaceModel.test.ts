@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildMessagesProjection,
   mergeMessageReadState,
+  messageMentions,
   messagesCopy,
   messagesLocale,
   type AuthorizedMessagesSnapshot,
@@ -23,6 +24,13 @@ const snapshot: AuthorizedMessagesSnapshot = {
 };
 
 describe('BuildTrack messages workspace model', () => {
+  it('retains canonical mention names without treating email addresses or prefixes as mentions', () => {
+    const names = ['Camille', 'Camille Recette', 'André (BTP)', 'Éloïse'];
+    expect(messageMentions('@camille recette, @André (BTP) et @Éloïse. @Camille Recette', names))
+      .toEqual(['Camille Recette', 'André (BTP)', 'Éloïse']);
+    expect(messageMentions('adrien@Camille.fr @Camille123 @Inconnu', names)).toEqual([]);
+  });
+
   it('indexes, orders and labels the authorized snapshot without mutating it', () => {
     const projection = buildMessagesProjection({
       snapshot,

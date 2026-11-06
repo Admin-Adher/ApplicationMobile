@@ -12,6 +12,8 @@ import {
   messageFullTimestamp,
   messageListTimestamp,
   messageReactions,
+  messageMentions,
+  type MessageLinkedItem,
   messagesCopy,
   messagesLocale,
   type AuthorizedMessagesSnapshot,
@@ -38,6 +40,9 @@ type MessagesWorkspaceProps = {
   onDraftChange: (value: string) => void;
   onSend: (input: MessageSendInput) => Promise<boolean>;
   channelPeople: ChannelPerson[];
+  linkedItems: MessageLinkedItem[];
+  selectedProjectId: string;
+  onOpenLinkedItem: (item: MessageLinkedItem) => void;
   canCreateChannel: boolean;
   canManageChannel: (channel: MessageChannelRecord) => boolean;
   canModerate: boolean;
@@ -123,6 +128,7 @@ function MessageBubble({
   locale,
   copy,
   onReply,
+  openLinkedItem,
   canModerate,
   onMessageAction,
 }: {
@@ -132,6 +138,7 @@ function MessageBubble({
   locale: string;
   copy: ReturnType<typeof messagesCopy>;
   onReply: (message: MessageRecord) => void;
+  openLinkedItem?: () => void;
   canModerate: boolean;
   onMessageAction: MessagesWorkspaceProps['onMessageAction'];
 }) {
@@ -174,11 +181,18 @@ function MessageBubble({
                 <span>{message.reply_to_content || copy.photoMessage}</span>
               </div>
             ) : null}
-            {message.linked_item_title ? (
-              <div className={styles.linkedItem}>
-                <MessageIcon name="link" size={15} />
-                <span><small>{copy.linkedItem}</small><strong>{message.linked_item_title}</strong></span>
-              </div>
+            {message.linked_item_title || openLinkedItem ? (
+              openLinkedItem ? (
+                <button type="button" className={styles.linkedItem} onClick={openLinkedItem}>
+                  <MessageIcon name="link" size={15} />
+                  <span><small>{copy.linkedItem}</small><strong>{message.linked_item_title || message.reserve_id}</strong></span>
+                </button>
+              ) : (
+                <div className={styles.linkedItem}>
+                  <MessageIcon name="link" size={15} />
+                  <span><small>{copy.linkedItem}</small><strong>{message.linked_item_title}</strong></span>
+                </div>
+              )
             ) : null}
             <MessageAttachment message={message} copy={copy} />
             {hasContent ? <p>{message.content}</p> : null}
@@ -217,7 +231,7 @@ export default function MessagesWorkspace({
   onSelectChannel,
   onDraftChange,
   onSend,
-  channelPeople, canCreateChannel, canManageChannel, canModerate,
+  channelPeople, linkedItems, selectedProjectId, onOpenLinkedItem, canCreateChannel, canManageChannel, canModerate,
   loadChannelMembers, onSaveChannel, onDeleteChannel, onMessageAction,
 }: MessagesWorkspaceProps) {
   const copy = messagesCopy(language);
@@ -230,6 +244,16 @@ export default function MessagesWorkspace({
   const [filter, setFilter] = useState<MessageChannelFilter>('all');
   const [compactView, setCompactView] = useState<'list' | 'thread'>('list');
   const [replyTo, setReplyTo] = useState<MessageRecord | null>(null);
+  const [linkedItem, setLinkedItem] = useState<MessageLinkedItem>();
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [mentionCaret, setMentionCaret] = useState<number | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const mentionListRef = useRef<HTMLDivElement>(null);
+  const linkCopy = {
+    fr: { attach: 'Joindre une fiche chantier', none: 'Choisir une fiche', mention: 'Personnes à mentionner', remove: 'Retirer la fiche', groups: ['Réserves', 'Plans', 'Tâches', 'Incidents', 'Visites', 'OPR'] },
+    en: { attach: 'Attach a project record', none: 'Choose a record', mention: 'People to mention', remove: 'Remove record', groups: ['Issues', 'Plans', 'Tasks', 'Incidents', 'Visits', 'Handover'] },
+    es: { attach: 'Adjuntar una ficha de obra', none: 'Elegir una ficha', mention: 'Personas para mencionar', remove: 'Quitar la ficha', groups: ['Reservas', 'Planos', 'Tareas', 'Incidentes', 'Visitas', 'Recepción'] },
+  }[language];
   const [pendingAttachment, setPendingAttachment] = useState<PendingAttachment | null>(null);
   const [attachmentError, setAttachmentError] = useState('');
   const threadEndRef = useRef<HTMLDivElement | null>(null);
@@ -250,7 +274,26 @@ export default function MessagesWorkspace({
 
   const selected = projection.selected;
   const activeAttachment = pendingAttachment?.channelId === selected?.channel.id ? pendingAttachment : null;
-  const canSend = Boolean(selected && (draft.trim() || activeAttachment?.file) && !saving);
+  const canSend = Boolean(selected && (draft.trim() || activeAttachment?.file || linkedItem) && !saving);
+  const linkTypes = ['reserve', 'plan', 'task', 'incident', 'visite', 'opr'] as const;
+  const availableLinks = linkedItems.filter(item => selectedProjectId === 'all' || !item.projectId || item.projectId === selectedProjectId);
+  const linkedByKey = new Map(linkedItems.map(item => [item.type + ':' + item.id, item]));
+  const mentionFragment = mentionCaret === null ? null : /(?:^|\s)@([^@\n]{0,70})$/u.exec(draft.slice(0, mentionCaret));
+  const suggestions = mentionFragment && !saving
+    ? channelPeople.filter(person => person.id !== actor.userId && person.name.toLowerCase().includes(mentionFragment[1].trim().toLowerCase())).slice(0, 7)
+    : [];
+
+  function chooseMention(name: string) {
+    if (!mentionFragment || mentionCaret === null) return;
+    const start = mentionCaret - mentionFragment[1].length;
+    const prefix = draft.slice(0, start) + name + ' ';
+    onDraftChange((prefix + draft.slice(mentionCaret)).slice(0, 2000));
+    setMentionCaret(null);
+    window.requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(prefix.length, prefix.length);
+    });
+  }
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => threadEndRef.current?.scrollIntoView({ block: 'end' }));
@@ -264,6 +307,9 @@ export default function MessagesWorkspace({
   function selectChannel(channelId: string) {
     if (pendingAttachment?.channelId !== channelId) clearAttachment();
     setReplyTo(null);
+    setLinkedItem(undefined);
+    setShowLinkPicker(false);
+    setMentionCaret(null);
     setAttachmentError('');
     onSelectChannel(channelId);
     setCompactView('thread');
@@ -303,15 +349,26 @@ export default function MessagesWorkspace({
       channelId: selected.channel.id,
       content: draft.trim(),
       attachmentFile: activeAttachment?.file,
+      mentions: messageMentions(draft, channelPeople.map(person => person.name)),
+      linkedItem,
       replyTo: replyTo ? { id: replyTo.id, content: replyTo.content, sender: replyTo.sender } : null,
     });
     if (sent) {
       clearAttachment();
       setReplyTo(null);
+      setLinkedItem(undefined);
+      setShowLinkPicker(false);
+      setMentionCaret(null);
     }
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'ArrowDown' && suggestions.length) {
+      event.preventDefault();
+      mentionListRef.current?.querySelector('button')?.focus();
+      return;
+    }
+    if (event.key === 'Escape') setMentionCaret(null);
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     void submit();
@@ -453,7 +510,11 @@ export default function MessagesWorkspace({
           }} />
         ) : null}
         <div className={styles.thread} aria-live="polite">
-          {projection.selectedMessages.map((message, index) => (
+          {projection.selectedMessages.map((message, index) => {
+            const linked = message.linked_item_type && message.linked_item_id
+              ? linkedByKey.get(message.linked_item_type + ':' + message.linked_item_id)
+              : message.reserve_id ? linkedByKey.get('reserve:' + message.reserve_id) : undefined;
+            return (
             <MessageBubble
               key={message.id}
               message={message}
@@ -462,10 +523,12 @@ export default function MessagesWorkspace({
               locale={locale}
               copy={copy}
               onReply={setReplyTo}
+              openLinkedItem={linked ? () => onOpenLinkedItem(linked) : undefined}
               canModerate={canModerate}
               onMessageAction={onMessageAction}
             />
-          ))}
+            );
+          })}
           {!projection.selectedMessages.length ? (
             <div className={styles.emptyConversation}>
               <span><MessageIcon name="message" size={28} /></span>
@@ -491,6 +554,35 @@ export default function MessagesWorkspace({
               <button type="button" onClick={clearAttachment} aria-label={copy.removeAttachment}><MessageIcon name="close" size={17} /></button>
             </div>
           ) : null}
+          {linkedItem ? (
+            <div className={styles.composerContext}>
+              <MessageIcon name="link" size={17} />
+              <span><strong>{linkedItem.title}</strong></span>
+              <button type="button" onClick={() => setLinkedItem(undefined)} aria-label={linkCopy.remove}><MessageIcon name="close" size={17} /></button>
+            </div>
+          ) : null}
+          {showLinkPicker ? (
+            <label className={styles.linkPicker}>
+              <span>{linkCopy.attach}</span>
+              <select value="" onChange={event => {
+                setLinkedItem(linkedByKey.get(event.target.value));
+                setShowLinkPicker(false);
+              }}>
+                <option value="">{linkCopy.none}</option>
+                {linkTypes.map((type, index) => {
+                  const items = availableLinks.filter(item => item.type === type);
+                  return items.length ? <optgroup key={type} label={linkCopy.groups[index]}>{items.map(item => (
+                    <option key={item.id} value={item.type + ':' + item.id}>{item.title}</option>
+                  ))}</optgroup> : null;
+                })}
+              </select>
+            </label>
+          ) : null}
+          {suggestions.length ? (
+            <div className={styles.mentionSuggestions} ref={mentionListRef} role="group" aria-label={linkCopy.mention}>
+              {suggestions.map(person => <button type="button" key={person.id} onClick={() => chooseMention(person.name)}>{person.name}</button>)}
+            </div>
+          ) : null}
           {attachmentError ? <p className={styles.composerError} role="alert">{attachmentError}</p> : null}
           <div className={styles.composerBox}>
             <input
@@ -505,11 +597,19 @@ export default function MessagesWorkspace({
             <button type="button" className={styles.attachButton} onClick={() => fileInputRef.current?.click()} disabled={!selected || saving} aria-label={copy.attachPhoto} title={copy.attachPhoto}>
               <MessageIcon name={saving ? 'image' : 'camera'} size={20} />
             </button>
+            <button type="button" className={styles.attachButton} onClick={() => setShowLinkPicker(current => !current)} disabled={!selected || saving || !availableLinks.length} aria-expanded={showLinkPicker} aria-label={linkCopy.attach} title={linkCopy.attach}>
+              <MessageIcon name="link" size={19} />
+            </button>
             <label className={styles.composerField}>
               <span className={styles.srOnly}>{selected ? copy.composerPlaceholder(selected.label) : copy.noChannelSelected}</span>
               <textarea
+                ref={composerRef}
                 value={draft}
-                onChange={event => onDraftChange(event.target.value)}
+                onSelect={event => setMentionCaret(event.currentTarget.selectionStart)}
+                onChange={event => {
+                  setMentionCaret(event.currentTarget.selectionStart);
+                  onDraftChange(event.target.value);
+                }}
                 onKeyDown={handleComposerKeyDown}
                 placeholder={selected ? copy.composerPlaceholder(selected.label) : copy.noChannelSelected}
                 disabled={!selected || saving}
@@ -518,7 +618,7 @@ export default function MessagesWorkspace({
               />
               <small>{copy.keyboardHint}</small>
             </label>
-            <button type="submit" className={styles.sendButton} disabled={!canSend}>
+            <button type="submit" className={styles.sendButton} disabled={!canSend} aria-label={saving ? copy.sending : copy.send}>
               <MessageIcon name="send" size={18} />
               <span>{saving ? copy.sending : copy.send}</span>
             </button>

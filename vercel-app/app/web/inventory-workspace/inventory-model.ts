@@ -71,6 +71,7 @@ export type InventoryCapabilities = {
 
 export type InventoryWorkspaceProps = {
   snapshot: AuthorizedInventorySnapshot;
+  movementOwner: string;
   selectedProjectId: string;
   capabilities: InventoryCapabilities;
   language: InventoryLanguage;
