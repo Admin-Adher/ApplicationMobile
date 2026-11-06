@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   PLANNING_SCHEDULE_BATCH_SIZE,
   buildPlanningSchedule,
+  filterPlanningCompany,
   filterPlanningSchedule,
   filterPlanningTasks,
   formatPlanningDayLabel,
@@ -54,6 +55,20 @@ describe('BuildTrack planning workspace model', () => {
     expect(filterPlanningSchedule(schedule, 'late', '')).toHaveLength(1);
     expect(filterPlanningSchedule(schedule, 'reserve', '')).toHaveLength(2);
     expect(filterPlanningSchedule(schedule, 'visit', '')).toHaveLength(1);
+  });
+
+  it('includes dated tasks in the agenda and keeps completed tasks out of overdue results', () => {
+    const tasks = [
+      { id: 'active', title: 'Préparer le balisage', company: 'electric', deadline: '29/08/2026', status: 'todo' },
+      { id: 'finished', title: 'Contrôle terminé', company: 'Électricité', deadline: '2026-08-20', status: 'done' },
+      { id: 'other', title: 'Autre entreprise', company: 'plumbing', deadline: '2026-08-28', status: 'todo' },
+    ];
+    const selected = filterPlanningCompany(tasks, { id: 'electric', name: 'Électricité' });
+    const schedule = buildPlanningSchedule([], [], now, selected);
+    expect(filterPlanningSchedule(schedule, 'task', 'balisage')).toMatchObject([{ id: 'task-active', isToday: true }]);
+    expect(filterPlanningSchedule(schedule, 'task', '').map(entry => entry.id)).toEqual(['task-finished', 'task-active']);
+    expect(filterPlanningSchedule(schedule, 'late', '')).toEqual([]);
+    expect(groupPlanningSchedule(schedule, 'fr-FR', now)[0]?.relativeLabel).toBe('Passé');
   });
 
   it('groups dates with clear relative labels and keeps rendering bounded', () => {

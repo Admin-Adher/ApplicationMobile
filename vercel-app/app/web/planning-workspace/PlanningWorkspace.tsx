@@ -9,6 +9,8 @@ import {
   PLANNING_SCHEDULE_BATCH_SIZE,
   buildPlanningSchedule,
   filterPlanningSchedule,
+  filterPlanningCompany,
+  parsePlanningDate,
   filterPlanningTasks,
   getPlanningWeekRange,
   groupPlanningSchedule,
@@ -37,7 +39,7 @@ type PlanningWorkspaceProps = {
   onDeleteTask?: (task: any) => Promise<void>;
   onCreateTask?: (draft: Record<string, string>) => boolean | Promise<boolean>;
   onOpenReserve?: (reserveId: string) => void;
-  onOpenVisites?: () => void;
+  onOpenVisit?: (visitId: string) => void;
   initialTaskId?: string;
   correctiveReserve?: { id: string; title: string; description?: string; deadline?: string; company?: string };
   onCloseCorrectiveTask?: () => void;
@@ -54,12 +56,18 @@ const SCHEDULE_FILTERS: Array<{ id: PlanningScheduleFilter; label: string }> = [
   { id: 'late', label: 'En retard' },
   { id: 'reserve', label: 'Réserves' },
   { id: 'visit', label: 'Visites' },
+  { id: 'task', label: 'Tâches' },
 ];
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  todo: 'À faire', in_progress: 'En cours', delayed: 'En retard', done: 'Terminée',
+  completed: 'Terminée', closed: 'Terminée',
+};
 
 function formatTaskDate(value: string | null | undefined, locale: string) {
   if (!value) return 'Sans échéance';
-  const date = new Date(/^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T12:00:00` : value);
-  if (Number.isNaN(date.getTime())) return 'Sans échéance';
+  const date = parsePlanningDate(value);
+  if (!date) return 'Sans échéance';
   return new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
 }
 
@@ -142,7 +150,7 @@ export default function PlanningWorkspace({
   onDeleteTask,
   onCreateTask,
   onOpenReserve,
-  onOpenVisites,
+  onOpenVisit,
   initialTaskId = '',
   correctiveReserve,
   onCloseCorrectiveTask,
@@ -154,6 +162,7 @@ export default function PlanningWorkspace({
     if (!target) return 'week';
     return isPlanningTaskLate(target, new Date()) ? 'late' : 'company';
   });
+  const [companyFilter, setCompanyFilter] = useState('');
   const [scheduleFilter, setScheduleFilter] = useState<PlanningScheduleFilter>('all');
   const [scheduleQuery, setScheduleQuery] = useState('');
   const deferredScheduleQuery = useDeferredValue(scheduleQuery);
@@ -181,10 +190,16 @@ export default function PlanningWorkspace({
   const now = useMemo(() => new Date(), []);
   const weekRange = useMemo(() => getPlanningWeekRange(now, locale), [locale, now]);
 
-  const scheduleEntries = useMemo(
-    () => buildPlanningSchedule(visites, reserves, now),
-    [now, reserves, visites],
+  const companyTasks = useMemo(
+    () => filterPlanningCompany(tasks, companies.find(company => company.id === companyFilter)),
+    [companies, companyFilter, tasks],
   );
+  const scheduleEntries = useMemo(() => {
+    const companyNames = new Map(companies.map(company => [company.id, company.name]));
+    return buildPlanningSchedule(visites, reserves, now, companyTasks.map(task => ({
+      ...task, company: companyNames.get(task.company) ?? task.company,
+    })));
+  }, [companies, companyTasks, now, reserves, visites]);
   const filteredSchedule = useMemo(
     () => filterPlanningSchedule(scheduleEntries, scheduleFilter, deferredScheduleQuery),
     [deferredScheduleQuery, scheduleEntries, scheduleFilter],
@@ -202,22 +217,22 @@ export default function PlanningWorkspace({
     byId: new Map(reserves.map(reserve => [String(reserve.id), reserve])),
     byTask: new Map(reserves.filter(reserve => reserve.linked_task_id).map(reserve => [String(reserve.linked_task_id), reserve])),
   }), [reserves]);
-  const visibleTasks = useMemo(() => filterPlanningTasks(tasks, taskMode, now), [now, taskMode, tasks]);
+  const visibleTasks = useMemo(() => filterPlanningTasks(companyTasks, taskMode, now), [companyTasks, now, taskMode]);
   const taskGroups = useMemo(
     () => groupPlanningTasks(visibleTasks, companies, taskMode),
     [companies, taskMode, visibleTasks],
   );
-  const weekTasksCount = useMemo(() => filterPlanningTasks(tasks, 'week', now).length, [now, tasks]);
-  const lateTasksCount = useMemo(() => tasks.filter(task => isPlanningTaskLate(task, now)).length, [now, tasks]);
-  const activeTasksCount = tasks.filter(task => !['done', 'completed', 'closed'].includes(String(task.status ?? ''))).length;
+  const weekTasksCount = useMemo(() => filterPlanningTasks(companyTasks, 'week', now).length, [companyTasks, now]);
+  const lateTasksCount = useMemo(() => companyTasks.filter(task => isPlanningTaskLate(task, now)).length, [companyTasks, now]);
+  const activeTasksCount = companyTasks.filter(task => !['done', 'completed', 'closed'].includes(String(task.status ?? ''))).length;
   const visitCount = scheduleEntries.filter(entry => entry.kind === 'visit').length;
   const reserveCount = scheduleEntries.filter(entry => entry.kind === 'reserve').length;
   const lateScheduleCount = scheduleEntries.filter(entry => entry.isLate).length;
-  const attentionCount = lateTasksCount + lateScheduleCount;
+  const attentionCount = lateTasksCount + scheduleEntries.filter(entry => entry.kind !== 'task' && entry.isLate).length;
 
   const taskModeCounts: Record<PlanningTaskMode, number> = {
     week: weekTasksCount,
-    company: tasks.length,
+    company: companyTasks.length,
     late: lateTasksCount,
   };
   const scheduleFilterCounts: Record<PlanningScheduleFilter, number> = {
@@ -225,11 +240,23 @@ export default function PlanningWorkspace({
     late: lateScheduleCount,
     reserve: reserveCount,
     visit: visitCount,
+    task: companyTasks.length,
   };
 
   useEffect(() => {
     setVisibleScheduleCount(PLANNING_SCHEDULE_BATCH_SIZE);
-  }, [deferredScheduleQuery, scheduleEntries.length, scheduleFilter]);
+  }, [companyFilter, deferredScheduleQuery, scheduleEntries.length, scheduleFilter]);
+
+  function openTask(id: string) {
+    setTaskMode('company');
+    setDetailId(id);
+    setTaskComment('');
+    requestAnimationFrame(() => {
+      const card = document.getElementById('planning-task-' + id);
+      card?.focus({ preventScroll: true });
+      card?.scrollIntoView({ block: 'nearest' });
+    });
+  }
 
   async function submitTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -350,11 +377,7 @@ export default function PlanningWorkspace({
         <div className={styles.taskActions}>
           <button type="button" aria-expanded={showGantt} onClick={() => setShowGantt(value => !value)}>Diagramme de Gantt</button>
         </div>
-        {showGantt ? <PlanningGantt tasks={tasks} locale={locale} onOpenTask={id => {
-          setTaskMode('company');
-          setDetailId(id);
-          requestAnimationFrame(() => document.getElementById('planning-task-' + id)?.scrollIntoView({ block: 'nearest' }));
-        }} /> : null}
+        {showGantt ? <PlanningGantt tasks={companyTasks} locale={locale} onOpenTask={openTask} /> : null}
         <div className={styles.planningColumns} data-tasks-empty={visibleTasks.length === 0}>
           <section className={styles.taskLane} aria-labelledby={taskHeadingId}>
             <div className={styles.laneHeader}>
@@ -379,6 +402,16 @@ export default function PlanningWorkspace({
                 ))}
               </div>
             </div>
+
+            {companies.length > 0 && (
+              <label className={styles.companyFilter}>
+                <span>Filtrer les tâches par entreprise</span>
+                <select value={companyFilter} onChange={event => { setCompanyFilter(event.target.value); setDetailId(''); }}>
+                  <option value="">Toutes les entreprises</option>
+                  {companies.map(company => <option key={company.id} value={company.id}>{company.name}</option>)}
+                </select>
+              </label>
+            )}
 
             {visibleTasks.length ? (
               <div className={styles.taskGroups}>
@@ -483,7 +516,7 @@ export default function PlanningWorkspace({
                 <span><WorkspaceIcon name="calendar" size={19} /></span>
                 <div>
                   <h3 id={agendaHeadingId}>Agenda des échéances</h3>
-                  <p>Visites et réserves regroupées par jour.</p>
+                  <p>Tâches, visites et réserves regroupées par jour.</p>
                 </div>
               </div>
               <div className={styles.agendaSearch}>
@@ -529,9 +562,10 @@ export default function PlanningWorkspace({
                     </header>
                     <ul className={styles.agendaItems}>
                       {group.entries.map(entry => {
-                        const statusLabel = entry.kind === 'reserve'
-                          ? reserveStatusLabels[entry.status] ?? entry.status
-                          : visitStatusLabels[entry.status] ?? entry.status;
+                        const statusLabel = entry.kind === 'task'
+                          ? (TASK_STATUS_LABELS[entry.status] ?? entry.status)
+                          : (entry.kind === 'reserve' ? reserveStatusLabels : visitStatusLabels)[entry.status] ?? entry.status;
+                        const sourceLabel = { task: 'Tâche', reserve: 'Réserve', visit: 'Visite chantier' }[entry.kind];
                         return (
                           <li key={entry.id}>
                             <button
@@ -539,11 +573,16 @@ export default function PlanningWorkspace({
                               className={styles.agendaItem}
                               data-kind={entry.kind}
                               data-late={entry.isLate}
-                              onClick={() => entry.kind === 'reserve' ? onOpenReserve?.(entry.source.id) : onOpenVisites?.()}
+                              onClick={() => {
+                                const id = String(entry.source.id);
+                                if (entry.kind === 'task') openTask(id);
+                                else if (entry.kind === 'visit') onOpenVisit?.(id);
+                                else onOpenReserve?.(id);
+                              }}
                             >
                               <span className={styles.agendaItemIcon}><WorkspaceIcon name={entry.kind === 'reserve' ? 'warning' : 'calendar'} size={18} /></span>
                               <span className={styles.agendaItemContent}>
-                                <span className={styles.agendaItemType}>{entry.kind === 'reserve' ? 'Réserve' : 'Visite chantier'}</span>
+                                <span className={styles.agendaItemType}>{sourceLabel}</span>
                                 <strong>{entry.title}</strong>
                                 <small>{entry.meta}</small>
                               </span>

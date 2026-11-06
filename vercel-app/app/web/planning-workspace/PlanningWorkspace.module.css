@@ -351,6 +351,20 @@
   grid-template-columns: minmax(260px, 0.48fr) minmax(0, 1.52fr);
 }
 
+.companyFilter {
+  display: grid;
+  gap: 6px;
+  margin: 0 16px 12px;
+  font-size: 13px;
+}
+
+.companyFilter select {
+  min-height: 44px;
+  max-width: 100%;
+  width: fit-content;
+  font: inherit;
+}
+
 .planningColumns[data-tasks-empty='true'] .taskModes {
   grid-template-columns: minmax(0, 1fr);
 }
