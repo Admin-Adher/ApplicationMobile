@@ -24,6 +24,8 @@ export type MessageCompanyRecord = {
 export type MessageRecord = {
   id: string;
   channel_id: string;
+  organization_id?: string | null;
+  type?: string | null;
   sender_id?: string | null;
   sender?: string | null;
   content?: string | null;

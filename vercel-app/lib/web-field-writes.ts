@@ -6,6 +6,8 @@ export const fieldTables = {
   checklists: { state: 'checklists', label: 'Checklist' },
   tasks: { state: 'tasks', label: 'Planning' },
   channels: { state: 'channels', label: 'Salon de chantier' },
+  chantiers: { state: 'chantiers', label: 'Modification de chantier' },
+  messages: { state: 'messages', label: 'Action sur un message' },
   companies: { state: 'companies', label: 'Présences d’entreprise' },
   visites: { state: 'visites', label: 'Visite', media: { bucket: 'photos', field: 'cover_photo_uri' } },
   incidents: { state: 'incidents', label: 'Incident', media: { bucket: 'photos', field: 'photo_uri' } },

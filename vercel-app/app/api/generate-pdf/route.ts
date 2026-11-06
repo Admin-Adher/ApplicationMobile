@@ -964,6 +964,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let emailAccepted: number | undefined;
     if (payload.sendByEmail && Array.isArray(payload.recipients) && payload.recipients.length > 0) {
       const allowedRecipients = await resolveAllowedRecipients(
         supabase,
@@ -1061,6 +1062,7 @@ export async function POST(req: NextRequest) {
           error: `Envoi incomplet : ${accepted}/${deliveries.length} accepté(s) par le serveur mail. Ne renvoyez pas le rapport à tous les destinataires.`,
         }, { status: 502, headers });
       }
+      emailAccepted = accepted;
     }
     const responseHeaders = {
       ...headers,
@@ -1083,7 +1085,7 @@ export async function POST(req: NextRequest) {
       });
     }
     const pdfBase64 = Buffer.from(pdfBuffer).toString('base64');
-    return NextResponse.json({ success: true, pdfBase64 }, {
+    return NextResponse.json({ success: true, pdfBase64, emailAccepted }, {
       headers: { ...responseHeaders, 'X-BuildTrack-PDF-Transfer': 'base64' },
     });
   } catch (err: any) {

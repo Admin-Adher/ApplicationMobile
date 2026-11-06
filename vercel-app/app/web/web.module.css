@@ -5155,7 +5155,7 @@
 
 .visitStatusRail {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: var(--visit-space-1);
   padding: var(--visit-space-1);
   border: 1px solid #d8e0ec;
@@ -11693,6 +11693,10 @@
   .visitPanelHeader button {
     min-width: 44px;
     padding-inline: 11px;
+  }
+
+  .visitStatusRail {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .visitStatusRail button {
