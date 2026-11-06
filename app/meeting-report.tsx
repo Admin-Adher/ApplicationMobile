@@ -1,7 +1,7 @@
 import { buildMeetingHTML } from '@/lib/meetingReportHtml';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Platform, Modal, KeyboardAvoidingView } from 'react-native';
 import DateInput from '@/components/DateInput';
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -56,7 +56,10 @@ export default function MeetingReportScreen() {
   const { reserves, companies, activeChantierId, activeChantier } = useApp();
   const chantierId = activeChantierId ?? null;
   const allowed = user?.role !== 'sous_traitant' && user?.role !== 'magasinier';
-  const shared = useProjectMeetingReports(supabase, allowed ? user?.id : undefined, user?.organizationId, chantierId);
+  const shared = useProjectMeetingReports(
+    { useState, useRef, useEffect, useCallback },
+    supabase, allowed ? user?.id : undefined, user?.organizationId, chantierId,
+  );
   const draftKey = user?.id ? `buildtrack_meetings_v2:${user.id}:${user.organizationId ?? ''}:${chantierId ?? ''}` : null;
   const draftKeyRef = useRef(draftKey);
   draftKeyRef.current = draftKey;

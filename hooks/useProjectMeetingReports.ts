@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
 import type { MeetingReport } from '../constants/types';
 
 type MeetingRow = { report: MeetingReport; version: number };
@@ -25,7 +24,17 @@ function tableFor(client: MeetingClient) {
   return client.from(TABLE) as MeetingTable;
 }
 
+// Each app supplies hooks from its own React installation. Vercel installs
+// dependencies under vercel-app, while Expo installs them at the repo root.
+type MeetingReactHooks = {
+  useState: <T>(initial: T) => [T, (next: T | ((previous: T) => T)) => void];
+  useRef: <T>(initial: T) => { current: T };
+  useEffect: (effect: () => void | (() => void), dependencies: readonly unknown[]) => void;
+  useCallback: <T extends () => Promise<void>>(callback: T, dependencies: readonly unknown[]) => T;
+};
+
 export function useProjectMeetingReports(
+  { useState, useRef, useEffect, useCallback }: MeetingReactHooks,
   client: MeetingClient | null,
   userId: string | undefined,
   organizationId: string | null | undefined,

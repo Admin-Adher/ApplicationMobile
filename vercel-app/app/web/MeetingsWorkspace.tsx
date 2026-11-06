@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import type { MeetingReport, MeetingReportAction } from '../../../constants/types';
 import { useProjectMeetingReports } from '../../../hooks/useProjectMeetingReports';
 import { formatDateFR } from '../../../lib/utils';
@@ -34,7 +34,10 @@ export default function MeetingsWorkspace({ userId, organizationId, chantierId, 
   exporting: boolean;
 }) {
   const key = `buildtrack-web-meetings-v1:${userId}:${organizationId}:${chantierId}`;
-  const shared = useProjectMeetingReports(supabaseBrowser, userId, organizationId, chantierId);
+  const shared = useProjectMeetingReports(
+    { useState, useRef, useEffect, useCallback },
+    supabaseBrowser, userId, organizationId, chantierId,
+  );
   const [reports, setReports] = useState<MeetingReport[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
