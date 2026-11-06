@@ -32,4 +32,14 @@ describe('Shared workspace alerts', () => {
     }), today);
     expect(alerts.map(alert => alert.id)).toEqual(['late_r1']);
   });
+
+  it('keeps undated critical reserves after dated alerts', () => {
+    const alerts = buildWorkspaceAlerts([
+      { ...reserve, id: 'undated', deadline: '', createdAt: null },
+      { ...reserve, deadline: '' },
+    ], [task], toNotificationPreferences(null), today);
+
+    expect(alerts.map(alert => alert.id)).toEqual(['task_t1', 'crit_r1', 'crit_undated']);
+    expect(alerts[2].createdAt).toBe('');
+  });
 });

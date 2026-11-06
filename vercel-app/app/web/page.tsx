@@ -2025,6 +2025,13 @@ function reserveMatchesCompanyIdOrName(reserve: any, company?: any | null) {
   ));
 }
 
+function canSignReserveCompany(profile: Profile | null, companies: any[], companyToken?: string) {
+  if (canEdit(profile)) return true;
+  if (!isSubcontractor(profile) || !profile?.company_id || !companyToken) return false;
+  const company = companies.find(item => String(item.id) === String(profile.company_id));
+  return reserveMatchesCompanyIdOrName({ company: companyToken }, company);
+}
+
 function visibleReservesForProfile(reserves: any[], profile: Profile | null, companies: any[]) {
   if (profile?.role !== 'sous_traitant') return reserves;
   const company = companies.find(company => String(company.id) === String(profile.company_id ?? ''));
@@ -3800,13 +3807,13 @@ function BuildTrackWebWorkspace() {
       .eq('id', reserve.id)
       .select()
       .maybeSingle();
-    if (updateError) {
-      setError(updateError.message);
+    if (updateError || !updated) {
+      setError(updateError?.message ?? 'La réserve n’a pas été mise à jour. Vérifiez que vous y avez toujours accès.');
     } else {
       setData(prev => ({
         ...prev,
-        reserves: prev.reserves.map(r => r.id === reserve.id ? (updated ?? { ...r, ...patch }) : r),
-        deletedReserves: prev.deletedReserves.map(r => r.id === reserve.id ? (updated ?? { ...r, ...patch }) : r),
+        reserves: prev.reserves.map(r => r.id === reserve.id ? updated : r),
+        deletedReserves: prev.deletedReserves.map(r => r.id === reserve.id ? updated : r),
       }));
       // Point de passage de tous les changements de statut côté web (tunnel,
       // levée, clôture…) → notifie les entreprises concernées sur mobile.
@@ -3817,7 +3824,7 @@ function BuildTrackWebWorkspace() {
       }
     }
     setSaving(false);
-    return !updateError;
+    return !updateError && Boolean(updated);
   }
 
   async function updateReserveStatus(reserveId: string, status: string) {
@@ -3972,11 +3979,11 @@ function BuildTrackWebWorkspace() {
   }
 
   async function acknowledgeReserveWeb(reserve: any) {
-    if (!canEdit(profile) || !reserve?.id) return;
+    if (!reserve?.id || hasEnterpriseAck(reserve)) return;
+    if (!canEdit(profile) && !reserveCompanies(reserve).some(company => canSignReserveCompany(profile, data.companies, company))) return;
     const author = userLabel(profile, authUser);
-    const acknowledgedAt = reserve.enterprise_acknowledged_at ?? todayISO();
     await patchReserveWeb(reserve, {
-      enterprise_acknowledged_at: acknowledgedAt,
+      enterprise_acknowledged_at: todayISO(),
       history: [
         ...(Array.isArray(reserve.history) ? reserve.history : []),
         makeHistory('Réception accusée depuis le web', author),
@@ -3985,7 +3992,11 @@ function BuildTrackWebWorkspace() {
   }
 
   async function signReserveWeb(reserve: any, companyName?: string) {
-    if (!reserve?.id || !canUseReserveTunnel(profile)) return;
+    if (!reserve?.id) return;
+    const companies = reserveCompanies(reserve);
+    const isMultiCompany = companies.length > 1;
+    if (isMultiCompany && (!companyName || !companies.includes(companyName))) return;
+    if (!canSignReserveCompany(profile, data.companies, companyName ?? companies[0])) return;
     const acknowledgedAt = reserve.enterprise_acknowledged_at ?? reserve.enterpriseAcknowledgedAt;
     if (!acknowledgedAt) {
       setError("L'accusé de réception doit être enregistré avant la signature.");
@@ -3996,7 +4007,6 @@ function BuildTrackWebWorkspace() {
     if (!signataire) return;
     const signedAt = todayISO();
     const signature = makeTypedSignatureDataUrl(signataire, signedAt);
-    const isMultiCompany = reserveCompanies(reserve).length > 1;
     const historyAction = companyName && isMultiCompany
       ? `Levée signée depuis le web (${companyName})`
       : 'Levée signée depuis le web';
@@ -5648,7 +5658,6 @@ function BuildTrackWebWorkspace() {
     }
     const rpcPayload = Array.isArray(revisionResult) ? revisionResult[0] : revisionResult;
     const insertedPlan = rpcPayload?.plan ?? newPlan;
-    const migratable = data.reserves.filter(reserve => getReservePlanId(reserve) === String(parentPlan.id) && reserve.status !== 'closed');
     const migratedCount = Number(rpcPayload?.migrated_count ?? 0);
     setData(prev => ({
       ...prev,
@@ -5656,7 +5665,12 @@ function BuildTrackWebWorkspace() {
         insertedPlan,
         ...prev.sitePlans.map(item => item.id === parentPlan.id ? { ...item, is_latest_revision: false, revision_number: parentRevisionNumber } : item),
       ],
-      reserves: prev.reserves.map(item => migrateReserves && migratable.some(reserve => reserve.id === item.id) ? { ...item, plan_id: insertedPlan.id } : item),
+      reserves: prev.reserves.map(item => (
+        migrateReserves && migratedCount > 0 && getReservePlanId(item) === String(parentPlan.id) &&
+        item.status != null && !isReserveClosed(item) && !isReserveArchived(item) && !isReserveDeleted(item)
+          ? { ...item, plan_id: insertedPlan.id }
+          : item
+      )),
     }));
     setSelectedPlanId(insertedPlan.id);
     setSaving(false);
@@ -8087,14 +8101,7 @@ function ReservesView(props: {
   const canEditReserveWorkflow = props.editable;
   const canUseSubcontractorWorkflow = isSubcontractor(props.profile);
   const canUseReserveWorkflow = canEditReserveWorkflow || canUseSubcontractorWorkflow;
-  const subcontractorCompanyName = canUseSubcontractorWorkflow && props.profile?.company_id
-    ? props.companies.find(company => String(company.id) === String(props.profile?.company_id))?.name ?? null
-    : null;
-  const canSubcontractorSignCompany = (companyName?: string) => (
-    !canUseSubcontractorWorkflow ||
-    !subcontractorCompanyName ||
-    sameName(companyName, subcontractorCompanyName)
-  );
+  const canSignCompany = (companyName?: string) => canSignReserveCompany(props.profile, props.companies, companyName);
   const pdfScopeLabel =
     pdfMode === 'selected'
       ? selectedReserve?.id ?? 'Aucune réserve'
@@ -9063,6 +9070,11 @@ function ReservesView(props: {
                   <div className={styles.reserveWorkflowBlock}>
                     <p>Sous-traitant</p>
                     <div className={styles.reserveWorkflowActions}>
+                      {!canEditReserveWorkflow && !detailReserveAckAt && detailReserveCompanies.some(canSignCompany) && (
+                        <button type="button" disabled={props.saving} onClick={() => props.onAcknowledge(detailReserve)}>
+                          Accuser réception
+                        </button>
+                      )}
                       {detailReserve.status === 'open' && (
                         <button type="button" disabled={props.saving} onClick={() => props.onStatus(detailReserve.id, 'in_progress')}>
                           Passer en cours
@@ -9117,7 +9129,7 @@ function ReservesView(props: {
                             <strong>{company}</strong>
                             {signature?.signature ? (
                               <span>Signée par {signature.signataire || '—'}{signature.signedAt ? ` le ${prettyDate(signature.signedAt, true)}` : ''}</span>
-                            ) : canEditReserveWorkflow || canSubcontractorSignCompany(company) ? (
+                            ) : canSignCompany(company) ? (
                               <button type="button" disabled={props.saving} onClick={() => props.onSign(detailReserve, company)}>
                                 Signer
                               </button>
@@ -9133,7 +9145,7 @@ function ReservesView(props: {
                       <span>Signée par {detailReserve.enterprise_signataire ?? detailReserve.enterpriseSignataire ?? '—'}</span>
                       <img src={signatureImageSrc(detailReserve.enterprise_signature ?? detailReserve.enterpriseSignature)} alt="Signature de levée" />
                     </div>
-                  ) : canEditReserveWorkflow || canSubcontractorSignCompany(detailReserveCompanies[0]) ? (
+                  ) : canSignCompany(detailReserveCompanies[0]) ? (
                     <button type="button" disabled={props.saving} onClick={() => props.onSign(detailReserve)}>
                       Signer la levée
                     </button>
