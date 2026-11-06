@@ -1,8 +1,8 @@
 export const PLANNING_SCHEDULE_BATCH_SIZE = 18;
 
 export type PlanningTaskMode = 'week' | 'company' | 'late';
-export type PlanningScheduleFilter = 'all' | 'late' | 'reserve' | 'visit';
-export type PlanningScheduleKind = 'reserve' | 'visit';
+export type PlanningScheduleFilter = 'all' | 'late' | 'reserve' | 'visit' | 'task';
+export type PlanningScheduleKind = 'reserve' | 'visit' | 'task';
 
 export type PlanningScheduleEntry = {
   id: string;
@@ -69,6 +69,7 @@ function planningEntry({
   meta,
   source,
   now,
+  isLate,
 }: {
   id: string;
   kind: PlanningScheduleKind;
@@ -78,6 +79,7 @@ function planningEntry({
   meta: string;
   source: any;
   now: Date;
+  isLate?: boolean;
 }): PlanningScheduleEntry {
   const date = parsePlanningDate(dateValue);
   const dayDifference = date ? daysBetween(date, now) : Number.POSITIVE_INFINITY;
@@ -92,13 +94,13 @@ function planningEntry({
     status: status ?? '',
     meta,
     searchText,
-    isLate: dayDifference < 0,
+    isLate: isLate ?? dayDifference < 0,
     isToday: dayDifference === 0,
     source,
   };
 }
 
-export function buildPlanningSchedule(visites: any[], reserves: any[], now = new Date()) {
+export function buildPlanningSchedule(visites: any[], reserves: any[], now = new Date(), tasks: any[] = []) {
   const today = startOfLocalDay(now);
   const visits = visites
     .filter(visit => {
@@ -129,7 +131,19 @@ export function buildPlanningSchedule(visites: any[], reserves: any[], now = new
       now,
     }));
 
-  return [...visits, ...deadlines].sort((a, b) => a.sortTime - b.sortTime || a.title.localeCompare(b.title, 'fr'));
+  const taskDeadlines = tasks.map(task => planningEntry({
+    id: `task-${task.id}`,
+    kind: 'task',
+    title: task.title || 'Tâche',
+    dateValue: task.deadline,
+    status: task.status,
+    meta: [task.company, task.assignee].filter(Boolean).join(' · '),
+    source: task,
+    now,
+    isLate: isPlanningTaskLate(task, now),
+  }));
+
+  return [...visits, ...deadlines, ...taskDeadlines].sort((a, b) => a.sortTime - b.sortTime || a.title.localeCompare(b.title, 'fr'));
 }
 
 export function filterPlanningSchedule(
@@ -140,8 +154,7 @@ export function filterPlanningSchedule(
   const normalizedQuery = normalizeSearchText(query);
   return entries.filter(entry => {
     if (filter === 'late' && !entry.isLate) return false;
-    if (filter === 'reserve' && entry.kind !== 'reserve') return false;
-    if (filter === 'visit' && entry.kind !== 'visit') return false;
+    if (filter !== 'all' && filter !== 'late' && entry.kind !== filter) return false;
     return !normalizedQuery || entry.searchText.includes(normalizedQuery);
   });
 }
@@ -181,7 +194,10 @@ export function groupPlanningSchedule(entries: PlanningScheduleEntry[], locale =
       entries: [entry],
     });
   });
-  return [...groups.values()];
+  return [...groups.values()].map(group =>
+    group.relativeLabel === 'En retard' && !group.entries.some(entry => entry.isLate)
+      ? { ...group, relativeLabel: 'Passé' } : group,
+  );
 }
 
 export function getPlanningWeekRange(now = new Date(), locale = 'fr-FR') {
@@ -220,6 +236,10 @@ export function filterPlanningTasks(tasks: any[], mode: PlanningTaskMode, now = 
       }
       return true;
     });
+}
+
+export function filterPlanningCompany(tasks: any[], company: { id: string; name: string } | undefined) {
+  return company ? tasks.filter(task => task.company === company.id || task.company === company.name) : tasks;
 }
 
 export function groupPlanningTasks(tasks: any[], companies: any[], mode: PlanningTaskMode) {

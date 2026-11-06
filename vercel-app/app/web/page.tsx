@@ -5647,6 +5647,11 @@ function BuildTrackWebWorkspace() {
     return await enqueueFieldWrites('regulatory_docs', [write], file ?? undefined) ? row : null;
   }
 
+  async function changeRegulatoryStatusWeb(doc: any, status: string) {
+    if (!canEdit(profile) || !doc?.id || !Object.hasOwn(REGULATORY_STATUS_LABELS, status)) return false;
+    return enqueueFieldWrites('regulatory_docs', [fieldUpdate(doc, { status })]);
+  }
+
   async function deleteRegulatoryDocWeb(doc: any) {
     if (!profile || !canDelete(profile) || !doc?.id) return false;
     if (!window.confirm(`Supprimer le document réglementaire "${doc.title}" ?`)) return false;
@@ -6874,6 +6879,11 @@ function BuildTrackWebWorkspace() {
     };
   }, [data, fieldData, selectedProjectId, profile, canViewReserveTrash]);
 
+  const selectedProjectCompanyIds = fieldData.chantiers.find(project => project.id === selectedProjectId)?.company_ids;
+  const meetingCompanies = Array.isArray(selectedProjectCompanyIds) && selectedProjectCompanyIds.length
+    ? fieldData.companies.filter(company => selectedProjectCompanyIds.includes(company.id))
+    : fieldData.companies;
+
   const messageLinkedItems = useMemo(() => {
     const sources: Array<[MessageLinkedItem['type'], any[]]> = [
       ['reserve', visibleReservesForProfile(data.reserves, profile, data.companies)],
@@ -7681,6 +7691,7 @@ function BuildTrackWebWorkspace() {
                 canEdit={canEdit(profile)}
                 canDelete={canDelete(profile)}
                 onSave={saveRegulatoryDocWeb}
+                onChangeStatus={changeRegulatoryStatusWeb}
                 onDelete={deleteRegulatoryDocWeb}
               />
             )}
@@ -7749,7 +7760,10 @@ function BuildTrackWebWorkspace() {
                    ? (draft: Record<string, string>) => enqueueReserveWorkflow(correctiveReserve, 'corrective_task', draft)
                    : createTaskWeb}
                  onOpenReserve={openReserveDetailTab}
-                 onOpenVisites={() => setActiveTab('visites')}
+                 onOpenVisit={(id: string) => {
+                   setSearchTarget({ tab: 'visites', id });
+                   setActiveTab('visites');
+                 }}
                 initialTaskId={searchTarget?.tab === 'planning' ? searchTarget.id : alertTaskId}
                />
             )}
@@ -7905,7 +7919,8 @@ function BuildTrackWebWorkspace() {
             ) : (
               <MeetingsWorkspace key={`${authUser.id}:${profile?.organization_id}:${selectedProjectId}`}
                 userId={authUser.id} organizationId={profile?.organization_id ?? null} chantierId={selectedProjectId}
-                author={userLabel(profile, authUser)} reserves={projectScoped.reserves}
+                author={userLabel(profile, authUser)} projectName={projectName()}
+                companies={meetingCompanies} reserves={projectScoped.reserves}
                 canCreate={canCreate(profile)} canEdit={canEdit(profile)} canDelete={canDelete(profile)}
                 exportReport={canExport(profile) ? meeting => void generateWebReport('meeting', { meeting }) : undefined}
                 exporting={Boolean(generatingReport)}
@@ -13590,7 +13605,7 @@ function VisitesView({
   );
 }
 
-function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onChangeTaskComment, commentUserId, commentUserName, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites, initialTaskId, correctiveReserve, onCloseCorrectiveTask }: any) {
+function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onChangeTaskComment, commentUserId, commentUserName, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisit, initialTaskId, correctiveReserve, onCloseCorrectiveTask }: any) {
   const { t, locale } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Planning" />;
   return (
@@ -13613,7 +13628,7 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
       onDeleteTask={onDeleteTask}
       onCreateTask={onCreateTask}
       onOpenReserve={onOpenReserve}
-      onOpenVisites={onOpenVisites}
+      onOpenVisit={onOpenVisit}
       initialTaskId={initialTaskId}
       correctiveReserve={correctiveReserve}
       onCloseCorrectiveTask={onCloseCorrectiveTask}
@@ -14720,7 +14735,9 @@ const REGULATORY_STATUS_LABELS: Record<string, string> = {
   in_progress: 'En cours',
 };
 
-function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDelete, onSave, onDelete }: any) {
+const REGULATORY_STATUS_ORDER = ['valid', 'in_progress', 'expiring', 'expired', 'missing'];
+
+function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDelete, onSave, onChangeStatus, onDelete }: any) {
   const [filter, setFilter] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [draft, setDraft] = useState<any>({});
@@ -14728,6 +14745,20 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
   const [busy, setBusy] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const filtered = docs.filter((doc: any) => !filter || doc.status === filter);
+  const [changingStatusId, setChangingStatusId] = useState<string | null>(null);
+
+  async function changeStatus(doc: any) {
+    if (!canEdit || changingStatusId) return;
+    const index = REGULATORY_STATUS_ORDER.indexOf(doc.status);
+    const next = REGULATORY_STATUS_ORDER[(index + 1) % REGULATORY_STATUS_ORDER.length];
+    if (!window.confirm(`Passer « ${doc.title} » au statut « ${REGULATORY_STATUS_LABELS[next]} » ?`)) return;
+    setChangingStatusId(doc.id);
+    try {
+      await onChangeStatus(doc, next);
+    } finally {
+      setChangingStatusId(null);
+    }
+  }
 
   function openDoc(doc?: any) {
     if (doc ? !canEdit : !canCreate) return;
@@ -14788,10 +14819,16 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
               <span className={`${styles.statusDot} ${doc.status === 'valid' ? styles.dotDone : ['expired', 'missing'].includes(doc.status) ? styles.dotLate : ''}`} />
               <div>
                 <strong>{doc.title}</strong>
-                <small>{REGULATORY_STATUS_LABELS[doc.status] ?? doc.status} · {doc.company || 'Toutes entreprises'} · échéance {prettyDate(doc.expiry_date)}</small>
+                <small>{doc.company || 'Toutes entreprises'} · échéance {prettyDate(doc.expiry_date)}</small>
+                {doc.reference ? <small>Référence · {doc.reference}</small> : null}
+                {!canEdit ? <small>{REGULATORY_STATUS_LABELS[doc.status] ?? doc.status}</small> : null}
                 {doc.notes ? <p>{doc.notes}</p> : null}
               </div>
               <div className={styles.inlineActions}>
+                {canEdit ? <button type="button" aria-label={`Changer le statut de ${doc.title} · ${REGULATORY_STATUS_LABELS[doc.status] ?? doc.status}`}
+                  disabled={Boolean(changingStatusId)} onClick={() => void changeStatus(doc)}>
+                  {REGULATORY_STATUS_LABELS[doc.status] ?? doc.status}
+                </button> : null}
                 {assetUrl(doc, 'documents') ? <PrivateMediaLink className={styles.linkButton} source={assetUrl(doc, 'documents')}>Ouvrir</PrivateMediaLink> : null}
                 {canEdit ? <button type="button" onClick={() => openDoc(doc)}>Modifier</button> : null}
                 {canDelete ? <button type="button" onClick={() => onDelete(doc)}>Supprimer</button> : null}
@@ -14828,36 +14865,61 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
   );
 }
 
+const SEARCH_SHORTCUTS = [
+  { id: 'open', label: 'Réserves ouvertes' },
+  { id: 'planning', label: 'Planning' },
+  { id: 'plans', label: 'Plans' },
+  { id: 'safety', label: 'Sécurité' },
+] as const;
+
 function SearchView({ scoped, data, restricted, setTab, onOpenReserve, setSelectedPlanId, onOpenResult }: any) {
   const [query, setQuery] = useState('');
+  const [shortcut, setShortcut] = useState<typeof SEARCH_SHORTCUTS[number]['id'] | null>(null);
   // Recherche différée + mémoïsée : 7 collections scannées seulement quand la frappe se stabilise.
   const deferredQuery = useDeferredValue(query);
-  const q = normalizeSearchText(deferredQuery);
-  const results = useMemo(() => q.length < 2 ? [] : [
-    ...scoped.reserves.filter((item: any) => matchesSearchText(q, item.id, item.title, item.description, item.building, item.level, item.zone, ...reserveCompanies(item)))
+  const q = shortcut ? '' : normalizeSearchText(deferredQuery);
+  const hasSearch = q.length >= 2 || shortcut !== null;
+  const results = useMemo(() => !hasSearch ? [] : [
+    ...scoped.reserves.filter((item: any) => shortcut === 'open'
+      ? item.status !== 'closed' && !isReserveArchived(item)
+      : matchesSearchText(q, item.id, item.title, item.description, item.building, item.level, item.zone, ...reserveCompanies(item)))
       .map((item: any) => ({ type: 'Réserve', title: item.title, meta: item.id, action: () => onOpenReserve(item.id) })),
-    ...scoped.plans.filter((item: any) => !item.deleted_at && !item.file_deleted_at && matchesSearchText(q, item.name, item.building, item.level, item.revision_code, item.file_type, item.dxf_name))
+    ...scoped.plans.filter((item: any) => !item.deleted_at && !item.file_deleted_at &&
+      (shortcut === 'plans' || matchesSearchText(q, item.name, item.building, item.level, item.revision_code, item.file_type, item.dxf_name)))
       .map((item: any) => ({ type: 'Plan', title: item.name, meta: getPlanDisplayLocation(item, data.chantiers.find((project: any) => project.id === item.chantier_id)).building, action: () => { setSelectedPlanId(item.id); setTab('plans'); } })),
     ...scoped.documents.filter((item: any) => matchesSearchText(q, item.name, item.category, item.type))
       .map((item: any) => ({ type: 'Document', title: item.name, meta: item.category, action: () => onOpenResult('documents', item.id) })),
-    ...(restricted ? [] : scoped.incidents.filter((item: any) => matchesSearchText(q, item.title, item.description, item.location, item.reported_by, item.status))
+    ...(restricted ? [] : scoped.incidents.filter((item: any) => shortcut === 'safety' ||
+      matchesSearchText(q, item.title, item.description, item.location, item.reported_by, item.status))
       .map((item: any) => ({ type: 'Incident', title: item.title, meta: item.status, action: () => onOpenResult('incidents', item.id) }))),
     ...(restricted ? [] : scoped.visites.filter((item: any) => matchesSearchText(q, item.title, item.conducteur, item.notes, item.building, item.level,
       ...getVisitLocations(item).map(location => location?.buildingName)))
       .map((item: any) => ({ type: 'Visite', title: item.title, meta: prettyDate(item.date), action: () => onOpenResult('visites', item.id) }))),
-    ...(restricted ? [] : scoped.tasks.filter((item: any) => matchesSearchText(q, item.title, item.description, item.assignee, item.company, item.status))
+    ...(restricted ? [] : scoped.tasks.filter((item: any) => shortcut === 'planning'
+      ? !['done', 'completed', 'closed'].includes(item.status)
+      : matchesSearchText(q, item.title, item.description, item.assignee, item.company, item.status))
       .map((item: any) => ({ type: 'Tâche', title: item.title, meta: item.company, action: () => onOpenResult('planning', item.id) }))),
     ...scoped.regulatoryDocs.filter((item: any) => matchesSearchText(q, item.title, item.type, item.company, item.reference, item.status))
       .map((item: any) => ({ type: 'Réglementaire', title: item.title, meta: REGULATORY_STATUS_LABELS[item.status] ?? item.status, action: () => onOpenResult('reglementaire', item.id) })),
-  ].slice(0, 80), [q, scoped, data.chantiers, restricted, onOpenReserve, setTab, setSelectedPlanId, onOpenResult]);
+  ].slice(0, 80), [hasSearch, q, shortcut, scoped, data.chantiers, restricted, onOpenReserve, setTab, setSelectedPlanId, onOpenResult]);
 
   return (
     <div className={styles.stack}>
       <section className={styles.panel}>
         <div className={styles.panelHeaderCompact}>
           <div><h2>Recherche globale</h2><p>Réserves, plans, visites, tâches, incidents, documents et réglementaire.</p></div>
-          <input className={styles.compactSearch} value={query} onChange={event => setQuery(event.target.value)} placeholder="Tapez au moins 2 caractères..." autoFocus />
+          <input className={styles.compactSearch} value={query} onChange={event => { setQuery(event.target.value); setShortcut(null); }}
+            placeholder="Tapez au moins 2 caractères..." autoFocus />
         </div>
+        {!query.trim() && (
+          <div className={styles.segmented} role="group" aria-label="Suggestions rapides">
+            {SEARCH_SHORTCUTS.filter(item => !restricted || (item.id !== 'planning' && item.id !== 'safety')).map(item => (
+              <button type="button" key={item.id} aria-pressed={shortcut === item.id}
+                className={shortcut === item.id ? styles.segmentedActive : undefined}
+                onClick={() => { setQuery(''); setShortcut(current => current === item.id ? null : item.id); }}>{item.label}</button>
+            ))}
+          </div>
+        )}
       </section>
       <section className={styles.panel}>
         <h2>Résultats</h2>
@@ -14868,8 +14930,8 @@ function SearchView({ scoped, data, restricted, setTab, onOpenReserve, setSelect
               <strong>{item.title || 'Sans titre'}</strong>
             </button>
           ))}
-          {q.length < 2 ? <p className={styles.empty}>Tapez au moins 2 caractères pour lancer la recherche.</p> : null}
-          {q.length >= 2 && !results.length ? <p className={styles.empty}>Aucun résultat.</p> : null}
+          {!hasSearch ? <p className={styles.empty}>Tapez au moins 2 caractères pour lancer la recherche.</p> : null}
+          {hasSearch && !results.length ? <p className={styles.empty}>Aucun résultat.</p> : null}
         </div>
       </section>
     </div>
