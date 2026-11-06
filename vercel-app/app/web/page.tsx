@@ -3934,97 +3934,30 @@ function BuildTrackWebWorkspace() {
   }
 
   async function requestReserveLiftWeb(reserve: any, payload: { comment: string; file: File | null }) {
-    if (!reserve?.id || !canUseReserveTunnel(profile)) return;
-    const currentStatus = String(reserve.status ?? 'open');
-    if (!['open', 'in_progress', 'waiting'].includes(currentStatus)) {
-      setError('Cette réserve ne peut pas être envoyée en demande de levée depuis son statut actuel.');
-      throw new Error('Invalid reserve status for lift request');
-    }
-    if (!canEdit(profile)) {
-      const allowedForSubcontractor = isSubcontractor(profile);
-      if (!allowedForSubcontractor) {
-        setError("Action non autorisée pour ce profil.");
-        throw new Error('Unauthorized lift request');
-      }
-    }
-
-    setSaving(true);
+    const organization = profile?.organization_id;
     setError('');
     try {
-      const author = userLabel(profile, authUser);
-      const trimmedComment = payload.comment.trim();
-      const createdAt = nowISO();
-      let uploadedPhoto: any = null;
-      let photoRow: any = null;
-
-      if (payload.file) {
-        const url = await uploadWebFile('photos', payload.file, `reserve_${reserve.id}_lift`);
-        const photoId = crypto.randomUUID();
-        uploadedPhoto = {
-          id: photoId,
-          uri: url,
-          kind: 'resolution',
-          takenAt: createdAt,
-          takenBy: author,
-          name: payload.file.name,
-          annotations: [],
-        };
-        photoRow = {
-          id: photoId,
-          comment: 'Photo de levée',
-          location: [reserve.building, reserve.level, reserve.zone].filter(Boolean).join(' · '),
-          taken_at: createdAt,
-          taken_by: author,
-          color_code: '#10b981',
-          uri: url,
-          reserve_id: reserve.id,
-          organization_id: profile?.organization_id ?? null,
-        };
-        const { error: photoInsertError } = await supabaseBrowser.from('photos').insert(photoRow);
-        if (photoInsertError) throw photoInsertError;
+      if (!reserve?.id || !organization || !canUseReserveTunnel(profile)) throw new Error('Demande de levée non autorisée.');
+      if (!['open', 'in_progress', 'waiting'].includes(String(reserve.status ?? 'open'))) {
+        throw new Error('Cette réserve ne peut pas être envoyée en demande de levée depuis son statut actuel.');
       }
-
-      const comments = trimmedComment
-        ? [
-          ...(Array.isArray(reserve.comments) ? reserve.comments : []),
-          { id: crypto.randomUUID(), author, content: `Demande de levée : ${trimmedComment}`, createdAt },
-        ]
-        : reserve.comments ?? [];
-      const photos = uploadedPhoto
-        ? [...(Array.isArray(reserve.photos) ? reserve.photos : []), uploadedPhoto]
-        : reserve.photos ?? null;
-      const history = [
-        ...(Array.isArray(reserve.history) ? reserve.history : []),
-        makeHistory('Statut modifié depuis le web', author, statusLabel(currentStatus), statusLabel('verification')),
-        makeHistory(
-          'Demande de levée depuis le web',
-          author,
-          undefined,
-          [
-            trimmedComment ? 'Commentaire ajouté' : null,
-            uploadedPhoto ? 'Photo ajoutée' : null,
-          ].filter(Boolean).join(', ') || 'Sans commentaire/photo',
-        ),
-      ];
-      const patch: Record<string, any> = {
-        status: 'verification',
-        comments,
-        history,
-        photos,
-        photo_uri: reserve.photo_uri ?? reserve.photoUri ?? (Array.isArray(reserve.photos) ? reserve.photos[0]?.uri : null) ?? uploadedPhoto?.uri ?? null,
-        closed_at: null,
-        closed_by: null,
-      };
-      const ok = await patchReserveWeb(reserve, patch);
-      if (!ok) throw new Error('Lift request update failed');
-      if (photoRow) {
-        setData(prev => ({ ...prev, photos: [photoRow, ...prev.photos] }));
+      if (payload.file && (!payload.file.type.startsWith('image/') || payload.file.size > 15 * 1024 * 1024)) {
+        throw new Error('Choisissez une image de 15 Mo maximum.');
       }
-    } catch (err: any) {
-      setError(err?.message ?? 'Demande de levée impossible.');
-      throw err;
-    } finally {
-      setSaving(false);
+      const id = crypto.randomUUID();
+      await outbox.changeReserveEdit({
+        key: outboxOwner + ':reserve_lift:' + id,
+        owner: outboxOwner,
+        kind: 'reserve_lift',
+        payload: { id, reserveId: reserve.id, organization_id: organization, comment: payload.comment.trim(), photoName: payload.file?.name, fromStatus: reserve.status ?? 'open' },
+        createdAt: Date.now(),
+        files: payload.file ?? undefined,
+      });
+      setNotice('Demande de levée conservée dans la file de synchronisation.');
+      if (navigator.onLine) void outbox.flush();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Demande de levée impossible.');
+      throw cause;
     }
   }
 
@@ -5089,21 +5022,38 @@ function BuildTrackWebWorkspace() {
     return window.location.origin + '/opr-session/' + encodeURIComponent(oprId) + '#access=' + encodeURIComponent(result.token);
   }
 
+  function hasPendingOpr(id: string) {
+    return outbox.rows.some(operation => {
+      const pending = fieldWrites(operation);
+      return pending?.table === 'oprs' && pending.writes.some(write => write.id === id);
+    });
+  }
+
   async function saveOprWeb(current: any, fields: Record<string, unknown>) {
     if ((current ? !canEdit(profile) || current.status === 'signed' : !canCreate(profile)) || !profile?.organization_id) {
       throw new Error('Votre compte ne peut pas modifier cette OPR.');
     }
     if (!current && selectedProjectId === 'all') throw new Error('Sélectionnez le chantier de l’OPR.');
-    const query = current
-      ? supabaseBrowser.from('oprs').update(fields).eq('id', current.id).eq('opr_revision', current.opr_revision)
-      : supabaseBrowser.from('oprs').insert({
-        ...fields, id: 'OPR-' + crypto.randomUUID(), organization_id: profile.organization_id,
-        chantier_id: selectedProjectId, conducteur: userLabel(profile, authUser), status: 'draft',
-      });
-    const { data: saved, error } = await query.select().maybeSingle();
-    if (error || !saved) throw new Error(error?.message || 'Ce procès-verbal a changé. Rechargez-le avant de réessayer.');
-    setData(previous => ({ ...previous, oprs: [saved, ...previous.oprs.filter(row => row.id !== saved.id)] }));
-    return saved.id as string;
+    if (current && hasPendingOpr(current.id)) throw new Error('Une modification de ce procès-verbal est déjà en attente.');
+    const id = current?.id ?? 'OPR-' + crypto.randomUUID();
+    const write: FieldWrite = current
+      ? { action: 'update', id, fields, before: { opr_revision: current.opr_revision }, organization: current.organization_id ?? null }
+      : { action: 'insert', id, fields: {
+          ...fields, id, organization_id: profile.organization_id, chantier_id: selectedProjectId,
+          conducteur: userLabel(profile, authUser), status: 'draft', opr_revision: 0,
+        } };
+    if (!await enqueueFieldWrites('oprs', [write])) throw new Error('Impossible de conserver le procès-verbal sur ce navigateur.');
+    return id as string;
+  }
+
+  async function deleteOprWeb(opr: any) {
+    if (!canDelete(profile) || !opr?.id || opr.status !== 'draft' || hasPendingOpr(opr.id) ||
+        (Array.isArray(opr.signatories) && opr.signatories.some((signer: any) => signer?.signed))) return false;
+    if (!window.confirm(`Supprimer le brouillon « ${opr.title} » ?`)) return false;
+    return enqueueFieldWrites('oprs', [{
+      action: 'delete', id: opr.id, organization: opr.organization_id ?? null,
+      before: { status: 'draft', opr_revision: opr.opr_revision },
+    }]);
   }
 
   async function saveLotWeb(draft: LotDraft, current?: LotRow) {
@@ -5624,49 +5574,25 @@ function BuildTrackWebWorkspace() {
 
   async function createDocumentWeb(payload: Record<string, any>, file: File | null) {
     if (!profile || !canCreate(profile) || !file) return null;
-    setSaving(true);
-    setError('');
-    const uri = await uploadWebFile('documents', file, `document_${payload.name ?? file.name}`);
     const docType = payload.type || detectWebDocumentType(file);
-    const documentPayload = {
-      id: `DOC-${crypto.randomUUID().slice(0, 8).toUpperCase()}`,
+    const row = {
+      id: `DOC-${crypto.randomUUID().toUpperCase()}`,
       name: String(payload.name ?? file.name).trim() || file.name,
       type: docType,
       category: String(payload.category ?? '').trim() || (docType === 'technical' ? 'Technique' : docType === 'plan' ? 'Plans' : 'Documents'),
       uploaded_at: todayISO(),
       size: formatWebFileSize(file.size),
       version: Number(payload.version ?? 1) || 1,
-      uri,
       chantier_id: payload.chantier_id || (selectedProjectId !== 'all' ? selectedProjectId : null),
       organization_id: profile.organization_id ?? null,
     };
-    const { data: inserted, error: insertError } = await supabaseBrowser.from('documents').insert(documentPayload).select().single();
-    if (insertError) {
-      setError(insertError.message);
-      setSaving(false);
-      return null;
-    }
-    const saved = inserted ?? documentPayload;
-    setData(prev => ({ ...prev, documents: [saved, ...prev.documents] }));
-    setSaving(false);
-    return saved;
+    return await enqueueFieldWrites('documents', [{ action: 'insert', id: row.id, fields: row }], file) ? row : null;
   }
 
   async function deleteDocumentWeb(document: any) {
     if (!profile || !canDelete(profile) || !document?.id) return false;
-    const confirmed = window.confirm(`Supprimer le document "${document.name ?? document.title ?? document.id}" ?`);
-    if (!confirmed) return false;
-    setSaving(true);
-    setError('');
-    const { error: deleteError } = await supabaseBrowser.from('documents').delete().eq('id', document.id);
-    if (deleteError) {
-      setError(deleteError.message);
-      setSaving(false);
-      return false;
-    }
-    setData(prev => ({ ...prev, documents: prev.documents.filter(item => item.id !== document.id) }));
-    setSaving(false);
-    return true;
+    if (!window.confirm(`Supprimer le document "${document.name ?? document.title ?? document.id}" ?`)) return false;
+    return enqueueFieldWrites('documents', [{ action: 'delete', id: document.id, organization: document.organization_id ?? null }]);
   }
 
   async function createTimeEntryWeb(payload: Record<string, any>) {
@@ -6158,15 +6084,14 @@ function BuildTrackWebWorkspace() {
     }
     if (!file.type.startsWith('image/') || file.size > 15 * 1024 * 1024) throw new Error('Choisissez une image de 15 Mo maximum.');
     const id = crypto.randomUUID();
-    const ref = await uploadWebFile('photos', file, 'gallery_' + id);
     const row = {
-      id, uri: ref, comment: file.name, location: '', color_code: '#003082',
+      id, comment: file.name, location: '', color_code: '#003082',
       taken_at: new Date().toISOString(), taken_by: userLabel(profile, authUser),
       chantier_id: selectedProjectId, organization_id: profile.organization_id,
     };
-    const { data: saved, error } = await supabaseBrowser.from('photos').insert(row).select().maybeSingle();
-    if (error || !saved) throw new Error(error?.message || 'Impossible d’ajouter la photo.');
-    setData(previous => ({ ...previous, photos: [saved, ...previous.photos.filter(photo => photo.id !== id)] }));
+    if (!await enqueueFieldWrites('photos', [{ action: 'insert', id, fields: row }], file)) {
+      throw new Error('Impossible de conserver cette photo sur ce navigateur.');
+    }
   }
 
   async function deleteGalleryPhoto(photo: any) {
@@ -6342,6 +6267,42 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'reserve_lift') {
+      const { id, reserveId, organization_id, comment, photoName, fromStatus } = operation.payload;
+      if (!profile?.organization_id || organization_id !== profile.organization_id || !canUseReserveTunnel(profile)) {
+        throw new Error('Votre compte ne peut plus envoyer cette demande de levée.');
+      }
+      let media = typeof operation.prepared === 'string' ? operation.prepared : null;
+      if (!media && operation.files instanceof File) {
+        media = await uploadWebFile('photos', operation.files, 'reserve_' + reserveId + '_lift_' + id);
+        operation.prepared = media;
+        operation.files = undefined;
+        await saveWebOperation(operation);
+      }
+      await assertOwner();
+      const { data: result, error, status } = await supabaseBrowser.rpc('apply_web_reserve_lift', {
+        p_operation_id: id, p_reserve_id: reserveId, p_organization_id: organization_id,
+        p_comment: comment, p_photo_uri: media, p_photo_name: photoName ?? null,
+      });
+      if (error) throw Object.assign(error, { status });
+      if (!result?.reserve) throw new Error('La demande de levée a été refusée.');
+      if (stillOwned()) {
+        setData(previous => ({
+          ...previous,
+          reserves: previous.reserves.map(row => row.id === reserveId ? result.reserve : row),
+          photos: result.photo ? [result.photo, ...previous.photos.filter(row => row.id !== result.photo.id)] : previous.photos,
+        }));
+        setNotice('Demande de levée enregistrée.');
+        if (result.reserve.status === 'verification' && !operation.payload.notificationRequested) {
+          operation.payload.notificationRequested = true;
+          await saveWebOperation(operation);
+          if (stillOwned()) triggerWebPush({
+            type: 'reserve-status-changed', reserveId: String(reserveId), newStatus: 'verification', previousStatus: String(fromStatus),
+          });
+        }
+      }
+      return;
+    }
     if (operation.kind === 'visit_reserves') {
       const { visitId, reserveIds, action, organization_id } = operation.payload;
       if (!profile?.organization_id || organization_id !== profile.organization_id ||
@@ -6365,9 +6326,11 @@ function BuildTrackWebWorkspace() {
           : write.action === 'insert' || table === 'journal_entries' ? canCreate(profile) : canEdit(profile)))) {
         throw new Error('Votre compte ne peut plus enregistrer cette saisie.');
       }
+      const config = fieldTables[table];
+      const attachment = 'media' in config ? config.media : null;
       let media = typeof operation.prepared === 'string' ? operation.prepared : null;
-      if (!media && operation.files instanceof File) {
-        media = await uploadWebFile(table === 'regulatory_docs' ? 'documents' : 'photos', operation.files, `${table}_${writes[0].id}`);
+      if (!media && attachment && operation.files instanceof File) {
+        media = await uploadWebFile(attachment.bucket, operation.files, `${table}_${writes[0].id}`);
         operation.prepared = media;
         operation.files = undefined;
         await saveWebOperation(operation);
@@ -6380,6 +6343,13 @@ function BuildTrackWebWorkspace() {
         if (rowOrg && rowOrg !== org) throw new Error('Cette saisie appartient à une autre organisation.');
         const scope = <T extends { eq: any; is: any }>(query: T): T => rowOrg
           ? query.eq('organization_id', rowOrg) : query.is('organization_id', null);
+        const matchBefore = <T extends { eq: any; is: any }>(query: T, before: Record<string, unknown> = {}): T => {
+          for (const [key, value] of Object.entries(before)) {
+            query = value == null ? query.is(key, null)
+              : query.eq(key, typeof value === 'object' ? JSON.stringify(value) : value);
+          }
+          return query;
+        };
         let saved: any = null;
         if (write.action === 'delete' && table === 'visites') {
           const result = await supabaseBrowser.rpc('delete_web_visit', { p_visit_id: write.id });
@@ -6389,7 +6359,7 @@ function BuildTrackWebWorkspace() {
               reserve.visite_id === write.id ? { ...reserve, visite_id: null } : reserve),
           }));
         } else if (write.action === 'delete') {
-          const result = await scope(supabaseBrowser.from(table).delete().eq('id', write.id)).select('id').maybeSingle();
+          const result = await matchBefore(scope(supabaseBrowser.from(table).delete().eq('id', write.id)), write.before).select('id').maybeSingle();
           if (result.error) throw Object.assign(result.error, { status: result.status });
           if (!result.data) {
             const current = await scope(supabaseBrowser.from(table).select('id').eq('id', write.id)).maybeSingle();
@@ -6399,7 +6369,7 @@ function BuildTrackWebWorkspace() {
         } else {
           const fields = {
             ...write.fields,
-            ...(media ? { [table === 'regulatory_docs' ? 'uri' : table === 'visites' ? 'cover_photo_uri' : 'photo_uri']: media } : {}),
+            ...(media && attachment ? { [attachment.field]: media } : {}),
           };
           if (write.action === 'insert') {
             const result = await supabaseBrowser.from(table).upsert({ ...fields, id: write.id, organization_id: org }, {
@@ -6408,11 +6378,7 @@ function BuildTrackWebWorkspace() {
             if (result.error) throw Object.assign(result.error, { status: result.status });
             saved = result.data;
           } else {
-            let query = scope(supabaseBrowser.from(table).update(fields).eq('id', write.id));
-            for (const [key, value] of Object.entries(write.before)) {
-              query = value == null ? query.is(key, null)
-                : query.eq(key, typeof value === 'object' ? JSON.stringify(value) : value);
-            }
+            const query = matchBefore(scope(supabaseBrowser.from(table).update(fields).eq('id', write.id)), write.before);
             const result = await query.select().maybeSingle();
             if (result.error) throw Object.assign(result.error, { status: result.status });
             saved = result.data;
@@ -6797,6 +6763,9 @@ function BuildTrackWebWorkspace() {
     visites: projectFieldRows(data.visites, 'visites', outbox.rows),
     incidents: projectFieldRows(data.incidents, 'incidents', outbox.rows),
     regulatoryDocs: projectFieldRows(data.regulatoryDocs, 'regulatory_docs', outbox.rows),
+    documents: projectFieldRows(data.documents, 'documents', outbox.rows),
+    photos: projectFieldRows(data.photos, 'photos', outbox.rows),
+    oprs: projectFieldRows(data.oprs, 'oprs', outbox.rows),
   }), [data, outbox.rows]);
 
   const projectScoped = useMemo(() => {
@@ -6807,7 +6776,7 @@ function BuildTrackWebWorkspace() {
     const reserves = visibleReserves.filter(byProject);
     const deletedReserves = visibleDeletedReserves.filter(byProject);
     const reserveIds = new Set([...reserves, ...deletedReserves].map((reserve: any) => String(reserve.id)));
-    const photos = data.photos.filter(photo => {
+    const photos = fieldData.photos.filter(photo => {
       const reserveId = photo.reserve_id ?? photo.reserveId;
       if (profile?.role === 'sous_traitant') return reserveId && visibleReserveIds.has(String(reserveId));
       return byProject(photo) || (reserveId && reserveIds.has(String(reserveId)));
@@ -6826,9 +6795,9 @@ function BuildTrackWebWorkspace() {
       visites: fieldData.visites.filter(byProject),
       tasks: fieldData.tasks.filter(byProject),
       incidents: fieldData.incidents.filter(byProject),
-      documents: profile?.role === 'sous_traitant' ? [] : data.documents.filter(byProject),
+      documents: profile?.role === 'sous_traitant' ? [] : fieldData.documents.filter(byProject),
       photos,
-      oprs: data.oprs.filter(byProject),
+      oprs: fieldData.oprs.filter(byProject),
       timeEntries: profile?.role === 'sous_traitant' ? [] : fieldData.timeEntries,
       regulatoryDocs: profile?.role === 'sous_traitant' ? [] : fieldData.regulatoryDocs,
       journalEntries: fieldData.journalEntries.filter((item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId),
@@ -7315,7 +7284,7 @@ function BuildTrackWebWorkspace() {
           {outbox.storageError ? <p role="alert">{outbox.storageError}</p> : null}
           {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
             <ul>{outbox.rows.map(operation => <li key={operation.key}>
-              {operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
+              {operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
               {(operation.kind === 'field_write' || operation.kind === 'visit_reserves') && operation.error && (
@@ -7752,6 +7721,8 @@ function BuildTrackWebWorkspace() {
                 canCreate={canCreate(profile) && Boolean(profile?.organization_id) && selectedProjectId !== 'all'}
                 canExport={canExport(profile)}
                 onSave={saveOprWeb}
+                onDelete={canDelete(profile) ? deleteOprWeb : undefined}
+                isPending={hasPendingOpr}
                 onSignerLink={createOprSignerLink}
                 onExport={(opr, kind) => printHtmlReport(buildWebOprPrint(opr, projectName(), projectScoped.reserves, kind, data.companies), 'OPR-' + kind + '-' + opr.id + '.pdf')}
                 projectName={projectName()}
@@ -13405,9 +13376,12 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
       <section className={styles.panel}>
         <h2>Photos</h2>
         {onAddPhoto ? <label className={styles.galleryUpload}>Ajouter une photo<input type="file" accept="image/*" capture="environment" disabled={busy} onChange={event => {
-          const file = event.currentTarget.files?.[0];
-          event.currentTarget.value = '';
-          if (file) void run(() => onAddPhoto(file), 'Photo ajoutée.');
+          const input = event.currentTarget;
+          const file = input.files?.[0];
+          if (file) void run(async () => {
+            await onAddPhoto(file);
+            input.value = '';
+          }, 'Photo conservée pour synchronisation.');
         }} /></label> : null}
         {error ? <p role="alert">{error}</p> : null}
         {feedback ? <p role="status">{feedback}</p> : null}
@@ -14185,6 +14159,7 @@ function AnalyticsView({ scoped, companies, lots, projectName, profile, setTab }
 function DocumentsView({ documents, projects, selectedProjectId, profile, canCreate, canDelete, saving, onCreate, onDelete }: any) {
   const [query, setQuery] = useState('');
   const [file, setFile] = useState<File | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [draft, setDraft] = useState<any>({ name: '', category: 'Documents', chantier_id: selectedProjectId !== 'all' ? selectedProjectId : '' });
   const filtered = documents.filter((document: any) => {
     const q = normalizeSearchText(query);
@@ -14194,11 +14169,19 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, canCre
 
   async function submitDocument(event: React.FormEvent) {
     event.preventDefault();
-    if (!file) return;
-    const saved = await onCreate({ ...draft, name: draft.name || file.name, type: detectWebDocumentType(file) }, file);
-    if (saved) {
-      setFile(null);
-      setDraft({ name: '', category: 'Documents', chantier_id: selectedProjectId !== 'all' ? selectedProjectId : '' });
+    if (!file || submitting) return;
+    const form = event.currentTarget as HTMLFormElement;
+    setSubmitting(true);
+    try {
+      const saved = await onCreate({ ...draft, name: draft.name || file.name, type: detectWebDocumentType(file) }, file);
+      if (saved) {
+        const input = form.querySelector<HTMLInputElement>('input[type="file"]');
+        if (input) input.value = '';
+        setFile(null);
+        setDraft({ name: '', category: 'Documents', chantier_id: selectedProjectId !== 'all' ? selectedProjectId : '' });
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -14226,7 +14209,7 @@ function DocumentsView({ documents, projects, selectedProjectId, profile, canCre
               </select>
             </label>
             <label><span>Fichier</span><input type="file" onChange={event => setFile(event.target.files?.[0] ?? null)} required /></label>
-            <div className={styles.modalActions}><button type="submit" disabled={saving}>{saving ? 'Upload...' : 'Importer'}</button></div>
+            <div className={styles.modalActions}><button type="submit" disabled={saving || submitting}>{submitting ? 'Enregistrement local…' : 'Importer'}</button></div>
           </form>
         )}
       </section>

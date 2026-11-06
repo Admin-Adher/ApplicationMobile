@@ -5,9 +5,12 @@ export const fieldTables = {
   journal_entries: { state: 'journalEntries', label: 'Journal' },
   checklists: { state: 'checklists', label: 'Checklist' },
   tasks: { state: 'tasks', label: 'Planning' },
-  visites: { state: 'visites', label: 'Visite' },
-  incidents: { state: 'incidents', label: 'Incident' },
-  regulatory_docs: { state: 'regulatoryDocs', label: 'Document réglementaire' },
+  visites: { state: 'visites', label: 'Visite', media: { bucket: 'photos', field: 'cover_photo_uri' } },
+  incidents: { state: 'incidents', label: 'Incident', media: { bucket: 'photos', field: 'photo_uri' } },
+  regulatory_docs: { state: 'regulatoryDocs', label: 'Document réglementaire', media: { bucket: 'documents', field: 'uri' } },
+  documents: { state: 'documents', label: 'Document GED', media: { bucket: 'documents', field: 'uri' } },
+  photos: { state: 'photos', label: 'Photo de galerie', media: { bucket: 'photos', field: 'uri' } },
+  oprs: { state: 'oprs', label: 'Procès-verbal OPR' },
 } as const;
 
 export type FieldTable = keyof typeof fieldTables;
@@ -15,7 +18,7 @@ type Fields = Record<string, any>;
 export type FieldWrite =
   | { action: 'insert'; id: string; fields: Fields }
   | { action: 'update'; id: string; fields: Fields; before: Fields; organization: string | null }
-  | { action: 'delete'; id: string; organization: string | null };
+  | { action: 'delete'; id: string; organization: string | null; before?: Fields };
 
 export function fieldUpdate(row: Fields, fields: Fields): FieldWrite {
   return {
