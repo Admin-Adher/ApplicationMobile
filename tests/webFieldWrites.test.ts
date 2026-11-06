@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fieldUpdate, projectFieldRows, sameFieldValue } from '../vercel-app/lib/web-field-writes';
+import { fieldUpdate, fieldWriteApplied, projectFieldRows, sameFieldValue } from '../vercel-app/lib/web-field-writes';
 import type { WebQueuedOperation } from '../vercel-app/lib/web-outbox';
 
 const entry = { id: 'TIME-1', organization_id: 'org-1', worker_name: 'Camille', departure_time: null };
@@ -26,5 +26,8 @@ describe('web field writes', () => {
     expect(sameFieldValue([{ id: 'one', done: true }], [{ done: true, id: 'one' }])).toBe(true);
     expect(sameFieldValue(['one', 'two'], ['two', 'one'])).toBe(false);
     expect(sameFieldValue({ done: true }, { done: false })).toBe(false);
+    const patch = { items: [{ id: 'one', done: true }], updated_at: '2026-11-06T12:00:00Z' };
+    expect(fieldWriteApplied({ ...patch, updated_at: '2026-11-06T12:00:00+00:00' }, patch)).toBe(true);
+    expect(fieldWriteApplied({ ...patch, items: [{ id: 'one', done: false }] }, patch)).toBe(false);
   });
 });

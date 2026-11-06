@@ -139,7 +139,7 @@ import OprWorkspace from './opr-workspace/OprWorkspace';
 import { buildWebOprPrint } from './opr-workspace/opr-print';
 import PortalWorkspace from './PortalWorkspace';
 import { getPdfCompanyPalette, renderPdfCompanyLabel } from '../../../lib/pdfCompanyColors';
-import { fieldTables, fieldUpdate, fieldWrites, projectFieldRows, sameFieldValue, type FieldTable, type FieldWrite } from '@/lib/web-field-writes';
+import { fieldTables, fieldUpdate, fieldWriteApplied, fieldWrites, projectFieldRows, type FieldTable, type FieldWrite } from '@/lib/web-field-writes';
 import { useWebAttendanceSettings } from './useWebAttendanceSettings';
 import OrganizationWebhookSettings from './OrganizationWebhookSettings';
 import BrowserPushSettings from './BrowserPushSettings';
@@ -6451,8 +6451,7 @@ function BuildTrackWebWorkspace() {
           if (!saved) {
             const current = await scope(supabaseBrowser.from(table).select('*').eq('id', write.id)).maybeSingle();
             if (current.error) throw Object.assign(current.error, { status: current.status });
-            if (!current.data || (write.action === 'update' &&
-              !Object.entries(fields).every(([key, value]) => sameFieldValue(value, current.data[key])))) {
+            if (!current.data || (write.action === 'update' && !fieldWriteApplied(current.data, fields))) {
               throw new Error('La fiche a changé ou n’est plus accessible. La saisie est conservée dans la file.');
             }
             saved = current.data;

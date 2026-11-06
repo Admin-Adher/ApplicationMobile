@@ -58,3 +58,11 @@ export function sameFieldValue(first: unknown, second: unknown): boolean {
   return left.length === Object.keys(second).length &&
     left.every(([key, value]) => Object.hasOwn(second, key) && sameFieldValue(value, (second as Fields)[key]));
 }
+
+export function fieldWriteApplied(row: Fields, fields: Fields): boolean {
+  return Object.entries(fields).every(([key, value]) =>
+    // A server may reformat its update timestamp or another client may already
+    // have applied the same business change.
+    key === 'updated_at' || sameFieldValue(value, row[key]),
+  );
+}
