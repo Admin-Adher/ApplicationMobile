@@ -111,11 +111,14 @@ function buildAnalyticsPDF(
 
 export default function AnalyticsScreen() {
   const { t } = useTranslation();
-  const { reserves: visibleReserves, companies, lots } = useApp();
-  const reserves = useMemo(() => visibleReserves.filter(reserve => !reserve.archivedAt), [visibleReserves]);
+  const { reserves: visibleReserves, companies, lots, activeChantier, activeChantierId } = useApp();
+  const reserves = useMemo(() => visibleReserves.filter(reserve =>
+    !reserve.archivedAt && (!activeChantierId || reserve.chantierId === activeChantierId)
+  ), [visibleReserves, activeChantierId]);
   const { user, permissions } = useAuth();
   const { exportLanguage } = useLanguage();
-  const { projectName } = useSettings();
+  const { projectName: configuredProjectName } = useSettings();
+  const projectName = activeChantier?.name ?? configuredProjectName;
   const router = useRouter();
   const userName = user?.name ?? t('photosScreen.teamFallback');
 
