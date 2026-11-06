@@ -3945,13 +3945,14 @@ function BuildTrackWebWorkspace() {
   }
 
   async function enqueueReserveWorkflow(
-    reserve: any, action: 'acknowledge' | 'restore' | 'reject_lift' | 'corrective_task',
+    reserve: any, action: 'acknowledge' | 'restore' | 'reject_lift' | 'corrective_task' | 'sign_lift',
     fields: Record<string, unknown> = {},
   ) {
     const organization = profile?.organization_id;
     if (!organization || !reserve?.id || reserve.organization_id !== organization) return false;
     if (outbox.rows.some(item => item.kind === 'reserve_workflow' && !item.error &&
-      item.payload.reserveId === reserve.id && item.payload.action === action)) return false;
+      item.payload.reserveId === reserve.id && item.payload.action === action &&
+      (action !== 'sign_lift' || (item.payload.fields as Record<string, unknown> | undefined)?.company === fields.company))) return false;
     setError('');
     try {
       await outbox.enqueue('reserve_workflow', {
@@ -3992,33 +3993,9 @@ function BuildTrackWebWorkspace() {
       });
     });
     if (!result) return;
-    const { signataire, signature } = result;
-    const historyAction = companyName && isMultiCompany
-      ? `Levée signée depuis le web (${companyName})`
-      : 'Levée signée depuis le web';
-
-    if (companyName && isMultiCompany) {
-      await patchReserveWeb(reserve, {
-        company_signatures: {
-          ...reserveCompanySignatures(reserve),
-          [companyName]: { signature, signataire, signedAt },
-        },
-        history: [
-          ...(Array.isArray(reserve.history) ? reserve.history : []),
-          makeHistory(historyAction, signataire),
-        ],
-      }, { company_signatures: reserve.company_signatures, enterprise_acknowledged_at: acknowledgedAt, history: reserve.history });
-      return;
-    }
-
-    await patchReserveWeb(reserve, {
-      enterprise_signature: signature,
-      enterprise_signataire: signataire,
-      history: [
-        ...(Array.isArray(reserve.history) ? reserve.history : []),
-        makeHistory(historyAction, signataire),
-      ],
-    }, { enterprise_signature: reserve.enterprise_signature, enterprise_acknowledged_at: acknowledgedAt, history: reserve.history });
+    await enqueueReserveWorkflow(reserve, 'sign_lift', {
+      ...result, acknowledgedAt, signedAt, company: companyName ?? companies[0] ?? null, multiCompany: isMultiCompany,
+    });
   }
 
   async function rejectReserveVerificationWeb(reserve: any) {
@@ -4822,20 +4799,13 @@ function BuildTrackWebWorkspace() {
   }
 
   async function updateCompanyField(companyId: string, field: 'planned_workers' | 'actual_workers' | 'hours_worked', value: number) {
-    if (!canUpdateAttendance(profile)) return;
-    const safeValue = Math.max(0, Number.isFinite(value) ? value : 0);
+    if (!canUpdateAttendance(profile) || !Number.isFinite(value) || value < 0) return;
+    const company = fieldData.companies.find(row => row.id === companyId);
+    if (!company || Number(company[field] ?? 0) === value) return;
     const patch = field === 'actual_workers' ? {
-      actual_workers: safeValue, hours_worked: safeValue * attendanceSettings.hours,
-    } : { [field]: safeValue };
-    setData(prev => ({
-      ...prev,
-      companies: prev.companies.map(company => company.id === companyId ? { ...company, ...patch } : company),
-    }));
-    const { error: companyError } = await supabaseBrowser
-      .from('companies')
-      .update(patch)
-      .eq('id', companyId);
-    if (companyError) setError(companyError.message);
+      actual_workers: value, hours_worked: value * attendanceSettings.hours,
+    } : { [field]: value };
+    await enqueueFieldWrites('companies', [fieldUpdate(company, patch)]);
   }
 
   async function createCompanyWeb(payload: { name: string; email?: string; contact?: string; siret?: string; short_name?: string; insurance?: string; lots?: string[]; color?: string; logo_url?: string | null }) {
@@ -5295,32 +5265,10 @@ function BuildTrackWebWorkspace() {
   }
 
   async function deleteSitePlanFileWeb(plan: any) {
-    if (!profile || !canDelete(profile) || !plan?.id) return null;
-    setSaving(true);
-    setError('');
-    const payload = {
-      uri: null,
-      file_type: null,
-      dxf_name: null,
-      size: null,
-    };
-    const { data: updated, error: updateError } = await (supabaseBrowser as any).rpc('replace_site_plan_file_safely', {
-      p_plan_id: String(plan.id),
-      p_patch: payload,
-      p_reason: 'web_delete_site_plan_file',
-    });
-    if (updateError) {
-      setError(updateError.message);
-      setSaving(false);
-      return null;
-    }
-    const nextPlan = updated ?? { ...plan, ...payload };
-    setData(prev => ({
-      ...prev,
-      sitePlans: prev.sitePlans.map(item => item.id === plan.id ? nextPlan : item),
-    }));
-    setSaving(false);
-    return nextPlan;
+    if (!profile || !canDelete(profile) || !plan?.id || !plan.uri) return false;
+    return enqueueFieldWrites('site_plans', [fieldUpdate(plan, {
+      uri: null, file_type: null, dxf_name: null, size: null, pdf_page_count: null,
+    })]);
   }
 
   async function deleteSitePlanWeb(plan: any) {
@@ -6123,13 +6071,14 @@ function BuildTrackWebWorkspace() {
     if (operation.kind === 'reserve_workflow') {
       const { id, reserveId, organization_id, action, fields } = operation.payload;
       if (!profile?.organization_id || organization_id !== profile.organization_id ||
-          !(canEdit(profile) || (action === 'acknowledge' && isSubcontractor(profile))) ||
+          !(canEdit(profile) || ((action === 'acknowledge' || action === 'sign_lift') && isSubcontractor(profile))) ||
           (action === 'corrective_task' && !canCreate(profile))) {
         throw new Error('Votre compte ne peut plus effectuer cette action.');
       }
-      const { data: result, error, status } = await supabaseBrowser.rpc('apply_web_reserve_workflow', {
-        p_organization_id: organization_id, p_reserve_id: reserveId, p_operation_id: id, p_action: action, p_payload: fields,
-      });
+      const args = { p_organization_id: organization_id, p_reserve_id: reserveId, p_operation_id: id, p_payload: fields };
+      const { data: result, error, status } = action === 'sign_lift'
+        ? await supabaseBrowser.rpc('sign_web_reserve_lift', args)
+        : await supabaseBrowser.rpc('apply_web_reserve_workflow', { ...args, p_action: action });
       if (error) throw Object.assign(error, { status });
       const row = result?.reserve;
       if (!row?.id) throw new Error('L’action sur la réserve n’a pas été enregistrée.');
@@ -6347,7 +6296,8 @@ function BuildTrackWebWorkspace() {
       if (!change || !org || org !== operation.payload.organization_id) throw new Error('Cette saisie n’appartient plus à la session.');
       const { table, writes } = change;
       if (writes.some(write => !(write.action === 'delete' ? canDelete(profile)
-        : table === 'site_plans' ? canCreate(profile)
+        : table === 'site_plans' ? (write.action === 'update' && write.fields.uri === null ? canDelete(profile) : canCreate(profile))
+          : table === 'companies' ? write.action === 'update' && canUpdateAttendance(profile)
           : table === 'time_entries' ? canUpdateAttendance(profile)
           : write.action === 'insert' || table === 'journal_entries' ? canCreate(profile) : canEdit(profile)))) {
         throw new Error('Votre compte ne peut plus enregistrer cette saisie.');
@@ -6403,6 +6353,12 @@ function BuildTrackWebWorkspace() {
             }).select().maybeSingle();
             if (result.error) throw Object.assign(result.error, { status: result.status });
             saved = result.data;
+          } else if (table === 'site_plans' && fields.uri === null) {
+            const result = await supabaseBrowser.rpc('remove_web_plan_file', {
+              p_organization_id: org, p_plan_id: write.id, p_expected_uri: write.before.uri,
+            });
+            if (result.error) throw Object.assign(result.error, { status: result.status });
+            saved = result.data;
           } else if (table === 'site_plans' && media) {
             const result = await supabaseBrowser.rpc('replace_web_plan_file', {
               p_organization_id: org, p_plan_id: write.id, p_before: write.before, p_patch: fields,
@@ -6432,7 +6388,7 @@ function BuildTrackWebWorkspace() {
         });
         if (stillOwned() && table === 'site_plans' && saved) {
           if (write.action === 'insert') setSelectedPlanId(saved.id);
-          setNotice('Plan enregistré.');
+          setNotice(write.action === 'update' && write.fields.uri === null ? 'Fichier retiré du plan.' : 'Plan enregistré.');
         }
         if (stillOwned() && writeIndex < writes.length - 1) {
           operation.payload.writes = writes.slice(writeIndex + 1);
@@ -6793,6 +6749,7 @@ function BuildTrackWebWorkspace() {
 
   const fieldData = useMemo(() => ({
     timeEntries: projectFieldRows(data.timeEntries, 'time_entries', outbox.rows),
+    companies: projectFieldRows(data.companies, 'companies', outbox.rows),
     journalEntries: projectFieldRows(data.journalEntries, 'journal_entries', outbox.rows),
     checklists: projectFieldRows(data.checklists, 'checklists', outbox.rows),
     tasks: projectTerrainChanges(projectFieldRows(data.tasks, 'tasks', outbox.rows), outbox.rows, 'task_comment'),
@@ -7839,7 +7796,7 @@ function BuildTrackWebWorkspace() {
               canViewTeams(profile) ? (
                 <div className={styles.stack}>
                 <EquipesView
-                  companies={data.companies}
+                  companies={fieldData.companies}
                   reserves={projectScoped.reserves}
                   tasks={projectScoped.tasks}
                   editable={canUpdateAttendance(profile)}
@@ -7861,7 +7818,7 @@ function BuildTrackWebWorkspace() {
                 attendanceSettings={attendanceSettings}
                 profile={profile}
                 authUser={authUser}
-                data={data}
+                data={{ ...data, companies: fieldData.companies }}
                 scoped={projectScoped}
                 selectedProjectId={selectedProjectId}
                 preferences={data.notificationPreferences}
@@ -14097,6 +14054,23 @@ function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, ca
   );
 }
 
+function CompanyAttendanceInput({ value, disabled, onCommit }: {
+  value: number;
+  disabled: boolean;
+  onCommit: (value: number) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return <input type="number" min={0} step={1} value={draft ?? value} disabled={disabled}
+    onChange={event => setDraft(event.currentTarget.value)}
+    onKeyDown={event => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+    onBlur={async event => {
+      const raw = event.currentTarget.value;
+      if (draft === null) return;
+      if (raw.trim() && event.currentTarget.validity.valid) await onCommit(Number(raw));
+      setDraft(current => current === raw ? null : current);
+    }} />;
+}
+
 function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyField }: any) {
   const totalActual = companies.reduce((sum: number, company: any) => sum + Number(company.actual_workers ?? 0), 0);
   const totalPlanned = companies.reduce((sum: number, company: any) => sum + Number(company.planned_workers ?? 0), 0);
@@ -14136,23 +14110,13 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
                 <div className={styles.companyStats}>
                   <label>
                     <span>Présents</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={company.actual_workers ?? 0}
-                      disabled={!editable}
-                      onChange={event => onUpdateCompanyField(company.id, 'actual_workers', Number(event.target.value))}
-                    />
+                    <CompanyAttendanceInput value={Number(company.actual_workers ?? 0)} disabled={!editable}
+                      onCommit={value => onUpdateCompanyField(company.id, 'actual_workers', value)} />
                   </label>
                   <label>
                     <span>Planifiés</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={company.planned_workers ?? 0}
-                      disabled={!editable}
-                      onChange={event => onUpdateCompanyField(company.id, 'planned_workers', Number(event.target.value))}
-                    />
+                    <CompanyAttendanceInput value={Number(company.planned_workers ?? 0)} disabled={!editable}
+                      onCommit={value => onUpdateCompanyField(company.id, 'planned_workers', value)} />
                   </label>
                 </div>
                 <div className={styles.companyFooter}>
@@ -15486,11 +15450,13 @@ function SettingsView({ profile, authUser, data, scoped, attendanceSettings, sel
                       <strong>{company.name}</strong>
                       <label>
                         Présents
-                        <input type="number" min={0} value={actual} disabled={!canEditAttendance} onChange={event => onUpdateCompanyField(company.id, 'actual_workers', Number(event.target.value))} />
+                        <CompanyAttendanceInput value={actual} disabled={!canEditAttendance}
+                          onCommit={async value => { await onUpdateCompanyField(company.id, 'actual_workers', value); }} />
                       </label>
                       <label>
                         Planifiés
-                        <input type="number" min={0} value={planned} disabled={!canEditAttendance} onChange={event => onUpdateCompanyField(company.id, 'planned_workers', Number(event.target.value))} />
+                        <CompanyAttendanceInput value={planned} disabled={!canEditAttendance}
+                          onCommit={async value => { await onUpdateCompanyField(company.id, 'planned_workers', value); }} />
                       </label>
                       <em>{hours}h</em>
                     </div>
