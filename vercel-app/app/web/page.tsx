@@ -102,13 +102,9 @@ import {
   type PlanDrawing,
   type PlanDrawingTool,
 } from '../../../lib/plan-annotations/model';
-import { LatestWriteQueue } from '../../../lib/plan-annotations/latest-write-queue';
-import {
-  createPendingPlanAnnotationSnapshot,
-  getCanonicalPlanAnnotationSignature,
-  overlayPendingPlanAnnotationSnapshots,
-  type PendingPlanAnnotationSnapshot,
-} from '../../../lib/plan-annotations/pending-snapshots';
+import { getCanonicalPlanAnnotationSignature } from '../../../lib/plan-annotations/pending-snapshots';
+import { planAnnotationDelta, projectPlanAnnotations, projectReserveComments, type PlanAnnotationDelta, type ReserveCommentChange } from '@/lib/web-terrain-edits';
+import type { Comment } from '../../../constants/types';
 import { renderPlanAnnotationsToCanvas } from '../../../lib/plan-annotations/canvas-renderer';
 import {
   buildReservePhotoIndex,
@@ -164,13 +160,12 @@ import {
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
 import { useWebOutbox } from '@/lib/use-web-outbox';
-import { canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
+import { canDiscardFieldOperation, canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
 import {
   recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
   type ReserveDraft, type WebPhotoAnnotation, type WebPhotoAnnotationPoint, type WebPhotoAnnotationTool, type WebPhotoDraft,
 } from '@/lib/reserve-edit-draft';
 
-const webPlanAnnotationWriteQueue = new LatestWriteQueue<PlanDrawing[]>();
 const MeetingsWorkspace = dynamic(() => import('./MeetingsWorkspace'));
 
 type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'magasinier' | 'sous_traitant' | 'observateur' | string;
@@ -3065,7 +3060,6 @@ function BuildTrackWebWorkspace() {
     : null;
   const authUserIdRef = useRef<string | null>(authUser?.id ?? null);
   authUserIdRef.current = authUser?.id ?? null;
-  const pendingWebPlanAnnotationsRef = useRef(new Map<string, PendingPlanAnnotationSnapshot>());
   const [supportOrg, setSupportOrg] = useState<{ id: string; name: string } | null>(() => {
     if (typeof window === 'undefined') return null;
     try {
@@ -3315,7 +3309,6 @@ function BuildTrackWebWorkspace() {
     workspaceUserIdRef.current = nextUserId;
 
     if (previousUserId !== undefined || !nextUserId) {
-      pendingWebPlanAnnotationsRef.current.clear();
       setProfile(null);
       setData(EMPTY_DATA);
       setOfflineSnapshotAt(null);
@@ -3476,21 +3469,6 @@ function BuildTrackWebWorkspace() {
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
   }, [reserveModalMode, visitModalOpen]);
 
-  function applyPendingPlanAnnotationSnapshots(sitePlans: any[], ownerId: string | null) {
-    const result = overlayPendingPlanAnnotationSnapshots(
-      sitePlans,
-      pendingWebPlanAnnotationsRef.current,
-      ownerId,
-    );
-    for (const planId of result.acknowledgedIds) {
-      const snapshot = pendingWebPlanAnnotationsRef.current.get(planId);
-      if (snapshot && snapshot.ownerId === ownerId && !snapshot.pending) {
-        pendingWebPlanAnnotationsRef.current.delete(planId);
-      }
-    }
-    return result.plans;
-  }
-
   async function loadEverything(user: SupabaseUser, opts: { background?: boolean } = {}) {
     const loadLease = authLoadGuard.begin(user.id);
     if (!loadLease.isCurrent()) return;
@@ -3646,11 +3624,10 @@ function BuildTrackWebWorkspace() {
         fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError }),
         loadLease,
         sitePlans => {
-          const protectedSitePlans = applyPendingPlanAnnotationSnapshots(sitePlans, user.id);
-          setData(previous => ({ ...previous, sitePlans: protectedSitePlans }));
-          setSelectedPlanId(previous => previous && protectedSitePlans.some((plan: any) => plan.id === previous)
+          setData(previous => ({ ...previous, sitePlans }));
+          setSelectedPlanId(previous => previous && sitePlans.some((plan: any) => plan.id === previous)
             ? previous
-            : protectedSitePlans[0]?.id ?? null);
+            : sitePlans[0]?.id ?? null);
         },
       );
       const companiesPromise = fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError });
@@ -3762,13 +3739,12 @@ function BuildTrackWebWorkspace() {
           })
         : photos;
       const scopedDocuments = loadedProfile.role === 'sous_traitant' ? [] : documents;
-      const protectedSitePlans = applyPendingPlanAnnotationSnapshots(sitePlans, user.id);
 
       const nextData = {
         chantiers,
         reserves: scopedReserves,
         deletedReserves: scopedDeletedReserves,
-        sitePlans: protectedSitePlans,
+        sitePlans,
         companies,
         organizations,
         visites,
@@ -3804,7 +3780,7 @@ function BuildTrackWebWorkspace() {
           });
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
       setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : null);
-      setSelectedPlanId(prev => prev && protectedSitePlans.some((p: any) => p.id === prev) ? prev : protectedSitePlans[0]?.id ?? null);
+      setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
       setSelectedChannelId(prev => prev && channels.some((c: any) => c.id === prev) ? prev : channels[0]?.id ?? null);
       if (failedTables.length) {
         setError(loadT('sync.partialLoad', { tables: failedTableList(loadT, failedTables) }));
@@ -4129,49 +4105,21 @@ function BuildTrackWebWorkspace() {
     setActiveTab('plans');
   }
 
-  function updatePlanAnnotationsWeb(plan: any, annotations: PlanDrawing[]) {
-    if (!canCreate(profile) || !plan?.id) return;
-    const ownerId = authUser?.id ?? null;
-    const planId = String(plan.id);
-    const pendingSnapshot = createPendingPlanAnnotationSnapshot(ownerId, annotations, true);
-    pendingWebPlanAnnotationsRef.current.set(planId, pendingSnapshot);
-    setData(prev => ({
-      ...prev,
-      // Preserve this exact array identity for the reader's optimistic echo;
-      // the durable queue receives the sanitized canonical snapshot below.
-      sitePlans: prev.sitePlans.map(item => item.id === plan.id ? { ...item, annotations } : item),
-    }));
-    void webPlanAnnotationWriteQueue.enqueue(
-      `${ownerId ?? 'anonymous'}:${planId}`,
-      [...pendingSnapshot.annotations],
-      async latestAnnotations => {
-        if (authUserIdRef.current !== ownerId) throw new Error('annotation_owner_changed');
-        const { error: annotationError } = await supabaseBrowser
-          .from('site_plans')
-          .update({ annotations: latestAnnotations })
-          .eq('id', plan.id);
-        if (authUserIdRef.current !== ownerId) throw new Error('annotation_owner_changed');
-        if (annotationError) throw annotationError;
-
-        const current = pendingWebPlanAnnotationsRef.current.get(planId);
-        const latestSignature = getCanonicalPlanAnnotationSignature(latestAnnotations);
-        if (current?.ownerId === ownerId && current.signature === latestSignature) {
-          pendingWebPlanAnnotationsRef.current.set(
-            planId,
-            createPendingPlanAnnotationSnapshot(ownerId, latestAnnotations, false),
-          );
-        }
-      },
-      (annotationError, failedAnnotations) => {
-        if (authUserIdRef.current !== ownerId) return;
-        const current = pendingWebPlanAnnotationsRef.current.get(planId);
-        if (current?.signature === getCanonicalPlanAnnotationSignature(failedAnnotations)) {
-          pendingWebPlanAnnotationsRef.current.delete(planId);
-        }
-        setError(annotationError instanceof Error ? annotationError.message : 'Enregistrement des annotations impossible.');
-        if (authUser) void loadEverything(authUser);
-      },
-    ).catch(() => undefined);
+  async function updatePlanAnnotationsWeb(plan: any, annotations: PlanDrawing[], previous: readonly PlanDrawing[]) {
+    if (!canCreate(profile) || !plan?.id || !profile?.organization_id) return false;
+    const delta = planAnnotationDelta(previous, annotations);
+    if (!delta.added.length && !delta.removed.length) return true;
+    try {
+      await outbox.enqueue('plan_annotation', {
+        id: crypto.randomUUID(), planId: plan.id, organization_id: profile.organization_id, delta,
+      });
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Annotations conservées sur ce navigateur.');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver ces annotations.');
+      return false;
+    }
   }
 
   async function toggleArchive(reserve: any) {
@@ -4284,28 +4232,28 @@ function BuildTrackWebWorkspace() {
     setSaving(false);
   }
 
-  async function addReserveComment(reserve: any, content: string) {
-    if (!profile || !content.trim()) return;
-    const nextComment = {
-      id: crypto.randomUUID(),
-      author: userLabel(profile, authUser),
-      content: content.trim(),
-      createdAt: nowISO(),
-    };
-    const comments = [...(reserve.comments ?? []), nextComment];
-    const history = [
-      ...(reserve.history ?? []),
-      makeHistory('Commentaire ajouté depuis le web', userLabel(profile, authUser)),
-    ];
-    setData(prev => ({
-      ...prev,
-      reserves: prev.reserves.map(item => item.id === reserve.id ? { ...item, comments, history } : item),
-    }));
-    const { error: commentError } = await supabaseBrowser
-      .from('reserves')
-      .update({ comments, history })
-      .eq('id', reserve.id);
-    if (commentError) setError(commentError.message);
+  async function saveReserveComment(reserve: any, action: 'add' | 'edit' | 'delete', content?: string, target?: Comment) {
+    const org = profile?.organization_id;
+    if (!reserve?.id || !org || !authUser?.id || !(canCreate(profile) || canUseReserveTunnel(profile))) return false;
+    const text = content?.trim() ?? '';
+    if (action !== 'delete' && (!text || text.length > 500)) return false;
+    if (action !== 'add' && !target) return false;
+    const id = crypto.randomUUID();
+    const change: ReserveCommentChange = action === 'add'
+      ? { action, comment: { id, author: userLabel(profile, authUser), authorId: authUser.id, content: text, createdAt: nowISO() } }
+      : action === 'edit'
+        ? { action, commentId: target!.id, previousContent: target!.content, content: text, editedAt: nowISO() }
+        : { action, commentId: target!.id };
+    setError('');
+    try {
+      await outbox.enqueue('reserve_comment', { id, reserveId: reserve.id, organization_id: org, change });
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Commentaire conservé sur ce navigateur.');
+      return true;
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Impossible de conserver ce commentaire.');
+      return false;
+    }
   }
 
   async function fillMissingReserveDescriptions(targets: any[]) {
@@ -6078,20 +6026,26 @@ function BuildTrackWebWorkspace() {
     }
   }
 
-  async function addGalleryPhoto(file: File) {
+  async function addGalleryPhoto(file: File, details: { caption: string; location: string }) {
     if (!canCreate(profile) || !profile?.organization_id || selectedProjectId === 'all') {
       throw new Error('Sélectionnez un chantier où vous pouvez ajouter une photo.');
     }
     if (!file.type.startsWith('image/') || file.size > 15 * 1024 * 1024) throw new Error('Choisissez une image de 15 Mo maximum.');
     const id = crypto.randomUUID();
     const row = {
-      id, comment: file.name, location: '', color_code: '#003082',
+      id, comment: details.caption.trim() || file.name, location: details.location.trim(), color_code: '#003082',
       taken_at: new Date().toISOString(), taken_by: userLabel(profile, authUser),
       chantier_id: selectedProjectId, organization_id: profile.organization_id,
     };
     if (!await enqueueFieldWrites('photos', [{ action: 'insert', id, fields: row }], file)) {
       throw new Error('Impossible de conserver cette photo sur ce navigateur.');
     }
+  }
+
+  async function editGalleryPhoto(photo: any, details: { caption: string; location: string }) {
+    if (!canEdit(profile) || !photo?.id || photo.reserve_id || photo.reserveId) throw new Error('Cette photo se gère depuis sa réserve.');
+    const write = fieldUpdate(photo, { comment: details.caption.trim() || 'Photo chantier', location: details.location.trim() });
+    if (!await enqueueFieldWrites('photos', [write])) throw new Error('Impossible de conserver ces informations.');
   }
 
   async function deleteGalleryPhoto(photo: any) {
@@ -6267,6 +6221,37 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'reserve_comment' || operation.kind === 'plan_annotation') {
+      const org = profile?.organization_id;
+      if (!org || operation.payload.organization_id !== org) throw new Error('Cette saisie n’appartient plus à la session.');
+      if (operation.kind === 'reserve_comment') {
+        const change = operation.payload.change as ReserveCommentChange;
+        if (!(canCreate(profile) || canUseReserveTunnel(profile))) throw new Error('Votre compte ne peut plus commenter cette réserve.');
+        const { data: row, error, status } = await supabaseBrowser.rpc('apply_web_reserve_comment', {
+          p_reserve_id: operation.payload.reserveId, p_organization_id: org, p_action: change.action,
+          p_comment_id: change.action === 'add' ? change.comment.id : change.commentId,
+          p_content: change.action === 'add' ? change.comment.content : change.action === 'edit' ? change.content : null,
+          p_previous_content: change.action === 'edit' ? change.previousContent : null,
+        });
+        if (error) throw Object.assign(error, { status });
+        if (!row?.id) throw new Error('Le commentaire n’a pas pu être enregistré.');
+        if (stillOwned()) setData(previous => ({
+          ...previous, reserves: previous.reserves.map(reserve => reserve.id === row.id && Number(reserve.version ?? 0) <= Number(row.version ?? 0) ? row : reserve),
+        }));
+      } else {
+        if (!canCreate(profile)) throw new Error('Votre compte ne peut plus annoter ce plan.');
+        const delta = operation.payload.delta as PlanAnnotationDelta;
+        const { data: row, error, status } = await supabaseBrowser.rpc('apply_web_plan_annotations', {
+          p_plan_id: operation.payload.planId, p_organization_id: org, p_added: delta.added, p_removed: delta.removed,
+        });
+        if (error) throw Object.assign(error, { status });
+        if (!row?.id) throw new Error('Le plan n’a pas pu être annoté.');
+        if (stillOwned()) setData(previous => ({
+          ...previous, sitePlans: previous.sitePlans.map(plan => plan.id === row.id ? { ...plan, annotations: row.annotations } : plan),
+        }));
+      }
+      return;
+    }
     if (operation.kind === 'reserve_lift') {
       const { id, reserveId, organization_id, comment, photoName, fromStatus } = operation.payload;
       if (!profile?.organization_id || organization_id !== profile.organization_id || !canUseReserveTunnel(profile)) {
@@ -6766,11 +6751,13 @@ function BuildTrackWebWorkspace() {
     documents: projectFieldRows(data.documents, 'documents', outbox.rows),
     photos: projectFieldRows(data.photos, 'photos', outbox.rows),
     oprs: projectFieldRows(data.oprs, 'oprs', outbox.rows),
+    reserves: projectReserveComments(data.reserves, outbox.rows),
+    sitePlans: projectPlanAnnotations(data.sitePlans, outbox.rows),
   }), [data, outbox.rows]);
 
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
-    const visibleReserves = visibleReservesForProfile(data.reserves, profile, data.companies);
+    const visibleReserves = visibleReservesForProfile(fieldData.reserves, profile, data.companies);
     const visibleDeletedReserves = canViewReserveTrash ? visibleReservesForProfile(data.deletedReserves, profile, data.companies) : [];
     const visibleReserveIds = new Set([...visibleReserves, ...visibleDeletedReserves].map((reserve: any) => String(reserve.id)));
     const reserves = visibleReserves.filter(byProject);
@@ -6791,7 +6778,7 @@ function BuildTrackWebWorkspace() {
         const reservePhotos = reservePhotoItems(reserve, photos, photosByReserve);
         return reservePhotos.length ? { ...reserve, photos: reservePhotos, photo_uri: reserve.photo_uri ?? reservePhotos[0]?.uri ?? null } : reserve;
       }),
-      plans: data.sitePlans.filter(byProject),
+      plans: fieldData.sitePlans.filter(byProject),
       visites: fieldData.visites.filter(byProject),
       tasks: fieldData.tasks.filter(byProject),
       incidents: fieldData.incidents.filter(byProject),
@@ -7284,10 +7271,10 @@ function BuildTrackWebWorkspace() {
           {outbox.storageError ? <p role="alert">{outbox.storageError}</p> : null}
           {outbox.rows.length ? <><strong>{outbox.rows.length} opération(s) conservée(s) sur ce navigateur</strong>
             <ul>{outbox.rows.map(operation => <li key={operation.key}>
-              {operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
+              {operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
-              {(operation.kind === 'field_write' || operation.kind === 'visit_reserves') && operation.error && (
+              {canDiscardFieldOperation(operation) && (
                 <button type="button" disabled={outbox.syncing} onClick={() => {
                   if (window.confirm('Abandonner cette saisie refusée ?')) void outbox.discardFieldWrite(operation.key)
                     .catch(() => setError('Impossible de retirer cette saisie de la file.'));
@@ -7409,7 +7396,9 @@ function BuildTrackWebWorkspace() {
                 onDelete={deleteReserveWeb}
                 onRestore={restoreReserveWeb}
                 onPermanentDelete={permanentlyDeleteReserveWeb}
-                onComment={addReserveComment}
+                onComment={saveReserveComment}
+                commentActor={{ id: authUser?.id ?? '', name: userLabel(profile, authUser) }}
+                canComment={canCreate(profile) || canUseReserveTunnel(profile)}
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
                 onFillDescriptions={fillMissingReserveDescriptions}
@@ -7734,6 +7723,7 @@ function BuildTrackWebWorkspace() {
               <MediaView photos={projectScoped.photos} documents={projectScoped.documents} isSubcontractor={profile?.role === 'sous_traitant'}
                 channels={data.channels}
                 onAddPhoto={canCreate(profile) && selectedProjectId !== 'all' ? addGalleryPhoto : undefined}
+                onEditPhoto={canEdit(profile) ? editGalleryPhoto : undefined}
                 onDeletePhoto={canDelete(profile) ? deleteGalleryPhoto : undefined}
                 onSharePhoto={canUseReserveTunnel(profile) ? shareGalleryPhoto : undefined}
                 canExportPhoto={canExport(profile)} />
@@ -7917,7 +7907,9 @@ function ReservesView(props: {
   onDelete: (reserve: any) => Promise<void> | void;
   onRestore: (reserve: any) => Promise<void> | void;
   onPermanentDelete: (reserve: any) => Promise<void> | void;
-  onComment: (reserve: any, content: string) => Promise<void> | void;
+  onComment: (reserve: any, action: 'add' | 'edit' | 'delete', content?: string, target?: Comment) => Promise<boolean>;
+  commentActor: { id: string; name: string };
+  canComment: boolean;
   onCreate: () => void;
   onEdit: (reserve: any) => void;
   onFillDescriptions: (reserves: any[]) => Promise<void> | void;
@@ -9178,15 +9170,14 @@ function ReservesView(props: {
                 </span>
               </div>
             ) : null}
-            {!isTrashView && <form
+            {!isTrashView && props.canComment && <form
               className={styles.commentForm}
               onSubmit={async event => {
                 event.preventDefault();
                 if (!commentText.trim() || commentBusy) return;
                 setCommentBusy(true);
                 try {
-                  await props.onComment(detailReserve, commentText);
-                  setCommentText('');
+                  if (await props.onComment(detailReserve, 'add', commentText)) setCommentText('');
                 } finally {
                   setCommentBusy(false);
                 }
@@ -9196,6 +9187,7 @@ function ReservesView(props: {
                 value={commentText}
                 onChange={event => setCommentText(event.target.value)}
                 placeholder="Ajouter un commentaire de suivi..."
+                maxLength={500}
               />
               <button type="submit" disabled={props.saving || commentBusy || !commentText.trim()}>Ajouter</button>
               <div className={styles.commentAssist}>
@@ -9250,7 +9242,9 @@ function ReservesView(props: {
                 {props.canDeleteReserve && <button type="button" className={styles.dangerButton} onClick={() => props.onDelete(detailReserve)}>Supprimer</button>}
               </div>
             )}
-            <HistoryBlock title="Commentaires" rows={detailReserve.comments ?? []} />
+            <ReserveCommentList key={detailReserve.id} comments={Array.isArray(detailReserve.comments) ? detailReserve.comments : []}
+              actor={props.commentActor} editable={!isTrashView && props.canComment}
+              onChange={(action, comment, content) => props.onComment(detailReserve, action, content, comment)} />
             <HistoryBlock title="Historique" rows={detailReserve.history ?? []} />
             </div>
           </>
@@ -9334,6 +9328,55 @@ function ReservesView(props: {
   );
 }
 
+function ReserveCommentList({ comments, actor, editable, onChange }: {
+  comments: Comment[];
+  actor: { id: string; name: string };
+  editable: boolean;
+  onChange: (action: 'edit' | 'delete', comment: Comment, content?: string) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState<Comment | null>(null);
+  const [content, setContent] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function change(action: 'edit' | 'delete', comment: Comment) {
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (await onChange(action, comment, content) && action === 'edit') setEditing(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section className={styles.historyBlock} aria-label="Commentaires de la réserve">
+      <h3>Commentaires</h3>
+      {comments.length ? comments.map((comment, index) => {
+        const own = editable && Boolean(actor.id) && (comment.authorId ? comment.authorId === actor.id : comment.author === actor.name);
+        return (
+          <div key={comment.id ?? index} className={styles.timelineItem}>
+            <strong>{comment.author}</strong>
+            {editing && editing.id === comment.id ? (
+              <form className={styles.commentForm} onSubmit={event => { event.preventDefault(); void change('edit', editing); }}>
+                <input aria-label="Texte du commentaire" autoFocus value={content} onChange={event => setContent(event.target.value)} maxLength={500} />
+                <button type="submit" disabled={busy || !content.trim()}>Enregistrer le commentaire</button>
+                <button type="button" disabled={busy} onClick={() => setEditing(null)}>Annuler</button>
+              </form>
+            ) : <><span>{comment.content}</span>{own && comment.id ? (
+              <div className={styles.commentAssist}>
+                <button type="button" disabled={busy} onClick={() => { setEditing(comment); setContent(comment.content); }}>Modifier le commentaire</button>
+                <button type="button" disabled={busy} onClick={() => {
+                  if (window.confirm('Supprimer ce commentaire ?')) void change('delete', comment);
+                }}>Supprimer le commentaire</button>
+              </div>
+            ) : null}</>}
+          </div>
+        );
+      }) : <small>Aucun élément.</small>}
+    </section>
+  );
+}
+
 function HistoryBlock({ title, rows }: { title: string; rows: any[] }) {
   return (
     <div className={styles.historyBlock}>
@@ -9374,7 +9417,6 @@ function webPlanCloudPath(x1: number, y1: number, x2: number, y2: number) {
   return `${path} Z`;
 }
 
-const WEB_PLAN_DRAWING_PAGE = 1;
 const WEB_PLAN_DRAWING_COLORS = [
   { value: '#ef4444', labelKey: 'plans.drawingColorRed' },
   { value: '#f59e0b', labelKey: 'plans.drawingColorAmber' },
@@ -9531,20 +9573,21 @@ function renderWebPlanDrawing(
 function WebPdfPlan({
   uri,
   name,
-  cachedPreview,
+  cachedPreview: firstPagePreview,
+  isImage = false,
   previewCacheKey,
   mediaStatus,
   onPreviewReady,
   onRetryMedia,
-  pins,
+  pins: allPins,
   focusedReserveId,
-  canCreate,
-  canMovePins,
+  canCreate: allowCreate,
+  canMovePins: allowMovePins,
   canAnnotate,
   annotations,
-  placementPreview,
-  placementActive,
-  createModeActive,
+  placementPreview: requestedPreview,
+  placementActive: requestedPlacement,
+  createModeActive: requestedCreateMode,
   openPinOnSingleTap,
   onPlacePin,
   onCreateReserveAtPin,
@@ -9556,6 +9599,7 @@ function WebPdfPlan({
 }: {
   uri: string;
   name: string;
+  isImage?: boolean;
   cachedPreview?: { url: string; width: number; height: number } | null;
   previewCacheKey?: string;
   mediaStatus?: 'empty' | 'idle' | 'resolving' | 'ready' | 'error';
@@ -9574,7 +9618,7 @@ function WebPdfPlan({
   onPlacePin?: (x: number, y: number) => void;
   onCreateReserveAtPin?: (x: number, y: number) => void;
   onPinMove?: (reserveId: string, x: number, y: number) => PinMoveResult;
-  onAnnotationsChange?: (annotations: PlanDrawing[]) => void;
+  onAnnotationsChange?: (annotations: PlanDrawing[], previous: readonly PlanDrawing[]) => Promise<boolean>;
   onPinClick: (reserveId: string) => void;
   onPinOpen: (reserveId: string) => void;
   onClearFocus?: () => void;
@@ -9587,6 +9631,7 @@ function WebPdfPlan({
   const fullscreenButtonRef = useRef<HTMLButtonElement | null>(null);
   const renderTaskRef = useRef<any>(null);
   const pdfPageRef = useRef<any>(null);
+  const imageRef = useRef<HTMLImageElement | null>(null);
   const fitModeRef = useRef<PdfZoomMode>('fit');
   const resizeFrameRef = useRef<number | null>(null);
   const lastViewportWidthRef = useRef(0);
@@ -9596,7 +9641,7 @@ function WebPdfPlan({
   const drawingPointerRef = useRef<number | null>(null);
   const liveDrawingRef = useRef<PlanDrawing | null>(null);
   const liveDrawingFrameRef = useRef<number | null>(null);
-  const pendingAnnotationEchoRef = useRef<PlanDrawing[] | null>(null);
+  const [pendingAnnotationWrites, setPendingAnnotationWrites] = useState(0);
   const movePreviewTimerRef = useRef<number | null>(null);
   const previousFullscreenRef = useRef(false);
   const suppressNextPageClickRef = useRef(false);
@@ -9617,6 +9662,17 @@ function WebPdfPlan({
   const [renderReady, setRenderReady] = useState(false);
   const [retryVersion, setRetryVersion] = useState(0);
   const [pdfPageVersion, setPdfPageVersion] = useState(0);
+  const [pdfDocument, setPdfDocument] = useState<any>(null);
+  const [pageNumber, setPageNumber] = useState(1);
+  const pageCount: number = pdfDocument?.numPages ?? 1;
+  // Existing reserve coordinates are tied to the plan, without a page field.
+  const pins = pageNumber === 1 ? allPins : [];
+  const canCreate = pageNumber === 1 && allowCreate;
+  const canMovePins = pageNumber === 1 && allowMovePins;
+  const placementPreview = pageNumber === 1 ? requestedPreview : null;
+  const placementActive = pageNumber === 1 && requestedPlacement;
+  const createModeActive = pageNumber === 1 && requestedCreateMode;
+  const cachedPreview = pageNumber === 1 ? firstPagePreview : null;
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isPanning, setIsPanning] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
@@ -9633,7 +9689,7 @@ function WebPdfPlan({
   const actionMenuId = useId();
 
   const fitCachedPreviewToViewport = useCallback((width: number, height: number) => {
-    if (!width || !height || pdfPageRef.current) return;
+    if (!width || !height || pdfPageRef.current || imageRef.current) return;
     const viewportWidth = viewportRef.current?.clientWidth ?? Math.min(width, 900);
     const availableWidth = Math.max(1, viewportWidth - 32);
     const previewScale = Math.min(1, availableWidth / width);
@@ -9642,14 +9698,14 @@ function WebPdfPlan({
 
   const fitPdfToViewport = useCallback(() => {
     const page = pdfPageRef.current;
-    if (!page) return;
-    const baseViewport = page.getViewport({ scale: 1 });
+    const width = imageRef.current?.naturalWidth ?? page?.getViewport({ scale: 1 }).width;
+    if (!width) return;
     const viewportWidth = viewportRef.current?.clientWidth ?? 900;
     const horizontalPadding = viewportRef.current
       ? parseFloat(window.getComputedStyle(viewportRef.current).paddingLeft || '0')
         + parseFloat(window.getComputedStyle(viewportRef.current).paddingRight || '0')
       : 0;
-    setScale(calculatePdfFitScale(viewportWidth - horizontalPadding, baseViewport.width));
+    setScale(calculatePdfFitScale(viewportWidth - horizontalPadding, width));
   }, []);
 
   const activatePdfFit = useCallback(() => {
@@ -9661,6 +9717,7 @@ function WebPdfPlan({
     fitModeRef.current = 'fit';
     setScale(null);
     setPageSize({ width: 0, height: 0 });
+    setPageNumber(1);
     setError(false);
     setRenderReady(false);
     setAnnotationMode(false);
@@ -9676,7 +9733,7 @@ function WebPdfPlan({
     setMovePreview(null);
     setActionMenuOpen(false);
     lastFocusZoomRef.current = '';
-  }, [uri]);
+  }, [uri, isImage]);
 
   useEffect(() => {
     if (!cachedPreview || pdfPageRef.current) return;
@@ -9700,7 +9757,7 @@ function WebPdfPlan({
       if (resizeFrameRef.current != null) window.cancelAnimationFrame(resizeFrameRef.current);
       resizeFrameRef.current = window.requestAnimationFrame(() => {
         resizeFrameRef.current = null;
-        if (pdfPageRef.current) {
+        if (pdfPageRef.current || imageRef.current) {
           fitPdfToViewport();
         } else if (cachedPreview) {
           fitCachedPreviewToViewport(cachedPreview.width, cachedPreview.height);
@@ -9719,20 +9776,14 @@ function WebPdfPlan({
   }, [cachedPreview, fitCachedPreviewToViewport, fitPdfToViewport, isFullscreen, uri]);
 
   useEffect(() => {
-    if (annotations === pendingAnnotationEchoRef.current) {
-      pendingAnnotationEchoRef.current = null;
-      return;
-    }
+    if (pendingAnnotationWrites) return;
     const incomingSignature = getCanonicalPlanAnnotationSignature(annotations ?? []);
     const currentSignature = getCanonicalPlanAnnotationSignature(annotationSessionRef.current.drawings);
-    if (incomingSignature === currentSignature) {
-      pendingAnnotationEchoRef.current = null;
-      return;
-    }
+    if (incomingSignature === currentSignature) return;
     const nextSession = createPlanAnnotationSession(sanitizePlanDrawings(annotations ?? []));
     annotationSessionRef.current = nextSession;
     setAnnotationSession(nextSession);
-  }, [annotations, uri]);
+  }, [annotations, pendingAnnotationWrites, uri]);
 
   useEffect(() => {
     if (!isFullscreen) return;
@@ -9816,10 +9867,14 @@ function WebPdfPlan({
   }, [focusedReserveId, pageSize.height, pageSize.width, pins]);
 
   useEffect(() => {
+    if (requestedPlacement || requestedCreateMode || focusedReserveId) setPageNumber(1);
+  }, [requestedPlacement, requestedCreateMode, focusedReserveId]);
+
+  useEffect(() => {
     let cancelled = false;
     let pdfSession: ReturnType<typeof createDedicatedPdfLoadingTask> | null = null;
 
-    async function loadPdfPage() {
+    async function loadPlan() {
       if (!uri) {
         setLoading(false);
         setError(false);
@@ -9828,15 +9883,23 @@ function WebPdfPlan({
       setLoading(true);
       setError(false);
       pdfPageRef.current = null;
+      imageRef.current = null;
+      setPdfDocument(null);
       try {
+        if (isImage) {
+          const image = new Image();
+          image.src = uri;
+          await image.decode();
+          if (cancelled) return;
+          imageRef.current = image;
+          setPdfPageVersion(version => version + 1);
+          return;
+        }
         const pdfjs: any = await loadPdfJs();
         if (cancelled) return;
         pdfSession = createDedicatedPdfLoadingTask(pdfjs, { url: uri });
         const pdf = await pdfSession.loadingTask.promise;
-        const page = await pdf.getPage(1);
-        if (cancelled) return;
-        pdfPageRef.current = page;
-        setPdfPageVersion(version => version + 1);
+        if (!cancelled) setPdfDocument(pdf);
       } catch (pdfError: any) {
         if (cancelled) return;
         console.warn('[web-pdf] plan loading failed', {
@@ -9848,21 +9911,42 @@ function WebPdfPlan({
       }
     }
 
-    void loadPdfPage();
+    void loadPlan();
 
     return () => {
       cancelled = true;
       pdfPageRef.current = null;
+      imageRef.current = null;
       renderTaskRef.current?.cancel?.();
       const destroyResult = pdfSession?.destroy();
       if (destroyResult && typeof destroyResult.catch === 'function') {
         void destroyResult.catch(() => undefined);
       }
     };
-  }, [retryVersion, uri]);
+  }, [retryVersion, uri, isImage]);
 
   useEffect(() => {
-    if (!pdfPageRef.current) return;
+    if (!pdfDocument) return;
+    let cancelled = false;
+    renderTaskRef.current?.cancel?.();
+    pdfPageRef.current = null;
+    setRenderReady(false);
+    setLoading(true);
+    setError(false);
+    void pdfDocument.getPage(pageNumber).then((page: any) => {
+      if (cancelled) return;
+      pdfPageRef.current = page;
+      setPdfPageVersion(version => version + 1);
+    }).catch(() => {
+      if (cancelled) return;
+      setLoading(false);
+      setError(true);
+    });
+    return () => { cancelled = true; };
+  }, [pdfDocument, pageNumber]);
+
+  useEffect(() => {
+    if (!pdfPageRef.current && !imageRef.current) return;
     if (fitModeRef.current !== 'fit') return;
     const frame = window.requestAnimationFrame(activatePdfFit);
     return () => window.cancelAnimationFrame(frame);
@@ -9870,10 +9954,11 @@ function WebPdfPlan({
 
   useEffect(() => {
     const page = pdfPageRef.current;
-    if (!page || scale == null || !canvasRef.current) return;
+    const image = imageRef.current;
+    if ((!page && !image) || scale == null || !canvasRef.current) return;
     let cancelled = false;
 
-    async function renderPdfPage() {
+    async function renderPdfPage(renderScale: number) {
       setRenderReady(false);
       setLoading(true);
       setError(false);
@@ -9885,7 +9970,9 @@ function WebPdfPlan({
           if (cancelled) return;
         }
 
-        const viewport = page.getViewport({ scale });
+        const viewport = image
+          ? { width: image.naturalWidth * renderScale, height: image.naturalHeight * renderScale }
+          : page.getViewport({ scale: renderScale });
         const canvas = canvasRef.current;
         if (!canvas) return;
         const context = canvas.getContext('2d');
@@ -9905,15 +9992,19 @@ function WebPdfPlan({
         if (outputScale !== 1) {
           renderContext.transform = [outputScale, 0, 0, outputScale, 0, 0];
         }
-        const renderTask = page.render(renderContext);
-        renderTaskRef.current = renderTask;
-        await renderTask.promise;
+        if (image) {
+          context.drawImage(image, 0, 0, canvas.width, canvas.height);
+        } else {
+          const renderTask = page.render(renderContext);
+          renderTaskRef.current = renderTask;
+          await renderTask.promise;
+        }
         if (!cancelled) {
           renderTaskRef.current = null;
           setRenderReady(true);
           setLoading(false);
           if (
-            previewCacheKey
+            pageNumber === 1 && !image && previewCacheKey
             && capturedPreviewKeyRef.current !== previewCacheKey
             && capturingPreviewKeyRef.current !== previewCacheKey
           ) {
@@ -9941,13 +10032,13 @@ function WebPdfPlan({
       }
     }
 
-    void renderPdfPage();
+    void renderPdfPage(scale);
 
     return () => {
       cancelled = true;
       renderTaskRef.current?.cancel?.();
     };
-  }, [isFullscreen, onPreviewReady, pdfPageVersion, previewCacheKey, scale]);
+  }, [isFullscreen, onPreviewReady, pageNumber, pdfPageVersion, previewCacheKey, scale]);
 
   function pagePointFromEvent(event: MouseEvent<HTMLDivElement> | PointerEvent<SVGSVGElement>) {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -9962,10 +10053,11 @@ function WebPdfPlan({
     if (next === previous) return;
     annotationSessionRef.current = next;
     setAnnotationSession(next);
-    if (persist && next.drawings !== previous.drawings) {
-      const persisted = [...next.drawings];
-      pendingAnnotationEchoRef.current = persisted;
-      onAnnotationsChange?.(persisted);
+    if (persist && onAnnotationsChange && next.drawings !== previous.drawings) {
+      setPendingAnnotationWrites(value => value + 1);
+      void onAnnotationsChange([...next.drawings], previous.drawings).finally(() => {
+        setPendingAnnotationWrites(value => value - 1);
+      });
     }
   }
 
@@ -10124,7 +10216,7 @@ function WebPdfPlan({
       point,
       color: drawColor,
       strokeWidth: drawWidth,
-      page: 1,
+      page: pageNumber,
       text: drawTool === 'text' ? drawText : undefined,
       fontSize: drawTool === 'text' ? 18 : undefined,
       opacity: drawTool === 'highlight' ? 0.28 : undefined,
@@ -10194,7 +10286,7 @@ function WebPdfPlan({
 
   function deletePageAnnotations() {
     if (!window.confirm(t('plans.drawingConfirmClearPage'))) return;
-    applyAnnotationSession(deletePlanDrawingsForPage(annotationSessionRef.current, WEB_PLAN_DRAWING_PAGE), true);
+    applyAnnotationSession(deletePlanDrawingsForPage(annotationSessionRef.current, pageNumber), true);
   }
 
   function deleteAllAnnotations() {
@@ -10204,7 +10296,7 @@ function WebPdfPlan({
 
   const focusedPin = focusedReserveId ? pins.find(pin => pin.reserve.id === focusedReserveId) : null;
   const activePreview = placementPreview ?? movePreview;
-  const pageAnnotations = filterPlanDrawingsByPage(annotationSession.drawings, WEB_PLAN_DRAWING_PAGE);
+  const pageAnnotations = filterPlanDrawingsByPage(annotationSession.drawings, pageNumber);
   const selectedPageAnnotation = pageAnnotations.find(drawing => drawing.id === annotationSession.selectedId) ?? null;
   const zoomReady = !loading && !error && scale != null && pageSize.width > 0 && pageSize.height > 0;
   const zoomLabel = zoomReady && scale != null ? `${Math.round(scale * 100)}%` : '—';
@@ -10247,6 +10339,21 @@ function WebPdfPlan({
               }}
             >+</button>
           </div>
+          {pageCount > 1 && (
+            <div className={styles.webPdfZoomControls} role="group" aria-label={t('plans.pages')}>
+              <button type="button" aria-label={t('plans.previousPage')} disabled={pageNumber <= 1 || loading} onClick={() => {
+                cancelLiveDrawing();
+                setMoveMode(false);
+                setPageNumber(value => value - 1);
+              }}>‹</button>
+              <strong aria-live="polite">{pageNumber}/{pageCount}</strong>
+              <button type="button" aria-label={t('plans.nextPage')} disabled={pageNumber >= pageCount || loading} onClick={() => {
+                cancelLiveDrawing();
+                setMoveMode(false);
+                setPageNumber(value => value + 1);
+              }}>›</button>
+            </div>
+          )}
           <button type="button" disabled={!zoomReady} onClick={activatePdfFit} aria-label={t('plans.fit')}>
             <span className={styles.webPdfToolbarIcon} aria-hidden="true">↔</span>
             <span className={styles.webPdfToolbarLabel}>{t('plans.fit')}</span>
@@ -10488,7 +10595,7 @@ function WebPdfPlan({
                 <span className={styles.webPdfErrorIcon} aria-hidden="true">!</span>
                 <strong>{t('plans.pdfUnavailable')}</strong>
                 <span>{t('plans.pdfUnavailableBody')}</span>
-                <button type="button" onClick={onRetryMedia ?? retryPdfLoad}>{t('plans.retry')}</button>
+                <button type="button" onClick={uri ? retryPdfLoad : onRetryMedia ?? retryPdfLoad}>{t('plans.retry')}</button>
               </div>
             </div>
           )}
@@ -11662,8 +11769,10 @@ function PlansView({
               data-reserves-open={planReservePanelOpen}
             >
               <div className={styles.planCanvas} data-prw-plan-canvas data-file-type={selectedPlan.file_type}>
-                {selectedPlan.file_type === 'pdf' && (selectedPlanResolvedUri || activeCachedPlanPreview) ? (
+                {['pdf', 'image'].includes(selectedPlan.file_type) && (selectedPlanResolvedUri || activeCachedPlanPreview) ? (
                   <WebPdfPlan
+                    key={selectedPlan.id}
+                    isImage={selectedPlan.file_type === 'image'}
                     uri={selectedPlanResolvedUri}
                     name={selectedPlan.name}
                     cachedPreview={activeCachedPlanPreview}
@@ -11688,7 +11797,7 @@ function PlansView({
                       if (!reserve) return false;
                       return onMoveReservePin?.(reserve, selectedPlan, x, y) ?? false;
                     }}
-                    onAnnotationsChange={(nextAnnotations) => onUpdatePlanAnnotations?.(selectedPlan, nextAnnotations)}
+                    onAnnotationsChange={(next, previous) => onUpdatePlanAnnotations(selectedPlan, next, previous)}
                     onPinClick={selectPlanReserve}
                     onPinOpen={openReserveFromPin}
                     onClearFocus={() => setFocusedPlanReserveId(null)}
@@ -11710,12 +11819,10 @@ function PlansView({
                   </div>
                 ) : selectedPlanResolvedUri && selectedPlan.file_type === 'dxf' ? (
                   <WebDxfPlan key={selectedPlan.id} uri={selectedPlanResolvedUri} name={selectedPlan.name} />
-                ) : selectedPlanResolvedUri && selectedPlan.file_type === 'image' ? (
-                  <img src={selectedPlanResolvedUri} alt={selectedPlan.name} />
                 ) : (
                   <div className={styles.planPlaceholder}>{t('plans.previewUnavailable')}</div>
                 )}
-                {selectedPlan.file_type !== 'pdf' && (pinCreateMode || placementActive) && (
+                {!['pdf', 'image'].includes(selectedPlan.file_type) && (pinCreateMode || placementActive) && (
                   <button
                     type="button"
                     className={`${styles.pinClickLayer} ${styles.pinCreateLayer}`}
@@ -11733,7 +11840,7 @@ function PlansView({
                     }}
                   />
                 )}
-                {selectedPlan.file_type !== 'pdf' && planPins.map((pin) => (
+                {!['pdf', 'image'].includes(selectedPlan.file_type) && planPins.map((pin) => (
                     <button
                       key={pin.reserve.id}
                       className={`${styles.pin} ${focusedPlanReserveId === pin.reserve.id ? styles.pinFocused : ''}`}
@@ -11753,7 +11860,7 @@ function PlansView({
                       <span>{pin.number}</span>
                     </button>
                   ))}
-                {selectedPlan.file_type !== 'pdf' && activePlacementPreview && (
+                {!['pdf', 'image'].includes(selectedPlan.file_type) && activePlacementPreview && (
                   <div
                     key={activePlacementPreview.id}
                     className={styles.pinPlacementPreview}
@@ -13313,13 +13420,39 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
   );
 }
 
-function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, onDeletePhoto, onSharePhoto, canExportPhoto }: {
+type GalleryPhotoDetails = { caption: string; location: string };
+
+function GalleryPhotoForm({ title, details, busy, onSave, onCancel }: {
+  title: string;
+  details: GalleryPhotoDetails;
+  busy: boolean;
+  onSave: (details: GalleryPhotoDetails) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(details);
+  return (
+    <form aria-label={title} className={styles.formGrid} onSubmit={event => { event.preventDefault(); onSave(draft); }}>
+      <label><span>Légende</span><input autoFocus maxLength={500} value={draft.caption} onChange={event => setDraft({ ...draft, caption: event.target.value })} /></label>
+      <label><span>Emplacement</span><input maxLength={200} value={draft.location} onChange={event => setDraft({ ...draft, location: event.target.value })} /></label>
+      <div className={styles.modalActions}>
+        <button type="button" disabled={busy} onClick={onCancel}>Annuler</button>
+        <button type="submit" disabled={busy}>Enregistrer la photo</button>
+      </div>
+    </form>
+  );
+}
+
+function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, onEditPhoto, onDeletePhoto, onSharePhoto, canExportPhoto }: {
   photos: any[]; documents: any[]; isSubcontractor?: boolean; channels: MessageChannelRecord[];
-  onAddPhoto?: (file: File) => Promise<void>; onDeletePhoto?: (photo: any) => Promise<void>;
+  onAddPhoto?: (file: File, details: GalleryPhotoDetails) => Promise<void>;
+  onEditPhoto?: (photo: any, details: GalleryPhotoDetails) => Promise<void>;
+  onDeletePhoto?: (photo: any) => Promise<void>;
   onSharePhoto?: (photo: any, channelId: string) => Promise<void>; canExportPhoto: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [sharingId, setSharingId] = useState('');
+  const [draftPhoto, setDraftPhoto] = useState<File | null>(null);
+  const [editingPhoto, setEditingPhoto] = useState<any>(null);
   const [channelId, setChannelId] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -13376,13 +13509,18 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
       <section className={styles.panel}>
         <h2>Photos</h2>
         {onAddPhoto ? <label className={styles.galleryUpload}>Ajouter une photo<input type="file" accept="image/*" capture="environment" disabled={busy} onChange={event => {
-          const input = event.currentTarget;
-          const file = input.files?.[0];
-          if (file) void run(async () => {
-            await onAddPhoto(file);
-            input.value = '';
-          }, 'Photo conservée pour synchronisation.');
+          const file = event.currentTarget.files?.[0];
+          if (file) setDraftPhoto(file);
+          event.currentTarget.value = '';
         }} /></label> : null}
+        {draftPhoto && onAddPhoto ? (
+          <GalleryPhotoForm key={draftPhoto.name + draftPhoto.lastModified} title="Informations de la nouvelle photo"
+            details={{ caption: draftPhoto.name, location: '' }} busy={busy} onCancel={() => setDraftPhoto(null)}
+            onSave={details => void run(async () => {
+              await onAddPhoto(draftPhoto, details);
+              setDraftPhoto(null);
+            }, 'Photo conservée pour synchronisation.')} />
+        ) : null}
         {error ? <p role="alert">{error}</p> : null}
         {feedback ? <p role="status">{feedback}</p> : null}
         <div className={styles.mediaGrid}>
@@ -13397,10 +13535,21 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
               <div className={styles.galleryActions}>
                 {ref && onSharePhoto && channels.length ? <button type="button" onClick={() => { setSharingId(photo.id); setChannelId(''); }}>Partager dans un canal</button> : null}
                 {ref && canExportPhoto ? <button type="button" disabled={busy} onClick={() => void run(() => exportPhoto(photo))}>Partager ou télécharger</button> : null}
+                {onEditPhoto && !photo.reserve_id && !photo.reserveId ? (
+                  <button type="button" disabled={busy} onClick={() => setEditingPhoto(photo)}>Modifier la légende ou l’emplacement</button>
+                ) : null}
                 {onDeletePhoto && !photo.reserve_id && !photo.reserveId ? <button type="button" disabled={busy} onClick={() => {
                   if (window.confirm('Retirer cette photo de la galerie ?')) void run(() => onDeletePhoto(photo), 'Photo retirée.');
                 }}>Retirer</button> : null}
               </div>
+              {editingPhoto?.id === photo.id && onEditPhoto ? (
+                <GalleryPhotoForm key={photo.id} title="Modifier les informations de la photo"
+                  details={{ caption: editingPhoto.comment ?? '', location: editingPhoto.location ?? '' }} busy={busy}
+                  onCancel={() => setEditingPhoto(null)} onSave={details => void run(async () => {
+                    await onEditPhoto(editingPhoto, details);
+                    setEditingPhoto(null);
+                  }, 'Informations conservées pour synchronisation.')} />
+              ) : null}
               {sharingId === photo.id && onSharePhoto ? <form className={styles.galleryActions} onSubmit={event => {
                 event.preventDefault();
                 if (channelId) void run(async () => { await onSharePhoto(photo, channelId); setSharingId(''); }, 'Photo partagée.');

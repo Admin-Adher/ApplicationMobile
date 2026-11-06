@@ -1,7 +1,7 @@
 export type WebQueuedOperation = {
   key: string;
   owner: string;
-  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit' | 'reserve_edit_full' | 'field_write' | 'visit_reserves' | 'reserve_lift';
+  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit' | 'reserve_edit_full' | 'field_write' | 'visit_reserves' | 'reserve_lift' | 'reserve_comment' | 'plan_annotation';
   payload: Record<string, unknown>;
   createdAt: number;
   files?: unknown;
@@ -26,6 +26,13 @@ export function canDiscardReserveChange(operation: WebQueuedOperation) {
 const DB_NAME = 'buildtrack-web-outbox-v1';
 const STORE = 'operations';
 const listeners = new Set<() => void>();
+
+export function canDiscardFieldOperation(operation: WebQueuedOperation) {
+  return Boolean(operation.error) && (
+    operation.kind === 'field_write' || operation.kind === 'visit_reserves' ||
+    operation.kind === 'reserve_comment' || operation.kind === 'plan_annotation'
+  );
+}
 
 function openQueue(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {

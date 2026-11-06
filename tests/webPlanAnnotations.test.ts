@@ -11,13 +11,13 @@ describe('BuildTrack web plan annotations', () => {
     const reader = page.slice(page.indexOf('function WebPdfPlan'), page.indexOf('function PlansView'));
 
     expect(page).toContain("from '../../../lib/plan-annotations/model'");
-    expect(reader).toContain('filterPlanDrawingsByPage(annotationSession.drawings, WEB_PLAN_DRAWING_PAGE)');
+    expect(reader).toContain('filterPlanDrawingsByPage(annotationSession.drawings, pageNumber)');
     expect(reader).toContain('pageAnnotations.map((drawing, index) => renderWebPlanDrawing(');
     expect(reader).not.toContain('annotationSession.drawings.map((drawing');
     expect(reader).toContain('PLAN_DRAWING_TOOLS.map(tool => (');
     expect(reader).toContain('undoPlanDrawing(annotationSessionRef.current)');
     expect(reader).toContain('redoPlanDrawing(annotationSessionRef.current)');
-    expect(reader).toContain('deletePlanDrawingsForPage(annotationSessionRef.current, WEB_PLAN_DRAWING_PAGE)');
+    expect(reader).toContain('deletePlanDrawingsForPage(annotationSessionRef.current, pageNumber)');
     expect(page).toContain('webPlanCloudPath(first.x, first.y, last.x, last.y)');
   });
 
@@ -45,7 +45,7 @@ describe('BuildTrack web plan annotations', () => {
     );
 
     expect(applySession).toContain('setAnnotationSession(next)');
-    expect(applySession).toContain('onAnnotationsChange?.(persisted)');
+    expect(applySession).toContain('onAnnotationsChange([...next.drawings], previous.drawings)');
     expect(applySession).not.toMatch(/setAnnotationSession\([^)]*=>/);
     expect(reader).toContain("window.confirm(t('plans.drawingConfirmClearPage'))");
     expect(reader).toContain("window.confirm(t('plans.drawingConfirmClearAll'))");
@@ -54,14 +54,13 @@ describe('BuildTrack web plan annotations', () => {
     expect(reader).toContain('aria-pressed={drawTool === tool}');
   });
 
-  it('keeps the newest local document authoritative until the server acknowledges it', () => {
+  it('persists drawing deltas and renders the selected sheet', () => {
     const page = read('vercel-app/app/web/page.tsx');
 
-    expect(page).toContain("from '../../../lib/plan-annotations/pending-snapshots'");
-    expect(page).toContain('pendingWebPlanAnnotationsRef.current.set(planId, pendingSnapshot)');
-    expect(page).toContain('applyPendingPlanAnnotationSnapshots(sitePlans, user.id)');
-    expect(page).toContain('createPendingPlanAnnotationSnapshot(ownerId, latestAnnotations, false)');
-    expect(page).toContain('current?.signature === getCanonicalPlanAnnotationSignature(failedAnnotations)');
+    expect(page).toContain('projectPlanAnnotations(data.sitePlans, outbox.rows)');
+    expect(page).toContain("await outbox.enqueue('plan_annotation'");
+    expect(page).toContain('pdfDocument.getPage(pageNumber)');
+    expect(page).toContain('image.naturalWidth');
   });
 
   it('floats the contextual palette without consuming plan height', () => {
