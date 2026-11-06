@@ -897,7 +897,7 @@
 
 .composerBox {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   align-items: end;
   gap: 0.45rem;
   border: 1px solid #cbd6e3;
@@ -1143,10 +1143,6 @@
     padding: 0.5rem;
   }
 
-  .composerBox {
-    grid-template-columns: auto minmax(0, 1fr) auto;
-  }
-
   .sendButton {
     width: 2.75rem;
     min-width: 2.75rem;
@@ -1208,6 +1204,11 @@ button.linkedItem {
 }
 
 .mentionSuggestions button {
+  padding: 0.35rem 0.55rem;
+  border: 1px solid #d8e1ec;
+  border-radius: 0.45rem;
+  background: #f8fafc;
+  color: var(--messages-blue);
   font: inherit;
   cursor: pointer;
 }

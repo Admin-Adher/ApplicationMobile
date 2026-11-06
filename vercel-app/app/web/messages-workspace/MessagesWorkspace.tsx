@@ -618,7 +618,7 @@ export default function MessagesWorkspace({
               />
               <small>{copy.keyboardHint}</small>
             </label>
-            <button type="submit" className={styles.sendButton} disabled={!canSend}>
+            <button type="submit" className={styles.sendButton} disabled={!canSend} aria-label={saving ? copy.sending : copy.send}>
               <MessageIcon name="send" size={18} />
               <span>{saving ? copy.sending : copy.send}</span>
             </button>
