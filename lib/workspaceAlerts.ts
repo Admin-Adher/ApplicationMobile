@@ -1,7 +1,7 @@
 import type { NotificationPreferences } from '../constants/types';
 import { parseDeadline } from './reserveUtils';
 
-type AlertReserve = { id: string; title: string; priority: string; status: string; deadline: string; createdAt: string };
+type AlertReserve = { id: string; title: string; priority: string; status: string; deadline: string; createdAt?: string | null };
 type AlertTask = { id: string; title: string; status: string; deadline: string; createdAt?: string };
 
 export type WorkspaceAlert = {
@@ -29,7 +29,7 @@ export function buildWorkspaceAlerts(
     const deadline = parseDeadline(reserve.deadline);
     const overdue = deadline !== null && deadline.getTime() < today && reserve.status !== 'verification';
     const daysLeft = deadline === null ? -1 : Math.floor((deadline.getTime() - today) / 86_400_000);
-    const common = { target: { kind: 'reserve' as const, id: reserve.id }, title: reserve.title, createdAt: reserve.createdAt };
+    const common = { target: { kind: 'reserve' as const, id: reserve.id }, title: reserve.title, createdAt: reserve.createdAt ?? '' };
     if (reserve.priority === 'critical' && preferences.reserveCriticalInApp) {
       alerts.push({ ...common, id: `crit_${reserve.id}`, type: 'critical_reserve', overdue });
     } else if (overdue && preferences.reserveOverdueInApp) {

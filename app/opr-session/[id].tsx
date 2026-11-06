@@ -96,6 +96,7 @@ export default function OprSessionScreen() {
   }
 
   if (!opr) {
+    const actionLabel = isAuthenticated ? t('oprSession.backHome') : t('auth.loginButton');
     return (
       <View style={styles.centerContainer}>
         <Ionicons name="search-outline" size={48} color={C.textMuted} />
@@ -107,11 +108,11 @@ export default function OprSessionScreen() {
         </Text>
         <TouchableOpacity
           style={styles.loginBtn}
-          onPress={() => router.replace('/login')}
-          accessibilityLabel={isAuthenticated ? t('oprSession.backHome') : t('auth.signIn')}
+          onPress={() => router.replace(isAuthenticated ? '/(tabs)' : '/login')}
+          accessibilityLabel={actionLabel}
           accessibilityRole="button"
         >
-          <Text style={styles.loginBtnText}>{isAuthenticated ? t('common.back') : t('auth.signIn')}</Text>
+          <Text style={styles.loginBtnText}>{actionLabel}</Text>
         </TouchableOpacity>
       </View>
     );
