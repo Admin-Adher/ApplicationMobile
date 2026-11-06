@@ -45,8 +45,11 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
             if (!stillOwned()) return;
             const conflict = cause instanceof ReserveEditConflict;
             if (!conflict && (!navigator.onLine || isWebNetworkFailure(cause))) return;
-            const message = typeof cause === 'object' && cause && 'message' in cause
-              ? String(cause.message).slice(0, 240) : 'Opération refusée par le serveur.';
+            const accessDenied = typeof cause === 'object' && cause &&
+              (('status' in cause && cause.status === 403) || ('code' in cause && cause.code === '42501'));
+            const message = accessDenied ? 'Accès refusé. Vérifiez les droits de votre compte.'
+              : typeof cause === 'object' && cause && 'message' in cause
+                ? String(cause.message).slice(0, 240) : 'Opération refusée par le serveur.';
             await saveWebOperation({ ...operation, error: message, failure: conflict ? 'version_conflict' : undefined });
           }
         }

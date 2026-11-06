@@ -159,7 +159,7 @@ import {
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
 import { useWebOutbox } from '@/lib/use-web-outbox';
-import { isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
+import { canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
 import {
   recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
   type ReserveDraft, type WebPhotoAnnotation, type WebPhotoAnnotationPoint, type WebPhotoAnnotationTool, type WebPhotoDraft,
@@ -4494,15 +4494,18 @@ function BuildTrackWebWorkspace() {
 
   async function discardReserveEdit(operation: WebQueuedOperation) {
     if (saving || reserveModalMode || !outbox.owns(operation)) return;
-    if (!window.confirm('Abandonner ce brouillon et les photos qui y sont conservées ?')) return;
+    const isStatus = operation.kind === 'reserve_status';
+    if (!window.confirm(isStatus ? 'Abandonner ce changement de statut ?' : 'Abandonner ce brouillon et les photos qui y sont conservées ?')) return;
     setSaving(true);
     setError('');
     try {
       // Refresh before releasing the draft, so the next editor starts on the
       // current server version even when the realtime channel missed an update.
-      const fresh = navigator.onLine ? await loadReserveEditSource(operation) : null;
+      const conflict = isReserveEditConflict(operation);
+      const fresh = conflict && navigator.onLine ? await loadReserveEditSource(operation) : null;
       await outbox.changeReserveEdit(null, operation);
-      setNotice(fresh ? 'Brouillon retiré de la file.' : 'Brouillon retiré de la file. Synchronisez la fiche avant de la modifier.');
+      const notice = isStatus ? 'Changement de statut retiré de la file.' : 'Brouillon retiré de la file.';
+      setNotice(conflict && !fresh ? notice + ' Synchronisez la fiche avant de la modifier.' : notice);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Impossible de retirer ce brouillon.');
     } finally {
@@ -6511,6 +6514,7 @@ function BuildTrackWebWorkspace() {
       if (result?.status === 'version_conflict') {
         throw new ReserveEditConflict('La réserve a changé depuis cette modification. Le brouillon est conservé dans la file.');
       }
+      if (result?.status === 'forbidden') throw new Error('Votre compte ne peut plus modifier cette réserve.');
       if (result?.status !== 'ok') throw new Error('La modification de réserve a été refusée.');
       if (stillOwned() && authUser) await loadEverything(authUser, { background: true });
       if (stillOwned()) {
@@ -6546,6 +6550,7 @@ function BuildTrackWebWorkspace() {
       if (result?.status === 'version_conflict') {
         throw new ReserveEditConflict('La réserve a changé depuis cette modification. Le brouillon est conservé dans la file.');
       }
+      if (result?.status === 'forbidden') throw new Error('Votre compte ne peut plus modifier cette réserve.');
       if (result?.status !== 'ok') throw new Error('La modification de réserve a été refusée.');
       if (!stillOwned()) return;
       const { data: updated, error: readError, status: readStatus } = await supabaseBrowser.from('reserves').select('*').eq('id', reserveId).maybeSingle();
@@ -7293,11 +7298,15 @@ function BuildTrackWebWorkspace() {
               {operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
-              {isReserveEditConflict(operation) && <div className={styles.outboxActions}>
-                <button type="button" disabled={saving || outbox.syncing || Boolean(reserveModalMode) || !canEdit(profile)}
-                  onClick={() => void resumeReserveEdit(operation)}>Reprendre le brouillon</button>
+              {canDiscardReserveChange(operation) && <div className={styles.outboxActions}>
+                {isReserveEditConflict(operation) && (
+                  <button type="button" disabled={saving || outbox.syncing || Boolean(reserveModalMode) || !canEdit(profile)}
+                    onClick={() => void resumeReserveEdit(operation)}>Reprendre le brouillon</button>
+                )}
                 <button type="button" disabled={saving || outbox.syncing || Boolean(reserveModalMode)}
-                  onClick={() => void discardReserveEdit(operation)}>Abandonner le brouillon</button>
+                  onClick={() => void discardReserveEdit(operation)}>
+                  {operation.kind === 'reserve_status' ? 'Abandonner le changement de statut' : 'Abandonner le brouillon'}
+                </button>
               </div>}
             </li>)}</ul>
             {outbox.rows.some(operation => !isReserveEditConflict(operation)) && (
