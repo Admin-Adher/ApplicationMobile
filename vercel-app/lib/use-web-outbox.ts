@@ -13,6 +13,7 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
   const ownerRef = useRef(owner);
   const executeRef = useRef(execute);
   const busyRef = useRef(false);
+  const flushRequestedRef = useRef(false);
   ownerRef.current = owner;
   executeRef.current = execute;
 
@@ -28,7 +29,11 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
 
   async function flush(retryFailed = false) {
     const scope = ownerRef.current;
-    if (!scope || busyRef.current || !navigator.onLine) return;
+    if (!scope || !navigator.onLine) return;
+    if (busyRef.current) {
+      flushRequestedRef.current = true;
+      return;
+    }
     const stillOwned = () => ownerRef.current === scope;
     busyRef.current = true;
     setSyncing(true);
@@ -65,6 +70,10 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
       busyRef.current = false;
       setSyncing(false);
       await refresh();
+      if (flushRequestedRef.current) {
+        flushRequestedRef.current = false;
+        void flush();
+      }
     }
   }
 
@@ -110,8 +119,22 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
     if (ownerRef.current === scope) await refresh(scope);
   }
 
+  async function discardFieldWrite(key: string) {
+    const scope = ownerRef.current;
+    if (!scope || busyRef.current) return;
+    const discard = async () => {
+      const queued = (await listWebOperations(scope)).find(row => row.key === key);
+      if (ownerRef.current === scope && queued?.error && (queued.kind === 'field_write' || queued.kind === 'visit_reserves')) {
+        await removeWebOperation(key);
+      }
+    };
+    if (navigator.locks) await navigator.locks.request('buildtrack-outbox:' + scope, discard);
+    else await discard();
+    await refresh(scope);
+  }
+
   return {
-    rows: rows.filter(row => row.owner === owner), syncing, storageError, enqueue, flush, changeReserveEdit,
+    rows: rows.filter(row => row.owner === owner), syncing, storageError, enqueue, flush, changeReserveEdit, discardFieldWrite,
     owns: (operation: WebQueuedOperation) => ownerRef.current === operation.owner,
   };
 }

@@ -510,6 +510,10 @@ export default function IncidentsWorkspace({
                 const photo = event.currentTarget.files?.[0];
                 setDraft(previous => ({ ...previous, photo, removePhoto: false }));
               }} /></label>
+              <label>Prendre une photo <input type="file" accept="image/*" capture="environment" onChange={event => {
+                const photo = event.currentTarget.files?.[0];
+                if (photo) setDraft(previous => ({ ...previous, photo, removePhoto: false }));
+              }} /></label>
               <p className={styles.formHint}><WorkspaceIcon name="shield" size={18} />Le signalement sera visible par l’équipe chantier et suivi jusqu’à sa résolution.</p>
 
               <div className={styles.formFooter}>

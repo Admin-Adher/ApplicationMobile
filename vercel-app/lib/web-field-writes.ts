@@ -1,0 +1,60 @@
+import type { WebQueuedOperation } from './web-outbox';
+
+export const fieldTables = {
+  time_entries: { state: 'timeEntries', label: 'Pointage' },
+  journal_entries: { state: 'journalEntries', label: 'Journal' },
+  checklists: { state: 'checklists', label: 'Checklist' },
+  tasks: { state: 'tasks', label: 'Planning' },
+  visites: { state: 'visites', label: 'Visite' },
+  incidents: { state: 'incidents', label: 'Incident' },
+} as const;
+
+export type FieldTable = keyof typeof fieldTables;
+type Fields = Record<string, any>;
+export type FieldWrite =
+  | { action: 'insert'; id: string; fields: Fields }
+  | { action: 'update'; id: string; fields: Fields; before: Fields; organization: string | null }
+  | { action: 'delete'; id: string; organization: string | null };
+
+export function fieldUpdate(row: Fields, fields: Fields): FieldWrite {
+  return {
+    action: 'update', id: String(row.id), fields,
+    before: Object.fromEntries(Object.keys(fields).map(key => [key, row[key] ?? null])),
+    organization: row.organization_id ?? null,
+  };
+}
+
+export function fieldWrites(operation: WebQueuedOperation) {
+  const { table, writes } = operation.payload;
+  if (operation.kind !== 'field_write' || typeof table !== 'string' ||
+      !Object.hasOwn(fieldTables, table) || !Array.isArray(writes)) return null;
+  return { table: table as FieldTable, writes: writes as FieldWrite[] };
+}
+
+export function projectFieldRows(rows: Fields[], table: FieldTable, operations: WebQueuedOperation[]) {
+  const pending = operations.filter(operation => !operation.error && fieldWrites(operation)?.table === table);
+  if (!pending.length) return rows;
+  const projected = new Map(rows.map(row => [String(row.id), row]));
+  for (const operation of pending) {
+    for (const write of fieldWrites(operation)!.writes) {
+      const current = projected.get(write.id);
+      if (write.action === 'delete') projected.delete(write.id);
+      else if (write.action === 'insert' && !current) projected.set(write.id, write.fields);
+      else if (write.action === 'update' && current) projected.set(write.id, { ...current, ...write.fields });
+    }
+  }
+  return [...projected.values()];
+}
+
+// PostgREST returns JSONB object keys in database order.
+export function sameFieldValue(first: unknown, second: unknown): boolean {
+  if (first === second || (first == null && second == null)) return true;
+  if (Array.isArray(first) && Array.isArray(second)) {
+    return first.length === second.length && first.every((value, index) => sameFieldValue(value, second[index]));
+  }
+  if (!first || !second || typeof first !== 'object' || typeof second !== 'object' ||
+      Array.isArray(first) || Array.isArray(second)) return false;
+  const left = Object.entries(first);
+  return left.length === Object.keys(second).length &&
+    left.every(([key, value]) => Object.hasOwn(second, key) && sameFieldValue(value, (second as Fields)[key]));
+}

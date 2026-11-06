@@ -29,6 +29,9 @@ type PlanningWorkspaceProps = {
   reserveStatusLabels: Record<string, string>;
   visitStatusLabels: Record<string, string>;
   onUpdateTask?: (task: any, patch: Record<string, unknown>) => boolean | Promise<boolean>;
+  commentUserId?: string;
+  commentUserName?: string;
+  onChangeTaskComment?: (task: any, id: string, action: 'edit' | 'delete') => Promise<void>;
   onAddTaskComment?: (task: any, content: string) => Promise<boolean>;
   onDeleteTask?: (task: any) => Promise<void>;
   onCreateTask?: (draft: Record<string, string>) => boolean | Promise<boolean>;
@@ -74,6 +77,9 @@ export default function PlanningWorkspace({
   visitStatusLabels,
   onUpdateTask,
   onAddTaskComment,
+  onChangeTaskComment,
+  commentUserId,
+  commentUserName,
   onDeleteTask,
   onCreateTask,
   onOpenReserve,
@@ -324,7 +330,16 @@ export default function PlanningWorkspace({
                               <p>{task.description || 'Aucune description.'}</p>
                               {task.start_date ? <p>Début {formatTaskDate(task.start_date, locale)}</p> : null}
                               {Array.isArray(task.comments) ? task.comments.map((comment: any, index: number) => (
-                                <p key={comment.id ?? index}><strong>{comment.author}</strong> {comment.text ?? comment.content}</p>
+                                <div key={comment.id ?? index}>
+                                  <p><strong>{comment.author}</strong> {comment.content ?? comment.text}</p>
+                                  {editable && onChangeTaskComment && comment.id &&
+                                    (comment.authorId ? comment.authorId === commentUserId : Boolean(commentUserName && comment.author === commentUserName)) && (
+                                    <div>
+                                      <button type="button" onClick={() => void onChangeTaskComment(task, comment.id, 'edit')}>Modifier le commentaire</button>
+                                      <button type="button" onClick={() => void onChangeTaskComment(task, comment.id, 'delete')}>Supprimer le commentaire</button>
+                                    </div>
+                                  )}
+                                </div>
                               )) : null}
                               {editable && onAddTaskComment ? (
                                 <form className={styles.taskActions} onSubmit={async event => {

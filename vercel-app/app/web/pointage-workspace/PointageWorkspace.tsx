@@ -22,14 +22,17 @@ type CompanySource = {
 type PointageDraft = {
   workerName: string;
   companyId: string;
-  arrivalTime: string;
+  arrivalTime?: string;
   departureTime: string;
   notes: string;
+  taskId: string;
 };
 
 type PointageWorkspaceProps = {
   entries: TimeEntrySource[];
   companies: CompanySource[];
+  tasks: { id: string; title: string }[];
+  defaultArrivalTime: string;
   projectName: string;
   today: string;
   locale?: string;
@@ -38,6 +41,7 @@ type PointageWorkspaceProps = {
   canExport: boolean;
   onCreate: (payload: Record<string, unknown>) => Promise<unknown>;
   onUpdate: (entry: TimeEntrySource, patch: Record<string, unknown>) => Promise<unknown>;
+  onDepartures: (entries: TimeEntrySource[], time: string) => Promise<boolean>;
   onDelete: (entry: TimeEntrySource) => Promise<unknown> | unknown;
 };
 
@@ -45,9 +49,9 @@ function initialDraft(companyId = ''): PointageDraft {
   return {
     workerName: '',
     companyId,
-    arrivalTime: '08:00',
     departureTime: '',
     notes: '',
+    taskId: '',
   };
 }
 
@@ -61,6 +65,7 @@ function AttendanceRow({
   canDelete,
   actionPending,
   onDeparture,
+  onEdit,
   onDelete,
 }: {
   entry: TimeEntrySummary;
@@ -68,6 +73,7 @@ function AttendanceRow({
   canDelete: boolean;
   actionPending: string;
   onDeparture: (entry: TimeEntrySummary) => void;
+  onEdit: (entry: TimeEntrySummary) => void;
   onDelete: (entry: TimeEntrySummary) => void;
 }) {
   const pendingDeparture = actionPending === `departure:${entry.id}`;
@@ -96,6 +102,7 @@ function AttendanceRow({
           <span aria-hidden="true" />
           {entry.companyName}
         </p>
+        {entry.source.task_title ? <p className={styles.entryNotes}>{String(entry.source.task_title)}</p> : null}
         {entry.notes ? <p className={styles.entryNotes}><WorkspaceIcon name="document" size={16} />{entry.notes}</p> : null}
       </div>
       {(editable || canDelete) ? (
@@ -106,6 +113,7 @@ function AttendanceRow({
               {pendingDeparture ? 'Enregistrement…' : 'Enregistrer le départ'}
             </button>
           ) : null}
+          {editable ? <button className={styles.deleteAction} type="button" disabled={Boolean(actionPending)} onClick={() => onEdit(entry)}>Modifier</button> : null}
           {canDelete ? (
             <button className={styles.deleteAction} type="button" disabled={Boolean(actionPending)} onClick={() => onDelete(entry)}>
               <WorkspaceIcon name="trash" size={17} />
@@ -121,6 +129,8 @@ function AttendanceRow({
 export default function PointageWorkspace({
   entries,
   companies,
+  tasks,
+  defaultArrivalTime,
   projectName,
   today,
   locale = 'fr-FR',
@@ -129,12 +139,15 @@ export default function PointageWorkspace({
   canExport,
   onCreate,
   onUpdate,
+  onDepartures,
   onDelete,
 }: PointageWorkspaceProps) {
   const idPrefix = useId().replace(/:/g, '');
   const composerTitle = useRef<HTMLHeadingElement | null>(null);
   const [date, setDate] = useState(today);
   const [draft, setDraft] = useState<PointageDraft>(() => initialDraft(companies[0]?.id ?? ''));
+  const [editing, setEditing] = useState<TimeEntrySource | null>(null);
+  const [departure, setDeparture] = useState<{ entries: TimeEntrySummary[]; time: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -142,6 +155,7 @@ export default function PointageWorkspace({
   const model = useMemo(() => buildPointageWorkspaceModel(entries, date), [date, entries]);
   const effectiveCompanyId = draft.companyId || companies[0]?.id || '';
   const selectedCompany = companies.find(company => company.id === effectiveCompanyId) ?? null;
+  const arrivalTime = draft.arrivalTime ?? defaultArrivalTime;
   const isToday = date === today;
   const historyLabel = `${model.totalEntries} pointage${model.totalEntries > 1 ? 's' : ''} au total`;
   const presenceSummary = model.presentEntries.length
@@ -162,6 +176,11 @@ export default function PointageWorkspace({
 
   function changeDate(nextDate: string) {
     setDate(nextDate);
+    setDeparture(null);
+    if (editing) {
+      setEditing(null);
+      setDraft(initialDraft());
+    }
     setActionError('');
     setSubmissionError('');
   }
@@ -178,31 +197,39 @@ export default function PointageWorkspace({
       setSubmissionError('Sélectionnez une entreprise avant d’enregistrer.');
       return;
     }
-    if (draft.departureTime && draft.departureTime === draft.arrivalTime) {
+    if (draft.departureTime && draft.departureTime === arrivalTime) {
       setSubmissionError('L’heure de départ doit être différente de l’heure d’arrivée.');
       return;
     }
+    const duplicate = model.dayEntries.some(entry =>
+      entry.id !== editing?.id && entry.companyId === effectiveCompanyId &&
+      entry.workerName.trim().toLocaleLowerCase() === workerName.toLocaleLowerCase(),
+    );
+    if (duplicate && !window.confirm(`Un pointage existe déjà pour ${workerName} à cette date. Continuer ?`)) return;
+
     setBusy(true);
     setSubmissionError('');
     try {
-      const saved = await onCreate({
+      const linkedTask = tasks.find(task => task.id === draft.taskId);
+      const payload = {
         worker_name: workerName,
         company_id: effectiveCompanyId,
         company_name: selectedCompany.name ?? '',
         company_color: selectedCompany.color ?? '#003082',
-        arrival_time: draft.arrivalTime || '08:00',
+        arrival_time: arrivalTime,
         departure_time: draft.departureTime || null,
         notes: draft.notes.trim(),
         date,
-      });
+        task_id: linkedTask?.id ?? (draft.taskId || null),
+        task_title: linkedTask?.title ?? (draft.taskId ? editing?.task_title ?? null : null),
+      };
+      const saved = editing ? await onUpdate(editing, payload) : await onCreate(payload);
       if (!saved) {
         setSubmissionError('Le pointage n’a pas été enregistré. Vérifiez le message affiché puis réessayez.');
         return;
       }
-      setDraft(previous => ({
-        ...initialDraft(effectiveCompanyId),
-        arrivalTime: previous.arrivalTime,
-      }));
+      setEditing(null);
+      setDraft(initialDraft(effectiveCompanyId));
     } catch {
       setSubmissionError('L’enregistrement a échoué. Vérifiez votre connexion puis réessayez.');
     } finally {
@@ -210,15 +237,30 @@ export default function PointageWorkspace({
     }
   }
 
-  async function recordDeparture(entry: TimeEntrySummary) {
-    if (actionPending) return;
-    setActionPending(`departure:${entry.id}`);
+  function editEntry(entry: TimeEntrySummary) {
+    setEditing(entry.source);
+    setDraft({
+      workerName: entry.workerName, companyId: entry.companyId, arrivalTime: entry.arrivalTime,
+      departureTime: entry.departureTime, notes: entry.notes, taskId: String(entry.source.task_id ?? ''),
+    });
+    setSubmissionError('');
+    focusComposer();
+  }
+
+  async function recordDepartures(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!departure || actionPending) return;
+    if (departure.entries.some(entry => entry.arrivalTime === departure.time)) {
+      setActionError('L’heure de départ doit être différente des heures d’arrivée.');
+      return;
+    }
+    setActionPending('departure:' + departure.entries[0].id);
     setActionError('');
     try {
-      const saved = await onUpdate(entry.source, { departure_time: currentTime() });
-      if (!saved) setActionError(`Le départ de ${entry.workerName} n’a pas été enregistré. Réessayez.`);
+      if (await onDepartures(departure.entries.map(entry => entry.source), departure.time)) setDeparture(null);
+      else setActionError('Les départs n’ont pas été enregistrés. Réessayez.');
     } catch {
-      setActionError(`Le départ de ${entry.workerName} n’a pas été enregistré. Vérifiez la connexion.`);
+      setActionError('Les départs n’ont pas été enregistrés. Vérifiez la connexion.');
     } finally {
       setActionPending('');
     }
@@ -318,6 +360,23 @@ export default function PointageWorkspace({
           ) : (
             <div className={styles.dayRegister}>
               <section className={styles.registerSection} aria-labelledby={`${idPrefix}-present-title`}>
+                {editable && model.presentEntries.length > 0 && (
+                  <button className={styles.departureAction} type="button" disabled={Boolean(actionPending)}
+                    onClick={() => setDeparture({ entries: model.presentEntries, time: currentTime() })}>
+                    Enregistrer un départ groupé
+                  </button>
+                )}
+                {departure && (
+                  <form className={styles.composerForm} onSubmit={recordDepartures}>
+                    <label>Heure de départ pour {departure.entries.length} personne(s)
+                      <input type="time" required value={departure.time} onChange={event => setDeparture({ ...departure, time: event.target.value })} />
+                    </label>
+                    <div className={styles.formFooter}>
+                      <button className={styles.deleteAction} type="button" disabled={Boolean(actionPending)} onClick={() => setDeparture(null)}>Annuler</button>
+                      <button className={styles.saveAction} type="submit" disabled={Boolean(actionPending)}>Valider le départ</button>
+                    </div>
+                  </form>
+                )}
                 <header>
                   <div><span className={styles.sectionMarker} data-status="present" /><h3 id={`${idPrefix}-present-title`}>Présents maintenant</h3></div>
                   <strong>{model.presentEntries.length}</strong>
@@ -325,7 +384,7 @@ export default function PointageWorkspace({
                 {model.presentEntries.length ? (
                   <div className={styles.entryList}>
                     {model.presentEntries.map(entry => (
-                      <AttendanceRow key={entry.id} entry={entry} editable={editable} canDelete={canDelete} actionPending={actionPending} onDeparture={recordDeparture} onDelete={removeEntry} />
+                      <AttendanceRow key={entry.id} entry={entry} editable={editable} canDelete={canDelete} actionPending={actionPending} onDeparture={entry => setDeparture({ entries: [entry], time: currentTime() })} onEdit={editEntry} onDelete={removeEntry} />
                     ))}
                   </div>
                 ) : <p className={styles.emptySegment}>Tous les départs de la journée ont été enregistrés.</p>}
@@ -339,7 +398,7 @@ export default function PointageWorkspace({
                 {model.departedEntries.length ? (
                   <div className={styles.entryList}>
                     {model.departedEntries.map(entry => (
-                      <AttendanceRow key={entry.id} entry={entry} editable={editable} canDelete={canDelete} actionPending={actionPending} onDeparture={recordDeparture} onDelete={removeEntry} />
+                      <AttendanceRow key={entry.id} entry={entry} editable={editable} canDelete={canDelete} actionPending={actionPending} onDeparture={entry => setDeparture({ entries: [entry], time: currentTime() })} onEdit={editEntry} onDelete={removeEntry} />
                     ))}
                   </div>
                 ) : <p className={styles.emptySegment}>Aucun départ enregistré pour le moment.</p>}
@@ -354,7 +413,7 @@ export default function PointageWorkspace({
               <span><WorkspaceIcon name="plus" size={20} /></span>
               <div>
                 <p className={styles.eyebrow}>Saisie rapide</p>
-                <h2 id="pointage-composer-title" ref={composerTitle} tabIndex={-1}>Nouveau pointage</h2>
+                <h2 id="pointage-composer-title" ref={composerTitle} tabIndex={-1}>{editing ? 'Modifier le pointage' : 'Nouveau pointage'}</h2>
                 <p>Ajoutez une personne à la journée sélectionnée.</p>
               </div>
             </header>
@@ -379,7 +438,7 @@ export default function PointageWorkspace({
                 <div className={styles.timeFields}>
                   <label htmlFor={`${idPrefix}-arrival`}>
                     <span>Arrivée</span>
-                    <input id={`${idPrefix}-arrival`} type="time" value={draft.arrivalTime} onChange={event => setDraft(previous => ({ ...previous, arrivalTime: event.target.value }))} required />
+                    <input id={`${idPrefix}-arrival`} type="time" value={arrivalTime} onChange={event => setDraft(previous => ({ ...previous, arrivalTime: event.target.value }))} required />
                     <button type="button" onClick={() => setDraft(previous => ({ ...previous, arrivalTime: currentTime() }))}>Utiliser l’heure actuelle</button>
                   </label>
                   <label htmlFor={`${idPrefix}-departure`}>
@@ -388,6 +447,13 @@ export default function PointageWorkspace({
                     <small>Laissez vide si la personne est encore sur site.</small>
                   </label>
                 </div>
+                <label htmlFor={`${idPrefix}-task`}>Tâche liée
+                  <select id={`${idPrefix}-task`} value={draft.taskId} onChange={event => setDraft(previous => ({ ...previous, taskId: event.target.value }))}>
+                    <option value="">Aucune tâche</option>
+                    {draft.taskId && !tasks.some(task => task.id === draft.taskId) && <option value={draft.taskId}>{String(editing?.task_title ?? 'Tâche liée')}</option>}
+                    {tasks.map(task => <option key={task.id} value={task.id}>{task.title}</option>)}
+                  </select>
+                </label>
                 <label htmlFor={`${idPrefix}-notes`}>
                   <span>Note <em>optionnelle</em></span>
                   <textarea id={`${idPrefix}-notes`} rows={3} value={draft.notes} onChange={event => setDraft(previous => ({ ...previous, notes: event.target.value }))} placeholder="Zone, équipe, précision utile…" />
@@ -398,6 +464,7 @@ export default function PointageWorkspace({
                 <div className={styles.formStatus} aria-live="polite">
                   {submissionError ? <p role="alert">{submissionError}</p> : <p>{formDateLabel}</p>}
                 </div>
+                {editing && <button className={styles.deleteAction} type="button" disabled={busy} onClick={() => { setEditing(null); setDraft(initialDraft()); setSubmissionError(''); }}>Annuler</button>}
                 <button className={styles.saveAction} type="submit" disabled={busy || !draft.workerName.trim() || !effectiveCompanyId}>
                   <WorkspaceIcon name="check" size={18} />
                   {busy ? 'Enregistrement…' : 'Enregistrer le pointage'}
