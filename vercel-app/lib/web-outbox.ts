@@ -7,7 +7,16 @@ export type WebQueuedOperation = {
   files?: unknown;
   prepared?: unknown;
   error?: string;
+  failure?: 'version_conflict';
 };
+
+export class ReserveEditConflict extends Error {}
+
+export function isReserveEditConflict(operation: WebQueuedOperation) {
+  return (operation.kind === 'reserve_edit' || operation.kind === 'reserve_edit_full') &&
+    (operation.failure === 'version_conflict' ||
+      /^La réserve a (changé depuis cette modification|été modifiée entre-temps)\./.test(operation.error ?? ''));
+}
 
 const DB_NAME = 'buildtrack-web-outbox-v1';
 const STORE = 'operations';
@@ -53,6 +62,32 @@ export async function saveWebOperation(operation: WebQueuedOperation) {
 
 export async function removeWebOperation(key: string) {
   await transaction('readwrite', store => store.delete(key));
+  listeners.forEach(listener => listener());
+}
+
+// The old draft stays recoverable until the new one has been written.
+export async function changeQueuedReserveEdit(owner: string, next: WebQueuedOperation | null, replaces?: string) {
+  let refusal = '';
+  await transaction('readwrite', store => {
+    const request = store.index('owner').getAll(owner) as IDBRequest<WebQueuedOperation[]>;
+    request.addEventListener('success', () => {
+      const rows = request.result;
+      const previous = rows.find(row => row.key === replaces);
+      if (replaces && (!previous || !isReserveEditConflict(previous) ||
+        (next && previous.payload.reserveId !== next.payload.reserveId))) {
+        refusal = 'Ce brouillon a déjà été traité dans un autre onglet.';
+        return;
+      }
+      if (next && rows.some(row => row.key !== replaces && row.payload.reserveId === next.payload.reserveId)) {
+        refusal = 'Une modification de cette réserve est déjà dans la file.';
+        return;
+      }
+      if (replaces) store.delete(replaces);
+      if (next) store.add(next);
+    });
+    return request;
+  });
+  if (refusal) throw new Error(refusal);
   listeners.forEach(listener => listener());
 }
 

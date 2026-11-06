@@ -253,7 +253,9 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(page).toContain('const requestedReserveId = reserveIdFromHref(window.location.href)');
     expect(page).toContain('if (!authUser || !profile) return;');
     expect(page).toContain('openReserveDetailTab(requestedReserveId, target)');
-    expect(page).toContain("(supabaseBrowser as any).rpc('soft_delete_photo'");
+    const galleryEdit = read('supabase/migrations/20261106095242_apply_web_reserve_edit.sql');
+    expect(page).toContain('remove_ids: operation.payload.removePhotoIds');
+    expect(galleryEdit).toContain("perform public.soft_delete_photo(v_photo_id, 'reserve_gallery_reconciliation_web')");
     expect(nextConfig).toContain("formats: ['image/avif', 'image/webp']");
     expect(nextConfig).toContain('minimumCacheTTL: 60');
     expect(nextConfig).toContain("pathname: '/buildtrack-files/**'");

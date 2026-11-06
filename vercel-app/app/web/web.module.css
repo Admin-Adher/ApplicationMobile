@@ -11787,3 +11787,5 @@
 .outbox { margin: .65rem 0; padding: .65rem .8rem; border: 1px solid #b4cae3; border-radius: .5rem; background: #eef5fd; color: #16334f; }
 .outbox ul { margin: .45rem 0; padding-left: 1.2rem; }
 .outbox button { padding: .4rem .6rem; color: #003082; background: #fff; border: 1px solid #aac1db; border-radius: .4rem; }
+.outboxActions { display: flex; flex-wrap: wrap; gap: .45rem; margin: .4rem 0 .65rem; }
+.outboxActions button { min-height: 2.75rem; }
