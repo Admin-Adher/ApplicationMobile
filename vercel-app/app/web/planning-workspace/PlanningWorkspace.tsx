@@ -34,6 +34,7 @@ type PlanningWorkspaceProps = {
   onCreateTask?: (draft: Record<string, string>) => boolean | Promise<boolean>;
   onOpenReserve?: (reserveId: string) => void;
   onOpenVisites?: () => void;
+  initialTaskId?: string;
 };
 
 const TASK_MODES: Array<{ id: PlanningTaskMode; label: string }> = [
@@ -77,17 +78,18 @@ export default function PlanningWorkspace({
   onCreateTask,
   onOpenReserve,
   onOpenVisites,
+  initialTaskId = '',
 }: PlanningWorkspaceProps) {
   const taskHeadingId = useId();
   const agendaHeadingId = useId();
-  const [taskMode, setTaskMode] = useState<PlanningTaskMode>('week');
+  const [taskMode, setTaskMode] = useState<PlanningTaskMode>(initialTaskId ? 'late' : 'week');
   const [scheduleFilter, setScheduleFilter] = useState<PlanningScheduleFilter>('all');
   const [scheduleQuery, setScheduleQuery] = useState('');
   const deferredScheduleQuery = useDeferredValue(scheduleQuery);
   const [visibleScheduleCount, setVisibleScheduleCount] = useState(PLANNING_SCHEDULE_BATCH_SIZE);
   const [showForm, setShowForm] = useState(false);
   const [showGantt, setShowGantt] = useState(false);
-  const [detailId, setDetailId] = useState('');
+  const [detailId, setDetailId] = useState(initialTaskId);
   const [taskComment, setTaskComment] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
   const [draft, setDraft] = useState({ title: '', start_date: '', deadline: '', company: '', assignee: '' });

@@ -1,7 +1,7 @@
 export type WebQueuedOperation = {
   key: string;
   owner: string;
-  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit';
+  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit' | 'reserve_edit_full';
   payload: Record<string, unknown>;
   createdAt: number;
   files?: unknown;
@@ -65,6 +65,6 @@ export function isWebNetworkFailure(error: unknown): boolean {
   if (!error || typeof error !== 'object') return false;
   const detail = error as { name?: string; message?: string; code?: string; status?: number };
   if (detail.status && detail.status >= 500) return true;
-  if (detail.code && ['57014', '08000', '08003', '08006', 'REST_TIMEOUT'].includes(detail.code)) return true;
+  if (detail.code && ['57014', '08000', '08003', '08006', 'REST_TIMEOUT', '40001', '40P01'].includes(detail.code)) return true;
   return /failed to fetch|network ?error|load failed|network request failed|connexion interrompue|timeout|timed out|temporarily unavailable/i.test(detail.message ?? '');
 }

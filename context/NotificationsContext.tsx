@@ -4,22 +4,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNotificationPreferences } from '@/context/NotificationPreferencesContext';
-import { parseDeadline, isOverdue } from '@/lib/reserveUtils';
+import { buildWorkspaceAlerts } from '@/lib/workspaceAlerts';
 import { isSameUserName } from '@/lib/mappers';
 import i18n from '@/lib/i18n';
 
 const SEEN_PREFIX = 'buildtrack_notif_seen_v2_';
-
-function parseSortable(s: string): number {
-  if (!s || s === '—') return 0;
-  const fr = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  if (fr) {
-    const t = new Date(`${fr[3]}-${fr[2]}-${fr[1]}`).getTime();
-    return isNaN(t) ? 0 : t;
-  }
-  const t = new Date(s).getTime();
-  return isNaN(t) ? 0 : t;
-}
 
 export type NotifType = 'critical_reserve' | 'overdue_reserve' | 'due_soon_reserve' | 'late_task' | 'system';
 
@@ -79,11 +68,6 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   }
 
   const notifications: AppNotification[] = React.useMemo(() => {
-    const result: AppNotification[] = [];
-    if (!preferences.inAppEnabled) return result;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     const isSousTraitant = user?.role === 'sous_traitant';
     const sousTraitantCompanyName = isSousTraitant && user?.companyId
       ? companies.find(c => c.id === user.companyId)?.name ?? null
@@ -100,89 +84,36 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       });
     }
 
-    const activeReserves = visibleReserves;
 
-    for (const r of activeReserves) {
-      const isCritical = r.priority === 'critical' && r.status !== 'closed';
-      const isLate = r.status !== 'closed' && isOverdue(r.deadline, r.status);
-
-      if (isCritical && preferences.reserveCriticalInApp) {
-        result.push({
-          id: `crit_${r.id}`,
-          type: 'critical_reserve',
-          title: i18n.t('notifications.types.critical_reserve'),
-          body: isLate ? i18n.t('notifications.bodies.criticalLate', { title: r.title }) : r.title,
-          route: '/reserve/[id]',
-          routeParams: { id: r.id },
-          createdAt: r.createdAt,
-          read: seenIds.has(`crit_${r.id}`),
-        });
-      } else if (isLate && preferences.reserveOverdueInApp) {
-        result.push({
-          id: `late_${r.id}`,
-          type: 'overdue_reserve',
-          title: i18n.t('notifications.types.overdue_reserve'),
-          body: i18n.t('notifications.bodies.overdueReserve', { title: r.title }),
-          route: '/reserve/[id]',
-          routeParams: { id: r.id },
-          createdAt: r.deadline || r.createdAt,
-          read: seenIds.has(`late_${r.id}`),
-        });
-      }
-      if (preferences.dueSoonInApp && r.status !== 'closed' && r.deadline && r.deadline !== '—') {
-        const deadlineDate = parseDeadline(r.deadline);
-        if (deadlineDate !== null) {
-          const daysLeft = Math.floor((deadlineDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysLeft >= 0 && daysLeft <= 3 && !isOverdue(r.deadline, r.status)) {
-            const label = daysLeft === 0
-              ? i18n.t('notifications.bodies.today')
-              : daysLeft === 1
-                ? i18n.t('notifications.bodies.tomorrow')
-                : i18n.t('notifications.bodies.inDays', { count: daysLeft });
-            result.push({
-              id: `soon_${r.id}`,
-              type: 'due_soon_reserve',
-              title: i18n.t('notifications.types.due_soon_reserve'),
-              body: i18n.t('notifications.bodies.dueSoonReserve', { title: r.title, label }),
-              route: '/reserve/[id]',
-              routeParams: { id: r.id },
-              createdAt: r.createdAt,
-              read: seenIds.has(`soon_${r.id}`),
-            });
-          }
-        }
-      }
-    }
-
-    let activeTasks = activeChantierId
-      ? tasks.filter(t => t.chantierId === activeChantierId)
+    const visibleTasks = isSousTraitant ? [] : activeChantierId
+      ? tasks.filter(task => task.chantierId === activeChantierId)
       : tasks;
 
-    if (isSousTraitant) {
-      activeTasks = [];
-    }
-
-    for (const t of activeTasks) {
-      if (preferences.taskLateInApp && t.status !== 'done') {
-        const d = parseDeadline(t.deadline);
-        const isLate = t.status === 'delayed' || (d !== null && d < today);
-        if (isLate) {
-          result.push({
-            id: `task_${t.id}`,
-            type: 'late_task',
-            title: i18n.t('notifications.types.late_task'),
-            body: t.title,
-            route: '/task/[id]',
-            routeParams: { id: t.id },
-            createdAt: t.deadline || t.createdAt || new Date().toISOString(),
-            read: seenIds.has(`task_${t.id}`),
-          });
-        }
+    return buildWorkspaceAlerts(visibleReserves, visibleTasks, preferences).map(alert => {
+      let body = alert.title;
+      if (alert.type === 'critical_reserve' && alert.overdue) {
+        body = i18n.t('notifications.bodies.criticalLate', { title: alert.title });
+      } else if (alert.type === 'overdue_reserve') {
+        body = i18n.t('notifications.bodies.overdueReserve', { title: alert.title });
+      } else if (alert.type === 'due_soon_reserve') {
+        const label = alert.daysLeft === 0
+          ? i18n.t('notifications.bodies.today')
+          : alert.daysLeft === 1
+            ? i18n.t('notifications.bodies.tomorrow')
+            : i18n.t('notifications.bodies.inDays', { count: alert.daysLeft });
+        body = i18n.t('notifications.bodies.dueSoonReserve', { title: alert.title, label });
       }
-    }
-
-    result.sort((a, b) => parseSortable(b.createdAt) - parseSortable(a.createdAt));
-    return result;
+      return {
+        id: alert.id,
+        type: alert.type,
+        title: i18n.t('notifications.types.' + alert.type),
+        body,
+        route: alert.target.kind === 'reserve' ? '/reserve/[id]' : '/task/[id]',
+        routeParams: { id: alert.target.id },
+        createdAt: alert.createdAt,
+        read: seenIds.has(alert.id),
+      };
+    });
   }, [reserves, tasks, activeChantierId, seenIds, user, companies, preferences]);
 
   // Prune seenIds whenever the notification set changes —

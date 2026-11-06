@@ -17,10 +17,14 @@ import styles from './IncidentsWorkspace.module.css';
 type IncidentDraft = {
   title: string;
   location: string;
+  building: string;
+  witnesses: string;
   severity: IncidentSeverity;
+  status: IncidentStatus;
   description: string;
   actions: string;
   photo?: File;
+  removePhoto?: boolean;
 };
 
 type IncidentsWorkspaceProps = {
@@ -29,8 +33,10 @@ type IncidentsWorkspaceProps = {
   locale?: string;
   canCreate: boolean;
   canEdit: boolean;
+  canDelete: boolean;
   onCreate: (payload: Record<string, unknown>) => Promise<unknown>;
   onUpdate: (incident: IncidentSource, patch: Record<string, unknown>) => Promise<unknown>;
+  onDelete: (incident: IncidentSource) => Promise<boolean>;
   renderPhoto?: (incident: IncidentSource) => ReactNode;
 };
 
@@ -59,7 +65,10 @@ function emptyDraft(): IncidentDraft {
   return {
     title: '',
     location: '',
+    building: '',
+    witnesses: '',
     severity: 'moderate',
+    status: 'open',
     description: '',
     actions: '',
   };
@@ -71,6 +80,8 @@ function IncidentRecord({
   canEdit,
   pendingAction,
   onStatusChange,
+  onEdit,
+  onDelete,
   photo,
 }: {
   incident: IncidentSummary;
@@ -78,6 +89,8 @@ function IncidentRecord({
   canEdit: boolean;
   pendingAction: string;
   onStatusChange: (incident: IncidentSummary, status: IncidentStatus) => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
   photo?: ReactNode;
 }) {
   const location = [incident.building, incident.location].filter(Boolean).join(' · ');
@@ -114,12 +127,19 @@ function IncidentRecord({
           {location || 'Lieu à préciser'}
         </p>
         {incident.description ? <p className={styles.description}>{incident.description}</p> : null}
+        {incident.source.witnesses ? <p className={styles.description}>Témoins · {String(incident.source.witnesses)}</p> : null}
         {photo}
         {incident.actions ? (
           <p className={styles.immediateAction}>
             <WorkspaceIcon name="check" size={16} />
             <span><strong>Mesures immédiates</strong>{incident.actions}</span>
           </p>
+        ) : null}
+        {onEdit || onDelete ? (
+          <div className={styles.recordActions}>
+            {onEdit && <button type="button" disabled={Boolean(pendingAction)} onClick={onEdit}>Modifier</button>}
+            {onDelete && <button type="button" disabled={Boolean(pendingAction)} onClick={onDelete}>Supprimer</button>}
+          </div>
         ) : null}
       </div>
 
@@ -158,8 +178,10 @@ export default function IncidentsWorkspace({
   locale = 'fr-FR',
   canCreate,
   canEdit,
+  canDelete,
   onCreate,
   onUpdate,
+  onDelete,
   renderPhoto,
 }: IncidentsWorkspaceProps) {
   const idPrefix = useId().replace(/:/g, '');
@@ -170,6 +192,7 @@ export default function IncidentsWorkspace({
   const deferredQuery = useDeferredValue(query);
   const [composerOpen, setComposerOpen] = useState(false);
   const [draft, setDraft] = useState<IncidentDraft>(emptyDraft);
+  const [editing, setEditing] = useState<IncidentSummary | null>(null);
   const [busy, setBusy] = useState(false);
   const [submissionError, setSubmissionError] = useState('');
   const [actionError, setActionError] = useState('');
@@ -194,7 +217,26 @@ export default function IncidentsWorkspace({
   }, [composerOpen]);
 
   function openComposer() {
+    if (busy || composerOpen) return;
     setSubmissionError('');
+    setEditing(null);
+    setDraft(emptyDraft());
+    setComposerOpen(true);
+  }
+
+  function editIncident(incident: IncidentSummary) {
+    setSubmissionError('');
+    setEditing(incident);
+    setDraft({
+      title: incident.title,
+      location: incident.location,
+      building: incident.building,
+      witnesses: String(incident.source.witnesses ?? ''),
+      severity: incident.severity,
+      status: incident.status,
+      description: incident.description,
+      actions: incident.actions,
+    });
     setComposerOpen(true);
   }
 
@@ -207,7 +249,7 @@ export default function IncidentsWorkspace({
 
   async function submitIncident(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || pendingAction || (editing ? !canEdit : !canCreate)) return;
     const title = draft.title.trim();
     if (!title) {
       setSubmissionError('Renseignez un titre court pour identifier l’incident.');
@@ -216,15 +258,19 @@ export default function IncidentsWorkspace({
     setBusy(true);
     setSubmissionError('');
     try {
-      const saved = await onCreate({
+      const payload = {
         title,
         location: draft.location.trim(),
+        building: draft.building.trim(),
+        witnesses: draft.witnesses.trim(),
         severity: draft.severity,
         description: draft.description.trim(),
         actions: draft.actions.trim(),
         photo: draft.photo,
-        status: 'open',
-      });
+        removePhoto: draft.removePhoto,
+        status: draft.status,
+      };
+      const saved = editing ? await onUpdate(editing.source, payload) : await onCreate(payload);
       if (!saved) {
         setSubmissionError('Le signalement n’a pas été enregistré. Vérifiez le message affiché puis réessayez.');
         return;
@@ -240,7 +286,7 @@ export default function IncidentsWorkspace({
   }
 
   async function changeIncidentStatus(incident: IncidentSummary, status: IncidentStatus) {
-    if (pendingAction) return;
+    if (pendingAction || composerOpen) return;
     setPendingAction(`${incident.id}:${status}`);
     setActionError('');
     try {
@@ -248,6 +294,19 @@ export default function IncidentsWorkspace({
       if (!saved) setActionError(`La mise à jour de « ${incident.title} » n’a pas été enregistrée. Réessayez.`);
     } catch {
       setActionError(`La mise à jour de « ${incident.title} » a échoué. Vérifiez votre connexion.`);
+    } finally {
+      setPendingAction('');
+    }
+  }
+
+  async function deleteIncident(incident: IncidentSummary) {
+    if (pendingAction || composerOpen || !canDelete || !window.confirm(`Supprimer l’incident « ${incident.title} » ?`)) return;
+    setPendingAction(`${incident.id}:delete`);
+    setActionError('');
+    try {
+      if (!await onDelete(incident.source)) throw new Error();
+    } catch {
+      setActionError(`La suppression de « ${incident.title} » a échoué. Réessayez.`);
     } finally {
       setPendingAction('');
     }
@@ -267,7 +326,7 @@ export default function IncidentsWorkspace({
             </div>
           </div>
           {canCreate ? (
-            <button ref={signalAction} className={styles.signalAction} type="button" onClick={openComposer} aria-expanded={composerOpen}>
+            <button ref={signalAction} className={styles.signalAction} type="button" onClick={openComposer} aria-expanded={composerOpen} disabled={composerOpen}>
               <WorkspaceIcon name="plus" size={19} />
               Signaler un incident
             </button>
@@ -331,8 +390,10 @@ export default function IncidentsWorkspace({
                   key={incident.id}
                   incident={incident}
                   locale={locale}
-                  canEdit={canEdit}
+                  canEdit={canEdit && !composerOpen}
                   pendingAction={pendingAction}
+                  onEdit={canEdit && !composerOpen ? () => editIncident(incident) : undefined}
+                  onDelete={canDelete && !composerOpen ? () => void deleteIncident(incident) : undefined}
                   onStatusChange={changeIncidentStatus}
                   photo={renderPhoto?.(incident.source)}
                 />
@@ -352,14 +413,15 @@ export default function IncidentsWorkspace({
           )}
         </section>
 
-        {composerOpen && canCreate ? (
+        {composerOpen && (editing ? canEdit : canCreate) ? (
           <aside className={styles.composer} aria-labelledby="incidents-composer-title">
             <header className={styles.composerHeader}>
               <div>
                 <p className={styles.eyebrow}>Signalement terrain</p>
-                <h2 id="incidents-composer-title" ref={composerTitle} tabIndex={-1}>Nouveau signalement</h2>
+                <h2 id="incidents-composer-title" ref={composerTitle} tabIndex={-1}>{editing ? 'Modifier l’incident' : 'Nouveau signalement'}</h2>
                 <p>Décrivez l’incident avec les éléments utiles à sa prise en charge.</p>
               </div>
+
               <button type="button" onClick={closeComposer} aria-label="Fermer le formulaire"><WorkspaceIcon name="close" size={20} /></button>
             </header>
 
@@ -398,6 +460,17 @@ export default function IncidentsWorkspace({
                 </label>
               </div>
 
+              <label>
+                <span>Bâtiment</span>
+                <input value={draft.building} onChange={event => setDraft(previous => ({ ...previous, building: event.target.value }))} />
+              </label>
+              {editing && <label>
+                <span>Statut</span>
+                <select value={draft.status} onChange={event => setDraft(previous => ({ ...previous, status: event.target.value as IncidentStatus }))}>
+                  {Object.entries(STATUS_COPY).map(([key, option]) => <option key={key} value={key}>{option.label}</option>)}
+                </select>
+              </label>}
+
               <label htmlFor={`${idPrefix}-description`}>
                 <span>Description <em>optionnelle</em></span>
                 <textarea
@@ -424,9 +497,16 @@ export default function IncidentsWorkspace({
                 <small>{draft.actions.length}/1000</small>
               </label>
 
-              <label>Photo du constat <input type="file" accept="image/*" onChange={event => {
+              <label>
+                <span>Témoins</span>
+                <input value={draft.witnesses} onChange={event => setDraft(previous => ({ ...previous, witnesses: event.target.value }))} />
+              </label>
+              {Boolean(editing?.source.photo_uri) && !draft.photo ? (
+                <label><span><input type="checkbox" checked={Boolean(draft.removePhoto)} onChange={event => setDraft(previous => ({ ...previous, removePhoto: event.target.checked }))} /> Retirer la photo actuelle</span></label>
+              ) : null}
+              <label>{editing?.source.photo_uri ? 'Remplacer la photo' : 'Photo du constat'} <input type="file" accept="image/*" onChange={event => {
                 const photo = event.currentTarget.files?.[0];
-                setDraft(previous => ({ ...previous, photo }));
+                setDraft(previous => ({ ...previous, photo, removePhoto: false }));
               }} /></label>
               <p className={styles.formHint}><WorkspaceIcon name="shield" size={18} />Le signalement sera visible par l’équipe chantier et suivi jusqu’à sa résolution.</p>
 
@@ -438,7 +518,7 @@ export default function IncidentsWorkspace({
                   <button type="button" onClick={closeComposer} disabled={busy}>Annuler</button>
                   <button type="submit" disabled={busy || !draft.title.trim()}>
                     <WorkspaceIcon name="warning" size={18} />
-                    {busy ? 'Signalement…' : 'Signaler l’incident'}
+                    {busy ? 'Enregistrement…' : editing ? 'Enregistrer les modifications' : 'Signaler l’incident'}
                   </button>
                 </div>
               </div>

@@ -128,6 +128,10 @@ import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLab
 import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
 import ChantiersWorkspace from './chantiers-workspace/ChantiersWorkspace';
 import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace';
+import { useWebAlertReads } from './useWebAlertReads';
+import { buildWorkspaceAlerts } from '../../../lib/workspaceAlerts';
+import { toNotificationPreferences } from '../../../lib/notificationPreferences';
+import { normalizeIncidentStatus } from './incidents-workspace/incidents-workspace-model';
 import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import type { ChannelDraft } from './messages-workspace/ChannelEditor';
@@ -173,6 +177,7 @@ type Profile = {
   company_id?: string | null;
   preferred_language?: SupportedLang | null;
   last_read_by_channel?: Record<string, string> | null;
+  pinned_channels?: string[];
   permissions_override?: PermissionsOverride | null;
   permissionsOverride?: PermissionsOverride | null;
 };
@@ -336,6 +341,8 @@ type WebPhotoDraft = {
   original?: Record<string, any>;
 };
 
+type UploadedReservePhoto = { url: string; takenAt: string };
+
 type ReservePinDraft = {
   planId?: string;
   x: number;
@@ -432,6 +439,7 @@ const TABS = [
   { id: 'plans', label: 'Plans', icon: 'map' },
   { id: 'reserves', label: 'Réserves', icon: 'warning' },
   { id: 'messages', label: 'Messages', icon: 'chatbubbles' },
+  { id: 'notifications', label: 'Notifications', icon: 'alert-circle' },
   { id: 'terrain', label: 'Terrain', icon: 'hammer' },
   { id: 'journal', label: 'Journal', icon: 'document-text' },
   { id: 'pointage', label: 'Pointage', icon: 'time' },
@@ -659,6 +667,7 @@ function WebStaticI18nBridge() {
 }
 
 const TERRAIN_CHILD_TABS = new Set<TabId>([
+  'notifications',
   'chantiers',
   'journal',
   'pointage',
@@ -3099,6 +3108,10 @@ function BuildTrackWebWorkspace() {
   const initialReserveDeepLinkHandledRef = useRef(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
+  const [alertTaskId, setAlertTaskId] = useState('');
+  useEffect(() => {
+    if (activeTab === 'planning' && alertTaskId) setAlertTaskId('');
+  }, [activeTab, alertTaskId]);
   const [reserveDetailRequest, setReserveDetailRequest] = useState<{ id: string; token: number } | null>(null);
   const reserveDetailRequestTokenRef = useRef(0);
   const reserveFilterScopeRef = useRef<string>('all');
@@ -3127,6 +3140,7 @@ function BuildTrackWebWorkspace() {
   const [reserveModalMode, setReserveModalMode] = useState<'create' | 'edit' | null>(null);
   const [reserveDraft, setReserveDraft] = useState<ReserveDraft>(() => createReserveDraft(''));
   const [editingReserveId, setEditingReserveId] = useState<string | null>(null);
+  const reserveEditBase = useRef<{ row: WebState['reserves'][number]; draft: ReserveDraft; galleryRows: WebState['photos'] } | null>(null);
   const [visitModalOpen, setVisitModalOpen] = useState(false);
   const [visitDraft, setVisitDraft] = useState<VisitDraft>(() => createVisitDraft('', ''));
   const [initialReportLanguage] = useState<SupportedLang | null>(readStoredExportLanguage);
@@ -4456,11 +4470,14 @@ function BuildTrackWebWorkspace() {
     if (!canEdit(profile)) return;
     setError('');
     setEditingReserveId(reserve.id);
-    setReserveDraft(reserveToDraft(reserve));
+    const draft = reserveToDraft(reserve);
+    reserveEditBase.current = { row: reserve, draft, galleryRows: data.photos.filter(photo => photo.reserve_id === reserve.id) };
+    setReserveDraft(draft);
     setReserveModalMode('edit');
   }
 
   function closeReserveModal() {
+    reserveEditBase.current = null;
     setReserveModalMode(null);
     setEditingReserveId(null);
   }
@@ -4569,6 +4586,7 @@ function BuildTrackWebWorkspace() {
   async function buildReservePhotoPatch(
     reserveId: string,
     draft: ReserveDraft,
+    uploadedById: Record<string, UploadedReservePhoto> = {},
   ) {
     const existingPhotos = draft.photos
       .filter(photo => photo.existing && photo.uri)
@@ -4587,8 +4605,11 @@ function BuildTrackWebWorkspace() {
     // Uploads en parallèle : 6 photos = 1 aller-retour au lieu de 6 en série.
     const uploaded = await Promise.all(newPhotos.map(async photo => {
       if (!photo.file) return null;
-      const url = await uploadWebFile('photos', photo.file, `reserve_${reserveId}_${photo.kind ?? 'defect'}`);
-      return { photo, url, takenAt: new Date().toISOString(), photoId: photo.id };
+      const uploaded = uploadedById[photo.id] ?? {
+        url: await uploadWebFile('photos', photo.file, `reserve_${reserveId}_${photo.kind ?? 'defect'}`),
+        takenAt: new Date().toISOString(),
+      };
+      return { photo, ...uploaded, photoId: photo.id };
     }));
     const uploadedPhotos: any[] = [];
     const photoRows: any[] = [];
@@ -4647,7 +4668,8 @@ function BuildTrackWebWorkspace() {
     }
     setSaving(true);
     setError('');
-    const existing = editingReserveId ? data.reserves.find(r => r.id === editingReserveId) : null;
+    const offlineEditBase = !navigator.onLine && reserveEditBase.current?.row.id === editingReserveId ? reserveEditBase.current : null;
+    const existing = offlineEditBase?.row ?? (editingReserveId ? data.reserves.find(r => r.id === editingReserveId) : null);
     const companies = reserveDraft.companies;
     const previousCompanies = existing ? reserveCompanies(existing).map(name => name.trim()).filter(Boolean).sort() : [];
     const nextCompanies = companies.map(name => name.trim()).filter(Boolean).sort();
@@ -4697,23 +4719,44 @@ function BuildTrackWebWorkspace() {
     if (reserveModalMode === 'edit' && editingReserveId) {
       if (!navigator.onLine && existing) {
         try {
-          const initial = reserveToDraft(existing);
+          if (!offlineEditBase) throw new Error('Rouvrez la fiche pour modifier cette réserve hors connexion.');
+          const initial = offlineEditBase.draft;
           const photosChanged = reserveDraft.photos.some(photo => photo.file)
             || JSON.stringify(reserveDraft.photos.map(photo => [photo.uri, photo.kind, photo.annotations]))
               !== JSON.stringify(initial.photos.map(photo => [photo.uri, photo.kind, photo.annotations]));
-          if (photosChanged || companiesChanged || initial.visiteId !== reserveDraft.visiteId || initial.status !== reserveDraft.status) {
-            throw new Error('Les modifications des photos, de l’entreprise ou de la visite nécessitent une connexion. Utilisez le bouton de statut pour changer l’état hors connexion.');
+          if (initial.status !== reserveDraft.status) {
+            throw new Error('Utilisez le bouton de statut pour changer l’état hors connexion.');
           }
           if (typeof existing.version !== 'number' || outbox.rows.some(row => row.payload.reserveId === editingReserveId)) {
             throw new Error('Synchronisez d’abord cette réserve avant de préparer une nouvelle modification hors connexion.');
           }
           const { status: _status, comments: _comments, closed_at: _closedAt, closed_by: _closedBy,
             organization_id, company: _company, companies: _companies, visite_id: _visit,
-            company_signatures: _signatures, ...fields } = basePayload;
-          await outbox.enqueue('reserve_edit', {
+            company_signatures: _signatures, enterprise_signature: _signature, enterprise_signataire: _signer,
+            enterprise_acknowledged_at: _acknowledged, ...fields } = basePayload;
+          const visitChanged = initial.visiteId !== reserveDraft.visiteId;
+          const needsFullEdit = photosChanged || companiesChanged || visitChanged;
+          const staleRows = photosChanged ? planReservePhotoRowReconciliation(
+            offlineEditBase.galleryRows, editingReserveId, reserveDraft.photos
+              .filter(photo => photo.existing && photo.uri)
+              .map(photo => ({ id: photo.id, uri: photo.original?.uri ?? photo.uri })),
+          ).staleRows : [];
+          if (staleRows.some(row => !String(row.id ?? '').trim()) || (staleRows.length && !canDelete(profile))) {
+            throw new Error('La suppression de ces photos de la galerie n’est pas autorisée.');
+          }
+          await outbox.enqueue(needsFullEdit ? 'reserve_edit_full' : 'reserve_edit', {
             id: crypto.randomUUID(), reserveId: editingReserveId, organization_id,
-            version: existing.version, patch: { ...fields, history: history.slice(-1) }, title,
-          });
+            version: existing.version,
+            patch: {
+              ...fields, history: history.slice(companiesChanged ? -2 : -1),
+              ...(companiesChanged ? { companies } : {}),
+              ...(visitChanged ? { visite_id: _visit } : {}),
+            },
+            removePhotoIds: staleRows.map(row => row.id), title,
+          }, photosChanged ? {
+            ...reserveDraft,
+            photos: reserveDraft.photos.map(photo => photo.file ? { ...photo, uri: '' } : photo),
+          } : undefined);
           closeReserveModal();
           setNotice('Modification de réserve enregistrée dans la file hors connexion.');
         } catch (cause) {
@@ -5823,6 +5866,7 @@ function BuildTrackWebWorkspace() {
       reported_at: payload.reported_at || todayISO(),
       reported_by: userLabel(profile, authUser),
       actions: String(payload.actions ?? ''),
+      witnesses: String(payload.witnesses ?? ''),
       ...(payload.photo instanceof File ? { photo_uri: await uploadWebFile('photos', payload.photo, `incident_${id}`) } : {}),
     };
     if (!row.title) return null;
@@ -5837,19 +5881,39 @@ function BuildTrackWebWorkspace() {
     return saved;
   }
 
-  async function updateIncidentWeb(incident: any, patch: Record<string, any>) {
+  async function updateIncidentWeb(incident: any, { photo, removePhoto, ...patch }: Record<string, any>) {
     if (!profile || !canEdit(profile) || !incident?.id) return null;
+    const currentStatus = normalizeIncidentStatus(incident.status);
     const next = {
       ...patch,
-      ...(patch.status === 'resolved' && incident.status !== 'resolved' ? { closed_at: todayISO(), closed_by: userLabel(profile, authUser) } : {}),
+      ...(patch.status === 'resolved' && currentStatus !== 'resolved' ? { closed_at: todayISO(), closed_by: userLabel(profile, authUser) } : {}),
+      ...(patch.status && patch.status !== 'resolved' && currentStatus === 'resolved' ? { closed_at: null, closed_by: null } : {}),
+      ...(photo instanceof File ? { photo_uri: await uploadWebFile('photos', photo, `incident_${incident.id}`) } : removePhoto ? { photo_uri: null } : {}),
     };
-    const { data: updated, error } = await supabaseBrowser.from('incidents').update(next).eq('id', incident.id).select().single();
+    const update = supabaseBrowser.from('incidents').update(next).eq('id', incident.id);
+    const scopedUpdate = incident.organization_id ? update.eq('organization_id', incident.organization_id) : update.is('organization_id', null);
+    const { data: updated, error } = await scopedUpdate.select().single();
     if (error) {
       setError(error.message);
       return null;
     }
     setData(prev => ({ ...prev, incidents: prev.incidents.map((item: any) => item.id === incident.id ? (updated ?? { ...item, ...next }) : item) }));
+    setNotice('Incident mis à jour.');
     return updated;
+  }
+
+  async function deleteIncidentWeb(incident: any) {
+    if (!profile || !canDelete(profile) || !incident?.id) return false;
+    const deletion = supabaseBrowser.from('incidents').delete().eq('id', incident.id);
+    const scopedDeletion = incident.organization_id ? deletion.eq('organization_id', incident.organization_id) : deletion.is('organization_id', null);
+    const { data: deleted, error } = await scopedDeletion.select('id').single();
+    if (error || !deleted) {
+      setError(error?.message ?? 'Incident indisponible.');
+      return false;
+    }
+    setData(prev => ({ ...prev, incidents: prev.incidents.filter(item => item.id !== incident.id) }));
+    setNotice('Incident supprimé.');
+    return true;
   }
 
   async function updateJournalEntryWeb(entry: any, payload: Record<string, any>) {
@@ -6349,6 +6413,23 @@ function BuildTrackWebWorkspace() {
     return (members ?? []).map(member => String(member.user_id));
   }
 
+  async function setMessageChannelPinned(id: string, pinned: boolean): Promise<'limit' | 'saved'> {
+    const userId = authUser?.id;
+    if (!userId || !data.channels.some(channel => channel.id === id)) throw new Error('Canal indisponible.');
+    const { data: current, error: readError } = await supabaseBrowser.from('profiles')
+      .select('pinned_channels').eq('id', userId).single();
+    if (readError || !current || !Array.isArray(current.pinned_channels)) throw new Error('Épingles indisponibles.');
+    const previous = current.pinned_channels as string[];
+    if (pinned && !previous.includes(id) && previous.length >= 5) return 'limit';
+    const next = pinned ? [...new Set([...previous, id])] : previous.filter(channelId => channelId !== id);
+    const { data: saved, error: writeError } = await supabaseBrowser.from('profiles')
+      .update({ pinned_channels: next }).eq('id', userId).eq('pinned_channels', JSON.stringify(previous))
+      .select('pinned_channels').maybeSingle();
+    if (writeError || !saved) throw new Error('Les épingles ont changé. Réessayez.');
+    setProfile(value => value?.id === userId ? { ...value, pinned_channels: next } : value);
+    return 'saved';
+  }
+
   async function saveMessageChannel(draft: ChannelDraft, current: MessageChannelRecord | null) {
     const organizationId = current?.organization_id ?? profile?.organization_id;
     if (!authUser || !organizationId || (current ? !canManageMessageChannel(current) : !canCreate(profile))) {
@@ -6446,6 +6527,47 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'reserve_edit_full') {
+      if (!canEdit(profile) || operation.payload.organization_id !== profile?.organization_id) {
+        throw new Error('Votre compte ne peut plus modifier cette réserve.');
+      }
+      const reserveId = String(operation.payload.reserveId);
+      const draft = operation.files as ReserveDraft | undefined;
+      const uploaded = (operation.prepared ?? {}) as Record<string, UploadedReservePhoto>;
+      const remaining = draft?.photos.filter(photo => photo.file && !uploaded[photo.id]) ?? [];
+      if (remaining.length) {
+        const { data: current, error } = await supabaseBrowser.from('reserves')
+          .select('version').eq('id', reserveId).eq('organization_id', operation.payload.organization_id).maybeSingle();
+        if (error) throw error;
+        if (current?.version !== operation.payload.version) {
+          throw new Error('La réserve a changé depuis cette modification. Les photos sont conservées dans la file.');
+        }
+      }
+      for (const photo of remaining) {
+        await assertOwner();
+        uploaded[photo.id] = {
+          url: await uploadWebFile('photos', photo.file!, `reserve_${reserveId}_${photo.kind ?? 'defect'}`),
+          takenAt: new Date().toISOString(),
+        };
+        operation.prepared = uploaded;
+        await saveWebOperation(operation);
+      }
+      await assertOwner();
+      const gallery = draft ? await buildReservePhotoPatch(reserveId, draft, uploaded) : null;
+      const { data: result, error } = await supabaseBrowser.rpc('apply_web_reserve_edit', {
+        p_operation_id: operation.payload.id, p_reserve_id: reserveId, p_base_version: operation.payload.version,
+        p_patch: operation.payload.patch,
+        p_gallery: gallery ? {
+          photos: gallery.photos ?? [], rows: gallery.photoRows, remove_ids: operation.payload.removePhotoIds,
+        } : null,
+      });
+      if (error) throw error;
+      if (result?.status !== 'ok') throw new Error(result?.status === 'version_conflict'
+        ? 'La réserve a changé depuis cette modification. Le brouillon est conservé dans la file.'
+        : 'La modification de réserve a été refusée.');
+      if (stillOwned() && authUser) await loadEverything(authUser, { background: true });
+      return;
+    }
     if (operation.kind === 'reserve_edit' || operation.kind === 'reserve_status') {
       if (!canEdit(profile) || operation.payload.organization_id !== profile?.organization_id) {
         throw new Error('Votre compte ne peut plus modifier cette réserve.');
@@ -6769,6 +6891,22 @@ function BuildTrackWebWorkspace() {
       journalEntries: (data.journalEntries ?? []).filter((item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId),
     };
   }, [data, selectedProjectId, profile, canViewReserveTrash]);
+
+  const notificationPreference = data.notificationPreferences.find(row => row.user_id === authUser?.id);
+  const workspaceAlerts = useMemo(() => {
+    if (!profile || profile.role === 'magasinier') return [];
+    const reserves = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve)).map(reserve => ({
+      id: String(reserve.id), title: String(reserve.title ?? ''), deadline: String(reserve.deadline ?? ''),
+      status: String(reserve.status ?? ''), priority: String(reserve.priority ?? ''), createdAt: String(reserve.created_at ?? ''),
+    }));
+    const tasks = profile.role === 'sous_traitant' ? [] : projectScoped.tasks.map(task => ({
+      id: String(task.id), title: String(task.title ?? ''), deadline: String(task.deadline ?? ''),
+      status: String(task.status ?? ''), createdAt: String(task.created_at ?? ''),
+    }));
+    return buildWorkspaceAlerts(reserves, tasks, toNotificationPreferences(notificationPreference));
+  }, [notificationPreference, profile, projectScoped.reserves, projectScoped.tasks]);
+  const { seen: readAlerts, markRead: markAlertsRead } = useWebAlertReads(authUser && profile ? `${authUser.id}:${profile.organization_id ?? ''}` : null);
+  const unreadAlerts = workspaceAlerts.filter(alert => !readAlerts.includes(alert.id));
 
   const dashboardSource = useMemo<DashboardSource>(() => ({
     projects: data.chantiers,
@@ -7141,6 +7279,13 @@ function BuildTrackWebWorkspace() {
         collapsed={sidebarCollapsed}
         mobileOpen={mobileNavOpen}
         actions={[
+          ...(!isWarehouseWebUser && activeTab !== 'admin' ? [{
+            id: 'notifications',
+            label: unreadAlerts.length ? `${t('nav.notifications')} (${unreadAlerts.length})` : t('nav.notifications'),
+            icon: 'notification' as const,
+            variant: 'quiet' as const,
+            onClick: () => setActiveTab('notifications'),
+          }] : []),
           ...(canCreate(profile) && activeTab !== 'admin' ? [
             {
               id: 'new-reserve',
@@ -7496,7 +7641,31 @@ function BuildTrackWebWorkspace() {
                  onCreateTask={createTaskWeb}
                  onOpenReserve={openReserveDetailTab}
                  onOpenVisites={() => setActiveTab('visites')}
+                initialTaskId={alertTaskId}
                />
+            )}
+            {activeTab === 'notifications' && (
+              <section className={styles.panel}>
+                <div className={styles.panelHeaderCompact}>
+                  <div><h2>{t('nav.notifications')}</h2><p>{t('alerts.subtitle')}</p></div>
+                  <button type="button" className={styles.settingsGhostButton} disabled={!unreadAlerts.length} onClick={() => markAlertsRead(unreadAlerts.map(alert => alert.id))}>{t('alerts.readAll')}</button>
+                </div>
+                {!workspaceAlerts.length && <p>{t('alerts.empty')}</p>}
+                <ul className={styles.stack}>
+                  {workspaceAlerts.map(alert => (
+                    <li className={styles.reportCard} key={alert.id}>
+                      <strong>{t(`alerts.${alert.type}`)}</strong>
+                      <p>{alert.title}{alert.type === 'due_soon_reserve' ? ` · ${t('alerts.daysLeft', { count: alert.daysLeft })}` : ''}</p>
+                      {!readAlerts.includes(alert.id) && <span>{t('alerts.unread')} · </span>}
+                      <button type="button" className={styles.settingsGhostButton} onClick={() => {
+                        markAlertsRead([alert.id]);
+                        if (alert.target.kind === 'reserve') openReserveDetailTab(alert.target.id);
+                        else { setAlertTaskId(alert.target.id); setActiveTab('planning'); }
+                      }}>{t('alerts.open')}</button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
             )}
             {activeTab === 'messages' && (
               <MessagesWorkspace
@@ -7512,6 +7681,8 @@ function BuildTrackWebWorkspace() {
                 language={webLang}
                 selectedChannelId={selectedChannel?.id ?? null}
                 lastReadByChannel={lastReadByChannel}
+                pinnedChannelIds={profile?.pinned_channels ?? []}
+                onSetChannelPinned={setMessageChannelPinned}
                 draft={messageDraft}
                 onDraftChange={setMessageDraft}
                 onSelectChannel={setSelectedChannelId}
@@ -7533,11 +7704,13 @@ function BuildTrackWebWorkspace() {
                 data={data}
                 profile={profile}
                 canViewTeams={canViewTeams(profile)}
+                unreadAlertCount={unreadAlerts.length}
                 setTab={setActiveTab}
               />
             )}
             {activeTab === 'incidents' && (
               <IncidentsView
+                key={selectedProjectId}
                 incidents={projectScoped.incidents}
                 projectName={projectName()}
                 profile={profile}
@@ -7545,6 +7718,8 @@ function BuildTrackWebWorkspace() {
                 canEdit={canEdit(profile)}
                 onCreate={createIncidentWeb}
                 onUpdate={updateIncidentWeb}
+                canDelete={canDelete(profile)}
+                onDelete={deleteIncidentWeb}
               />
             )}
             {activeTab === 'opr' && (
@@ -7596,7 +7771,7 @@ function BuildTrackWebWorkspace() {
               <section className={styles.panel}><h2>Comptes rendus de réunion</h2><p>Sélectionnez un chantier pour ouvrir ses comptes rendus.</p></section>
             ) : (
               <MeetingsWorkspace key={`${authUser.id}:${profile?.organization_id}:${selectedProjectId}`}
-                scope={`${authUser.id}:${profile?.organization_id}:${selectedProjectId}`}
+                userId={authUser.id} organizationId={profile?.organization_id ?? null} chantierId={selectedProjectId}
                 author={userLabel(profile, authUser)} reserves={projectScoped.reserves}
                 canCreate={canCreate(profile)} canEdit={canEdit(profile)} canDelete={canDelete(profile)}
                 exportReport={canExport(profile) ? meeting => void generateWebReport('meeting', { meeting }) : undefined}
@@ -13052,7 +13227,7 @@ function VisitesView({
   );
 }
 
-function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites }: any) {
+function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisites, initialTaskId }: any) {
   const { t, locale } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Planning" />;
   return (
@@ -13073,6 +13248,7 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
       onCreateTask={onCreateTask}
       onOpenReserve={onOpenReserve}
       onOpenVisites={onOpenVisites}
+      initialTaskId={initialTaskId}
     />
   );
 }
@@ -13430,7 +13606,7 @@ function TerrainHubIcon({ name }: { name: TerrainHubIconName }) {
   );
 }
 
-function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
+function TerrainView({ scoped, data, profile, canViewTeams, unreadAlertCount, setTab }: any) {
   const { t } = useWebI18n();
   const isSubcontractor = profile?.role === 'sous_traitant';
   const admin = isAdmin(profile);
@@ -13448,6 +13624,7 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
     passive?: boolean;
     tone?: 'green' | 'red' | 'amber' | 'blue';
   };
+  const notifications: TerrainHubCard = { icon: 'warning', title: t('nav.notifications'), subtitle: t('alerts.shortLabel'), count: unreadAlertCount, tab: 'notifications', tone: 'amber' };
 
   const sections: Array<{ title: string; cards: TerrainHubCard[] }> = [
     {
@@ -13455,8 +13632,10 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
       cards: isSubcontractor
         ? [
             { icon: 'warning', title: t('terrain.myReserves'), subtitle: t('nav.reserves'), count: openReserves, tab: 'reserves', tone: 'amber' },
+            notifications,
           ]
         : [
+            notifications,
             { icon: 'eye', title: t('terrain.visits'), subtitle: t('nav.visites'), count: scoped.visites.length, tab: 'visites', tone: 'blue' },
             { icon: 'clipboard', title: t('terrain.opr'), subtitle: t('nav.opr'), count: scoped.oprs.length, tab: 'opr', tone: 'blue' },
             { icon: 'document-text', title: t('terrain.journal'), subtitle: t('nav.journal'), count: scoped.journalEntries?.length ?? data.journalEntries?.length ?? 0, tab: 'journal', tone: 'green' },
@@ -13504,7 +13683,7 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
               { icon: 'clipboard' as TerrainHubIconName, title: 'Checklists', subtitle: 'Contrôle qualité', count: data.checklists?.length ?? 0, tab: 'checklists' as TabId, tone: 'green' as const },
               { icon: 'shield-checkmark' as TerrainHubIconName, title: 'Réglementaire', subtitle: 'PPSPS, DICT, DOE', count: scoped.regulatoryDocs.length, tab: 'reglementaire' as TabId, tone: 'amber' as const },
               { icon: 'document-text' as TerrainHubIconName, title: 'Rapports', subtitle: 'Journalier, hebdo', count: scoped.visites.length + scoped.reserves.length, tab: 'rapports' as TabId, tone: 'blue' as const },
-              { icon: 'document-text' as TerrainHubIconName, title: 'Réunions', subtitle: 'Comptes rendus et actions', tab: 'meetings' as TabId, tone: 'green' as const },
+              { icon: 'document-text' as TerrainHubIconName, title: t('nav.meetings'), subtitle: 'Comptes rendus et actions', tab: 'meetings' as TabId, tone: 'green' as const },
             ]
           : []),
       ],
@@ -13560,14 +13739,16 @@ function TerrainView({ scoped, data, profile, canViewTeams, setTab }: any) {
   );
 }
 
-function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, onCreate, onUpdate }: {
+function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, canDelete, onCreate, onUpdate, onDelete }: {
   incidents: any[];
   projectName: string;
   profile: any;
   canCreate?: boolean;
   canEdit?: boolean;
+  canDelete: boolean;
   onCreate?: (payload: Record<string, any>) => Promise<any>;
   onUpdate?: (incident: any, patch: Record<string, any>) => Promise<any>;
+  onDelete: (incident: any) => Promise<boolean>;
 }) {
   const { lang } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Incidents" />;
@@ -13578,8 +13759,10 @@ function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, on
       locale={localeForLang(lang)}
       canCreate={Boolean(canCreate)}
       canEdit={Boolean(canEdit)}
+      canDelete={canDelete}
       onCreate={async payload => onCreate?.(payload)}
       onUpdate={async (incident, patch) => onUpdate?.(incident, patch)}
+      onDelete={onDelete}
       renderPhoto={incident => incident.photo_uri ? <PrivateMediaImage className={styles.fieldPhoto} source={assetUrl(incident, 'photos')} alt="Photo du constat" /> : null}
     />
   );

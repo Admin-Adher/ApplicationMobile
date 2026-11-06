@@ -1,4 +1,4 @@
-import type { NotificationPreferences } from '@/constants/types';
+import type { NotificationPreferences } from '../constants/types';
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   inAppEnabled: true,

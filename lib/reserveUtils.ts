@@ -1,5 +1,5 @@
-import { ReserveStatus, ReservePriority } from '@/constants/types';
-import { RESERVE_PRIORITY_COLORS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
+import type { ReserveStatus, ReservePriority } from '../constants/types';
+import { RESERVE_PRIORITY_COLORS, RESERVE_PRIORITY_LABELS } from './reserveLabels';
 
 export const RESERVE_BUILDINGS: string[] = [];
 export const RESERVE_ZONES: string[] = [];
