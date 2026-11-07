@@ -18,6 +18,7 @@ import {
 } from '@/lib/offlineCache';
 import { normalizeOprPayloadForSupabase, normalizeVisitePayloadForSupabase } from '@/lib/mappers';
 import { recoverRejectedOprWrite } from '@/lib/oprQueueRecovery';
+import { recoverRejectedTimeEntryWrite } from '@/lib/timeEntryQueueRecovery';
 import { useAuth } from '@/context/AuthContext';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
@@ -256,6 +257,8 @@ export interface QueuedOperation {
   purgeState?: typeof PURGE_PENDING_RECONCILIATION;
   id: string;
   queuedAt: string;
+  /** One schema-compatibility retry for pointages rejected by older backends. */
+  timeEntryMetadataRecoveryVersion?: number;
   table: string;
   op: 'insert' | 'update' | 'upsert' | 'delete' | 'rpc';
   filter?: { column: string; value: string };
@@ -1178,7 +1181,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
 
       const eligibleQueue = userId
-        ? authorizedDismissal.kept.map(recoverRejectedOprWrite)
+        ? authorizedDismissal.kept.map(operation => recoverRejectedTimeEntryWrite(recoverRejectedOprWrite(operation)))
         : authorizedDismissal.kept;
       historicalEvaluationRequired = queueNeedsHistoricalVisitRecoveryEvaluation(eligibleQueue);
       let repairedQueue = eligibleQueue;

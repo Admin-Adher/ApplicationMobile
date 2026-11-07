@@ -102,7 +102,7 @@ function draftFromEntry(entry: JournalEntrySummary): JournalDraft {
     weatherTemp: entry.source.weatherTemp == null ? null : Number(entry.source.weatherTemp),
     weatherWind: entry.source.weatherWind == null ? null : Number(entry.source.weatherWind),
     weatherCode: entry.source.weatherCode ?? null,
-    workerCount: entry.workerCount ? String(entry.workerCount) : '',
+    workerCount: entry.workerCount == null ? '' : String(entry.workerCount),
     workDone: entry.workDone,
     materials: entry.materials,
     incidents: entry.incidents,
@@ -229,6 +229,7 @@ export default function JournalWorkspace({
   }
 
   function beginDraft(next: JournalDraft) {
+    if (busy) return;
     if (showEditor && draftChanged && !window.confirm('Remplacer la saisie en cours sans l’enregistrer ?')) return;
     initialDraft.current = draftSignature(next);
     setDraft(next);
@@ -326,6 +327,7 @@ export default function JournalWorkspace({
                     {showEditor ? 'Revenir à la saisie' : model.todayEntry ? 'Modifier le journal du jour' : 'Journal du jour'}
                   </button>
                 ) : null}
+                {canCreate && model.todayEntry ? <button className={styles.secondaryAction} type="button" disabled={busy} onClick={() => beginDraft(emptyDraft(today))}><JournalIcon name="plus" />Nouvelle entrée</button> : null}
                 {canExport ? <button className={styles.secondaryAction} type="button" onClick={onExport}><JournalIcon name="export" />Exporter</button> : null}
               </div>
             ) : null}

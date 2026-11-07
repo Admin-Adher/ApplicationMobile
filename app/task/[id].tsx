@@ -57,15 +57,8 @@ export default function EditTaskScreen() {
   const [description, setDescription] = useState(task?.description ?? '');
   const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'todo');
   const [priority, setPriority] = useState<ReservePriority>(task?.priority ?? 'medium');
-  const [startDate, setStartDate] = useState(() => {
-    const raw = task?.startDate;
-    if (!raw) return '';
-    if (raw.includes('/')) return raw;
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return '';
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  });
-  const [deadline, setDeadline] = useState(task?.deadline ?? '');
+  const [startDate, setStartDate] = useState(task?.startDate ? formatDate(task.startDate) : '');
+  const [deadline, setDeadline] = useState(task?.deadline && task.deadline !== '—' ? formatDate(task.deadline) : '');
   const [assignee, setAssignee] = useState(task?.assignee ?? '');
   const [companyId, setCompanyId] = useState(resolvedCompanyId);
   const [progress, setProgress] = useState(task?.progress ?? 0);

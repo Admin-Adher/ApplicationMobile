@@ -87,6 +87,7 @@ function TaskEditForm({ task, companies, onSave, onClose }: {
     start_date: fieldDateInput(task.start_date),
     deadline: fieldDateInput(task.deadline),
     priority: String(task.priority ?? 'medium'),
+    status: String(task.status ?? 'todo'),
     progress: Number(task.progress ?? 0),
   };
   const [draft, setDraft] = useState(initial);
@@ -118,6 +119,9 @@ function TaskEditForm({ task, companies, onSave, onClose }: {
         <label><span>Responsable</span><input value={draft.assignee} onChange={event => setDraft({ ...draft, assignee: event.target.value })} /></label>
         <label><span>Priorité</span><select value={draft.priority} onChange={event => setDraft({ ...draft, priority: event.target.value })}>
           <option value="low">Basse</option><option value="medium">Normale</option><option value="high">Haute</option><option value="critical">Critique</option>
+        </select></label>
+        <label><span>Statut</span><select value={draft.status} onChange={event => setDraft({ ...draft, status: event.target.value, progress: event.target.value === 'done' ? 100 : draft.progress })}>
+          <option value="todo">À faire</option><option value="in_progress">En cours</option><option value="delayed">En retard</option><option value="done">Terminée</option>
         </select></label>
         <label><span>Avancement (%)</span><input type="number" min={0} max={100} required value={draft.progress} onChange={event => setDraft({ ...draft, progress: event.target.valueAsNumber })} /></label>
       </div>
@@ -177,7 +181,7 @@ export default function PlanningWorkspace({
   const [taskComment, setTaskComment] = useState('');
   const [editingTask, setEditingTask] = useState<any>(null);
   const [commentBusy, setCommentBusy] = useState(false);
-  const emptyDraft = { title: '', description: '', start_date: '', deadline: '', company: '', assignee: '' };
+  const emptyDraft = { title: '', description: '', start_date: '', deadline: '', company: '', assignee: '', priority: 'medium', status: 'todo', progress: '0' };
   const [draft, setDraft] = useState(() => correctiveReserve ? {
     ...emptyDraft, title: 'Lever : ' + correctiveReserve.title, description: correctiveReserve.description ?? '',
     deadline: fieldDateInput(correctiveReserve.deadline), company: correctiveReserve.company ?? '',
@@ -265,6 +269,7 @@ export default function PlanningWorkspace({
 
   async function submitTask(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy || !draft.title.trim()) return;
     setBusy(true);
     try {
       const saved = await onCreateTask?.(draft);
@@ -348,10 +353,10 @@ export default function PlanningWorkspace({
                 <span>Titre de la tâche</span>
                 <input value={draft.title} onChange={event => setDraft(previous => ({ ...previous, title: event.target.value }))} required autoFocus />
               </label>
-              {correctiveReserve && <label className={styles.composerTitle}>
+              <label className={styles.composerTitle}>
                 <span>Description</span>
                 <textarea value={draft.description} onChange={event => setDraft(previous => ({ ...previous, description: event.target.value }))} />
-              </label>}
+              </label>
               <label>
                 <span>Début</span>
                 <input type="date" value={draft.start_date} onChange={event => setDraft(previous => ({ ...previous, start_date: event.target.value }))} />
@@ -371,6 +376,13 @@ export default function PlanningWorkspace({
                 <span>Assigné</span>
                 <input value={draft.assignee} onChange={event => setDraft(previous => ({ ...previous, assignee: event.target.value }))} />
               </label>
+              <label><span>Priorité</span><select value={draft.priority} onChange={event => setDraft(previous => ({ ...previous, priority: event.target.value }))}>
+                <option value="low">Basse</option><option value="medium">Normale</option><option value="high">Haute</option><option value="critical">Critique</option>
+              </select></label>
+              <label><span>Statut</span><select value={draft.status} onChange={event => setDraft(previous => ({ ...previous, status: event.target.value, progress: event.target.value === 'done' ? '100' : previous.progress }))}>
+                <option value="todo">À faire</option><option value="in_progress">En cours</option><option value="delayed">En retard</option><option value="done">Terminée</option>
+              </select></label>
+              <label><span>Avancement (%)</span><input type="number" min={0} max={100} required value={draft.progress} onChange={event => setDraft(previous => ({ ...previous, progress: event.target.value }))} /></label>
             </div>
             <div className={styles.composerActions}>
               <button type="button" onClick={closeComposer}>Annuler</button>
@@ -493,6 +505,7 @@ export default function PlanningWorkspace({
                               <div className={styles.taskActions} aria-label={`Mettre à jour ${task.title ?? 'la tâche'}`}>
                                 <button type="button" disabled={task.status === 'todo'} onClick={() => onUpdateTask?.(task, { status: 'todo', progress: Math.min(progress, 10) })}>À faire</button>
                                 <button type="button" disabled={task.status === 'in_progress'} onClick={() => onUpdateTask?.(task, { status: 'in_progress', progress: Math.max(progress, 25) })}>En cours</button>
+                                <button type="button" disabled={task.status === 'delayed'} onClick={() => onUpdateTask?.(task, { status: 'delayed' })}>En retard</button>
                                 <button type="button" disabled={task.status === 'done'} onClick={() => onUpdateTask?.(task, { status: 'done', progress: 100 })}>Terminée</button>
                               </div>
                             ) : null}

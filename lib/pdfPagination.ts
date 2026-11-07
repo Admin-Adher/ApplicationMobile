@@ -16,7 +16,16 @@ export const PDF_PAGINATION_CSS = `
       break-inside: avoid-page;
       page-break-inside: avoid;
     }
+    .journal-table td { overflow-wrap: anywhere; }
+    .journal-table .journal-entry-long {
+      break-inside: auto;
+      page-break-inside: auto;
+    }
     p { orphans: 3; widows: 3; }
+    .doc-footer, .footer {
+      break-before: avoid-page;
+      page-break-before: avoid;
+    }
     .sig-name, .sig-date { overflow-wrap: anywhere; }
   }
 `;

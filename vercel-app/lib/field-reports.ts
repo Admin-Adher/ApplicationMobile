@@ -4,6 +4,7 @@ import { toCompany, toReserve, toTask } from '../../lib/mappers';
 import { getISOWeek } from '../../lib/utils';
 import { buildMeetingHTML } from '../../lib/meetingReportHtml';
 import { localeForLang, normalizeLang } from './i18n';
+import { activeReportReserves } from '../../lib/reportReserveScope';
 
 export const FIELD_REPORT_TYPES = ['daily', 'weekly', 'incident', 'company_slip', 'meeting'] as const;
 export type FieldReportType = typeof FIELD_REPORT_TYPES[number];
@@ -43,7 +44,7 @@ export async function buildFieldReportHtml(type: FieldReportType, payload: any) 
   });
   if (type === 'incident') return buildIncidentHTML(incidentView(payload.incident), project, t, locale);
 
-  const reserves = payload.reserves.map(toReserve) as ReturnType<typeof toReserve>[];
+  const reserves = activeReportReserves<any>(payload.reserves).map(toReserve) as ReturnType<typeof toReserve>[];
   if (type === 'company_slip') {
     return buildCompanyReserveHTML(toCompany(payload.company), reserves, project, t, locale, async uri =>
       typeof uri === 'string' && /^https:\/\//i.test(uri) ? uri : null);
