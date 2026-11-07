@@ -1170,13 +1170,27 @@
   }
 }
 
-.channelEditor { display: grid; gap: .5rem; margin: .55rem .75rem; padding: .7rem; border: 1px solid #d9e4ef; border-radius: .5rem; background: #f8fafc; }
+.channelEditor { display: grid; grid-auto-rows: max-content; flex: 0 1 auto; min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; gap: .65rem; margin: .55rem .75rem; padding: .7rem; border: 1px solid #d9e4ef; border-radius: .5rem; background: #f8fafc; color: var(--messages-ink); font-family: var(--font-manrope), system-ui, sans-serif; }
 .channelEditor > label { display: grid; gap: .2rem; font-size: .85rem; }
-.channelEditor input:not([type=checkbox]), .channelEditor select { width: 100%; padding: .45rem; border: 1px solid #adbed1; border-radius: .35rem; }
+.channelEditor input:not([type=checkbox]), .channelEditor select { min-width: 0; width: 100%; padding: .45rem; border: 1px solid #adbed1; border-radius: .35rem; font: inherit; }
 .channelEditor fieldset { max-height: 12rem; overflow: auto; border: 1px solid #adbed1; }
 .channelEditor fieldset label { display: flex; align-items: center; gap: .45rem; }
-.channelEditor div, .manageChannel { display: flex; flex-wrap: wrap; gap: .4rem; padding: .35rem .75rem; }
-.manageChannel button, .channelEditor button { padding: .4rem .55rem; color: #003082; background: #fff; border: 1px solid #b9c9da; border-radius: .4rem; cursor: pointer; }
+.channelEditor > div, .manageChannel { display: flex; flex-wrap: wrap; gap: .4rem; padding: .35rem .75rem; }
+.manageChannel button, .channelEditor button { min-height: 2.75rem; padding: .4rem .55rem; color: #003082; background: #fff; border: 1px solid #b9c9da; border-radius: .4rem; font: inherit; cursor: pointer; }
+.channelEditor :focus-visible { outline: 2px solid var(--messages-blue); outline-offset: 3px; }
+.channelEditor button:disabled { cursor: default; opacity: .55; }
+
+.channelEditor .channelAppearance { display: grid; min-width: 0; max-height: none; overflow: visible; gap: .75rem; margin: 0; padding: .75rem; border-radius: .5rem; }
+.channelAppearance legend { font-size: .8rem; font-weight: 750; }
+.channelEditor .channelAppearance label { display: grid; min-width: 0; gap: .35rem; font-size: .85rem; }
+.channelEditor .channelAppearance input[type=color] { width: 3rem; height: 2.75rem; padding: .2rem; background: #fff; cursor: pointer; }
+.channelAppearancePreview { display: flex; min-width: 0; align-items: center; gap: .65rem; }
+.channelAppearancePreview > span { display: grid; flex: 0 0 2.75rem; height: 2.75rem; place-items: center; border-radius: .65rem; }
+.channelAppearancePreview strong { min-width: 0; overflow-wrap: anywhere; font-size: .85rem; }
+.channelPalette { display: flex; flex-wrap: wrap; gap: .5rem; }
+.channelEditor .channelPalette button { display: grid; flex: 0 0 2.75rem; width: 2.75rem; height: 2.75rem; place-items: center; padding: 0; border: 2px solid transparent; border-radius: 50%; color: #fff; }
+.channelEditor .channelPalette button[aria-pressed=true] { outline: 2px solid var(--messages-navy); outline-offset: 2px; }
+.channelPalette button span { font-size: 1.1rem; font-weight: 800; }
 
 button.linkedItem {
   border: 1px solid currentColor;

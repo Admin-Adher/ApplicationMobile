@@ -6015,17 +6015,17 @@ function BuildTrackWebWorkspace() {
     }
     const id = current?.id ?? (recipientId ? dmChannelIdByUserIds(authUser.id, recipientId) : 'channel-' + crypto.randomUUID());
     if (recipientId && data.channels.some(channel => channel.id === id && channel.organization_id === organizationId)) return id;
-    const fields = { name: draft.name, description: draft.description };
+    const fields = { name: draft.name, description: draft.description, icon: draft.icon, color: draft.color };
     const result = draft.type !== 'custom'
       ? await supabaseBrowser.rpc('upsert_private_channel', {
         p_channel_id: id, p_type: draft.type, p_name: draft.name, p_description: draft.description,
-        p_icon: recipientId ? 'person-circle' : 'people-circle',
-        p_color: recipientId ? '#EC4899' : '#7C3AED', p_member_user_ids: draft.memberIds,
+        p_icon: draft.icon,
+        p_color: draft.color, p_member_user_ids: draft.memberIds,
         p_organization_id: organizationId,
       })
       : await (current ? supabaseBrowser.from('channels').update(fields).eq('id', id)
         : supabaseBrowser.from('channels').insert({
-          ...fields, id, type: 'custom', members: [], icon: 'chatbubbles', color: '#003082',
+          ...fields, id, type: 'custom', members: [],
           created_by: userLabel(profile, authUser), created_by_user_id: authUser.id, organization_id: organizationId,
         })).select().maybeSingle();
     let row = Array.isArray(result.data) ? result.data[0] : result.data;
