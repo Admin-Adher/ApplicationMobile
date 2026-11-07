@@ -155,6 +155,12 @@ export default function MeetingsWorkspace({ userId, organizationId, chantierId, 
     return store(previous => previous.map(report => report.id === id ? { ...report, actions: update(report.actions) } : report));
   }
 
+  function removeAction(reportId: string, action: MeetingReportAction) {
+    if (!canEdit || busy) return;
+    if (!window.confirm(`Supprimer l’action « ${action.description} » ?\n\nCette opération est irréversible.`)) return;
+    void changeActions(reportId, actions => actions.filter(item => item.id !== action.id));
+  }
+
   async function addAction(event: FormEvent<HTMLFormElement>, report: MeetingReport) {
     event.preventDefault();
     const form = event.currentTarget;
@@ -210,7 +216,7 @@ export default function MeetingsWorkspace({ userId, organizationId, chantierId, 
             const checked = event.currentTarget.checked;
             changeActions(report.id, actions => actions.map(item => item.id === action.id ? { ...item, status: checked ? 'done' : 'pending' } : item));
           }} />{[action.description, action.responsible, action.deadline, action.reserveId].filter(Boolean).join(' · ')}</label>
-          {canEdit && <button type="button" disabled={busy} onClick={() => void changeActions(report.id, actions => actions.filter(item => item.id !== action.id))}>Retirer</button>}
+          {canEdit && <button type="button" disabled={busy} onClick={() => removeAction(report.id, action)}>Retirer</button>}
         </li>)}</ul>
         {canEdit && <form className={styles.fieldForm} onSubmit={event => addAction(event, report)} noValidate>
           <label>Action<input name="description" required maxLength={300} /></label>

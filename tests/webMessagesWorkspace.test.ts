@@ -11,7 +11,7 @@ describe('BuildTrack web messages workspace', () => {
     const workspace = read('vercel-app/app/web/messages-workspace/MessagesWorkspace.tsx');
     const model = read('vercel-app/app/web/messages-workspace/messages-model.ts');
 
-    expect(page).toContain("import MessagesWorkspace from './messages-workspace/MessagesWorkspace'");
+    expect(page).toContain("const MessagesWorkspace = dynamic(() => import('./messages-workspace/MessagesWorkspace')");
     expect(page).toContain('<MessagesWorkspace');
     expect(page).toContain('snapshot={{');
     expect(page).toContain('actor={{');

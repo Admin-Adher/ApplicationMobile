@@ -11,7 +11,7 @@ describe('BuildTrack web planning experience', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const component = read('vercel-app/app/web/planning-workspace/PlanningWorkspace.tsx');
 
-    expect(page).toContain("import PlanningWorkspace from './planning-workspace/PlanningWorkspace'");
+    expect(page).toContain("const PlanningWorkspace = dynamic(() => import('./planning-workspace/PlanningWorkspace')");
     expect(page).toContain('<PlanningWorkspace');
     expect(component).toContain('className={styles.summaryStrip}');
     expect(component).toContain('Planification chantier');

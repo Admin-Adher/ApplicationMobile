@@ -11,7 +11,7 @@ describe('BuildTrack web chantiers experience', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const component = read('vercel-app/app/web/chantiers-workspace/ChantiersWorkspace.tsx');
 
-    expect(page).toContain("import ChantiersWorkspace from './chantiers-workspace/ChantiersWorkspace'");
+    expect(page).toContain("const ChantiersWorkspace = dynamic(() => import('./chantiers-workspace/ChantiersWorkspace')");
     expect(page).toContain('<ChantiersWorkspace');
     expect(page).toContain("activeTab === 'chantiers'");
     expect(component).toContain('data-testid="web-chantiers-workspace"');

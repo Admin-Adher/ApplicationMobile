@@ -12,7 +12,7 @@ describe('BuildTrack web inventory workspace', () => {
     const model = read('vercel-app/app/web/inventory-workspace/inventory-model.ts');
     const operations = read('vercel-app/app/web/inventory-workspace/inventory-operations.ts');
 
-    expect(page).toContain("import InventoryWorkspace from './inventory-workspace/InventoryWorkspace'");
+    expect(page).toContain("const InventoryWorkspace = dynamic(() => import('./inventory-workspace/InventoryWorkspace')");
     expect(page).toContain('<InventoryWorkspace');
     expect(page).toContain('snapshot={{');
     expect(page).toContain('capabilities={{');
