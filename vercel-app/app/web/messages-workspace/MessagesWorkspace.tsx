@@ -171,7 +171,7 @@ function MessageBubble({
   return (
     <div className={styles.messageBlock}>
       {day && day !== previousDay ? <div className={styles.dateDivider}><span>{day}</span></div> : null}
-      <article className={`${styles.messageRow} ${own ? styles.messageRowOwn : ''}`}>
+      <article id={'message-' + message.id} className={`${styles.messageRow} ${own ? styles.messageRowOwn : ''}`}>
         <div className={styles.messageAvatar} aria-hidden="true">{initials(sender)}</div>
         <div className={styles.messageColumn}>
           <div className={styles.messageMeta}>
@@ -318,14 +318,19 @@ export default function MessagesWorkspace({
     });
   }
 
-  const selectedMessages = channelHistory?.limit && channelHistory.cursor
+  const selectedMessages = !selected?.searchMessage && channelHistory?.limit && channelHistory.cursor
     ? projection.selectedMessages.slice(-channelHistory.limit)
     : projection.selectedMessages;
   const latestMessageId = selectedMessages.at(-1)?.id;
+  const searchMessageId = selected?.searchMessage?.id;
   useEffect(() => {
-    const frame = window.requestAnimationFrame(() => threadEndRef.current?.scrollIntoView({ block: 'end' }));
+    const frame = window.requestAnimationFrame(() => {
+      const match = searchMessageId ? document.getElementById('message-' + searchMessageId) : null;
+      if (match) match.scrollIntoView({ block: 'center' });
+      else threadEndRef.current?.scrollIntoView({ block: 'end' });
+    });
     return () => window.cancelAnimationFrame(frame);
-  }, [latestMessageId, historyChannelId]);
+  }, [latestMessageId, historyChannelId, searchMessageId, compactView]);
 
   const loadHistory = useCallback(async (channelId: string, cursor: MessageHistoryCursor | null, limit: number) => {
     historyRequest.current?.abort();
@@ -485,7 +490,7 @@ export default function MessagesWorkspace({
                     <strong>{summary.channelPinned ? <span aria-label={copy.filterPinned}><MessageIcon name="pin" size={13} /> </span> : null}{summary.label}</strong>
                     <time>{messageListTimestamp(summary.latest, locale)}</time>
                   </span>
-                  <span className={styles.channelPreview}>{summary.latestPreview || summary.typeLabel}</span>
+                  <span className={styles.channelPreview}>{summary.searchMessage?.content || summary.latestPreview || summary.typeLabel}</span>
                 </span>
                 {summary.unreadCount ? <span className={styles.unreadBadge} aria-label={copy.unreadCount(summary.unreadCount)}>{summary.unreadCount > 99 ? '99+' : summary.unreadCount}</span> : null}
               </button>

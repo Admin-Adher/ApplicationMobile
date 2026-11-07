@@ -94,6 +94,7 @@ export type MessageChannelSummary = {
   messageCount: number;
   unreadCount: number;
   latest: MessageRecord | null;
+  searchMessage: MessageRecord | null;
   latestPreview: string;
   participants: string[];
   pinnedCount: number;
@@ -178,7 +179,7 @@ const COPY: Record<SupportedLang, MessagesCopy> = {
     messages: 'Messages',
     unread: 'Non lus',
     searchLabel: 'Rechercher dans les canaux',
-    searchPlaceholder: 'Canal, entreprise ou dernier message…',
+    searchPlaceholder: 'Canal, entreprise ou message…',
     filterAll: 'Tous',
     filterUnread: 'Non lus',
     filterPinned: 'Épinglées',
@@ -235,7 +236,7 @@ const COPY: Record<SupportedLang, MessagesCopy> = {
     messages: 'Messages',
     unread: 'Unread',
     searchLabel: 'Search channels',
-    searchPlaceholder: 'Channel, company or latest message…',
+    searchPlaceholder: 'Channel, company or message…',
     filterAll: 'All',
     filterUnread: 'Unread',
     filterPinned: 'Pinned',
@@ -292,7 +293,7 @@ const COPY: Record<SupportedLang, MessagesCopy> = {
     messages: 'Mensajes',
     unread: 'No leídos',
     searchLabel: 'Buscar en los canales',
-    searchPlaceholder: 'Canal, empresa o último mensaje…',
+    searchPlaceholder: 'Canal, empresa o mensaje…',
     filterAll: 'Todos',
     filterUnread: 'No leídos',
     filterPinned: 'Fijadas',
@@ -441,6 +442,7 @@ export function buildMessagesProjection({
   language: SupportedLang;
 }): MessagesProjection {
   const copy = messagesCopy(language);
+  const normalizedQuery = normalized(query);
   const pinnedChannels = new Set(pinnedChannelIds);
   const messagesByChannel = new Map<string, MessageRecord[]>();
   for (const message of snapshot.messages) {
@@ -481,6 +483,9 @@ export function buildMessagesProjection({
       messageCount: messages.length,
       unreadCount,
       latest,
+      searchMessage: normalizedQuery
+        ? messages.findLast(message => normalized([message.content, message.sender].join(' ')).includes(normalizedQuery)) ?? null
+        : null,
       latestPreview: previewForMessage(latest, copy),
       participants,
       pinnedCount: messages.filter(message => Boolean(message.is_pinned)).length,
@@ -494,7 +499,6 @@ export function buildMessagesProjection({
     return a.originalIndex - b.originalIndex;
   });
 
-  const normalizedQuery = normalized(query);
   const visibleChannels = channels.filter(summary => {
     if (filter === 'unread' && summary.unreadCount === 0) return false;
     if (filter === 'pinned' && !summary.channelPinned) return false;
@@ -502,7 +506,7 @@ export function buildMessagesProjection({
     if (filter === 'dm' && summary.kind !== 'dm') return false;
     if (filter === 'site' && (summary.kind === 'company' || summary.kind === 'dm')) return false;
     if (!normalizedQuery) return true;
-    return normalized([
+    return Boolean(summary.searchMessage) || normalized([
       summary.label,
       summary.typeLabel,
       summary.latestPreview,
