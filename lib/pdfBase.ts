@@ -9,6 +9,7 @@ import {
   preRenderPlanImageWithAnnotationsToDataUrlImpl,
 } from '@/lib/pdfPreRender';
 import { ensurePdfFilename } from '@/lib/pdfFilename';
+import { withPdfPagination } from './pdfPagination';
 import type { PlanDrawing } from '@/constants/types';
 
 export * from './pdfHtml';
@@ -252,6 +253,7 @@ export function svgStringToDataUrl(svg: string): string {
  * On web, opens the document in a new browser tab so the user can save/print.
  */
 export async function exportPDF(html: string, filename: string = 'buildtrack-export'): Promise<void> {
+  html = withPdfPagination(html);
   const pdfFilename = ensurePdfFilename(filename);
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');
@@ -296,6 +298,7 @@ export async function exportPDF(html: string, filename: string = 'buildtrack-exp
  *   dialog so the user can save it as PDF.
  */
 export async function printPDF(html: string, _filename: string = 'buildtrack-export'): Promise<void> {
+  html = withPdfPagination(html);
   const pdfFilename = ensurePdfFilename(_filename);
   if (Platform.OS === 'web') {
     const win = window.open('', '_blank');

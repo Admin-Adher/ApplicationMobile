@@ -522,7 +522,7 @@ async function buildPvLeveePDF(opr: Opr, reserves: Reserve[], projectName: strin
     : '<div style="height:70px;border-bottom:2px solid #1A2742;margin-bottom:8px"></div>';
 
   const signatureBlock = `
-    <div style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
+    <div class="signature-section" style="margin-top:36px;padding-top:20px;border-top:2px solid #EEF3FA">
       <div class="section-header">${escapeHtml(copy.closureCertification)}</div>
       <div class="alert alert-info" style="margin-bottom:20px">
         ${escapeHtml(interpolatePdf(copy.closureCertificationText, { id: opr.id }))}

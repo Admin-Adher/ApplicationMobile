@@ -449,7 +449,7 @@ export function buildIndividualReserveHtml(payload: any): string {
     ${historyRows ? `<div class="sh">${copy.history}</div>
     <table><thead><tr><th>${copy.date}</th><th>${copy.action}</th><th>${copy.author}</th><th>${copy.detail}</th></tr></thead>
     <tbody>${historyRows}</tbody></table>` : ''}
-    <div style="margin-top:16px;display:flex;gap:20px">
+    <div class="pdf-signatures" style="margin-top:16px;display:flex;gap:20px">
       <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${copy.manager}</div></div>
       <div style="flex:1;text-align:center"><div style="height:50px;border-bottom:2px solid #1A2742;margin-bottom:5px"></div><div style="font-size:10px;color:#5E738A">${renderPdfReserveCompanies(reserve, palette, copy.company)}</div></div>
     </div>
@@ -715,14 +715,14 @@ export function buildVisitReportHtml(payload: any): string {
     <tbody>${reserveRows}</tbody>
   </table>
 
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:34px">
+  <div class="pdf-signatures" style="display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:34px">
     <div style="min-height:54px;border-bottom:2px solid #1e293b">${conducteurSignature ? `<img src="${escapeHtml(conducteurSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
     <div style="min-height:54px;border-bottom:2px solid #1e293b">${entrepriseSignature ? `<img src="${escapeHtml(entrepriseSignature)}" style="max-height:52px;object-fit:contain"/>` : ''}</div>
     <div style="text-align:center;color:#64748b;font-size:10px">${copy.manager}</div>
     <div style="text-align:center;color:#64748b;font-size:10px">${copy.signature}</div>
   </div>
 
-  <div style="margin-top:26px;padding-top:12px;border-top:1.5px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8">
+  <div class="doc-footer" style="margin-top:26px;padding-top:12px;border-top:1.5px solid #e2e8f0;display:flex;justify-content:space-between;font-size:9px;color:#94a3b8">
     <span>BuildTrack · ${copy.generated} ${generatedDate}</span>
     <span>${common.confidential}</span>
   </div>

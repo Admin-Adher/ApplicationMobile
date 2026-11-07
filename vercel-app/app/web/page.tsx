@@ -173,6 +173,7 @@ import { reserveBatchOperation, type ReserveBatchChange } from '@/lib/reserve-ba
 import { DEFAULT_RESERVE_LIST_FILTERS, matchesReserveListFilters, reserveLotLabel, reserveLotSearchText, selectedReserveRows, sortReserveList, type ReserveListFilters, type ReserveListSort } from '@/lib/reserve-list-model';
 import { companyActiveTasks, companyOpenReserves, filterTeams, type TeamsSort } from '@/lib/teams-list-model';
 import { createRefreshMergeGuard } from '@/lib/refresh-merge-guard';
+import { withPdfPagination } from '../../../lib/pdfPagination';
 import { canDiscardFieldOperation, canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, saveWebOperations, type WebQueuedOperation } from '@/lib/web-outbox';
 import {
   recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
@@ -1938,6 +1939,7 @@ async function mergePdfBlobs(blobs: Blob[], title: string) {
 
 function printHtmlReport(html: string, filename: string) {
   if (typeof window === 'undefined') return;
+  html = withPdfPagination(html);
 
   const frame = document.createElement('iframe');
   let didPrint = false;
