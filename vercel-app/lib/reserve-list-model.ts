@@ -4,6 +4,11 @@ export const DEFAULT_RESERVE_LIST_FILTERS: ReserveListFilters = { level: 'all', 
 
 type Row = Record<string, any>;
 
+export function selectedReserveRows<T extends Row>(rows: T[], ids: readonly string[]) {
+  const selected = new Set(ids);
+  return rows.filter(row => selected.has(String(row.id)));
+}
+
 export function reserveLotLabel(lot: Row) {
   return [lot.code || lot.number, lot.name].filter(value => value != null && value !== '').join(' · ');
 }

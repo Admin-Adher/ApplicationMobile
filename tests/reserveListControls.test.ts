@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_RESERVE_LIST_FILTERS, matchesReserveListFilters, reserveLotSearchText, sortReserveList } from '../vercel-app/lib/reserve-list-model';
+import { DEFAULT_RESERVE_LIST_FILTERS, matchesReserveListFilters, reserveLotSearchText, selectedReserveRows, sortReserveList } from '../vercel-app/lib/reserve-list-model';
 
 describe('web reserve list controls', () => {
+  it('limits a manual selection to visible authorized rows and keeps their order', () => {
+    const rows = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    expect(selectedReserveRows(rows, ['c', 'hidden', 'a', 'a'])).toEqual([{ id: 'a' }, { id: 'c' }]);
+    expect(selectedReserveRows(rows.slice(1), ['a', 'c'])).toEqual([{ id: 'c' }]);
+    expect(selectedReserveRows(rows, [])).toEqual([]);
+  });
   it('makes lot names, codes and mobile lot numbers searchable without inventing missing lots', () => {
     const lots = new Map([['electric', { name: 'Électricité', code: 'ELEC', number: 12 }]]);
     const text = reserveLotSearchText({ lot_id: 'electric' }, lots);

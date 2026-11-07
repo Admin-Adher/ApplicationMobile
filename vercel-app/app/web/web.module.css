@@ -1459,6 +1459,42 @@
   font-weight: 700;
 }
 
+.reserveSelectionActions, .teamsControls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  min-width: 0;
+  margin: 10px 0;
+}
+
+.teamsControls label {
+  display: grid;
+  gap: 6px;
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.teamsControls input, .teamsControls select, .teamsControls button {
+  max-width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #d8e0ec;
+  border-radius: 10px;
+  background: white;
+  color: #172033;
+  font: inherit;
+}
+
+.teamsControls :is(input, select, button):focus-visible {
+  outline: 2px solid #003082;
+  outline-offset: 2px;
+}
+
+.reserveBatch .reserveSelectionActions button { min-height: 44px; }
+
 .reserveSortControl select {
   flex: 1;
   min-width: 0;
@@ -11716,6 +11752,22 @@
 }
 
 @media (max-width: 640px) {
+  .reservePdfScopeGridWeb,
+  .reserveAssistantScopeGridWeb {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reservePdfScopeGridWeb button,
+  .reserveAssistantScopeGridWeb button {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .reservePdfScopeGridWeb small,
+  .reserveAssistantScopeGridWeb small {
+    white-space: normal;
+  }
+
   .visitPanelHeader h2 {
     font-size: 21px;
     line-height: 1.15;
