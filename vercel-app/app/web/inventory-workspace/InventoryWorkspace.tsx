@@ -25,6 +25,7 @@ import { isSameInventoryScanCode, nextInventoryScanPhase } from '../../../../lib
 import { collectInventoryLabels, preferInventoryLabel } from '../../../../lib/inventoryScanMemory';
 import { localDateStamp } from '../../../../lib/localDateStamp';
 import { InventoryIcon } from './InventoryIcon';
+import InventoryProductDetails from './InventoryProductDetails';
 import {
   lookupInventoryBarcode,
   recordInventoryMovement,
@@ -208,6 +209,7 @@ export default function InventoryWorkspace({
   const [movementFilter, setMovementFilter] = useState<InventoryMovementFilter>('all');
   const [operationProjectId, setOperationProjectId] = useState(selectedProjectId === 'all' ? '' : selectedProjectId);
   const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const [detailProductId, setDetailProductId] = useState<string | null>(null);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
   const [photo, setPhoto] = useState<File | null>(null);
   const [editingProduct, setEditingProduct] = useState<InventoryProductRow | null>(null);
@@ -266,6 +268,8 @@ export default function InventoryWorkspace({
     movementFilter,
   }), [snapshot, selectedProjectId, search, language, productFilter, movementFilter]);
 
+  const detailProduct = projection.scopedProducts.find(product => product.id === detailProductId);
+  const detailMovements = projection.scopedMovements.filter(movement => movement.product_id === detailProductId);
   const operationProducts = useMemo(
     () => snapshot.products.filter(product => String(product.chantier_id) === String(operationProjectId)),
     [snapshot.products, operationProjectId],
@@ -1422,7 +1426,9 @@ export default function InventoryWorkspace({
                     <td><time dateTime={movement.created_at ?? undefined}>{movement.created_at ? new Date(movement.created_at).toLocaleString(locale) : '—'}</time></td>
                     {projection.isAggregate ? <td><ProjectTag name={projection.projectNames.get(String(movement.chantier_id)) ?? copy.allProjects} /></td> : null}
                     <td><span className={movement.movement_type === 'in' ? styles.inBadge : styles.outBadge}>{movement.movement_type === 'in' ? copy.receive : copy.dispatch}</span></td>
-                    <td><strong>{movement.reference}</strong></td><td>{movement.designation}</td>
+                    <td>{projection.scopedProducts.some(product => product.id === movement.product_id)
+                      ? <button type="button" className={styles.productReference} onClick={() => setDetailProductId(movement.product_id)}>{movement.reference}</button>
+                      : <strong>{movement.reference}</strong>}</td><td>{movement.designation}</td>
                     <td className={styles.numeric}>{movement.movement_type === 'in' ? '+' : '−'}{numberValue(movement.quantity).toLocaleString(locale)}</td>
                     <td className={styles.numeric}>{numberValue(movement.stock_before).toLocaleString(locale)} <span aria-hidden="true">→</span> {numberValue(movement.stock_after).toLocaleString(locale)}</td>
                     <td>{movementDestinationLabel(movement)}</td><td>{movement.company_name || '—'}</td><td>{movement.user_name || '—'}</td><td>{movement.comment || '—'}</td>
@@ -1437,7 +1443,9 @@ export default function InventoryWorkspace({
                     <span className={movement.movement_type === 'in' ? styles.inBadge : styles.outBadge}>{movement.movement_type === 'in' ? copy.receive : copy.dispatch}</span>
                     <time dateTime={movement.created_at ?? undefined}>{movement.created_at ? new Date(movement.created_at).toLocaleString(locale) : '—'}</time>
                   </div>
-                  <div className={styles.cardIdentity}><strong>{movement.reference}</strong><span>{movement.designation || movement.reference}</span></div>
+                  <div className={styles.cardIdentity}>{projection.scopedProducts.some(product => product.id === movement.product_id)
+                    ? <button type="button" className={styles.productReference} onClick={() => setDetailProductId(movement.product_id)}>{movement.reference}</button>
+                    : <strong>{movement.reference}</strong>}<span>{movement.designation || movement.reference}</span></div>
                   {projection.isAggregate ? <ProjectTag name={projection.projectNames.get(String(movement.chantier_id)) ?? copy.allProjects} /> : null}
                   <dl className={styles.cardFacts}>
                     <div><dt>{copy.quantity}</dt><dd>{movement.movement_type === 'in' ? '+' : '−'}{numberValue(movement.quantity).toLocaleString(locale)}</dd></div>
@@ -1460,7 +1468,7 @@ export default function InventoryWorkspace({
                     <tr key={product.id} className={low ? styles.lowRow : ''}>
                       <td><ProductThumbnail product={product} language={language} /></td>
                       {projection.isAggregate ? <td><ProjectTag name={projection.projectNames.get(String(product.chantier_id)) ?? copy.allProjects} /></td> : null}
-                      <td><strong>{product.reference}</strong>{product.barcode ? <small>{product.barcode}</small> : null}</td>
+                      <td><button type="button" className={styles.productReference} onClick={() => setDetailProductId(product.id)}>{product.reference}</button>{product.barcode ? <small>{product.barcode}</small> : null}</td>
                       <td>{product.designation || product.reference}</td>
                       <td><b className={low ? styles.lowStock : ''}>{numberValue(product.current_stock).toLocaleString(locale)}</b>{low ? <small className={styles.warning}>{copy.lowStock}</small> : null}</td>
                       <td className={styles.numeric}>{numberValue(product.total_entries).toLocaleString(locale)}</td><td className={styles.numeric}>{numberValue(product.total_exits).toLocaleString(locale)}</td><td className={styles.numeric}>{numberValue(product.min_stock).toLocaleString(locale)}</td><td>{product.location || copy.unstored}</td>
@@ -1477,7 +1485,7 @@ export default function InventoryWorkspace({
                   <article className={`${styles.productCard} ${low ? styles.productCardLow : ''}`} key={product.id}>
                     <div className={styles.productCardHeader}>
                       <ProductThumbnail product={product} language={language} />
-                      <div className={styles.cardIdentity}><strong>{product.reference}</strong><span>{product.designation || product.reference}</span>{product.barcode ? <small>{product.barcode}</small> : null}</div>
+                      <div className={styles.cardIdentity}><button type="button" className={styles.productReference} onClick={() => setDetailProductId(product.id)}>{product.reference}</button><span>{product.designation || product.reference}</span>{product.barcode ? <small>{product.barcode}</small> : null}</div>
                       <div className={styles.stockPill} data-low={low ? 'true' : 'false'}><strong>{numberValue(product.current_stock).toLocaleString(locale)}</strong><span>{copy.currentStock}</span></div>
                     </div>
                     {projection.isAggregate ? <ProjectTag name={projection.projectNames.get(String(product.chantier_id)) ?? copy.allProjects} /> : null}
@@ -1498,6 +1506,13 @@ export default function InventoryWorkspace({
         </section>
       )}
 
+      {detailProduct && <InventoryProductDetails key={detailProduct.id} product={detailProduct} movements={detailMovements}
+        language={language} photo={<ProductThumbnail product={detailProduct} language={language} />}
+        onClose={() => setDetailProductId(null)}
+        onEdit={capabilities.canManage ? () => { setDetailProductId(null); openProductEditor(detailProduct); } : undefined}
+        onReceive={capabilities.canRecord ? () => { setDetailProductId(null); openMovement('in', detailProduct); } : undefined}
+        onDispatch={capabilities.canRecord ? () => { setDetailProductId(null); openMovement('out', detailProduct); } : undefined}
+      />}
       {editingProduct && capabilities.canManage ? (
         <div className={styles.dialogBackdrop} role="presentation">
           <section className={styles.dialog} role="dialog" aria-modal="true" aria-labelledby="inventory-edit-title">

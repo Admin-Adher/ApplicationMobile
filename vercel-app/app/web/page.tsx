@@ -168,7 +168,8 @@ import {
 import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.module.css';
 import styles from './web.module.css';
 import { useWebOutbox } from '@/lib/use-web-outbox';
-import { canDiscardFieldOperation, canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, type WebQueuedOperation } from '@/lib/web-outbox';
+import { reserveDuplicatePayload } from '@/lib/reserve-duplicate';
+import { canDiscardFieldOperation, canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, saveWebOperations, type WebQueuedOperation } from '@/lib/web-outbox';
 import {
   recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
   type ReserveDraft, type WebPhotoAnnotation, type WebPhotoAnnotationPoint, type WebPhotoAnnotationTool, type WebPhotoDraft,
@@ -3098,6 +3099,7 @@ function BuildTrackWebWorkspace() {
   const previousActiveTabRef = useRef<TabId>('dashboard');
   const reserveHistoryNavigationRef = useRef(false);
   const initialReserveDeepLinkHandledRef = useRef(false);
+  const [journalIncident, setJournalIncident] = useState<{ id: string; description: string } | null>(null);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('all');
   const [selectedReserveId, setSelectedReserveId] = useState<string | null>(null);
   const [searchTarget, setSearchTarget] = useState<{ tab: SearchResultTab; id: string } | null>(null);
@@ -3925,6 +3927,52 @@ function BuildTrackWebWorkspace() {
       patch.closed_by = null;
     }
     await patchReserveWeb(reserve, patch);
+  }
+
+  async function changeReserveDeadlinesWeb(ids: string[], deadline: string) {
+    if (!canEdit(profile) || !profile?.organization_id || !outboxOwner) throw new Error('Modification non autorisée.');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline) || fieldDateInput(deadline) !== deadline) {
+      throw new Error('Renseignez une échéance valide.');
+    }
+    const selected = [...new Set(ids)].map(id => fieldData.reserves.find(row => row.id === id));
+    if (!selected.length || selected.some(row => !row || isReserveDeleted(row) || isReserveArchived(row) ||
+      row.organization_id !== profile.organization_id || typeof row.version !== 'number')) {
+      throw new Error('Synchronisez les réserves sélectionnées avant de modifier leurs échéances.');
+    }
+    const pending = new Set(outbox.rows.map(operation => operation.payload.reserveId));
+    if (ids.some(id => pending.has(id))) throw new Error('Synchronisez les modifications en attente avant de changer leurs échéances.');
+    const createdAt = Date.now();
+    const operations: WebQueuedOperation[] = selected.filter(row => row.deadline !== deadline).map((row, index) => {
+      const id = crypto.randomUUID();
+      return {
+        key: outboxOwner + ':reserve_edit:' + id, owner: outboxOwner, kind: 'reserve_edit',
+        createdAt: createdAt + index,
+        payload: { id, reserveId: row.id, organization_id: profile.organization_id, version: row.version,
+          patch: { deadline, history: [makeHistory('Échéance modifiée en groupe', userLabel(profile, authUser), row.deadline ?? '', deadline)] },
+          title: row.title, editFormat: 'field-delta' },
+      };
+    });
+    await saveWebOperations(operations);
+    setNotice('Échéances conservées pour synchronisation.');
+    if (navigator.onLine) await outbox.flush();
+  }
+
+  async function duplicateReserveWeb(source: any) {
+    if (saving || !source?.id || !canCreate(profile) || source.organization_id !== profile?.organization_id) return;
+    setSaving(true);
+    setError('');
+    try {
+      const id = generateReserveId([...data.reserves, ...outbox.rows.map(operation => operation.payload)], data.lots, source.lot_id);
+      const payload = reserveDuplicatePayload(source, id, new Date().toISOString(),
+        [makeHistory('Réserve dupliquée', userLabel(profile, authUser), source.id, id)]);
+      await outbox.enqueue('create_reserve', payload, undefined, { photos: null, photo_uri: null, photoRows: [] });
+      setNotice('Copie de réserve conservée pour synchronisation.');
+      if (navigator.onLine) await outbox.flush();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Duplication impossible.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function requestReserveLiftWeb(reserve: any, payload: { comment: string; file: File | null }) {
@@ -6590,10 +6638,10 @@ function BuildTrackWebWorkspace() {
       await assertOwner();
     }
     const payload = { ...operation.payload, photos: prepared.photos, photo_uri: prepared.photo_uri };
-    const { data: inserted, error } = await supabaseBrowser.rpc('create_reserve_with_photos', {
+    const { data: inserted, error, status } = await supabaseBrowser.rpc('create_reserve_with_photos', {
       p_reserve: payload, p_photo_rows: prepared.photoRows ?? [],
     });
-    if (error) throw error;
+    if (error) throw Object.assign(error, { status });
     if (!stillOwned()) return;
     const saved = (Array.isArray(inserted) ? inserted[0] : inserted) ?? payload;
     setData(previous => ({ ...previous, reserves: [saved, ...previous.reserves.filter(row => row.id !== id)] }));
@@ -7539,6 +7587,8 @@ function BuildTrackWebWorkspace() {
                 canComment={canCreate(profile) || canUseReserveTunnel(profile)}
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
+                onDuplicate={duplicateReserveWeb}
+                onBatchDeadline={changeReserveDeadlinesWeb}
                 onFillDescriptions={fillMissingReserveDescriptions}
                 onTranslateReserves={translateReserveTexts}
                 onGenerateReservesPdf={(reserves: any[], language: TextLang, companyFilter?: string | null) => generateWebReport('global_reserves', { reserves, language, companyFilter })}
@@ -7615,6 +7665,10 @@ function BuildTrackWebWorkspace() {
             )}
             {activeTab === 'journal' && (
               <JournalView
+                onCreateIncident={(description: string) => {
+                  setJournalIncident({ id: crypto.randomUUID(), description });
+                  setActiveTab('incidents');
+                }}
                 reportLanguage={reportLanguage}
                 profile={profile}
                 projectName={projectName()}
@@ -7852,6 +7906,8 @@ function BuildTrackWebWorkspace() {
             )}
             {activeTab === 'incidents' && (
               <IncidentsView
+                initialIncident={journalIncident}
+                onInitialIncidentHandled={() => setJournalIncident(null)}
                 key={selectedProjectId}
                 incidents={projectScoped.incidents}
                 projectName={projectName()}
@@ -8085,6 +8141,8 @@ function ReservesView(props: {
   canComment: boolean;
   onCreate: () => void;
   onEdit: (reserve: any) => void;
+  onDuplicate: (reserve: any) => Promise<void>;
+  onBatchDeadline: (ids: string[], deadline: string) => Promise<void>;
   onFillDescriptions: (reserves: any[]) => Promise<void> | void;
   onTranslateReserves: (reserves: any[], language: TextLang) => Promise<void> | void;
   onGenerateReservesPdf: (reserves: any[], language: TextLang, companyFilter?: string | null) => Promise<void> | void;
@@ -8107,6 +8165,14 @@ function ReservesView(props: {
   const { allReserves, reserves, selectedReserve } = props;
   const { lang, t } = useWebI18n();
   const workspaceCopy = PLAN_RESERVE_WORKSPACE_COPY[lang].reserves;
+  const [deadlineSelection, setDeadlineSelection] = useState<string[]>([]);
+  const [deadlineSelectionOpen, setDeadlineSelectionOpen] = useState(false);
+  const [batchDeadline, setBatchDeadline] = useState('');
+  const [deadlineBusy, setDeadlineBusy] = useState(false);
+  const [deadlineError, setDeadlineError] = useState('');
+  useEffect(() => {
+    setDeadlineSelection([]); setDeadlineSelectionOpen(false); setDeadlineError('');
+  }, [props.scopeKey]);
   const [commentText, setCommentText] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
@@ -8777,6 +8843,34 @@ function ReservesView(props: {
             </div>
           </div>
         )}
+        {props.editable && !isTrashView && (
+          <div className={styles.reserveBatch}>
+            <button type="button" disabled={deadlineBusy} aria-expanded={deadlineSelectionOpen}
+              onClick={() => { setDeadlineSelectionOpen(open => !open); setDeadlineSelection([]); setDeadlineError(''); }}>
+              Modifier plusieurs échéances
+            </button>
+            {deadlineSelectionOpen && <form onSubmit={async event => {
+              event.preventDefault();
+              if (!deadlineSelection.length || deadlineBusy) return;
+              setDeadlineBusy(true); setDeadlineError('');
+              try {
+                await props.onBatchDeadline(deadlineSelection, batchDeadline);
+                setDeadlineSelection([]); setDeadlineSelectionOpen(false);
+              } catch (cause) {
+                setDeadlineError(cause instanceof Error ? cause.message : 'Modification impossible.');
+              } finally { setDeadlineBusy(false); }
+            }}>
+              <span role="status">{deadlineSelection.length} réserve(s) sélectionnée(s)</span>
+              <button type="button" disabled={deadlineBusy} onClick={() => setDeadlineSelection(
+                reserves.filter(row => !isReserveArchived(row) && !isReserveDeleted(row)).map(row => String(row.id)),
+              )}>Tout sélectionner dans cette liste</button>
+              <label>Nouvelle échéance<input type="date" required value={batchDeadline} disabled={deadlineBusy}
+                onChange={event => setBatchDeadline(event.target.value)} /></label>
+              <button type="submit" disabled={deadlineBusy || !deadlineSelection.length}>{deadlineBusy ? 'Enregistrement…' : 'Appliquer aux réserves sélectionnées'}</button>
+              {deadlineError && <p role="alert">{deadlineError}</p>}
+            </form>}
+          </div>
+        )}
         <div className={styles.reserveListMeta} data-prw-list-meta>
           <span role="status" aria-live="polite">
             {visibleReserveRows.length} affichée{visibleReserveRows.length > 1 ? 's' : ''} sur {reserves.length}
@@ -8788,8 +8882,15 @@ function ReservesView(props: {
             const selectedRowId = isCompactReserveView ? props.selectedReserveId : selectedReserve?.id;
             const isSelected = selectedRowId != null && String(selectedRowId) === String(reserve.id);
             return (
+              <div key={reserve.id} className={styles.reserveSelectableRow}>
+              {deadlineSelectionOpen && props.editable && !isTrashView && !isReserveArchived(reserve) && <label className={styles.reserveSelection}>
+                <input type="checkbox" aria-label={'Sélectionner la réserve ' + reserve.id} disabled={deadlineBusy}
+                  checked={deadlineSelection.includes(String(reserve.id))} onChange={event => {
+                    const checked = event.currentTarget.checked;
+                    setDeadlineSelection(ids => checked ? [...ids, String(reserve.id)] : ids.filter(id => id !== String(reserve.id)));
+                  }} />
+              </label>}
               <button
-                key={reserve.id}
                 className={`${styles.reserveRow} ${isSelected ? styles.reserveRowActive : ''}`}
                 data-prw-reserve-row
                 data-reserve-id={String(reserve.id)}
@@ -8811,6 +8912,7 @@ function ReservesView(props: {
                 {isReserveDeleted(reserve) ? 'Corbeille' : isReserveArchived(reserve) ? 'Archivée' : isReserveOverdue(reserve) ? 'En retard' : STATUS_LABELS[reserve.status] ?? reserve.status}
               </em>
               </button>
+              </div>
             );
           })}
           {hiddenReserveRowCount > 0 && (
@@ -9427,6 +9529,7 @@ function ReservesView(props: {
             {props.editable && !isTrashView && (
               <div className={styles.actionBar} data-prw-actions>
                 <button type="button" onClick={() => props.onEdit(detailReserve)}>Modifier</button>
+                {props.canCreateReserve && <button type="button" disabled={props.saving} onClick={() => void props.onDuplicate(detailReserve)}>Dupliquer</button>}
                 {props.canMovePins && !detailReserve.plan_id && props.onLocateOnPlan && (
                   <button
                     type="button"
@@ -14186,7 +14289,9 @@ function TerrainView({ scoped, data, profile, canViewTeams, unreadAlertCount, se
   );
 }
 
-function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, canDelete, defaultDate, projectBuildings: incidentBuildings, onCreateReserve, onCreate, onUpdate, onDelete }: {
+function IncidentsView({ initialIncident, onInitialIncidentHandled, incidents, projectName, profile, canCreate, canEdit, canDelete, defaultDate, projectBuildings: incidentBuildings, onCreateReserve, onCreate, onUpdate, onDelete }: {
+  initialIncident?: { id: string; description: string } | null;
+  onInitialIncidentHandled?: () => void;
   incidents: any[];
   projectName: string;
   profile: any;
@@ -14204,6 +14309,8 @@ function IncidentsView({ incidents, projectName, profile, canCreate, canEdit, ca
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Incidents" />;
   return (
     <IncidentsWorkspace
+      initialIncident={initialIncident}
+      onInitialIncidentHandled={onInitialIncidentHandled}
       incidents={incidents}
       projectName={projectName}
       defaultDate={defaultDate}
@@ -14312,7 +14419,7 @@ function RestrictedTool({ title }: { title: string }) {
   );
 }
 
-function JournalView({ profile, projectName, reportLanguage, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
+function JournalView({ onCreateIncident, profile, projectName, reportLanguage, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
   const { lang } = useWebI18n();
   // Migration one-shot des anciennes entrées localStorage vers Supabase.
   useEffect(() => {
@@ -14391,6 +14498,7 @@ function JournalView({ profile, projectName, reportLanguage, selectedProjectId, 
       onUpdate={onUpdate}
       onDelete={onDelete}
       onExport={exportJournal}
+      onCreateIncident={onCreateIncident}
       getWeather={async () => {
         const [{ fetchAutoWeatherWeb }, { fieldReportTranslator }] = await Promise.all([
           import('../../../lib/journalWeather'), import('@/lib/field-report-translation'),

@@ -11800,3 +11800,18 @@
 .outbox button { padding: .4rem .6rem; color: #003082; background: #fff; border: 1px solid #aac1db; border-radius: .4rem; }
 .outboxActions { display: flex; flex-wrap: wrap; gap: .45rem; margin: .4rem 0 .65rem; }
 .outboxActions button { min-height: 2.75rem; }
+
+.reserveSelectableRow { display: flex; align-items: stretch; min-width: 0; }
+.reserveSelectableRow > button { flex: 1; min-width: 0; }
+.reserveSelection { display: grid; place-items: center; padding: 0.6rem; }
+.reserveBatch { display: grid; gap: 0.6rem; padding: 0.75rem; border-top: 1px solid #e2e8f0; }
+.reserveBatch form { display: flex; flex-wrap: wrap; align-items: end; gap: 0.6rem; }
+.reserveBatch label { display: grid; gap: 0.25rem; }
+.reserveBatch input, .reserveBatch button { min-height: 40px; padding: 0.5rem 0.65rem; border: 1px solid #c8d7e9; border-radius: 0.5rem; background: #fff; color: #003082; font: inherit; font-size: 0.75rem; }
+.reserveBatch button { cursor: pointer; font-weight: 600; }
+.reserveBatch button:hover:not(:disabled) { background: #eef4ff; }
+.reserveBatch button[type='submit'] { border-color: #003082; background: #003082; color: #fff; }
+.reserveBatch button[type='submit']:hover:not(:disabled) { background: #00245f; }
+.reserveBatch button:disabled { cursor: default; opacity: 0.5; }
+.reserveBatch input:focus-visible, .reserveBatch button:focus-visible { outline: 2px solid #003082; outline-offset: 2px; }
+.reserveBatch p { flex-basis: 100%; color: #991b1b; }

@@ -74,6 +74,16 @@ export async function saveWebOperation(operation: WebQueuedOperation) {
   listeners.forEach(listener => listener());
 }
 
+export async function saveWebOperations(operations: WebQueuedOperation[]) {
+  if (!operations.length) return;
+  await transaction('readwrite', store => {
+    let result = store.put(operations[0]);
+    for (const operation of operations.slice(1)) result = store.put(operation);
+    return result;
+  });
+  listeners.forEach(listener => listener());
+}
+
 export async function removeWebOperation(key: string) {
   await transaction('readwrite', store => store.delete(key));
   listeners.forEach(listener => listener());

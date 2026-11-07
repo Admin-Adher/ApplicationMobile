@@ -30,6 +30,7 @@ export type InventoryMovementRow = {
   reference?: string | null;
   designation?: string | null;
   supplier?: string | null;
+  location?: string | null;
   building_name?: string | null;
   zone_name?: string | null;
   company_id?: string | null;
@@ -198,6 +199,7 @@ const FR = {
   aggregateHint: 'Vue consolidée : le chantier est indiqué sur chaque référence et mouvement.',
   stockTitle: 'Référentiel de stock',
   historyTitle: 'Journal des mouvements',
+  productSheet: 'Fiche produit',
   stockSubtitle: (count: number) => `${count} référence${count > 1 ? 's' : ''} affichée${count > 1 ? 's' : ''}`,
   historySubtitle: (count: number) => `${count} mouvement${count > 1 ? 's' : ''} affiché${count > 1 ? 's' : ''}`,
   searchStock: 'Référence, désignation, code-barres, chantier…',
@@ -335,6 +337,7 @@ const FR = {
 
 const EN: typeof FR = {
   ...FR,
+  productSheet: 'Product record',
   eyebrow: 'Site logistics', title: 'Stock & movements', description: 'Manage references, receipts and site distribution from one operational workspace.',
   refresh: 'Refresh', refreshing: 'Refreshing…', references: 'References', units: 'Units available', lowStocks: 'Low stock', movements: 'Movements',
   receive: 'Receive', receiveHelp: 'Add delivered materials', dispatch: 'Dispatch', dispatchHelp: 'Send materials to site', stock: 'Stock', history: 'History',
@@ -353,6 +356,7 @@ const EN: typeof FR = {
 
 const ES: typeof FR = {
   ...FR,
+  productSheet: 'Ficha del producto',
   eyebrow: 'Logística de obra', title: 'Stock y movimientos', description: 'Gestiona referencias, recepciones y distribuciones de obra desde un único espacio operativo.',
   refresh: 'Actualizar', refreshing: 'Actualizando…', references: 'Referencias', units: 'Unidades disponibles', lowStocks: 'Stock bajo', movements: 'Movimientos',
   receive: 'Entrada', receiveHelp: 'Recibir material', dispatch: 'Salida', dispatchHelp: 'Enviar material a obra', stock: 'Stock', history: 'Historial', operations: 'Operaciones rápidas', operationsHelp: 'Un flujo guiado desde el escaneo hasta la validación.',

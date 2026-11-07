@@ -1135,3 +1135,8 @@
   .root,
   .dataPanel { border: 0; box-shadow: none; }
 }
+
+.dialog::backdrop { background: rgba(7, 27, 58, 0.42); }
+.productDetailsBody { display: grid; gap: 1rem; padding: 1.25rem; }
+.productDetailsBody h4, .productDetailsBody p { margin: 0; }
+.productReference { padding: 0; border: 0; background: transparent; color: var(--inventory-accent, #003082); font: inherit; font-weight: 700; text-align: left; text-decoration: underline; cursor: pointer; }
