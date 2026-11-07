@@ -4,6 +4,28 @@ export type OprItemStatus = 'ok' | 'reserve' | 'non_applicable';
 
 export type OprSource = Record<string, any>;
 
+export function canEditOpr(opr: OprSource) {
+  return opr.status !== 'signed' && !(Array.isArray(opr.signatories) &&
+    opr.signatories.some(signer => signer?.signatureSource === 'web_link' && signer.signed));
+}
+
+export function oprVerificationFields(opr: OprSource, itemId: string, reserves: ReserveSource[], at: string, author: string) {
+  if (!canEditOpr(opr)) throw new Error('Ce procès-verbal est verrouillé par une signature.');
+  const item = opr.items?.find((row: OprSource) => row.id === itemId);
+  const reserve = reserves.find(row => row.id === (item?.reserveId ?? item?.reserve_id));
+  if (!item || item.status !== 'reserve' || item.verifiedAt || item.verified_at || !reserve || reserve.status !== 'closed' || reserve.deleted_at) {
+    throw new Error('La réserve liée doit être clôturée avant de vérifier sa levée.');
+  }
+  return { items: opr.items.map((row: OprSource) => row.id === itemId ? { ...row, verifiedAt: at, verifiedBy: author } : row) };
+}
+
+export function oprRemoveSignerFields(opr: OprSource, signerId: string) {
+  if (!canEditOpr(opr)) throw new Error('Ce procès-verbal est verrouillé par une signature.');
+  const signer = opr.signatories?.find((row: OprSource) => row.id === signerId);
+  if (!signer || signer.signed || signer.signedAt) throw new Error('Seul un signataire encore en attente peut être retiré.');
+  return { signatories: opr.signatories.filter((row: OprSource) => row.id !== signerId) };
+}
+
 export function canSignOprDirectly(opr: OprSource) {
   return Boolean(opr.id) && opr.status !== 'signed' &&
     !(Array.isArray(opr.signatories) && opr.signatories.length > 0);
@@ -19,6 +41,8 @@ export type OprItemView = {
   note: string;
   entreprise: string;
   deadline: string;
+  verifiedAt: string;
+  verifiedBy: string;
 };
 
 export type OprSummary = {
@@ -75,6 +99,8 @@ export function normalizeOprItem(item: OprSource, index: number): OprItemView {
     note: firstText(item.note),
     entreprise: firstText(item.entreprise, item.company),
     deadline: firstText(item.deadline, item.deadline_date),
+    verifiedAt: firstText(item.verifiedAt, item.verified_at),
+    verifiedBy: firstText(item.verifiedBy, item.verified_by),
   };
 }
 

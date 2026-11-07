@@ -3231,6 +3231,14 @@ const WEB_STATIC_TEXT_COMPLETION: Record<Exclude<SupportedLang, 'fr'>, Record<st
 
 const WEB_STATIC_TEXT_AUDIT_PATCH: Record<Exclude<SupportedLang, 'fr'>, Record<string, string>> = {
   en: {
+    'Modifier plusieurs réserves': 'Modify multiple issues',
+    'Action groupée': 'Bulk action',
+    'Nouveau statut': 'New status',
+    'Nouvelle entreprise': 'New company',
+    'Choisir une entreprise': 'Choose a company',
+    'Vérifier la levée': 'Verify resolution',
+    'Levée vérifiée': 'Resolution verified',
+    'Retirer le signataire': 'Remove signatory',
     'Réglementaire': 'Regulatory',
     'Lecture image impossible.': 'Unable to read image.',
     '[uploadWebFile] R2 indisponible — repli Supabase:': '[uploadWebFile] R2 unavailable - falling back to Supabase:',
@@ -3634,6 +3642,14 @@ const WEB_STATIC_TEXT_AUDIT_PATCH: Record<Exclude<SupportedLang, 'fr'>, Record<s
     'Renseignez le nom du signataire entreprise.': 'Enter the company signatory name.',
   },
   es: {
+    'Modifier plusieurs réserves': 'Modificar varias incidencias',
+    'Action groupée': 'Acción en grupo',
+    'Nouveau statut': 'Nuevo estado',
+    'Nouvelle entreprise': 'Nueva empresa',
+    'Choisir une entreprise': 'Elegir una empresa',
+    'Vérifier la levée': 'Verificar la resolución',
+    'Levée vérifiée': 'Resolución verificada',
+    'Retirer le signataire': 'Retirar firmante',
     'Réglementaire': 'Reglamentario',
     'Lecture image impossible.': 'No se pudo leer la imagen.',
     '[uploadWebFile] R2 indisponible — repli Supabase:': '[uploadWebFile] R2 no disponible - fallback Supabase:',

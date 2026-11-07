@@ -19,7 +19,7 @@ function localDate() {
 }
 
 function newItem(): OprItemView {
-  return { id: crypto.randomUUID(), lotName: '', description: '', status: 'ok' as OprItemStatus, reserveId: null, note: '', entreprise: '', deadline: '' };
+  return { id: crypto.randomUUID(), lotName: '', description: '', status: 'ok' as OprItemStatus, reserveId: null, note: '', entreprise: '', deadline: '', verifiedAt: '', verifiedBy: '' };
 }
 
 function newSigner(role = '') {
