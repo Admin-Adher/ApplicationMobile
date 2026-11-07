@@ -1,6 +1,6 @@
 export const PLANNING_SCHEDULE_BATCH_SIZE = 18;
 
-export type PlanningTaskMode = 'week' | 'company' | 'late';
+export type PlanningTaskMode = 'week' | 'company' | 'priority' | 'late';
 export type PlanningScheduleFilter = 'all' | 'late' | 'reserve' | 'visit' | 'task';
 export type PlanningScheduleKind = 'reserve' | 'visit' | 'task';
 
@@ -243,6 +243,13 @@ export function filterPlanningCompany(tasks: any[], company: { id: string; name:
 }
 
 export function groupPlanningTasks(tasks: any[], companies: any[], mode: PlanningTaskMode) {
+  if (mode === 'priority') {
+    const priorities = [['critical', 'Critique'], ['high', 'Haute'], ['medium', 'Moyenne'], ['low', 'Basse']];
+    const known = new Set(priorities.map(([key]) => key));
+    return [...priorities.map(([key, label]) => [label, tasks.filter(task => task.priority === key)] as [string, any[]]),
+      ['Sans priorité', tasks.filter(task => !known.has(task.priority))] as [string, any[]]]
+      .filter(([, rows]) => rows.length > 0);
+  }
   if (mode !== 'company') return [['Tâches', tasks]] as Array<[string, any[]]>;
   const grouped = tasks.reduce((acc: Record<string, any[]>, task: any) => {
     const key = companies.find(company => company.id === task.company || company.name === task.company)?.name
@@ -272,4 +279,20 @@ export function buildPlanningGantt(tasks: any[], reference: Date, dayCount = 14)
     return [{ task, from: Math.max(0, from), to: Math.min(dayCount - 1, to), startDate: first ?? last!, endDate: last ?? first! }];
   }).sort((left, right) => left.from - right.from || String(left.task.title).localeCompare(String(right.task.title)));
   return { days, rows };
+}
+
+export function groupPlanningGantt(rows: ReturnType<typeof buildPlanningGantt>['rows'], companies: any[]) {
+  const companyByKey = new Map<string, any>();
+  companies.forEach(company => {
+    companyByKey.set(String(company.id), company);
+    if (company.name) companyByKey.set(String(company.name), company);
+  });
+  const groups = new Map<string, { key: string; name: string; rows: typeof rows }>();
+  rows.forEach(row => {
+    const company = companyByKey.get(String(row.task.company ?? ''));
+    const key = String(company?.id ?? row.task.company ?? '__unassigned');
+    if (!groups.has(key)) groups.set(key, { key, name: company?.name || row.task.company || 'Sans entreprise', rows: [] });
+    groups.get(key)!.rows.push(row);
+  });
+  return [...groups.values()].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
 }
