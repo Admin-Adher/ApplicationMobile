@@ -5,6 +5,7 @@ import { WorkspaceIcon, WorkspaceSearch } from '../plan-reserve-workspace/Worksp
 import styles from './PlanningWorkspace.module.css';
 import { fieldDateInput } from '@/lib/web-field-writes';
 import PlanningGantt from './PlanningGantt';
+import TextAssistControls from '../TextAssistControls';
 import {
   PLANNING_SCHEDULE_BATCH_SIZE,
   buildPlanningSchedule,
@@ -109,10 +110,12 @@ function TaskEditForm({ task, companies, onSave, onClose }: {
   }
 
   return (
-    <form className={styles.taskComposer} aria-label="Modifier la tâche" onSubmit={save}>
+    <form className={`${styles.taskComposer} ${styles.taskEditor}`} aria-label="Modifier la tâche" onSubmit={save}>
       <div className={styles.composerGrid}>
-        <label className={styles.composerTitle}><span>Titre de la tâche</span><input value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} required autoFocus /></label>
-        <label className={styles.composerTitle}><span>Description</span><textarea rows={3} value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
+        <div className={styles.composerTitle}><label><span>Titre de la tâche</span><input value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} required autoFocus /></label>
+              <TextAssistControls compact label="titre de la tâche" value={draft.title} onChange={title => setDraft(current => ({ ...current, title }))} context="description" disabled={busy} /></div>
+        <div className={styles.composerTitle}><label><span>Description</span><textarea rows={3} value={draft.description} onChange={event => setDraft({ ...draft, description: event.target.value })} /></label>
+              <TextAssistControls compact label="description de la tâche" value={draft.description} onChange={description => setDraft(current => ({ ...current, description }))} context="description" disabled={busy} /></div>
         <label><span>Début</span><input type="date" value={draft.start_date} onChange={event => setDraft({ ...draft, start_date: event.target.value })} /></label>
         <label><span>Échéance</span><input type="date" value={draft.deadline} onChange={event => setDraft({ ...draft, deadline: event.target.value })} /></label>
         <label><span>Entreprise</span><input list={companyId} value={draft.company} onChange={event => setDraft({ ...draft, company: event.target.value })} /><datalist id={companyId}>{companies.map(company => <option key={company.id} value={company.name} />)}</datalist></label>
@@ -349,14 +352,16 @@ export default function PlanningWorkspace({
               </div>
             </div>
             <div className={styles.composerGrid}>
-              <label className={styles.composerTitle}>
+              <div className={styles.composerTitle}><label>
                 <span>Titre de la tâche</span>
                 <input value={draft.title} onChange={event => setDraft(previous => ({ ...previous, title: event.target.value }))} required autoFocus />
               </label>
-              <label className={styles.composerTitle}>
+              <TextAssistControls compact label="titre de la tâche" value={draft.title} onChange={title => setDraft(current => ({ ...current, title }))} context="description" disabled={busy} /></div>
+              <div className={styles.composerTitle}><label>
                 <span>Description</span>
                 <textarea value={draft.description} onChange={event => setDraft(previous => ({ ...previous, description: event.target.value }))} />
               </label>
+              <TextAssistControls compact label="description de la tâche" value={draft.description} onChange={description => setDraft(current => ({ ...current, description }))} context="description" disabled={busy} /></div>
               <label>
                 <span>Début</span>
                 <input type="date" value={draft.start_date} onChange={event => setDraft(previous => ({ ...previous, start_date: event.target.value }))} />

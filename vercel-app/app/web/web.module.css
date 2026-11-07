@@ -6587,17 +6587,24 @@
 .modalBackdrop {
   position: fixed;
   inset: 0;
-  z-index: 40;
+  z-index: 100;
   display: grid;
   place-items: center;
   padding: 24px;
   background: rgba(15, 23, 42, 0.42);
+  color: #071b3a;
+  font-family: var(--font-buildtrack-body), Arial, sans-serif;
+  font-size: 14px;
 }
 
+.modalBackdrop *, .modalBackdrop *::before, .modalBackdrop *::after { box-sizing: border-box; }
+
 .modalPanel {
+  min-width: 0;
   width: min(920px, 100%);
   max-height: min(88vh, 920px);
   overflow: auto;
+  scroll-padding-block: 8rem;
   background: #fff;
   border: 1px solid #d8e0ec;
   border-radius: 18px;
@@ -6606,7 +6613,20 @@
 
 .reserveModalPanel {
   width: min(1040px, 100%);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
+
+.reserveModalPanel > .modalHeader, .reserveModalPanel > .modalActions { position: static; flex: 0 0 auto; min-width: 0; }
+.reserveModalPanel > .reserveModalBody { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scroll-padding-block: 1rem; }
+.modalHeader > div { min-width: 0; }
+.modalHeader h2 { overflow-wrap: anywhere; line-height: 1.25; }
+.modalHeader span { line-height: 1.45; }
+.formGrid > .modalActions { grid-column: 1 / -1; }
+.modalPanel input, .modalPanel select, .modalPanel textarea { min-width: 0; max-width: 100%; }
+.reserveModalGrid > div, .reserveFormSectionHeader > div, .visitTeamPicker, .visitSummary { min-width: 0; }
+.reserveFormSection button { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
 
 .modalHeader {
   position: sticky;
@@ -6889,6 +6909,7 @@
 
 .reserveModalBody {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
   padding: 18px 20px 8px;
   background: #f8fafc;
@@ -6896,6 +6917,8 @@
 
 .reserveFormSection {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: 14px;
   border: 1px solid #dce4ef;
   border-radius: 16px;
@@ -6966,6 +6989,18 @@
   display: grid;
   gap: 7px;
 }
+
+.assistDisclosure { width: 100%; min-width: 0; margin-top: .4rem; }
+.assistToggle, .assistUndo { display: flex; align-items: center; justify-content: space-between; gap: .5rem; width: 100%; min-width: 0; min-height: 36px; border: 1px solid #bdcbe0; border-radius: 8px; padding: .45rem .6rem; background: #f8fafc; color: #003082; font: inherit; font-size: .75rem; font-weight: 700; text-align: left; overflow-wrap: anywhere; }
+.assistToggle:focus-visible, .assistUndo:focus-visible { outline: 3px solid #79a8f5; outline-offset: 2px; }
+.assistToggle:disabled, .assistUndo:disabled { opacity: .55; cursor: not-allowed; }
+.assistDisclosure > div { min-width: 0; margin-top: .5rem; }
+.textAssist[data-compact] { min-width: 0; }
+.textAssist[data-compact] .textAssistGrid { grid-template-columns: minmax(0, 1fr); }
+.textAssist[data-compact] .textAssistSection { min-height: 0; padding: .5rem; border-radius: 10px; }
+.textAssist[data-compact] .dictationPicker, .textAssist[data-compact] .translationPickerWeb { display: flex; flex-wrap: wrap; }
+.textAssist[data-compact] .dictationPicker button, .textAssist[data-compact] .translationPickerWeb button { flex: 1 1 2.5rem; min-width: 0; }
+.textAssist[data-compact] .textAssistSectionHeader strong, .textAssist[data-compact] .textAssistSectionHeader small { white-space: normal; overflow-wrap: anywhere; }
 
 .textAssistGrid {
   display: grid;
@@ -8342,9 +8377,8 @@
 .visitTeamOption small {
   display: block;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .visitTeamOption strong {
@@ -10558,6 +10592,14 @@
     border-radius: 18px 18px 12px 12px;
   }
 
+  .reserveModalPanel { max-height: calc(100dvh - 20px); }
+  .reserveModalPanel > .modalHeader { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px; padding: 14px; }
+  .reserveModalPanel > .modalHeader h2 { font-size: 20px; }
+  .reserveModalPanel > .modalHeader span { font-size: 12px; }
+  .reserveModalPanel > .modalHeader button { min-height: 36px; padding: 8px 10px; }
+  .reserveModalPanel > .modalActions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding: 12px; }
+  .reserveModalPanel > .modalActions button { min-width: 0; min-height: 44px; width: 100%; padding: 10px; white-space: normal; }
+
   .reserveModalBody {
     padding: 12px;
   }
@@ -11873,6 +11915,21 @@
 .planCanvas[data-file-type="dxf"] { min-height: 0; }
 
 .galleryPhoto { min-width: 0; }
+.galleryPhotoForm {
+  display: grid;
+  gap: .75rem;
+  min-width: 0;
+  max-width: 38rem;
+  margin: .75rem 0;
+}
+.galleryPhotoForm label { display: grid; gap: .4rem; min-width: 0; font-size: .8rem; font-weight: 700; }
+.galleryPhotoForm input, .galleryActions input, .galleryActions select { width: 100%; min-width: 0; box-sizing: border-box; }
+.galleryPhotoForm input { min-height: 44px; border: 1px solid #bdcbe0; border-radius: 10px; padding: .6rem; color: #0f172a; background: #fff; font: inherit; }
+.galleryFormActions { display: flex; flex-wrap: wrap; gap: .5rem; min-width: 0; }
+.galleryFormActions button { flex: 1 1 7rem; min-width: 0; min-height: 44px; border: 1px solid #003082; border-radius: 10px; padding: .6rem; color: #fff; background: #003082; font: inherit; font-size: .8rem; font-weight: 700; white-space: normal; }
+.galleryFormActions button:first-child { color: #003082; background: #f8fafc; border-color: #bdcbe0; }
+.galleryFormActions button:disabled { opacity: .55; cursor: not-allowed; }
+.galleryFormActions button:focus-visible, .galleryPhotoForm input:focus-visible { outline: 3px solid #79a8f5; outline-offset: 2px; }
 .galleryUpload { display: grid; gap: .45rem; width: fit-content; margin: .55rem 0 1rem; font-weight: 650; }
 .galleryActions { display: flex; flex-wrap: wrap; gap: .4rem; margin: .4rem 0 .7rem; }
 .galleryActions button, .galleryActions select { padding: .35rem .45rem; color: #003082; background: #fff; border: 1px solid #b9c9da; border-radius: .4rem; }

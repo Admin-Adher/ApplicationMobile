@@ -24,6 +24,7 @@ import {
   type MessageHistoryCursor,
   type MessageSendInput,
 } from './messages-model';
+import TextAssistControls from '../TextAssistControls';
 import ChannelEditor, { type ChannelDraft, type ChannelPerson } from './ChannelEditor';
 import type { MessageAction, MessageChannelRecord } from './messages-model';
 import styles from './MessagesWorkspace.module.css';
@@ -687,6 +688,8 @@ export default function MessagesWorkspace({
               <span>{saving ? copy.sending : copy.send}</span>
             </button>
           </div>
+          <TextAssistControls key={selected?.channel.id ?? 'none'} compact label="message" value={draft}
+            onChange={value => { setMentionCaret(null); onDraftChange(value); }} context="message" maxLength={2000} disabled={!selected || saving} />
         </form>
       </div>
     </section>
