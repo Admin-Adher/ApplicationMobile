@@ -5,6 +5,8 @@ import type { SupportedLang } from '@/lib/i18n';
 import { retryPrivateMedia } from '@/lib/private-media-client';
 import { usePrivateMediaAccess } from '../plan-reserve-workspace/usePrivateMedia';
 import { MessageIcon, type MessageIconName } from './MessageIcon';
+import ChannelSymbol from './ChannelSymbol';
+import { channelDisplayColor } from './channel-appearance';
 import {
   buildMessagesProjection,
   messageClockLabel,
@@ -485,7 +487,9 @@ export default function MessagesWorkspace({
                 className={active ? styles.channelActive : styles.channel}
                 onClick={() => selectChannel(summary.channel.id)}
               >
-                <span className={styles.channelIcon}><MessageIcon name={kindIcon(summary.kind)} size={19} /></span>
+                <span className={styles.channelIcon} style={summary.channel.color ? { color: channelDisplayColor(summary.channel.color), backgroundColor: `${channelDisplayColor(summary.channel.color)}18` } : undefined}>
+                  {summary.channel.icon ? <ChannelSymbol icon={summary.channel.icon} size={19} /> : <MessageIcon name={kindIcon(summary.kind)} size={19} />}
+                </span>
                 <span className={styles.channelBody}>
                   <span className={styles.channelNameRow}>
                     <strong>{summary.channelPinned ? <span aria-label={copy.filterPinned}><MessageIcon name="pin" size={13} /> </span> : null}{summary.label}</strong>
@@ -514,7 +518,9 @@ export default function MessagesWorkspace({
           </button>
           {selected ? (
             <>
-              <span className={styles.conversationIcon}><MessageIcon name={kindIcon(selected.kind)} size={21} /></span>
+              <span className={styles.conversationIcon} style={selected.channel.color ? { color: channelDisplayColor(selected.channel.color), backgroundColor: `${channelDisplayColor(selected.channel.color)}18` } : undefined}>
+                {selected.channel.icon ? <ChannelSymbol icon={selected.channel.icon} size={21} /> : <MessageIcon name={kindIcon(selected.kind)} size={21} />}
+              </span>
               <div className={styles.conversationIdentity}>
                 <p>{selected.typeLabel}</p>
                 <h2>{selected.label}</h2>
