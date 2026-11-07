@@ -12,7 +12,7 @@ describe('BuildTrack web pointage experience', () => {
     const pointage = page.slice(page.indexOf('function PointageView'), page.indexOf('function AnalyticsView'));
     const component = read('vercel-app/app/web/pointage-workspace/PointageWorkspace.tsx');
 
-    expect(page).toContain("import PointageWorkspace from './pointage-workspace/PointageWorkspace'");
+    expect(page).toContain("const PointageWorkspace = dynamic(() => import('./pointage-workspace/PointageWorkspace')");
     expect(pointage).toContain('<PointageWorkspace');
     expect(pointage).not.toContain('<Kpi');
     expect(component).toContain('data-testid="web-pointage-workspace"');

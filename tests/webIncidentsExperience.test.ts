@@ -12,7 +12,7 @@ describe('BuildTrack web incidents experience', () => {
     const view = page.slice(page.indexOf('function IncidentsView'), page.indexOf('function EquipesView'));
     const component = read('vercel-app/app/web/incidents-workspace/IncidentsWorkspace.tsx');
 
-    expect(page).toContain("import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace'");
+    expect(page).toContain("const IncidentsWorkspace = dynamic(() => import('./incidents-workspace/IncidentsWorkspace')");
     expect(view).toContain('<IncidentsWorkspace');
     expect(view).not.toContain('<Kpi');
     expect(component).toContain('data-testid="web-incidents-workspace"');

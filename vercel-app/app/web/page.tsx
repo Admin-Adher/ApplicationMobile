@@ -122,40 +122,27 @@ import {
   uploadRegisteredWebFile,
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
-import InventoryWorkspace from './inventory-workspace/InventoryWorkspace';
 import { uploadInventoryPhoto } from './inventory-workspace/inventory-operations';
 import type { InventoryProductRow } from './inventory-workspace/inventory-model';
-import ChantiersWorkspace from './chantiers-workspace/ChantiersWorkspace';
-import IncidentsWorkspace from './incidents-workspace/IncidentsWorkspace';
 import { type IncidentSource, type IncidentSummary } from './incidents-workspace/incidents-workspace-model';
 import { useWebAlertReads } from './useWebAlertReads';
 import { buildWorkspaceAlerts } from '../../../lib/workspaceAlerts';
 import { toNotificationPreferences } from '../../../lib/notificationPreferences';
 import { normalizeIncidentStatus } from './incidents-workspace/incidents-workspace-model';
-import JournalWorkspace from './journal-workspace/JournalWorkspace';
-import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import type { ChannelDraft } from './messages-workspace/ChannelEditor';
-import OprWorkspace from './opr-workspace/OprWorkspace';
 import { canEditOpr, canSignOprDirectly } from './opr-workspace/opr-workspace-model';
 import { buildWebOprPrint, type OprPrintKind } from './opr-workspace/opr-print';
 import type { OprSummary } from './opr-workspace/opr-workspace-model';
-import PortalWorkspace from './PortalWorkspace';
 import { getPdfCompanyPalette, renderPdfCompanyLabel } from '../../../lib/pdfCompanyColors';
 import { fieldDateInput, fieldTables, fieldUpdate, fieldWriteApplied, fieldWrites, projectFieldRows, sameFieldValue, type FieldTable, type FieldWrite } from '@/lib/web-field-writes';
 import { useWebAttendanceSettings } from './useWebAttendanceSettings';
-import OrganizationWebhookSettings from './OrganizationWebhookSettings';
-import BrowserPushSettings from './BrowserPushSettings';
 import TextAssistControls from './TextAssistControls';
 import { TEXT_LANG_OPTIONS, defaultTextLang, requestWebTranslation, type TextLang } from '@/lib/text-assist-client';
-import SubscriptionOverview from './SubscriptionOverview';
 import { stopBrowserPush } from '@/lib/browser-push-client';
 import { clearWorkspaceSnapshot, readWorkspaceSnapshot, warmOfflineWorkspace, writeWorkspaceSnapshot } from '@/lib/web-workspace-cache';
-import LotsWorkspace, { type LotDraft, type LotRow } from './LotsWorkspace';
+import type { LotDraft, LotRow } from './LotsWorkspace';
 import { STANDARD_LOTS } from '../../../constants/standardLots';
 import type { ChantierBuilding, MeetingReport } from '../../../constants/types';
-import PointageWorkspace from './pointage-workspace/PointageWorkspace';
-import PlanningWorkspace from './planning-workspace/PlanningWorkspace';
-import WebDxfPlan from './plan-reserve-workspace/WebDxfPlan';
 import { matchesSearchText, normalizeSearchText } from '../../../lib/searchText';
 import {
   mergeMessageReadState,
@@ -183,7 +170,27 @@ import {
   type ReserveDraft, type WebPhotoAnnotation, type WebPhotoAnnotationPoint, type WebPhotoAnnotationTool, type WebPhotoDraft,
 } from '@/lib/reserve-edit-draft';
 
-const MeetingsWorkspace = dynamic(() => import('./MeetingsWorkspace'));
+function WorkspaceModuleLoading() {
+  return <p role="status" className={styles.empty}>Chargement de l’outil…</p>;
+}
+
+// Keep the workspace state and mutation handlers here; load each tool's UI only
+// when its existing tab renders, just like meeting reports already do.
+const InventoryWorkspace = dynamic(() => import('./inventory-workspace/InventoryWorkspace'), { loading: WorkspaceModuleLoading });
+const ChantiersWorkspace = dynamic(() => import('./chantiers-workspace/ChantiersWorkspace'), { loading: WorkspaceModuleLoading });
+const IncidentsWorkspace = dynamic(() => import('./incidents-workspace/IncidentsWorkspace'), { loading: WorkspaceModuleLoading });
+const JournalWorkspace = dynamic(() => import('./journal-workspace/JournalWorkspace'), { loading: WorkspaceModuleLoading });
+const MessagesWorkspace = dynamic(() => import('./messages-workspace/MessagesWorkspace'), { loading: WorkspaceModuleLoading });
+const OprWorkspace = dynamic(() => import('./opr-workspace/OprWorkspace'), { loading: WorkspaceModuleLoading });
+const PortalWorkspace = dynamic(() => import('./PortalWorkspace'), { loading: WorkspaceModuleLoading });
+const OrganizationWebhookSettings = dynamic(() => import('./OrganizationWebhookSettings'), { loading: WorkspaceModuleLoading });
+const BrowserPushSettings = dynamic(() => import('./BrowserPushSettings'), { loading: WorkspaceModuleLoading });
+const SubscriptionOverview = dynamic(() => import('./SubscriptionOverview'), { loading: WorkspaceModuleLoading });
+const LotsWorkspace = dynamic(() => import('./LotsWorkspace'), { loading: WorkspaceModuleLoading });
+const PointageWorkspace = dynamic(() => import('./pointage-workspace/PointageWorkspace'), { loading: WorkspaceModuleLoading });
+const PlanningWorkspace = dynamic(() => import('./planning-workspace/PlanningWorkspace'), { loading: WorkspaceModuleLoading });
+const WebDxfPlan = dynamic(() => import('./plan-reserve-workspace/WebDxfPlan'), { loading: WorkspaceModuleLoading });
+const MeetingsWorkspace = dynamic(() => import('./MeetingsWorkspace'), { loading: WorkspaceModuleLoading });
 
 type Role = 'super_admin' | 'admin' | 'conducteur' | 'chef_equipe' | 'magasinier' | 'sous_traitant' | 'observateur' | string;
 

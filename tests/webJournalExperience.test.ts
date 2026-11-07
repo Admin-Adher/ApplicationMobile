@@ -11,7 +11,7 @@ describe('BuildTrack web journal experience', () => {
     const journal = page.slice(page.indexOf('function JournalView'), page.indexOf('function PointageView'));
     const component = read('vercel-app/app/web/journal-workspace/JournalWorkspace.tsx');
 
-    expect(page).toContain("import JournalWorkspace from './journal-workspace/JournalWorkspace'");
+    expect(page).toContain("const JournalWorkspace = dynamic(() => import('./journal-workspace/JournalWorkspace')");
     expect(journal).toContain('<JournalWorkspace');
     expect(journal).not.toContain('<Kpi');
     expect(component).toContain('data-testid="web-journal-workspace"');
