@@ -14335,7 +14335,10 @@ function JournalView({ profile, projectName, reportLanguage, selectedProjectId, 
     const { fieldReportTranslator } = await import('@/lib/field-report-translation');
     const t = fieldReportTranslator(reportLanguage);
     const locale = localeForLang(reportLanguage);
-    const formatDate = (value: string) => parseDateSafe(value)?.toLocaleDateString(locale) ?? value;
+    const formatDate = (value: string) => {
+      const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value + 'T00:00:00' : value;
+      return parseDateSafe(calendarDate)?.toLocaleDateString(locale) ?? value;
+    };
     const columns = ['journal.pdf.date', 'journal.pdf.weather', 'journal.pdf.workers', 'journal.workDoneLabel',
       'journal.materialsLabel', 'journal.observationsLabel', 'journal.pdf.incidents', 'journal.pdf.visitors', 'journal.pdf.author'];
     const tableRows = [...entries]
