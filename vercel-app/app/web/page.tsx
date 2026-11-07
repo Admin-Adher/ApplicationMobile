@@ -137,7 +137,8 @@ import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import type { ChannelDraft } from './messages-workspace/ChannelEditor';
 import OprWorkspace from './opr-workspace/OprWorkspace';
 import { canEditOpr, canSignOprDirectly } from './opr-workspace/opr-workspace-model';
-import { buildWebOprPrint } from './opr-workspace/opr-print';
+import { buildWebOprPrint, type OprPrintKind } from './opr-workspace/opr-print';
+import type { OprSummary } from './opr-workspace/opr-workspace-model';
 import PortalWorkspace from './PortalWorkspace';
 import { getPdfCompanyPalette, renderPdfCompanyLabel } from '../../../lib/pdfCompanyColors';
 import { fieldDateInput, fieldTables, fieldUpdate, fieldWriteApplied, fieldWrites, projectFieldRows, sameFieldValue, type FieldTable, type FieldWrite } from '@/lib/web-field-writes';
@@ -4847,8 +4848,17 @@ function BuildTrackWebWorkspace() {
   }
 
   async function attachReservesToVisitWeb(visit: any, reserveIds: string[]) {
-    if (!canCreate(profile) || !visit?.id || !reserveIds.length) return;
-    await enqueueVisitReserves(visit.id, reserveIds, 'link');
+    if (!canCreate(profile) || !visit?.id || !reserveIds.length) return false;
+    const moving = reserveIds.filter(id => {
+      const reserve = fieldData.reserves.find(row => row.id === id);
+      return (reserve?.visite_id && reserve.visite_id !== visit.id) || fieldData.visites.some(row =>
+        row.id !== visit.id && Array.isArray(row.reserve_ids) && row.reserve_ids.includes(id));
+    });
+    const moveMessage = moving.length === 1
+      ? '1 réserve est déjà liée à une autre visite. Elle sera retirée de son ancienne visite et ajoutée ici.'
+      : `${moving.length} réserves sont déjà liées à une autre visite. Elles seront retirées de leur ancienne visite et ajoutées ici.`;
+    if (moving.length && !window.confirm('Déplacer des réserves ? ' + moveMessage)) return false;
+    return enqueueVisitReserves(visit.id, reserveIds, 'link');
   }
 
   async function deleteVisitWeb(visit: any) {
@@ -5016,6 +5026,38 @@ function BuildTrackWebWorkspace() {
       conducteur: conducteur.name, maire_ouvrage: owner.name,
       conducteur_signature: conducteur.signature, mo_signature: owner.signature,
     });
+  }
+
+  async function exportOprWeb(opr: OprSummary, kind: OprPrintKind) {
+    if (!canExport(profile) || generatingReport) return;
+    const owner = workspaceOwnerRef.current;
+    setGeneratingReport('opr-' + opr.id);
+    setError('');
+    try {
+      const closedIds = new Set(opr.items.filter(item => item.status === 'reserve').map(item => item.reserveId));
+      const reserves = kind !== 'levee' ? projectScoped.reserves : await mapWithConcurrency(projectScoped.reserves, 4, async reserve => {
+        if (!closedIds.has(reserve.id) || reserve.status !== 'closed') return reserve;
+        const candidates = reservePhotoItems(reserve, data.photos);
+        const selected = ['defect', 'resolution'].map(photoKind => candidates.find(photo => (photo.kind || 'defect') === photoKind)).filter(Boolean);
+        const resolved = await resolvePdfPhotoItems(selected);
+        if (resolved.length !== selected.length) throw new Error('Une photographie de levée est inaccessible. Le PDF n’a pas été généré.');
+        const photos = await Promise.all(resolved.map(async photo => {
+          const uri = await imageUrlToPdfDataUrl(photo.uri);
+          if (!uri || !/^data:image\/(?:png|jpe?g|webp);base64,/i.test(uri)) {
+            pdfPhotoDataUrlCache.delete(photo.uri);
+            throw new Error('Une photographie de levée n’a pas pu être chargée. Réessayez avant de générer le PDF.');
+          }
+          return { ...photo, uri };
+        }));
+        return { ...reserve, photos };
+      });
+      if (workspaceOwnerRef.current !== owner) return;
+      printHtmlReport(buildWebOprPrint(opr, projectName(), reserves, kind, data.companies, reportLanguage), 'OPR-' + kind + '-' + opr.id + '.pdf');
+    } catch (cause) {
+      if (workspaceOwnerRef.current === owner) setError(cause instanceof Error ? cause.message : 'Export OPR impossible.');
+    } finally {
+      setGeneratingReport(null);
+    }
   }
 
   async function deleteOprWeb(opr: any) {
@@ -6123,15 +6165,17 @@ function BuildTrackWebWorkspace() {
   }
 
   async function enqueueVisitReserves(visitId: string, reserveIds: string[], action: 'link' | 'unlink') {
-    if (!profile?.organization_id) return;
+    if (!profile?.organization_id) return false;
     try {
       await outbox.enqueue('visit_reserves', {
         id: crypto.randomUUID(), organization_id: profile.organization_id, visitId, reserveIds, action,
       });
       if (navigator.onLine) void outbox.flush();
       else setNotice('Rattachement conservé sur ce navigateur. Il sera envoyé au retour du réseau.');
+      return true;
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Impossible de conserver ce rattachement.');
+      return false;
     }
   }
 
@@ -6494,6 +6538,16 @@ function BuildTrackWebWorkspace() {
             }).select().maybeSingle();
             if (result.error) throw Object.assign(result.error, { status: result.status });
             saved = result.data;
+          } else if (table === 'oprs' && Array.isArray(fields.items)) {
+            const result = await supabaseBrowser.rpc('update_web_opr_items', {
+              p_opr_id: write.id, p_expected_revision: write.before.opr_revision, p_fields: fields,
+            });
+            if (result.error) throw Object.assign(result.error, { status: result.status });
+            saved = result.data?.opr;
+            if (!saved?.id) throw new Error('Le procès-verbal n’a pas été enregistré.');
+            if (stillOwned()) setData(previous => ({ ...previous, reserves: previous.reserves.map(reserve =>
+              result.data.reserves?.find((row: any) => row.id === reserve.id) ?? reserve),
+            }));
           } else if (table === 'site_plans' && fields.uri === null) {
             const result = await supabaseBrowser.rpc('remove_web_plan_file', {
               p_organization_id: org, p_plan_id: write.id, p_expected_uri: write.before.uri,
@@ -7973,7 +8027,8 @@ function BuildTrackWebWorkspace() {
                 isPending={hasPendingOpr}
                 onSignerLink={createOprSignerLink}
                 onSign={signOprWeb}
-                onExport={(opr, kind) => printHtmlReport(buildWebOprPrint(opr, projectName(), projectScoped.reserves, kind, data.companies), 'OPR-' + kind + '-' + opr.id + '.pdf')}
+                exporting={Boolean(generatingReport)}
+                onExport={(opr, kind) => void exportOprWeb(opr, kind)}
                 projectName={projectName()}
                 onOpenReserve={openReserveDetailTab}
                 isReserveArchived={isReserveArchived}
@@ -13053,7 +13108,7 @@ function VisitesView({
 
   async function applyAttach() {
     if (!attachVisit || !attachSelectedIds.length) return;
-    await onAttachReserves(attachVisit, attachSelectedIds);
+    if (!await onAttachReserves(attachVisit, attachSelectedIds)) return;
     setAttachVisitId('');
     setAttachSelectedIds([]);
   }
@@ -13797,6 +13852,7 @@ function VisitesView({
                       <div>
                         <b>{reserve.title}</b>
                         <small>{[reserve.company, reserve.building, reserve.level].filter(Boolean).join(' · ')}</small>
+                        {((reserve.visite_id && reserve.visite_id !== attachVisit?.id) || visites.some((row: any) => row.id !== attachVisit?.id && Array.isArray(row.reserve_ids) && row.reserve_ids.includes(reserve.id))) ? <small>Déjà liée à une autre visite</small> : null}
                       </div>
                     </button>
                   );
@@ -15084,6 +15140,7 @@ function ReglementaireView({ docs, companies, profile, canCreate, canEdit, canDe
               <div>
                 <strong>{doc.title}</strong>
                 <small>{doc.company || 'Toutes entreprises'} · échéance {prettyDate(doc.expiry_date)}</small>
+                {doc.issue_date ? <small>Émis le {prettyDate(doc.issue_date)}</small> : null}
                 {doc.reference ? <small>Référence · {doc.reference}</small> : null}
                 {!canEdit ? <small>{REGULATORY_STATUS_LABELS[doc.status] ?? doc.status}</small> : null}
                 {doc.notes ? <p>{doc.notes}</p> : null}

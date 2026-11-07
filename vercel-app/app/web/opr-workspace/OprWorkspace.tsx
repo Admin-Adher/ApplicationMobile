@@ -34,6 +34,7 @@ type OprWorkspaceProps = {
   canEdit: boolean;
   canCreate: boolean;
   canExport: boolean;
+  exporting?: boolean;
   onSave: SaveOpr;
   onDelete?: (opr: OprSource) => Promise<boolean>;
   isPending?: (id: string) => boolean;
@@ -91,7 +92,7 @@ function StatusBadge({ status }: { status: OprStatus }) {
   );
 }
 
-function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSignerLink, onSign, onExport, onVerify, onRemoveSigner, closedReserveIds }: {
+function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSignerLink, onSign, onExport, onVerify, onRemoveSigner, closedReserveIds, exporting }: {
   opr: OprSummary;
   open: boolean;
   onToggle: () => void;
@@ -101,6 +102,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   onSignerLink?: OprWorkspaceProps['onSignerLink'];
   onSign?: () => Promise<void>;
   onExport?: (kind: OprPrintKind) => void;
+  exporting?: boolean;
   onVerify?: (itemId: string) => Promise<void>;
   onRemoveSigner?: (signerId: string) => Promise<void>;
   closedReserveIds: Set<string>;
@@ -202,9 +204,9 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
               try { await onDelete(); } finally { setDeleting(false); }
             }}>Supprimer le brouillon</button> : null}
             {onExport ? <>
-              <button type="button" onClick={() => onExport('pv')}>PDF du procès-verbal</button>
-              <button type="button" onClick={() => onExport('convocation')}>PDF de convocation</button>
-              {opr.reserveCount ? <button type="button" onClick={() => onExport('levee')}>PDF de levée</button> : null}
+              <button type="button" disabled={exporting} onClick={() => onExport('pv')}>PDF du procès-verbal</button>
+              <button type="button" disabled={exporting} onClick={() => onExport('convocation')}>PDF de convocation</button>
+              {opr.reserveCount ? <button type="button" disabled={exporting} onClick={() => onExport('levee')}>PDF de levée</button> : null}
             </> : null}
           </div>
           {signError && <p role="alert">{signError}</p>}
@@ -290,7 +292,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   );
 }
 
-export default function OprWorkspace({ oprs, reserves, lotNames, projectName, actorName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onDelete, isPending, onSignerLink, onSign, onExport }: OprWorkspaceProps) {
+export default function OprWorkspace({ oprs, reserves, lotNames, projectName, actorName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, exporting, onSave, onDelete, isPending, onSignerLink, onSign, onExport }: OprWorkspaceProps) {
   const [filter, setFilter] = useState<OprFilter>('all');
   const [openId, setOpenId] = useState<string | null>(requestedId || null);
   const [editor, setEditor] = useState<OprSource | null | undefined>(undefined);
@@ -400,6 +402,7 @@ export default function OprWorkspace({ oprs, reserves, lotNames, projectName, ac
                   ? () => onDelete(opr.source) : undefined}
                 onSignerLink={canEdit && !isPending?.(opr.id) ? onSignerLink : undefined}
                 onSign={canEdit && !isPending?.(opr.id) && canSignOprDirectly(opr.source) ? () => onSign(opr.source) : undefined}
+                exporting={exporting}
                 onExport={canExport ? kind => onExport(opr, kind) : undefined}
               />
             ))}

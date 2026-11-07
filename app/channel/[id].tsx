@@ -1,3 +1,4 @@
+import { messageDateLabel as formatTimestampLabel, messageDateKey as getDateFromTimestamp } from '@/lib/messageTimestamp';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert,
   Modal, Platform, ActivityIndicator, Animated, KeyboardAvoidingView,
@@ -25,34 +26,6 @@ import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor } fr
 import DictationTextInput from '@/components/DictationTextInput';
 
 const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
-
-function getDateLocale(language: string | undefined): string {
-  if (language?.startsWith('es')) return 'es-ES';
-  if (language?.startsWith('en')) return 'en-GB';
-  return 'fr-FR';
-}
-
-function formatTimestampLabel(timestamp: string, t: (key: string) => string, language?: string): string {
-  const parts = timestamp.split(' ');
-  if (parts.length < 2) return timestamp;
-  const datePart = parts[0];
-  const storageDate = new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const today = storageDate.format(new Date());
-  const yesterday = storageDate.format(new Date(Date.now() - 86400000));
-  if (datePart === today) return t('channel.today');
-  if (datePart === yesterday) return t('channel.yesterday');
-  const match = datePart.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (!match) return datePart;
-  return new Intl.DateTimeFormat(getDateLocale(language), {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-  }).format(new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1])));
-}
-
-function getDateFromTimestamp(timestamp: string): string {
-  return timestamp.split(' ')[0] ?? timestamp;
-}
 
 function DateSeparator({ label }: { label: string }) {
   return (
