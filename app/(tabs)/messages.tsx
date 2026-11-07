@@ -10,7 +10,8 @@ import { C } from '@/constants/colors';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { isSameUserName } from '@/lib/mappers';
+import { getMessageTimeMs, isSameUserName } from '@/lib/mappers';
+import { messageTime as formatChannelTime } from '@/lib/messageTimestamp';
 import { Channel, ChannelMemberIdentity, Message, Profile } from '@/constants/types';
 import NewChannelModal from '@/components/NewChannelModal';
 import EditChannelModal from '@/components/EditChannelModal';
@@ -37,21 +38,7 @@ function getAvatarColor(name: string) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
-function formatChannelTime(timestamp: string): string {
-  if (!timestamp) return '';
-  const parts = timestamp.split(' ');
-  if (parts.length >= 2) return parts[1];
-  return timestamp.slice(-5);
-}
-
-function getMsgSortTime(msg: Message): number {
-  if (msg.dbCreatedAt) return new Date(msg.dbCreatedAt).getTime();
-  if (msg.timestamp) {
-    const m = msg.timestamp.match(/^(\d{2})\/(\d{2})\/(\d{4}) (\d{2}):(\d{2})$/);
-    if (m) return new Date(+m[3], +m[2] - 1, +m[1], +m[4], +m[5]).getTime();
-  }
-  return 0;
-}
+const getMsgSortTime = getMessageTimeMs;
 
 function ChannelAvatar({ channel }: { channel: Channel }) {
   const isDM = channel.type === 'dm';

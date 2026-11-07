@@ -1,3 +1,4 @@
+import { messageTime } from '@/lib/messageTimestamp';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Linking } from 'react-native';
 import { MediaImage } from '@/components/MediaImage';
 import { Ionicons } from '@expo/vector-icons';
@@ -106,7 +107,7 @@ export default function MessageBubble({ msg: rawMsg, color, userName, highlighte
           <Text style={styles.notifText}>{msg.content}</Text>
           {hasLink && <Ionicons name="chevron-forward" size={11} color={notifColor} />}
         </View>
-        <Text style={styles.notifTime}>{msg.timestamp.split(' ')[1]}</Text>
+        <Text style={styles.notifTime}>{messageTime(msg.timestamp)}</Text>
       </TouchableOpacity>
     );
   }
@@ -276,7 +277,7 @@ export default function MessageBubble({ msg: rawMsg, color, userName, highlighte
 
         <View style={[styles.metaRow, msg.isMe && { justifyContent: 'flex-end' }]}>
           <Text style={[styles.timeText, msg.isMe && styles.timeTextMe]}>
-            {msg.timestamp.split(' ')[1] ?? msg.timestamp}
+            {messageTime(msg.timestamp)}
           </Text>
           {msg.isMe && (
             <View style={styles.readRow}>
