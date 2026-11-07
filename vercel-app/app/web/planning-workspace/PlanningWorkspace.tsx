@@ -48,6 +48,7 @@ type PlanningWorkspaceProps = {
 const TASK_MODES: Array<{ id: PlanningTaskMode; label: string }> = [
   { id: 'week', label: 'Cette semaine' },
   { id: 'company', label: 'Par entreprise' },
+  { id: 'priority', label: 'Par priorité' },
   { id: 'late', label: 'En retard' },
 ];
 
@@ -233,6 +234,7 @@ export default function PlanningWorkspace({
   const taskModeCounts: Record<PlanningTaskMode, number> = {
     week: weekTasksCount,
     company: companyTasks.length,
+    priority: companyTasks.length,
     late: lateTasksCount,
   };
   const scheduleFilterCounts: Record<PlanningScheduleFilter, number> = {
@@ -377,7 +379,7 @@ export default function PlanningWorkspace({
         <div className={styles.taskActions}>
           <button type="button" aria-expanded={showGantt} onClick={() => setShowGantt(value => !value)}>Diagramme de Gantt</button>
         </div>
-        {showGantt ? <PlanningGantt tasks={companyTasks} locale={locale} onOpenTask={openTask} /> : null}
+        {showGantt ? <PlanningGantt tasks={companyTasks} companies={companies} locale={locale} onOpenTask={openTask} /> : null}
         <div className={styles.planningColumns} data-tasks-empty={visibleTasks.length === 0}>
           <section className={styles.taskLane} aria-labelledby={taskHeadingId}>
             <div className={styles.laneHeader}>
@@ -417,7 +419,7 @@ export default function PlanningWorkspace({
               <div className={styles.taskGroups}>
                 {taskGroups.map(([group, groupTasks]) => (
                   <section key={group} className={styles.taskGroup}>
-                    {taskMode === 'company' ? <h4>{group}<span>{groupTasks.length}</span></h4> : null}
+                    {taskMode === 'company' || taskMode === 'priority' ? <h4>{group}<span>{groupTasks.length}</span></h4> : null}
                     <div className={styles.taskList}>
                       {groupTasks.map(task => {
                         const company = companies.find(item => item.id === task.company || item.name === task.company);

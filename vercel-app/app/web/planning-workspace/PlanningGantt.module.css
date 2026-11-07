@@ -1,12 +1,18 @@
-.gantt { margin: 1rem 0; padding: .8rem; border: 1px solid #dbe4ef; border-radius: .65rem; }
+.gantt { min-width: 0; margin: 1rem 0; padding: .8rem; border: 1px solid #dbe4ef; border-radius: .65rem; }
 .header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .45rem; }
 .header div { display: flex; flex-wrap: wrap; gap: .4rem; }
-.header button, .task { padding: .35rem .5rem; border: 1px solid #b5c4d6; border-radius: .4rem; background: white; color: #003082; cursor: pointer; }
+.header button, .task, .company { min-height: 44px; padding: .35rem .5rem; border: 1px solid #b5c4d6; border-radius: .4rem; background: white; color: #003082; cursor: pointer; }
+.gantt :is(button, [tabindex]):focus-visible { outline: 2px solid #003082; outline-offset: 2px; }
+.scale { display: flex; flex-wrap: wrap; gap: .4rem; border: 0; margin: 0; padding: 0; }
+.scale legend { font-size: .75rem; padding-bottom: .3rem; }
+.scale button[aria-pressed=true] { background: #003082; color: white; }
 .scroll { overflow-x: auto; margin-top: .55rem; }
-.grid { display: grid; grid-template-columns: 11rem repeat(14, minmax(2.45rem, 1fr)); align-items: center; min-width: 46rem; row-gap: .35rem; }
+.grid { display: grid; align-items: center; row-gap: .35rem; }
 .row { display: contents; }
 .day { font-size: .65rem; text-align: center; padding: .3rem .05rem; border-bottom: 1px solid #dbe4ef; }
 .title { font-weight: 650; }
-.task { grid-column: 1; text-align: left; overflow-wrap: anywhere; margin-right: .4rem; }
-.bar { height: .75rem; background: #245b9a; border-radius: .35rem; }
+.task { grid-column: 1; position: sticky; left: 0; z-index: 1; text-align: left; overflow-wrap: anywhere; margin-right: .4rem; }
+.company { grid-column: 1 / -1; text-align: left; background: #edf2f8; font-weight: 650; }
+.timeline { grid-column: 2 / -1; position: relative; height: 44px; }
+.bar { position: absolute; top: 6px; height: 32px; min-width: 8px; padding: 0; border: 0; background: #245b9a; border-radius: .35rem; cursor: pointer; }
 .bar[data-done=true] { background: #087159; }

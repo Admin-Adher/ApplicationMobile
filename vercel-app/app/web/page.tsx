@@ -170,6 +170,7 @@ import styles from './web.module.css';
 import { useWebOutbox } from '@/lib/use-web-outbox';
 import { reserveDuplicatePayload } from '@/lib/reserve-duplicate';
 import { reserveBatchOperation, type ReserveBatchChange } from '@/lib/reserve-batch';
+import { DEFAULT_RESERVE_LIST_FILTERS, matchesReserveListFilters, reserveLotLabel, reserveLotSearchText, sortReserveList, type ReserveListFilters, type ReserveListSort } from '@/lib/reserve-list-model';
 import { canDiscardFieldOperation, canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, saveWebOperations, type WebQueuedOperation } from '@/lib/web-outbox';
 import {
   recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
@@ -3145,6 +3146,8 @@ function BuildTrackWebWorkspace() {
   const [companyFilter, setCompanyFilter] = useState('all');
   const [buildingFilter, setBuildingFilter] = useState('all');
   const [pinFilter, setPinFilter] = useState('all');
+  const [reserveListFilters, setReserveListFilters] = useState<ReserveListFilters>(DEFAULT_RESERVE_LIST_FILTERS);
+  const [reserveListSort, setReserveListSort] = useState<ReserveListSort>('date_desc');
   const [search, setSearch] = useState('');
   const [messageDraft, setMessageDraft] = useState('');
   const [reserveModalMode, setReserveModalMode] = useState<'create' | 'edit' | null>(null);
@@ -5944,7 +5947,7 @@ function BuildTrackWebWorkspace() {
       const [{ buildCsvReport }, { toReserve }, { fieldReportTranslator }] = await Promise.all([
         import('../../../lib/reserveCsv'), import('../../../lib/mappers'), import('@/lib/field-report-translation'),
       ]);
-      const reserves = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve)).map(toReserve);
+      const reserves = filteredReserves.map(toReserve);
       const csv = buildCsvReport(reserves, fieldReportTranslator(reportLanguage), localeForLang(reportLanguage));
       downloadBlobFile(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }), `BuildTrack_reserves_${reportLanguage}.csv`);
     } catch {
@@ -6730,6 +6733,7 @@ function BuildTrackWebWorkspace() {
     setCompanyFilter('all');
     setBuildingFilter('all');
     setPinFilter('all');
+    setReserveListFilters(DEFAULT_RESERVE_LIST_FILTERS);
     setSelectedReserveId(reserveId);
     setReserveDetailRequest({ id: reserveId, token: reserveDetailRequestTokenRef.current });
     setActiveTab('reserves');
@@ -6853,6 +6857,7 @@ function BuildTrackWebWorkspace() {
     setCompanyFilter('all');
     setBuildingFilter('all');
     setPinFilter('all');
+    setReserveListFilters(DEFAULT_RESERVE_LIST_FILTERS);
   }, [activeTab, selectedProjectId]);
 
   const openedOprLink = useRef('');
@@ -7051,6 +7056,7 @@ function BuildTrackWebWorkspace() {
     () => new Map<string, any>(projectScoped.plans.map((plan: any) => [String(plan.id), plan] as [string, any])),
     [projectScoped.plans]
   );
+  const reserveLotsById = useMemo(() => new Map<string, any>(data.lots.map(lot => [String(lot.id), lot])), [data.lots]);
 
   const reserveStructuredFilters = useMemo(() => {
     const active = projectScoped.reserves.filter(reserve => !isReserveArchived(reserve));
@@ -7060,8 +7066,15 @@ function BuildTrackWebWorkspace() {
       .filter(info => info.selectable)
       .map(info => info.name)
     )).sort((a, b) => a.localeCompare(b));
-    return { companies, buildings };
-  }, [projectScoped.reserves, reserveFilterPlansById, activeProjectForReserveFilters]);
+    const facetRows = [...projectScoped.reserves, ...projectScoped.deletedReserves];
+    const values = (field: 'level' | 'zone') => Array.from(new Set(facetRows.map(row => String(row[field] ?? '')).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b, 'fr', { numeric: true }));
+    const lotIds = new Set(facetRows.map(row => String(row.lot_id ?? '')));
+    const lots = data.lots.filter(lot => lotIds.has(String(lot.id)))
+      .map(lot => ({ id: String(lot.id), label: reserveLotLabel(lot) }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'fr', { numeric: true }));
+    return { companies, buildings, levels: values('level'), zones: values('zone'), lots };
+  }, [projectScoped.reserves, projectScoped.deletedReserves, data.lots, reserveFilterPlansById, activeProjectForReserveFilters]);
 
   const deferredReserveSearch = useDeferredValue(search);
   const filteredReserves = useMemo(() => {
@@ -7069,7 +7082,7 @@ function BuildTrackWebWorkspace() {
       ? ''
       : normalizeSearchText(deferredReserveSearch);
     const sourceReserves = effectiveStatusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
-    return sourceReserves.filter(r => {
+    return sortReserveList(sourceReserves.filter(r => {
       if (effectiveStatusFilter === 'deleted') {
         if (!isReserveDeleted(r)) return false;
       } else if (effectiveStatusFilter === 'archived') {
@@ -7096,6 +7109,7 @@ function BuildTrackWebWorkspace() {
       }
       if (pinFilter === 'pinned' && !r.plan_id) return false;
       if (pinFilter === 'unpinned' && r.plan_id) return false;
+      if (!matchesReserveListFilters(r, reserveListFilters)) return false;
       if (!q) return true;
       const haystack = normalizeSearchText([
         r.id,
@@ -7106,11 +7120,12 @@ function BuildTrackWebWorkspace() {
         r.zone,
         STATUS_LABELS[r.status] ?? r.status,
         PRIORITY_LABELS[r.priority] ?? r.priority,
+        reserveLotSearchText(r, reserveLotsById),
         ...(reserveCompanies(r)),
       ].join(' '));
       return haystack.includes(q);
-    });
-  }, [projectScoped.reserves, projectScoped.deletedReserves, deferredReserveSearch, search, reserveDetailRequest, effectiveStatusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveFilterPlansById, activeProjectForReserveFilters]);
+    }), reserveListSort);
+  }, [projectScoped.reserves, projectScoped.deletedReserves, deferredReserveSearch, search, reserveDetailRequest, effectiveStatusFilter, priorityFilter, companyFilter, buildingFilter, pinFilter, reserveListFilters, reserveListSort, reserveLotsById, reserveFilterPlansById, activeProjectForReserveFilters]);
 
   const reserveSelectionPool = effectiveStatusFilter === 'deleted' ? projectScoped.deletedReserves : projectScoped.reserves;
   const scopedAllReserves = useMemo(
@@ -7562,6 +7577,10 @@ function BuildTrackWebWorkspace() {
                 pinFilter={pinFilter}
                 setPinFilter={setPinFilter}
                 structuredFilters={reserveStructuredFilters}
+                listFilters={reserveListFilters}
+                setListFilters={setReserveListFilters}
+                listSort={reserveListSort}
+                setListSort={setReserveListSort}
                 onStatus={updateReserveStatus}
                 onRequestLift={requestReserveLiftWeb}
                 onAcknowledge={acknowledgeReserveWeb}
@@ -8002,6 +8021,7 @@ function BuildTrackWebWorkspace() {
                     setReserveDetailRequest(null); setSelectedReserveId(null);
                     setSearch(''); setStatusFilter('all'); setPriorityFilter('all');
                     setBuildingFilter('all'); setPinFilter('all'); setCompanyFilter(company);
+                    setReserveListFilters(DEFAULT_RESERVE_LIST_FILTERS);
                     setActiveTab('reserves');
                   }}
                 />
@@ -8133,7 +8153,11 @@ function ReservesView(props: {
   setBuildingFilter: (value: string) => void;
   pinFilter: string;
   setPinFilter: (value: string) => void;
-  structuredFilters: { companies: string[]; buildings: string[] };
+  structuredFilters: { companies: string[]; buildings: string[]; levels: string[]; zones: string[]; lots: { id: string; label: string }[] };
+  listFilters: ReserveListFilters;
+  setListFilters: (value: ReserveListFilters) => void;
+  listSort: ReserveListSort;
+  setListSort: (value: ReserveListSort) => void;
   onStatus: (id: string, status: string) => void;
   onRequestLift: (reserve: any, payload: { comment: string; file: File | null }) => Promise<void> | void;
   onAcknowledge: (reserve: any) => void;
@@ -8212,6 +8236,8 @@ function ReservesView(props: {
     props.companyFilter,
     props.buildingFilter,
     props.pinFilter,
+    ...Object.values(props.listFilters),
+    props.listSort,
     props.search,
   ].join('\u0000');
   const [reserveNavigatorState, setReserveNavigatorState] = useState(() => createReserveNavigatorState(reserveNavigatorScopeKey));
@@ -8299,7 +8325,7 @@ function ReservesView(props: {
     props.priorityFilter !== 'all' ||
     props.companyFilter !== 'all' ||
     props.buildingFilter !== 'all' ||
-    props.pinFilter !== 'all';
+    props.pinFilter !== 'all' || Object.values(props.listFilters).some(value => value !== 'all');
 
   useEffect(() => {
     reserveListScrollTopRef.current = 0;
@@ -8393,6 +8419,7 @@ function ReservesView(props: {
     props.companyFilter,
     props.buildingFilter,
     props.pinFilter,
+    ...Object.values(props.listFilters),
   ].filter(value => value !== 'all').length + (quickStatusKeys.has(props.statusFilter) ? 0 : 1);
   const workspaceSummary = useMemo(
     () => buildReserveWorkspaceSummary(allReserves, reserves),
@@ -8840,6 +8867,21 @@ function ReservesView(props: {
                 <option value="pinned">Épinglées</option>
                 <option value="unpinned">Non épinglées</option>
               </select>
+              <select value={props.listFilters.level} onChange={event => props.setListFilters({ ...props.listFilters, level: event.target.value })} aria-label="Filtrer par niveau">
+                <option value="all">Tous niveaux</option>
+                {props.structuredFilters.levels.map(level => <option key={level} value={level}>{level}</option>)}
+              </select>
+              <select value={props.listFilters.zone} onChange={event => props.setListFilters({ ...props.listFilters, zone: event.target.value })} aria-label="Filtrer par zone">
+                <option value="all">Toutes zones</option>
+                {props.structuredFilters.zones.map(zone => <option key={zone} value={zone}>{zone}</option>)}
+              </select>
+              <select value={props.listFilters.kind} onChange={event => props.setListFilters({ ...props.listFilters, kind: event.target.value })} aria-label="Filtrer par type">
+                <option value="all">Tous types</option><option value="reserve">Réserves</option><option value="observation">Observations</option>
+              </select>
+              <select value={props.listFilters.lot} onChange={event => props.setListFilters({ ...props.listFilters, lot: event.target.value })} aria-label="Filtrer par lot">
+                <option value="all">Tous lots</option>
+                {props.structuredFilters.lots.map(lot => <option key={lot.id} value={lot.id}>{lot.label}</option>)}
+              </select>
               {(advancedFilterActive || props.statusFilter !== 'all') && (
                 <button
                   type="button"
@@ -8849,6 +8891,7 @@ function ReservesView(props: {
                     props.setCompanyFilter('all');
                     props.setBuildingFilter('all');
                     props.setPinFilter('all');
+                    props.setListFilters(DEFAULT_RESERVE_LIST_FILTERS);
                   }}
                 >
                   Réinitialiser
@@ -8857,6 +8900,12 @@ function ReservesView(props: {
             </div>
           </div>
         )}
+        <label className={styles.reserveSortControl}>Trier les réserves
+          <select value={props.listSort} onChange={event => props.setListSort(event.target.value as ReserveListSort)}>
+            <option value="date_desc">Plus récente</option><option value="date_asc">Plus ancienne</option>
+            <option value="priority">Priorité (critique d’abord)</option><option value="deadline">Échéance (plus proche)</option><option value="status">Statut</option>
+          </select>
+        </label>
         {props.editable && !isTrashView && (
           <div className={styles.reserveBatch}>
             <button type="button" disabled={batchBusy} aria-expanded={batchSelectionOpen}
@@ -8955,7 +9004,7 @@ function ReservesView(props: {
           {!reserves.length && (
             <p className={styles.empty}>
               {isTrashView ? t('empty.trashEmpty') : t('empty.noReservesFilter')}
-              {!isTrashView && (props.search || props.statusFilter !== 'all' || props.priorityFilter !== 'all' || props.companyFilter !== 'all' || props.buildingFilter !== 'all' || props.pinFilter !== 'all') ? (
+              {!isTrashView && (props.search || props.statusFilter !== 'all' || advancedFilterActive) ? (
                 <>
                   {' '}
                   <button
@@ -8968,6 +9017,7 @@ function ReservesView(props: {
                       props.setCompanyFilter('all');
                       props.setBuildingFilter('all');
                       props.setPinFilter('all');
+                      props.setListFilters(DEFAULT_RESERVE_LIST_FILTERS);
                     }}
                   >
                     Réinitialiser les filtres

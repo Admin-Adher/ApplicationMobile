@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   PLANNING_SCHEDULE_BATCH_SIZE,
   buildPlanningSchedule,
+  buildPlanningGantt,
+  groupPlanningGantt,
   filterPlanningCompany,
   filterPlanningSchedule,
   filterPlanningTasks,
@@ -14,6 +16,22 @@ import {
 const now = new Date('2026-08-29T10:00:00');
 
 describe('BuildTrack planning workspace model', () => {
+  it('groups priorities in urgency order and preserves tasks with no known priority', () => {
+    const tasks = [{ id: 'low', priority: 'low' }, { id: 'critical', priority: 'critical' }, { id: 'high', priority: 'high' }, { id: 'unknown' }];
+    const groups = groupPlanningTasks(filterPlanningTasks(tasks, 'priority', now), [], 'priority');
+    expect(groups.map(([label, rows]) => [label, rows.map(row => row.id)])).toEqual([
+      ['Critique', ['critical']], ['Haute', ['high']], ['Basse', ['low']], ['Sans priorité', ['unknown']],
+    ]);
+  });
+
+  it('extends the Gantt period and groups company IDs and names together without losing unassigned tasks', () => {
+    const tasks = [{ id: 'a', title: 'A', company: 'c1', deadline: '2026-09-01' }, { id: 'b', title: 'B', company: 'Alpha', deadline: '22/09/2026' }, { id: 'c', title: 'C', deadline: '2026-09-03' }];
+    const month = buildPlanningGantt(tasks, new Date(2026, 8, 1), 42);
+    const groups = groupPlanningGantt(month.rows, [{ id: 'c1', name: 'Alpha' }]);
+    expect(month.days).toHaveLength(42);
+    expect(groups.map(group => [group.name, group.rows.map(row => row.task.id)])).toEqual([['Alpha', ['a', 'b']], ['Sans entreprise', ['c']]]);
+    expect(buildPlanningGantt(tasks, new Date(2026, 8, 1)).rows.map(row => row.task.id)).toEqual(['a', 'c']);
+  });
   it('builds a chronological agenda and excludes closed or obsolete entries', () => {
     const schedule = buildPlanningSchedule(
       [

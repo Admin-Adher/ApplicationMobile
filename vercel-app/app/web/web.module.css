@@ -1449,6 +1449,34 @@
   gap: 8px;
 }
 
+.reserveSortControl {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reserveSortControl select {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  border: 1px solid #d8e0ec;
+  border-radius: 12px;
+  background: #fff;
+  color: #172033;
+  font: inherit;
+}
+
+@media (min-width: 1181px) {
+  .reservesListPanel { overflow-y: auto; }
+  .reservesListPanel > * { flex-shrink: 0; }
+  .reservesListPanel .reserveList { flex: 0 0 auto; overflow: visible; }
+}
+
 .reserveAdvancedFiltersWeb select,
 .reserveAdvancedFiltersWeb button {
   min-width: 0;
