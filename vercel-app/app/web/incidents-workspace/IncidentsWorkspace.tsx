@@ -38,6 +38,8 @@ type IncidentsWorkspaceProps = {
   defaultDate: string;
   projectBuildings: (incident: IncidentSource | null) => ChantierBuilding[];
   onCreateReserve?: (incident: IncidentSummary) => void;
+  initialIncident?: { id: string; description: string } | null;
+  onInitialIncidentHandled?: () => void;
   locale?: string;
   canCreate: boolean;
   canEdit: boolean;
@@ -194,6 +196,8 @@ export default function IncidentsWorkspace({
   defaultDate,
   projectBuildings,
   onCreateReserve,
+  initialIncident,
+  onInitialIncidentHandled,
   locale = 'fr-FR',
   canCreate,
   canEdit,
@@ -221,6 +225,14 @@ export default function IncidentsWorkspace({
     () => filterIncidentSummaries(model.summaries, filter, deferredQuery),
     [deferredQuery, filter, model.summaries],
   );
+  useEffect(() => {
+    if (!initialIncident || !canCreate) return;
+    setEditing(null);
+    setSubmissionError('');
+    setDraft({ ...emptyDraft(defaultDate), description: initialIncident.description });
+    setComposerOpen(true);
+    onInitialIncidentHandled?.();
+  }, [initialIncident, canCreate, defaultDate, onInitialIncidentHandled]);
   const buildings = projectBuildings(editing?.source ?? null);
   const buildingLevels = buildings.find(building => building.name === draft.building)?.levels;
   const levels = Array.isArray(buildingLevels) ? buildingLevels.filter(level => Boolean(level?.name)) : [];

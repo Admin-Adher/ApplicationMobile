@@ -42,6 +42,7 @@ type JournalWorkspaceProps = {
   onUpdate: (entry: JournalEntrySource, payload: Record<string, unknown>) => Promise<unknown>;
   onDelete: (entry: JournalEntrySource) => Promise<unknown> | unknown;
   onExport: () => void;
+  onCreateIncident?: (description: string) => void;
   getWeather?: () => Promise<{ label: string; temp: number | null; wind: number | null; code: number } | null>;
   renderPhoto?: (entry: JournalEntrySource) => ReactNode;
 };
@@ -175,6 +176,7 @@ export default function JournalWorkspace({
   canExport,
   onCreate,
   onUpdate,
+  onCreateIncident,
   onDelete,
   onExport,
   getWeather,
@@ -252,11 +254,10 @@ export default function JournalWorkspace({
     setShowEditor(false);
   }
 
-  async function submitEntry(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!canCreate || !draft.workDone.trim() || busy) return;
+  async function saveEntry() {
+    if (!canCreate || !draft.workDone.trim() || busy) return false;
     const duplicate = !draft.id && model.entries.some(entry => entry.date === draft.date);
-    if (duplicate && !window.confirm(`Une entrée existe déjà pour le ${formatJournalDate(draft.date)}. Créer quand même ?`)) return;
+    if (duplicate && !window.confirm(`Une entrée existe déjà pour le ${formatJournalDate(draft.date)}. Créer quand même ?`)) return false;
     setBusy(true);
     setSubmissionError('');
     try {
@@ -272,6 +273,7 @@ export default function JournalWorkspace({
         initialDraft.current = draftSignature(next);
         setDraft(next);
         closeEditor(true);
+        return true;
       } else {
         setSubmissionError('L’enregistrement n’a pas abouti. Vérifiez le message d’erreur affiché puis réessayez.');
       }
@@ -280,6 +282,22 @@ export default function JournalWorkspace({
     } finally {
       setBusy(false);
     }
+    return false;
+  }
+
+  async function submitEntry(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await saveEntry();
+  }
+
+  async function createIncident() {
+    if (!onCreateIncident || busy || !draft.incidents.trim()) return;
+    if (!draft.workDone.trim()) {
+      setSubmissionError('Renseignez les travaux réalisés pour enregistrer le journal avant de déclarer l’incident.');
+      return;
+    }
+    const description = draft.incidents.trim();
+    if (await saveEntry()) onCreateIncident(description);
   }
 
   function resetFilters() {
@@ -366,6 +384,8 @@ export default function JournalWorkspace({
               <div className={styles.siteLifeGrid}>
                 <label htmlFor={`${idPrefix}-visitors`}><span>Visiteurs</span><textarea id={`${idPrefix}-visitors`} rows={3} value={draft.visitors} onChange={event => setDraft(previous => ({ ...previous, visitors: event.target.value }))} placeholder="Noms, sociétés, objet de la visite…" /></label>
                 <label htmlFor={`${idPrefix}-incidents`}><span>Incidents</span><textarea id={`${idPrefix}-incidents`} rows={3} value={draft.incidents} onChange={event => setDraft(previous => ({ ...previous, incidents: event.target.value }))} placeholder="Sécurité, arrêt, retard, anomalie…" /><small>Laissez vide si aucun incident n’est à signaler.</small></label>
+                {canCreate && onCreateIncident && draft.incidents.trim() && <button type="button" disabled={busy}
+                  onClick={() => void createIncident()}>Enregistrer le journal et déclarer un incident</button>}
                 <label htmlFor={`${idPrefix}-observations`}><span>Observations</span><textarea id={`${idPrefix}-observations`} rows={3} value={draft.observations} onChange={event => setDraft(previous => ({ ...previous, observations: event.target.value }))} placeholder="Décisions, points de vigilance, suite à donner…" /></label>
               </div>
             </fieldset>
