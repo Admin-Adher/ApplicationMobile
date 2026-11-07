@@ -107,6 +107,24 @@ describe('BuildTrack messages workspace model', () => {
     expect(projection.visibleChannels.map(channel => channel.label)).toEqual(['INICA']);
   });
 
+  it('finds an older message without replacing the channel activity or bypassing its filter', () => {
+    const input = {
+      snapshot,
+      selectedChannelId: 'company-company-a',
+      lastReadByChannel: {},
+      currentUserId: 'user-me',
+      currentUserName: 'Alex',
+      query: 'premier message',
+      filter: 'company' as const,
+      language: 'fr' as const,
+    };
+    const projection = buildMessagesProjection(input);
+    expect(projection.visibleChannels.map(summary => summary.channel.id)).toEqual(['company-company-a']);
+    expect(projection.selected?.searchMessage?.id).toBe('old');
+    expect(projection.selected?.latest?.id).toBe('latest');
+    expect(buildMessagesProjection({ ...input, filter: 'dm' }).visibleChannels).toEqual([]);
+  });
+
   it('merges device and server read markers by newest valid timestamp', () => {
     expect(mergeMessageReadState(
       { channel: '2026-08-12T08:00:00.000Z', invalid: 'nope' },

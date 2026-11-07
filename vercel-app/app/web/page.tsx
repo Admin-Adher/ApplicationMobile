@@ -5355,7 +5355,7 @@ function BuildTrackWebWorkspace() {
       uploaded_at: todayISO(),
       size: formatWebFileSize(file.size),
       version: Number(payload.version ?? 1) || 1,
-      chantier_id: payload.chantier_id || (selectedProjectId !== 'all' ? selectedProjectId : null),
+      chantier_id: (payload.chantier_id ?? (selectedProjectId !== 'all' ? selectedProjectId : null)) || null,
       organization_id: profile.organization_id ?? null,
     };
     return await enqueueFieldWrites('documents', [{ action: 'insert', id: row.id, fields: row }], file) ? row : null;
@@ -6870,7 +6870,7 @@ function BuildTrackWebWorkspace() {
       visites: fieldData.visites.filter(byProject),
       tasks: fieldData.tasks.filter(byProject),
       incidents: fieldData.incidents.filter(byProject),
-      documents: profile?.role === 'sous_traitant' ? [] : fieldData.documents.filter(byProject),
+      documents: profile?.role === 'sous_traitant' ? [] : fieldData.documents.filter(document => !getChantierId(document) || byProject(document)),
       photos,
       oprs: fieldData.oprs.filter(byProject),
       timeEntries: profile?.role === 'sous_traitant' ? [] : fieldData.timeEntries,
@@ -7615,6 +7615,7 @@ function BuildTrackWebWorkspace() {
             )}
             {activeTab === 'journal' && (
               <JournalView
+                reportLanguage={reportLanguage}
                 profile={profile}
                 projectName={projectName()}
                 selectedProjectId={selectedProjectId}
@@ -7647,6 +7648,7 @@ function BuildTrackWebWorkspace() {
             )}
             {activeTab === 'analytics' && (
               <AnalyticsView
+                reportLanguage={reportLanguage}
                 lots={data.lots}
                 projectName={projectName()}
                 scoped={projectScoped}
@@ -13666,6 +13668,7 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
   onSharePhoto?: (photo: any, channelId: string, caption: string) => Promise<void>; canExportPhoto: boolean;
 }) {
   const [query, setQuery] = useState('');
+  const [authorFilter, setAuthorFilter] = useState('');
   const [sharingId, setSharingId] = useState('');
   const [draftPhoto, setDraftPhoto] = useState<File | null>(null);
   const [editingPhoto, setEditingPhoto] = useState<any>(null);
@@ -13706,7 +13709,14 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
   // Recherche différée : la frappe reste fluide même avec des centaines de photos.
   const deferredQuery = useDeferredValue(query);
   const q = deferredQuery.trim().toLowerCase();
-  const filteredPhotos = useMemo(() => photos.filter(photo => !q || [photo.title, photo.name, photo.comment, photo.location, photo.taken_by, photo.takenBy].join(' ').toLowerCase().includes(q)), [photos, q]);
+  const authors = useMemo(() => [...new Set<string>(
+    photos.map(photo => String(photo.taken_by ?? photo.takenBy ?? '').trim()).filter(Boolean),
+  )].sort((a, b) => a.localeCompare(b)), [photos]);
+  const activeAuthor = authors.includes(authorFilter) ? authorFilter : '';
+  const filteredPhotos = useMemo(() => photos.filter(photo =>
+    (!activeAuthor || String(photo.taken_by ?? photo.takenBy ?? '').trim() === activeAuthor) &&
+    (!q || [photo.title, photo.name, photo.comment, photo.location, photo.taken_by, photo.takenBy].join(' ').toLowerCase().includes(q))
+  ), [photos, q, activeAuthor]);
   const filteredDocuments = useMemo(() => documents.filter(document => !q || [document.title, document.name, document.file_name, document.category].join(' ').toLowerCase().includes(q)), [documents, q]);
   return (
     <div className={styles.stack}>
@@ -13725,6 +13735,13 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
       </section>
       <section className={styles.panel}>
         <h2>Photos</h2>
+        {authors.length > 0 ? <label className={styles.galleryActions}>
+          Filtrer les photos par auteur
+          <select value={activeAuthor} onChange={event => setAuthorFilter(event.target.value)}>
+            <option value="">Tous les auteurs</option>
+            {authors.map(author => <option key={author} value={author}>{author}</option>)}
+          </select>
+        </label> : null}
         {onAddPhoto ? <label className={styles.galleryUpload}>Ajouter une photo<input type="file" accept="image/*" capture="environment" disabled={busy} onChange={event => {
           const file = event.currentTarget.files?.[0];
           if (file) setDraftPhoto(file);
@@ -14295,7 +14312,7 @@ function RestrictedTool({ title }: { title: string }) {
   );
 }
 
-function JournalView({ profile, projectName, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
+function JournalView({ profile, projectName, reportLanguage, selectedProjectId, timeEntries, canCreate, canDelete, canExport, rows, onCreate, onUpdate, onDelete, onMigrate }: any) {
   const { lang } = useWebI18n();
   // Migration one-shot des anciennes entrées localStorage vers Supabase.
   useEffect(() => {
@@ -14314,12 +14331,21 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
 
   const entries = useMemo<any[]>(() => (rows ?? []).map(journalRowToEntry), [rows]);
 
-  function exportJournal() {
+  async function exportJournal() {
+    const { fieldReportTranslator } = await import('@/lib/field-report-translation');
+    const t = fieldReportTranslator(reportLanguage);
+    const locale = localeForLang(reportLanguage);
+    const formatDate = (value: string) => {
+      const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value + 'T00:00:00' : value;
+      return parseDateSafe(calendarDate)?.toLocaleDateString(locale) ?? value;
+    };
+    const columns = ['journal.pdf.date', 'journal.pdf.weather', 'journal.pdf.workers', 'journal.workDoneLabel',
+      'journal.materialsLabel', 'journal.observationsLabel', 'journal.pdf.incidents', 'journal.pdf.visitors', 'journal.pdf.author'];
     const tableRows = [...entries]
-      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
+      .sort((a, b) => (parseDateSafe(b.date)?.getTime() ?? 0) - (parseDateSafe(a.date)?.getTime() ?? 0))
       .map(entry => `
       <tr>
-        <td>${xmlEscape(entry.date)}</td>
+        <td>${xmlEscape(formatDate(entry.date))}</td>
         <td>${xmlEscape([
           entry.weather || '—',
           entry.weatherTemp == null ? null : `${entry.weatherTemp} °C`,
@@ -14334,19 +14360,20 @@ function JournalView({ profile, projectName, selectedProjectId, timeEntries, can
         <td>${xmlEscape(entry.author || '')}</td>
       </tr>
     `).join('');
+    const title = t('journal.pdf.documentTitle', { project: projectName });
     printHtmlReport(`
-      <html><head><title>Journal ${xmlEscape(projectName)}</title>
-      <style>body{font-family:Arial,sans-serif;padding:24px;color:#1e293b}h1{color:#003082}table{width:100%;border-collapse:collapse}th{background:#003082;color:#fff;padding:8px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}</style>
+      <html lang="${reportLanguage}"><head><title>${xmlEscape(title)}</title>
+      <style>body{font-family:Arial,sans-serif;padding:24px;color:#1e293b}h1{color:#003082}table{width:100%;border-collapse:collapse}th{background:#eef3fa;color:#1e293b;padding:8px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}</style>
       </head>
       <body>
-        <h1>Journal de chantier — ${xmlEscape(projectName)}</h1>
-        <p>${entries.length} entrée(s) · Export ${todayISO()}</p>
+        <h1>${xmlEscape(title)}</h1>
+        <p>${xmlEscape(t('journal.pdf.register', { count: entries.length }))} · ${formatDate(todayISO())}</p>
         <table>
-          <thead><tr><th>Date</th><th>Météo</th><th>Effectif</th><th>Travaux</th><th>Matériaux</th><th>Observations</th><th>Incidents</th><th>Visiteurs</th><th>Auteur</th></tr></thead>
-          <tbody>${tableRows || '<tr><td colspan="9">Aucune entrée</td></tr>'}</tbody>
+          <thead><tr>${columns.map(key => `<th>${xmlEscape(t(key))}</th>`).join('')}</tr></thead>
+          <tbody>${tableRows || `<tr><td colspan="9">${xmlEscape(t('journal.pdf.noEntries'))}</td></tr>`}</tbody>
         </table>
       </body></html>
-    `, `BuildTrack_journal_${projectName}.pdf`);
+    `, `BuildTrack_journal_${safeStorageName(projectName)}_${reportLanguage.toUpperCase()}.pdf`);
   }
 
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Journal de chantier" />;
@@ -14398,7 +14425,7 @@ function PointageView({ entries, companies, tasks, defaultArrivalTime, projectNa
   );
 }
 
-function AnalyticsView({ scoped, companies, lots, projectName, profile, setTab }: any) {
+function AnalyticsView({ scoped, companies, lots, projectName, reportLanguage, profile, setTab }: any) {
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Analytics" />;
   const reserves = scoped.reserves.filter((reserve: any) => !isReserveArchived(reserve));
   const closed = reserves.filter((reserve: any) => reserve.status === 'closed').length;
@@ -14452,20 +14479,31 @@ function AnalyticsView({ scoped, companies, lots, projectName, profile, setTab }
     { title: 'Lots', rows: breakdown(reserve => String(lotNames.get(String(reserve.lot_id ?? reserve.lotId)) || 'Sans lot')) },
   ];
 
-  function printAnalytics() {
+  async function printAnalytics() {
+    const [{ fieldReportTranslator }, { reservePriorityLabel }] = await Promise.all([
+      import('@/lib/field-report-translation'), import('../../../lib/reportLabels'),
+    ]);
+    const t = fieldReportTranslator(reportLanguage);
+    const label = (text: string) => translateWebStaticText(text, reportLanguage);
+    const exportDetails = [
+      { title: t('analyticsScreen.sections.priority'), rows: breakdown(reserve => reservePriorityLabel(t, reserve.priority) || '—') },
+      { title: t('analyticsScreen.sections.building'), rows: breakdown(reserve => reserve.building || label('Sans bâtiment')) },
+      { title: t('analyticsScreen.sections.lot'), rows: breakdown(reserve => String(lotNames.get(String(reserve.lot_id ?? reserve.lotId)) || label('Sans lot'))) },
+    ];
     const palette = getPdfCompanyPalette(companies.map((company: any) => ({ name: company.name, color: company.color })));
     const table = (title: string, headers: string[], rows: string[][]) => `<h2>${xmlEscape(title)}</h2><table>
       <thead><tr>${headers.map(heading => `<th>${xmlEscape(heading)}</th>`).join('')}</tr></thead>
       <tbody>${rows.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
-    printHtmlReport(`<!doctype html><html lang="fr"><head><title>Analytique</title><style>
+    const title = t('analyticsScreen.pdf.title');
+    printHtmlReport(`<!doctype html><html lang="${reportLanguage}"><head><title>${xmlEscape(title)}</title><style>
       body{font-family:Arial,sans-serif;color:#172b4d;margin:2rem}table{width:100%;border-collapse:collapse}
       th,td{padding:.45rem;border:1px solid #cdd7e4;text-align:left}h2{break-after:avoid}
-      </style></head><body><h1>Analytique · ${xmlEscape(projectName)}</h1>
-      <p>${reserves.length} réserve(s) · ${closureRate}% clôturées · ${overdue} en retard</p>
-      ${table('Tendance sur huit semaines', ['Semaine', 'Créations', 'Clôtures'], weekStats.map(row => [xmlEscape(row.label), String(row.created), String(row.closed)]))}
-      ${table('Entreprises', ['Entreprise', 'Total', 'Clôturées', 'Retards'], companyStats.map((row: any) => [renderPdfCompanyLabel(row.company.name, palette), String(row.total), String(row.closed), String(row.overdue)]))}
-      ${details.map(group => table(group.title, ['Libellé', 'Total', 'Clôturées'], group.rows.map(row => [xmlEscape(row.label), String(row.total), String(row.closed)]))).join('')}
-      </body></html>`, 'BuildTrack_Analytique.pdf');
+      </style></head><body><h1>${xmlEscape(title)} · ${xmlEscape(projectName)}</h1>
+      <p>${xmlEscape(t('analyticsScreen.reserveCount', { count: reserves.length }))} · ${t('analyticsScreen.kpis.closureRate')} ${closureRate}% · ${xmlEscape(t('analyticsScreen.overdueCount', { count: overdue }))}</p>
+      ${table(t('analyticsScreen.pdf.weeklyEightWeeks'), [t('analyticsScreen.pdf.week'), t('analyticsScreen.created'), t('analyticsScreen.closed')], weekStats.map(row => [xmlEscape(row.label), String(row.created), String(row.closed)]))}
+      ${table(t('analyticsScreen.sections.company'), [t('analyticsScreen.pdf.company'), t('analyticsScreen.kpis.total'), t('analyticsScreen.closed'), t('analyticsScreen.kpis.overdue')], companyStats.map((row: any) => [renderPdfCompanyLabel(row.company.name, palette), String(row.total), String(row.closed), String(row.overdue)]))}
+      ${exportDetails.map(group => table(group.title, [label('Libellé'), t('analyticsScreen.kpis.total'), t('analyticsScreen.closed')], group.rows.map(row => [xmlEscape(row.label), String(row.total), String(row.closed)]))).join('')}
+      </body></html>`, `BuildTrack_Analytique_${reportLanguage.toUpperCase()}.pdf`);
   }
 
   return (
