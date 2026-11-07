@@ -136,7 +136,7 @@ import JournalWorkspace from './journal-workspace/JournalWorkspace';
 import MessagesWorkspace from './messages-workspace/MessagesWorkspace';
 import type { ChannelDraft } from './messages-workspace/ChannelEditor';
 import OprWorkspace from './opr-workspace/OprWorkspace';
-import { canSignOprDirectly } from './opr-workspace/opr-workspace-model';
+import { canEditOpr, canSignOprDirectly } from './opr-workspace/opr-workspace-model';
 import { buildWebOprPrint } from './opr-workspace/opr-print';
 import PortalWorkspace from './PortalWorkspace';
 import { getPdfCompanyPalette, renderPdfCompanyLabel } from '../../../lib/pdfCompanyColors';
@@ -169,6 +169,7 @@ import workspaceStyles from './plan-reserve-workspace/PlanReserveWorkspace.modul
 import styles from './web.module.css';
 import { useWebOutbox } from '@/lib/use-web-outbox';
 import { reserveDuplicatePayload } from '@/lib/reserve-duplicate';
+import { reserveBatchOperation, type ReserveBatchChange } from '@/lib/reserve-batch';
 import { canDiscardFieldOperation, canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, saveWebOperations, type WebQueuedOperation } from '@/lib/web-outbox';
 import {
   recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
@@ -3929,31 +3930,33 @@ function BuildTrackWebWorkspace() {
     await patchReserveWeb(reserve, patch);
   }
 
-  async function changeReserveDeadlinesWeb(ids: string[], deadline: string) {
+  async function changeReserveBatchWeb(ids: string[], change: ReserveBatchChange) {
     if (!canEdit(profile) || !profile?.organization_id || !outboxOwner) throw new Error('Modification non autorisée.');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(deadline) || fieldDateInput(deadline) !== deadline) {
+    const organization = profile.organization_id;
+    if (change.field === 'deadline' && (!/^\d{4}-\d{2}-\d{2}$/.test(change.value) || fieldDateInput(change.value) !== change.value)) {
       throw new Error('Renseignez une échéance valide.');
+    }
+    if (change.field === 'status' && !['open', 'in_progress', 'waiting', 'verification', 'closed'].includes(change.value)) {
+      throw new Error('Choisissez un statut valide.');
+    }
+    if (change.field === 'company' && !data.companies.some(company => company.name === change.value && company.organization_id === profile.organization_id)) {
+      throw new Error('Choisissez une entreprise de cette organisation.');
     }
     const selected = [...new Set(ids)].map(id => fieldData.reserves.find(row => row.id === id));
     if (!selected.length || selected.some(row => !row || isReserveDeleted(row) || isReserveArchived(row) ||
       row.organization_id !== profile.organization_id || typeof row.version !== 'number')) {
-      throw new Error('Synchronisez les réserves sélectionnées avant de modifier leurs échéances.');
+      throw new Error('Synchronisez les réserves sélectionnées avant de les modifier.');
     }
     const pending = new Set(outbox.rows.map(operation => operation.payload.reserveId));
-    if (ids.some(id => pending.has(id))) throw new Error('Synchronisez les modifications en attente avant de changer leurs échéances.');
+    if (ids.some(id => pending.has(id))) throw new Error('Synchronisez les modifications en attente avant de modifier cette sélection.');
+    const at = new Date().toISOString();
     const createdAt = Date.now();
-    const operations: WebQueuedOperation[] = selected.filter(row => row.deadline !== deadline).map((row, index) => {
-      const id = crypto.randomUUID();
-      return {
-        key: outboxOwner + ':reserve_edit:' + id, owner: outboxOwner, kind: 'reserve_edit',
-        createdAt: createdAt + index,
-        payload: { id, reserveId: row.id, organization_id: profile.organization_id, version: row.version,
-          patch: { deadline, history: [makeHistory('Échéance modifiée en groupe', userLabel(profile, authUser), row.deadline ?? '', deadline)] },
-          title: row.title, editFormat: 'field-delta' },
-      };
-    });
+    const operations = selected.map((row, index) => reserveBatchOperation(row, change, {
+      owner: outboxOwner, organization, author: userLabel(profile, authUser),
+      at, closedOn: todayISO(), id: crypto.randomUUID(), createdAt: createdAt + index,
+    })).filter((operation): operation is WebQueuedOperation => operation !== null);
     await saveWebOperations(operations);
-    setNotice('Échéances conservées pour synchronisation.');
+    setNotice('Modifications groupées conservées pour synchronisation.');
     if (navigator.onLine) await outbox.flush();
   }
 
@@ -4965,7 +4968,7 @@ function BuildTrackWebWorkspace() {
   }
 
   async function saveOprWeb(current: any, fields: Record<string, unknown>) {
-    if ((current ? !canEdit(profile) || current.status === 'signed' : !canCreate(profile)) || !profile?.organization_id) {
+    if ((current ? !canEdit(profile) || !canEditOpr(current) : !canCreate(profile)) || !profile?.organization_id) {
       throw new Error('Votre compte ne peut pas modifier cette OPR.');
     }
     if (!current && selectedProjectId === 'all') throw new Error('Sélectionnez le chantier de l’OPR.');
@@ -7588,7 +7591,7 @@ function BuildTrackWebWorkspace() {
                 onCreate={() => openReserveCreate()}
                 onEdit={openReserveEdit}
                 onDuplicate={duplicateReserveWeb}
-                onBatchDeadline={changeReserveDeadlinesWeb}
+                onBatchChange={changeReserveBatchWeb}
                 onFillDescriptions={fillMissingReserveDescriptions}
                 onTranslateReserves={translateReserveTexts}
                 onGenerateReservesPdf={(reserves: any[], language: TextLang, companyFilter?: string | null) => generateWebReport('global_reserves', { reserves, language, companyFilter })}
@@ -7925,6 +7928,7 @@ function BuildTrackWebWorkspace() {
             )}
             {activeTab === 'opr' && (
               <OprWorkspace
+                actorName={userLabel(profile, authUser)}
                 oprs={projectScoped.oprs}
                 reserves={projectScoped.reserves}
                 lotNames={[...new Set([...STANDARD_LOTS, ...data.lots].map(lot => String(lot.name)).filter(Boolean))]}
@@ -7993,6 +7997,13 @@ function BuildTrackWebWorkspace() {
                   tasks={projectScoped.tasks}
                   editable={canUpdateAttendance(profile)}
                   onUpdateCompanyField={updateCompanyField}
+                  onOpenCompanyReserves={(company: string) => {
+                    reserveFilterScopeRef.current = selectedProjectId;
+                    setReserveDetailRequest(null); setSelectedReserveId(null);
+                    setSearch(''); setStatusFilter('all'); setPriorityFilter('all');
+                    setBuildingFilter('all'); setPinFilter('all'); setCompanyFilter(company);
+                    setActiveTab('reserves');
+                  }}
                 />
                 <LotsWorkspace key={profile?.organization_id}
                   lots={data.lots.filter(lot => lot.organization_id === profile?.organization_id)}
@@ -8142,7 +8153,7 @@ function ReservesView(props: {
   onCreate: () => void;
   onEdit: (reserve: any) => void;
   onDuplicate: (reserve: any) => Promise<void>;
-  onBatchDeadline: (ids: string[], deadline: string) => Promise<void>;
+  onBatchChange: (ids: string[], change: ReserveBatchChange) => Promise<void>;
   onFillDescriptions: (reserves: any[]) => Promise<void> | void;
   onTranslateReserves: (reserves: any[], language: TextLang) => Promise<void> | void;
   onGenerateReservesPdf: (reserves: any[], language: TextLang, companyFilter?: string | null) => Promise<void> | void;
@@ -8165,13 +8176,16 @@ function ReservesView(props: {
   const { allReserves, reserves, selectedReserve } = props;
   const { lang, t } = useWebI18n();
   const workspaceCopy = PLAN_RESERVE_WORKSPACE_COPY[lang].reserves;
-  const [deadlineSelection, setDeadlineSelection] = useState<string[]>([]);
-  const [deadlineSelectionOpen, setDeadlineSelectionOpen] = useState(false);
+  const [batchSelection, setBatchSelection] = useState<string[]>([]);
+  const [batchSelectionOpen, setBatchSelectionOpen] = useState(false);
   const [batchDeadline, setBatchDeadline] = useState('');
-  const [deadlineBusy, setDeadlineBusy] = useState(false);
-  const [deadlineError, setDeadlineError] = useState('');
+  const [batchAction, setBatchAction] = useState<ReserveBatchChange['field']>('deadline');
+  const [batchStatus, setBatchStatus] = useState('in_progress');
+  const [batchCompany, setBatchCompany] = useState('');
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [batchError, setBatchError] = useState('');
   useEffect(() => {
-    setDeadlineSelection([]); setDeadlineSelectionOpen(false); setDeadlineError('');
+    setBatchSelection([]); setBatchSelectionOpen(false); setBatchError('');
   }, [props.scopeKey]);
   const [commentText, setCommentText] = useState('');
   const [commentBusy, setCommentBusy] = useState(false);
@@ -8845,29 +8859,42 @@ function ReservesView(props: {
         )}
         {props.editable && !isTrashView && (
           <div className={styles.reserveBatch}>
-            <button type="button" disabled={deadlineBusy} aria-expanded={deadlineSelectionOpen}
-              onClick={() => { setDeadlineSelectionOpen(open => !open); setDeadlineSelection([]); setDeadlineError(''); }}>
-              Modifier plusieurs échéances
+            <button type="button" disabled={batchBusy} aria-expanded={batchSelectionOpen}
+              onClick={() => { setBatchSelectionOpen(open => !open); setBatchSelection([]); setBatchError(''); }}>
+              Modifier plusieurs réserves
             </button>
-            {deadlineSelectionOpen && <form onSubmit={async event => {
+            {batchSelectionOpen && <form onSubmit={async event => {
               event.preventDefault();
-              if (!deadlineSelection.length || deadlineBusy) return;
-              setDeadlineBusy(true); setDeadlineError('');
+              if (!batchSelection.length || batchBusy) return;
+              setBatchBusy(true); setBatchError('');
               try {
-                await props.onBatchDeadline(deadlineSelection, batchDeadline);
-                setDeadlineSelection([]); setDeadlineSelectionOpen(false);
+                await props.onBatchChange(batchSelection, { field: batchAction, value: batchAction === 'deadline' ? batchDeadline : batchAction === 'status' ? batchStatus : batchCompany });
+                setBatchSelection([]); setBatchSelectionOpen(false);
               } catch (cause) {
-                setDeadlineError(cause instanceof Error ? cause.message : 'Modification impossible.');
-              } finally { setDeadlineBusy(false); }
+                setBatchError(cause instanceof Error ? cause.message : 'Modification impossible.');
+              } finally { setBatchBusy(false); }
             }}>
-              <span role="status">{deadlineSelection.length} réserve(s) sélectionnée(s)</span>
-              <button type="button" disabled={deadlineBusy} onClick={() => setDeadlineSelection(
+              <span role="status">{batchSelection.length} réserve(s) sélectionnée(s)</span>
+              <button type="button" disabled={batchBusy} onClick={() => setBatchSelection(
                 reserves.filter(row => !isReserveArchived(row) && !isReserveDeleted(row)).map(row => String(row.id)),
               )}>Tout sélectionner dans cette liste</button>
-              <label>Nouvelle échéance<input type="date" required value={batchDeadline} disabled={deadlineBusy}
-                onChange={event => setBatchDeadline(event.target.value)} /></label>
-              <button type="submit" disabled={deadlineBusy || !deadlineSelection.length}>{deadlineBusy ? 'Enregistrement…' : 'Appliquer aux réserves sélectionnées'}</button>
-              {deadlineError && <p role="alert">{deadlineError}</p>}
+              <label>Action groupée<select value={batchAction} disabled={batchBusy}
+                onChange={event => setBatchAction(event.target.value as ReserveBatchChange['field'])}>
+                <option value="deadline">Échéance</option><option value="status">Statut</option><option value="company">Entreprise</option>
+              </select></label>
+              {batchAction === 'deadline' && <label>Nouvelle échéance<input type="date" required value={batchDeadline} disabled={batchBusy}
+                onChange={event => setBatchDeadline(event.target.value)} /></label>}
+              {batchAction === 'status' && <label>Nouveau statut<select value={batchStatus} disabled={batchBusy}
+                onChange={event => setBatchStatus(event.target.value)}>
+                {Object.entries(STATUS_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}
+              </select></label>}
+              {batchAction === 'company' && <label>Nouvelle entreprise<select required value={batchCompany} disabled={batchBusy}
+                onChange={event => setBatchCompany(event.target.value)}>
+                <option value="">Choisir une entreprise</option>
+                {props.companies.map(company => <option key={company.id} value={company.name}>{company.name}</option>)}
+              </select></label>}
+              <button type="submit" disabled={batchBusy || !batchSelection.length}>{batchBusy ? 'Enregistrement…' : 'Appliquer aux réserves sélectionnées'}</button>
+              {batchError && <p role="alert">{batchError}</p>}
             </form>}
           </div>
         )}
@@ -8883,11 +8910,11 @@ function ReservesView(props: {
             const isSelected = selectedRowId != null && String(selectedRowId) === String(reserve.id);
             return (
               <div key={reserve.id} className={styles.reserveSelectableRow}>
-              {deadlineSelectionOpen && props.editable && !isTrashView && !isReserveArchived(reserve) && <label className={styles.reserveSelection}>
-                <input type="checkbox" aria-label={'Sélectionner la réserve ' + reserve.id} disabled={deadlineBusy}
-                  checked={deadlineSelection.includes(String(reserve.id))} onChange={event => {
+              {batchSelectionOpen && props.editable && !isTrashView && !isReserveArchived(reserve) && <label className={styles.reserveSelection}>
+                <input type="checkbox" aria-label={'Sélectionner la réserve ' + reserve.id} disabled={batchBusy}
+                  checked={batchSelection.includes(String(reserve.id))} onChange={event => {
                     const checked = event.currentTarget.checked;
-                    setDeadlineSelection(ids => checked ? [...ids, String(reserve.id)] : ids.filter(id => id !== String(reserve.id)));
+                    setBatchSelection(ids => checked ? [...ids, String(reserve.id)] : ids.filter(id => id !== String(reserve.id)));
                   }} />
               </label>}
               <button
@@ -14345,7 +14372,7 @@ function CompanyAttendanceInput({ value, disabled, onCommit }: {
     }} />;
 }
 
-function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyField }: any) {
+function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyField, onOpenCompanyReserves }: any) {
   const totalActual = companies.reduce((sum: number, company: any) => sum + Number(company.actual_workers ?? 0), 0);
   const totalPlanned = companies.reduce((sum: number, company: any) => sum + Number(company.planned_workers ?? 0), 0);
   const presence = totalPlanned ? Math.round((totalActual / totalPlanned) * 100) : 0;
@@ -14394,7 +14421,7 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
                   </label>
                 </div>
                 <div className={styles.companyFooter}>
-                  <span>{openReserves} réserves ouvertes</span>
+                  <button type="button" onClick={() => onOpenCompanyReserves(company.name)} aria-label={'Voir les réserves de ' + company.name}>{openReserves} réserves ouvertes</button>
                   {company.email ? <a href={`mailto:${company.email}`}>Email</a> : null}
                   {company.contact ? <a href={`tel:${company.contact}`}>Appeler</a> : null}
                 </div>

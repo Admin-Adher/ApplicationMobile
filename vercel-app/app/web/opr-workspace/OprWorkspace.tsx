@@ -4,6 +4,9 @@ import { useId, useMemo, useState } from 'react';
 import {
   buildOprWorkspaceModel,
   canSignOprDirectly,
+  canEditOpr,
+  oprVerificationFields,
+  oprRemoveSignerFields,
   filterOprSummaries,
   formatOprDate,
   type OprFilter,
@@ -14,6 +17,7 @@ import {
   type ReserveSource,
 } from './opr-workspace-model';
 import OprEditor, { type SaveOpr } from './OprEditor';
+import { formatTimestampFR, nowTimestampFR } from '../../../../lib/utils';
 import { type OprPrintKind } from './opr-print';
 import editorStyles from './OprEditor.module.css';
 import styles from './OprWorkspace.module.css';
@@ -23,6 +27,7 @@ type OprWorkspaceProps = {
   reserves: ReserveSource[];
   lotNames: string[];
   projectName: string;
+  actorName: string;
   onOpenReserve: (id: string) => void;
   isReserveArchived?: (reserve: ReserveSource) => boolean;
   requestedId?: string;
@@ -86,7 +91,7 @@ function StatusBadge({ status }: { status: OprStatus }) {
   );
 }
 
-function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSignerLink, onSign, onExport }: {
+function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSignerLink, onSign, onExport, onVerify, onRemoveSigner, closedReserveIds }: {
   opr: OprSummary;
   open: boolean;
   onToggle: () => void;
@@ -96,6 +101,9 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   onSignerLink?: OprWorkspaceProps['onSignerLink'];
   onSign?: () => Promise<void>;
   onExport?: (kind: OprPrintKind) => void;
+  onVerify?: (itemId: string) => Promise<void>;
+  onRemoveSigner?: (signerId: string) => Promise<void>;
+  closedReserveIds: Set<string>;
 }) {
   const reactId = useId().replace(/:/g, '');
   const detailId = `opr-detail-${reactId}`;
@@ -108,6 +116,17 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   const [linkError, setLinkError] = useState('');
   const [signing, setSigning] = useState(false);
   const [signError, setSignError] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState('');
+
+  async function runAction(action: () => Promise<void>) {
+    if (actionBusy || deleting || signing || linkBusy) return;
+    setActionBusy(true);
+    setActionError('');
+    try { await action(); }
+    catch (cause) { setActionError(cause instanceof Error ? cause.message : 'Enregistrement impossible.'); }
+    finally { setActionBusy(false); }
+  }
 
   async function prepareLink(signerId: string) {
     if (!onSignerLink || linkBusy) return;
@@ -170,15 +189,15 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
           </dl>
 
           <div className={editorStyles.actions}>
-            {onEdit ? <button type="button" disabled={deleting || signing} onClick={onEdit}>Modifier</button> : null}
-            {onSign && <button type="button" disabled={deleting || signing} onClick={async () => {
+            {onEdit ? <button type="button" disabled={deleting || signing || actionBusy} onClick={onEdit}>Modifier</button> : null}
+            {onSign && <button type="button" disabled={deleting || signing || actionBusy} onClick={async () => {
               setSignError('');
               setSigning(true);
               try { await onSign(); }
               catch (cause) { setSignError(cause instanceof Error ? cause.message : 'Signature indisponible.'); }
               finally { setSigning(false); }
             }}>Signer sur place</button>}
-            {onDelete ? <button type="button" disabled={deleting || signing} onClick={async () => {
+            {onDelete ? <button type="button" disabled={deleting || signing || actionBusy} onClick={async () => {
               setDeleting(true);
               try { await onDelete(); } finally { setDeleting(false); }
             }}>Supprimer le brouillon</button> : null}
@@ -189,6 +208,7 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
             </> : null}
           </div>
           {signError && <p role="alert">{signError}</p>}
+          {actionError && <p role="alert">{actionError}</p>}
           {opr.source.visit_contradictoire && !/^(true|false)$/i.test(String(opr.source.visit_contradictoire)) ? (
             <p>Visite contradictoire le {formatOprDate(String(opr.source.visit_contradictoire))}</p>
           ) : null}
@@ -203,7 +223,15 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
               <div key={signer.id}>
                 <strong>{signer.name}</strong> {signer.signed || signer.signedAt ? '· Signé' : '· En attente'}
                 {onSignerLink && !signer.signed && !signer.signedAt && opr.status !== 'signed' ? (
-                  <div className={editorStyles.actions}><button type="button" disabled={linkBusy} onClick={() => void prepareLink(signer.id)}>Créer le lien de signature</button></div>
+                  <div className={editorStyles.actions}>
+                    <button type="button" disabled={linkBusy || actionBusy || signing || deleting} onClick={() => void prepareLink(signer.id)}>Créer le lien de signature</button>
+                    {onRemoveSigner && <button type="button" disabled={linkBusy || actionBusy || signing || deleting}
+                      aria-label={'Retirer ' + signer.name + ' des signataires'} onClick={() => {
+                        if (window.confirm('Retirer ' + signer.name + ' des signataires ?')) {
+                          void runAction(async () => { await onRemoveSigner(signer.id); setSignerLink(null); });
+                        }
+                      }}>Retirer le signataire</button>}
+                  </div>
                 ) : null}
                 {signerLink?.signerId === signer.id ? <label>Lien individuel à transmettre à {signer.name}
                   <input readOnly value={signerLink.url} onFocus={event => event.currentTarget.select()} />
@@ -238,7 +266,12 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
                       {item.entreprise ? <span>{item.entreprise}</span> : null}
                       {item.deadline ? <span>Échéance {formatOprDate(item.deadline)}</span> : null}
                       {item.note ? <span>{item.note}</span> : null}
+                      {item.verifiedAt ? <span>✓ <span>Levée vérifiée</span> · {formatTimestampFR(item.verifiedAt)}{item.verifiedBy ? ' · ' + item.verifiedBy : ''}</span> : null}
                     </div>
+                    {onVerify && item.status === 'reserve' && !item.verifiedAt && item.reserveId && closedReserveIds.has(item.reserveId) &&
+                      <button type="button" className={styles.reserveAction} disabled={actionBusy || signing || deleting || linkBusy}
+                        aria-label={'Vérifier la levée du lot ' + item.lotName}
+                        onClick={() => void runAction(() => onVerify(item.id))}>Vérifier la levée</button>}
                   </div>
                   {item.reserveId ? (
                     <button className={styles.reserveAction} type="button" onClick={() => onOpenReserve(item.reserveId as string)}>
@@ -257,10 +290,11 @@ function OprCard({ opr, open, onToggle, onOpenReserve, onEdit, onDelete, onSigne
   );
 }
 
-export default function OprWorkspace({ oprs, reserves, lotNames, projectName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onDelete, isPending, onSignerLink, onSign, onExport }: OprWorkspaceProps) {
+export default function OprWorkspace({ oprs, reserves, lotNames, projectName, actorName, onOpenReserve, isReserveArchived, requestedId, canEdit, canCreate, canExport, onSave, onDelete, isPending, onSignerLink, onSign, onExport }: OprWorkspaceProps) {
   const [filter, setFilter] = useState<OprFilter>('all');
   const [openId, setOpenId] = useState<string | null>(requestedId || null);
   const [editor, setEditor] = useState<OprSource | null | undefined>(undefined);
+  const closedReserveIds = new Set(reserves.filter(reserve => reserve.status === 'closed' && !reserve.deleted_at).map(reserve => String(reserve.id)));
   const model = useMemo(
     () => buildOprWorkspaceModel(oprs, reserves, isReserveArchived),
     [isReserveArchived, oprs, reserves],
@@ -352,7 +386,14 @@ export default function OprWorkspace({ oprs, reserves, lotNames, projectName, on
                 open={openId === opr.id}
                 onToggle={() => setOpenId(current => current === opr.id ? null : opr.id)}
                 onOpenReserve={onOpenReserve}
-                onEdit={canEdit && !isPending?.(opr.id) && opr.status !== 'signed' && !(Array.isArray(opr.source.signatories) && opr.source.signatories.some(signer => signer?.signatureSource === 'web_link' && signer.signed))
+                closedReserveIds={closedReserveIds}
+                onVerify={canEdit && !isPending?.(opr.id) && canEditOpr(opr.source) ? async itemId => {
+                  await onSave(opr.source, oprVerificationFields(opr.source, itemId, reserves, nowTimestampFR(), actorName));
+                } : undefined}
+                onRemoveSigner={canEdit && !isPending?.(opr.id) && canEditOpr(opr.source) ? async signerId => {
+                  await onSave(opr.source, oprRemoveSignerFields(opr.source, signerId));
+                } : undefined}
+                onEdit={canEdit && !isPending?.(opr.id) && canEditOpr(opr.source)
                   ? () => setEditor(opr.source) : undefined}
                 onDelete={onDelete && !isPending?.(opr.id) && opr.status === 'draft' &&
                   !(Array.isArray(opr.source.signatories) && opr.source.signatories.some(signer => signer?.signed))
