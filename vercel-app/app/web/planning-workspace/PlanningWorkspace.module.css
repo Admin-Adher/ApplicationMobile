@@ -238,8 +238,8 @@
 
 .taskComposer {
   display: grid;
-  grid-template-columns: minmax(210px, 0.7fr) minmax(0, 2.3fr) auto;
-  align-items: end;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
   gap: 18px;
   padding: 18px 24px;
   border-bottom: 1px solid #c9d8eb;
@@ -284,7 +284,7 @@
 .composerGrid {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) repeat(3, minmax(135px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -296,6 +296,10 @@
   font-size: 11px;
   font-weight: 900;
 }
+
+.composerTitle { grid-column: 1 / -1; min-width: 0; display: grid; gap: 6px; align-content: start; }
+.taskEditor { min-width: 0; padding: .75rem; }
+.taskEditor .composerGrid { grid-template-columns: minmax(0, 1fr); }
 
 .composerGrid textarea,
 .composerGrid input,

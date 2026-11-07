@@ -8,13 +8,14 @@ import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system/legacy';
 import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
+import { isManagedMediaRef } from '@/lib/media';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import Header from '@/components/Header';
 import DictationTextInput from '@/components/DictationTextInput';
 import { Photo, Channel } from '@/constants/types';
 import { uploadPhoto, persistLocalPhoto, INTERACTIVE_UPLOAD_TIMEOUT_MS } from '@/lib/storage';
-import { genId, formatDateFR } from '@/lib/utils';
+import { genId, formatDateFR, formatTimestampFR } from '@/lib/utils';
 import BottomNavBar from '@/components/BottomNavBar';
 import { showAlert } from '@/lib/appAlert';
 import PageContainer from '@/components/PageContainer';
@@ -441,13 +442,13 @@ export default function PhotosScreen() {
                 <Text style={styles.photoBy}>{item.takenBy}</Text>
               </View>
               <View style={styles.photoMeta}>
-                {item.uri?.startsWith('http') ? (
+                {(item.uri?.startsWith('http') || isManagedMediaRef(item.uri)) ? (
                   <Ionicons name="cloud-done-outline" size={10} color={C.closed} />
                 ) : (
                   <Ionicons name="phone-portrait-outline" size={10} color={C.textMuted} />
                 )}
-                <Text style={[styles.photoDate, item.uri?.startsWith('http') && { color: C.closed }]}>
-                  {item.uri?.startsWith('http') ? t('photosScreen.cloud') : t('photosScreen.local')} — {item.takenAt}
+                <Text style={[styles.photoDate, (item.uri?.startsWith('http') || isManagedMediaRef(item.uri)) && { color: C.closed }]}>
+                  {(item.uri?.startsWith('http') || isManagedMediaRef(item.uri)) ? t('photosScreen.cloud') : t('photosScreen.local')} — {formatTimestampFR(item.takenAt)}
                 </Text>
               </View>
               <View style={styles.photoActions}>

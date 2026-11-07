@@ -145,6 +145,8 @@ import { fieldDateInput, fieldTables, fieldUpdate, fieldWriteApplied, fieldWrite
 import { useWebAttendanceSettings } from './useWebAttendanceSettings';
 import OrganizationWebhookSettings from './OrganizationWebhookSettings';
 import BrowserPushSettings from './BrowserPushSettings';
+import TextAssistControls from './TextAssistControls';
+import { TEXT_LANG_OPTIONS, defaultTextLang, requestWebTranslation, type TextLang } from '@/lib/text-assist-client';
 import SubscriptionOverview from './SubscriptionOverview';
 import { stopBrowserPush } from '@/lib/browser-push-client';
 import { clearWorkspaceSnapshot, readWorkspaceSnapshot, warmOfflineWorkspace, writeWorkspaceSnapshot } from '@/lib/web-workspace-cache';
@@ -970,14 +972,6 @@ const VISIT_RECURRENCE_OPTIONS: Array<{ value: VisitDraft['recurrence']; label: 
   { value: 'weekly', label: 'Hebdomadaire', desc: 'Créer 4 visites sur 4 semaines.' },
   { value: 'bimonthly', label: 'Bi-mensuelle', desc: 'Créer 4 visites espacées de 2 semaines.' },
 ];
-
-const TEXT_LANG_OPTIONS = [
-  { value: 'fr', label: 'FR', speech: 'fr-FR', name: 'français' },
-  { value: 'en', label: 'EN', speech: 'en-US', name: 'anglais' },
-  { value: 'es', label: 'ES', speech: 'es-ES', name: 'espagnol' },
-] as const;
-
-type TextLang = typeof TEXT_LANG_OPTIONS[number]['value'];
 
 const RESERVE_TEMPLATE_GROUPS = [
   {
@@ -2674,25 +2668,6 @@ async function uploadWebFile(bucket: 'photos' | 'documents', file: File, prefix:
   return uploadRegisteredWebFile(bucket, file, safeStorageName(prefix));
 }
 
-async function requestWebTranslation(params: { text: string; source?: TextLang | 'auto'; target: TextLang; context: string }) {
-  const text = params.text.trim();
-  if (!text || params.source === params.target) return text;
-  const { data: authData } = await supabaseBrowser.auth.getSession();
-  const response = await fetch('/api/translate-text', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authData.session?.access_token ? { Authorization: `Bearer ${authData.session.access_token}` } : {}),
-    },
-    body: JSON.stringify(params),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || !payload?.success || typeof payload?.text !== 'string') {
-    throw new Error(payload?.detail || payload?.error || 'Traduction indisponible.');
-  }
-  return String(payload.text).trim();
-}
-
 // Notifications push vers les utilisateurs mobiles. L'API /api/send-push
 // résout elle-même les destinataires (membres du canal, entreprises de la
 // réserve), applique les préférences et les heures calmes. Fire-and-forget :
@@ -2723,16 +2698,6 @@ function triggerWebPush(payload:
   })();
 }
 
-function defaultTextLang(): TextLang {
-  if (typeof window === 'undefined') return 'fr';
-  const stored = window.localStorage.getItem('buildtrack-web-dictation-lang');
-  if (stored === 'fr' || stored === 'en' || stored === 'es') return stored;
-  const nav = window.navigator.language.toLowerCase();
-  if (nav.startsWith('en')) return 'en';
-  if (nav.startsWith('es')) return 'es';
-  return 'fr';
-}
-
 function readStoredStringList(key: string) {
   if (typeof window === 'undefined') return [];
   try {
@@ -2744,44 +2709,6 @@ function readStoredStringList(key: string) {
   }
 }
 
-function appendDictationText(current: string, transcript: string) {
-  const text = transcript.trim();
-  if (!text) return current;
-  const base = current.trimEnd();
-  return base ? `${base} ${text}` : text;
-}
-
-function speechRecognitionErrorMessage(error?: string) {
-  switch (error) {
-    case 'not-allowed':
-    case 'service-not-allowed':
-      return "Le micro ou la reconnaissance vocale est refusé pour ce site. Vérifiez l'autorisation micro dans le navigateur.";
-    case 'audio-capture':
-      return "Aucun micro utilisable n'a été détecté. Vérifiez le périphérique d'entrée audio.";
-    case 'network':
-      return "La reconnaissance vocale du navigateur est indisponible pour le moment. Elle nécessite une connexion stable et le service vocal de Chrome/Edge.";
-    case 'no-speech':
-    case 'speech-timeout':
-      return "Aucune parole détectée. Relancez la dictée et parlez après l'activation du micro.";
-    case 'language-not-supported':
-      return "Cette langue de dictée n'est pas disponible dans ce navigateur.";
-    case 'aborted':
-      return 'Dictée arrêtée. Vous pouvez relancer le micro.';
-    default:
-      return 'Dictée interrompue. Relancez le micro ou vérifiez le périphérique audio.';
-  }
-}
-
-function MicrophoneIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <path d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3Z" />
-      <path d="M19 11a7 7 0 0 1-14 0" />
-      <path d="M12 18v3" />
-      <path d="M8 21h8" />
-    </svg>
-  );
-}
 
 function createReserveDraft(projectId: string, plan?: any | null, visit?: any | null, pin?: ReservePinDraft | null): ReserveDraft {
   const firstVisitLocation = getVisitLocations(visit)[0] ?? null;
@@ -12854,9 +12781,11 @@ function VisitDetailsEditor({ visit, onSave, onClose }: {
 
   return (
     <form className={styles.formGrid} aria-label="Modifier la visite" onSubmit={submit}>
-      <label><span>Titre de la visite</span><input value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} required autoFocus /></label>
+      <div><label><span>Titre de la visite</span><input value={draft.title} onChange={event => setDraft({ ...draft, title: event.target.value })} required autoFocus /></label>
+        <TextAssistControls compact label="titre de la visite" value={draft.title} onChange={title => setDraft(current => ({ ...current, title }))} context="description" disabled={busy} /></div>
       <label><span>Date de la visite</span><input type="date" value={draft.date} onChange={event => setDraft({ ...draft, date: event.target.value })} required /></label>
-      <label className={styles.fullSpan}><span>Notes et objectifs</span><textarea rows={3} value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} /></label>
+      <div className={styles.fullSpan}><label><span>Notes et objectifs</span><textarea rows={3} value={draft.notes} onChange={event => setDraft({ ...draft, notes: event.target.value })} /></label>
+        <TextAssistControls compact label="notes de la visite" value={draft.notes} onChange={notes => setDraft(current => ({ ...current, notes }))} context="description" disabled={busy} /></div>
       <label className={styles.fullSpan}><span>Photo de couverture</span><input type="file" accept="image/*" onChange={event => setFile(event.target.files?.[0])} /></label>
       <div className={styles.modalActions}>
         <button type="button" onClick={onClose} disabled={busy}>Annuler</button>
@@ -13916,10 +13845,11 @@ function GalleryPhotoForm({ title, details, busy, onSave, onCancel }: {
 }) {
   const [draft, setDraft] = useState(details);
   return (
-    <form aria-label={title} className={styles.formGrid} onSubmit={event => { event.preventDefault(); onSave(draft); }}>
+    <form aria-label={title} className={styles.galleryPhotoForm} onSubmit={event => { event.preventDefault(); onSave(draft); }}>
       <label><span>Légende</span><input autoFocus maxLength={500} value={draft.caption} onChange={event => setDraft({ ...draft, caption: event.target.value })} /></label>
+      <TextAssistControls compact label="légende de la photo" value={draft.caption} onChange={caption => setDraft(current => ({ ...current, caption }))} context="comment" maxLength={500} disabled={busy} />
       <label><span>Emplacement</span><input maxLength={200} value={draft.location} onChange={event => setDraft({ ...draft, location: event.target.value })} /></label>
-      <div className={styles.modalActions}>
+      <div className={styles.galleryFormActions}>
         <button type="button" disabled={busy} onClick={onCancel}>Annuler</button>
         <button type="submit" disabled={busy}>Enregistrer la photo</button>
       </div>
@@ -14055,7 +13985,8 @@ function MediaView({ photos, documents, isSubcontractor, channels, onAddPhoto, o
                 event.preventDefault();
                 if (channelId) void run(async () => { await onSharePhoto(photo, channelId, shareCaption); setSharingId(''); }, 'Photo partagée.');
               }}>
-                <label>Légende du message<input value={shareCaption} onChange={event => setShareCaption(event.target.value)} /></label>
+                <label>Légende du message<input maxLength={500} value={shareCaption} onChange={event => setShareCaption(event.target.value)} /></label>
+                <TextAssistControls compact label="légende du message" value={shareCaption} onChange={setShareCaption} context="comment" maxLength={500} disabled={busy} />
                 <label>Canal<select required value={channelId} onChange={event => setChannelId(event.target.value)}>
                   <option value="">Choisir un canal</option>
                   {channels.map(channel => <option key={channel.id} value={channel.id}>{channel.name || channel.id}</option>)}
@@ -16007,225 +15938,6 @@ function ToggleRow({ label, hint, checked, onChange }: { label: string; hint: st
   );
 }
 
-function TextAssistControls({
-  value,
-  onChange,
-  context,
-}: {
-  value: string;
-  onChange: (value: string) => void;
-  context: string;
-}) {
-  const [dictationOpen, setDictationOpen] = useState(false);
-  const [lang, setLang] = useState<TextLang>(() => defaultTextLang());
-  const [busy, setBusy] = useState<string | null>(null);
-  const [message, setMessage] = useState('');
-  const recognitionRef = useRef<any>(null);
-  const manualStopRef = useRef(false);
-  const receivedResultRef = useRef(false);
-
-  useEffect(() => () => {
-    try {
-      recognitionRef.current?.abort?.();
-    } catch {
-      // Some browsers throw when speech recognition is already closed.
-    }
-    recognitionRef.current = null;
-  }, []);
-
-  function setPreferredLang(next: TextLang) {
-    setLang(next);
-    if (typeof window !== 'undefined') window.localStorage.setItem('buildtrack-web-dictation-lang', next);
-  }
-
-  function stopDictation() {
-    manualStopRef.current = true;
-    try {
-      recognitionRef.current?.stop?.();
-    } catch {
-      // Some browsers throw when speech recognition is already closed.
-    }
-    recognitionRef.current = null;
-    setBusy(null);
-  }
-
-  async function startDictation(nextLang: TextLang) {
-    setPreferredLang(nextLang);
-    setDictationOpen(true);
-    setMessage('');
-    if (typeof window === 'undefined') return;
-    if (busy === 'dictation') {
-      stopDictation();
-      return;
-    }
-    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!Recognition) {
-      setMessage("La dictée vocale n'est pas disponible dans ce navigateur. Essayez Chrome ou Edge.");
-      return;
-    }
-
-    if (window.isSecureContext === false) {
-      setMessage('La dictée nécessite une page sécurisée en HTTPS.');
-      return;
-    }
-
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        stream.getTracks().forEach(track => track.stop());
-      } catch (micError: any) {
-        const code = micError?.name === 'NotFoundError' || micError?.name === 'DevicesNotFoundError'
-          ? 'audio-capture'
-          : 'not-allowed';
-        setMessage(speechRecognitionErrorMessage(code));
-        return;
-      }
-    }
-
-    const recognition = new Recognition();
-    recognitionRef.current = recognition;
-    manualStopRef.current = false;
-    receivedResultRef.current = false;
-    recognition.lang = TEXT_LANG_OPTIONS.find(item => item.value === nextLang)?.speech ?? 'fr-FR';
-    recognition.interimResults = false;
-    recognition.continuous = false;
-    recognition.maxAlternatives = 1;
-    setBusy('dictation');
-    recognition.onstart = () => setMessage('Parlez maintenant...');
-    recognition.onresult = (event: any) => {
-      const text = event?.results?.[0]?.[0]?.transcript;
-      if (text) {
-        receivedResultRef.current = true;
-        onChange(appendDictationText(value, text));
-        setMessage('Dictée ajoutée.');
-      }
-    };
-    recognition.onerror = (event: any) => {
-      const code = String(event?.error ?? '');
-      if (manualStopRef.current && code === 'aborted') return;
-      setMessage(speechRecognitionErrorMessage(code));
-    };
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      setBusy(null);
-      if (manualStopRef.current) setMessage('');
-      if (receivedResultRef.current) window.setTimeout(() => setMessage(''), 1800);
-    };
-    try {
-      recognition.start();
-    } catch (startError: any) {
-      recognitionRef.current = null;
-      setBusy(null);
-      setMessage(startError?.name === 'InvalidStateError'
-        ? 'Une dictée est déjà en cours. Patientez une seconde puis réessayez.'
-        : 'Impossible de démarrer la dictée. Réessayez dans quelques secondes.');
-    }
-  }
-
-  async function translate(target: TextLang) {
-    if (!value.trim()) return;
-    setMessage('');
-    setBusy(`translate-${target}`);
-    try {
-      const translated = await requestWebTranslation({ text: value, source: 'auto', target, context });
-      onChange(translated);
-    } catch (err: any) {
-      setMessage(err?.message ?? 'Traduction Azure indisponible.');
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <div className={styles.textAssist}>
-      <div className={styles.textAssistGrid}>
-        <section className={`${styles.textAssistSection} ${dictationOpen || busy === 'dictation' ? styles.textAssistSectionOpen : ''}`}>
-          <div className={styles.textAssistSectionHeader}>
-            <button
-              type="button"
-              onClick={() => {
-                if (busy === 'dictation') {
-                  stopDictation();
-                } else if (dictationOpen) {
-                  void startDictation(lang);
-                } else {
-                  setDictationOpen(true);
-                }
-              }}
-              className={`${styles.microIconButton} ${busy === 'dictation' ? styles.textAssistActive : ''}`}
-              aria-label={busy === 'dictation' ? 'Arrêter la dictée' : dictationOpen ? `Démarrer la dictée en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.name ?? 'français'}` : 'Choisir la langue de dictée'}
-              aria-expanded={dictationOpen || busy === 'dictation'}
-              title={busy === 'dictation' ? 'Arrêter la dictée' : dictationOpen ? 'Démarrer la dictée' : 'Choisir la langue de dictée'}
-            >
-              <MicrophoneIcon />
-            </button>
-            <div>
-              <strong>{busy === 'dictation' ? 'Écoute en cours' : 'Dictée vocale'}</strong>
-              <small>
-                {busy === 'dictation'
-                  ? `Parlez en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.name ?? 'français'}`
-                  : `Langue parlée sélectionnée : ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.label ?? 'FR'}`}
-              </small>
-            </div>
-          </div>
-          {dictationOpen || busy === 'dictation' ? (
-            <div className={styles.dictationPanelWeb}>
-              <div className={styles.dictationPicker}>
-                {TEXT_LANG_OPTIONS.map(option => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={lang === option.value ? styles.dictationLangActive : styles.dictationLang}
-                    onClick={() => {
-                      if (busy === 'dictation') return;
-                      setPreferredLang(option.value);
-                      setMessage('');
-                    }}
-                    disabled={busy === 'dictation'}
-                    aria-pressed={lang === option.value}
-                  >
-                    <span>{option.label}</span>
-                    <small>{option.name}</small>
-                  </button>
-                ))}
-              </div>
-              <button
-                type="button"
-                className={styles.dictationStartButtonWeb}
-                onClick={() => (busy === 'dictation' ? stopDictation() : startDictation(lang))}
-              >
-                {busy === 'dictation' ? 'Arrêter' : `Dicter en ${TEXT_LANG_OPTIONS.find(option => option.value === lang)?.label ?? 'FR'}`}
-              </button>
-            </div>
-          ) : null}
-        </section>
-
-        <section className={styles.textAssistSection}>
-          <div className={styles.textAssistSectionHeader}>
-            <div className={styles.translationIconWeb}>文</div>
-            <div>
-              <strong>Traduction</strong>
-              <small>Remplace le texte par la langue choisie</small>
-            </div>
-          </div>
-          <div className={styles.translationPickerWeb}>
-            {TEXT_LANG_OPTIONS.map(option => (
-              <button
-                key={option.value}
-                type="button"
-                onClick={() => translate(option.value)}
-                disabled={!value.trim() || busy === `translate-${option.value}`}
-              >
-                {busy === `translate-${option.value}` ? '...' : `Vers ${option.label}`}
-              </button>
-            ))}
-          </div>
-        </section>
-      </div>
-      {message ? <small className={styles.textAssistMessage}>{message}</small> : null}
-    </div>
-  );
-}
 
 type PhotoAnnotationLayerFit = 'stretch' | 'contain' | 'cover';
 
@@ -17218,6 +16930,7 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
   onToggleCompany: (companyId: string) => void;
 }) {
   const { lang } = useWebI18n();
+  const visitTitleId = useId();
   useEscapeClose(!saving, onClose);
   const [buildingQuery, setBuildingQuery] = useState('');
   const [newChecklistLabel, setNewChecklistLabel] = useState('');
@@ -17498,15 +17211,15 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
                 Conducteur
                 <input value={draft.conducteur} onChange={event => setDraft(prev => ({ ...prev, conducteur: event.target.value }))} />
               </label>
-              <label className={styles.formWide}>
+              <div className={styles.formWide}>
                 <span className={styles.reserveLabelRow}>
-                  Titre de la visite *
+                  <label htmlFor={visitTitleId}>Titre de la visite *</label>
                   {canUseSuggestedTitle ? (
                     <button type="button" onClick={() => setDraft(prev => ({ ...prev, title: suggestedTitle }))}>Utiliser la suggestion</button>
                   ) : null}
                 </span>
-                <input value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} placeholder={suggestedTitle} required />
-              </label>
+                <input id={visitTitleId} value={draft.title} onChange={event => setDraft(prev => ({ ...prev, title: event.target.value }))} placeholder={suggestedTitle} required />
+              <TextAssistControls compact label="titre de la visite" value={draft.title} onChange={title => setDraft(current => ({ ...current, title }))} context="description" disabled={saving} /></div>
               <label>
                 Date
                 <input type="date" value={draft.date} onChange={event => updateVisitDate(event.target.value)} />
@@ -17844,10 +17557,10 @@ function VisitModal({ draft, setDraft, data, selectedProjectId, saving, currentU
               </div>
             </div>
             <div className={styles.reserveModalGrid}>
-              <label className={styles.formWide}>
+              <div className={styles.formWide}><label>
                 Notes et objectifs
                 <textarea value={draft.notes} onChange={event => setDraft(prev => ({ ...prev, notes: event.target.value }))} rows={4} placeholder="Objectif de la visite, points à contrôler, consignes..." />
-              </label>
+              </label><TextAssistControls compact label="notes de la visite" value={draft.notes} onChange={notes => setDraft(current => ({ ...current, notes }))} context="description" disabled={saving} /></div>
             </div>
             <div className={styles.visitTagRow}>
               {draft.tags.map(tag => (
