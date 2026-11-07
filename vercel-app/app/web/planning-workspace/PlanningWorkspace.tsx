@@ -41,6 +41,7 @@ type PlanningWorkspaceProps = {
   onOpenReserve?: (reserveId: string) => void;
   onOpenVisit?: (visitId: string) => void;
   initialTaskId?: string;
+  initialCompanyId?: string;
   correctiveReserve?: { id: string; title: string; description?: string; deadline?: string; company?: string };
   onCloseCorrectiveTask?: () => void;
 };
@@ -153,17 +154,19 @@ export default function PlanningWorkspace({
   onOpenReserve,
   onOpenVisit,
   initialTaskId = '',
+  initialCompanyId = '',
   correctiveReserve,
   onCloseCorrectiveTask,
 }: PlanningWorkspaceProps) {
   const taskHeadingId = useId();
   const agendaHeadingId = useId();
   const [taskMode, setTaskMode] = useState<PlanningTaskMode>(() => {
+    if (initialCompanyId) return 'company';
     const target = initialTaskId ? tasks.find(task => String(task.id) === initialTaskId) : undefined;
     if (!target) return 'week';
     return isPlanningTaskLate(target, new Date()) ? 'late' : 'company';
   });
-  const [companyFilter, setCompanyFilter] = useState('');
+  const [companyFilter, setCompanyFilter] = useState(initialCompanyId);
   const [scheduleFilter, setScheduleFilter] = useState<PlanningScheduleFilter>('all');
   const [scheduleQuery, setScheduleQuery] = useState('');
   const deferredScheduleQuery = useDeferredValue(scheduleQuery);

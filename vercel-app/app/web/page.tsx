@@ -170,7 +170,9 @@ import styles from './web.module.css';
 import { useWebOutbox } from '@/lib/use-web-outbox';
 import { reserveDuplicatePayload } from '@/lib/reserve-duplicate';
 import { reserveBatchOperation, type ReserveBatchChange } from '@/lib/reserve-batch';
-import { DEFAULT_RESERVE_LIST_FILTERS, matchesReserveListFilters, reserveLotLabel, reserveLotSearchText, sortReserveList, type ReserveListFilters, type ReserveListSort } from '@/lib/reserve-list-model';
+import { DEFAULT_RESERVE_LIST_FILTERS, matchesReserveListFilters, reserveLotLabel, reserveLotSearchText, selectedReserveRows, sortReserveList, type ReserveListFilters, type ReserveListSort } from '@/lib/reserve-list-model';
+import { companyActiveTasks, companyOpenReserves, filterTeams, type TeamsSort } from '@/lib/teams-list-model';
+import { createRefreshMergeGuard } from '@/lib/refresh-merge-guard';
 import { canDiscardFieldOperation, canDiscardReserveChange, isReserveEditConflict, isWebNetworkFailure, ReserveEditConflict, saveWebOperation, saveWebOperations, type WebQueuedOperation } from '@/lib/web-outbox';
 import {
   recoverReserveDraft, reserveEditPatch, reserveGalleryChanged,
@@ -3090,6 +3092,8 @@ function BuildTrackWebWorkspace() {
   workspaceOwnerRef.current = outboxOwner;
   const attendanceSettings = useWebAttendanceSettings(outboxOwner);
   const outbox = useWebOutbox(outboxOwner, executeWebOperation);
+  const [companyRefreshGuard] = useState(() => createRefreshMergeGuard<any>());
+  useEffect(() => { companyRefreshGuard.clear(); }, [companyRefreshGuard, outboxOwner]);
   const previewCacheOwnerRef = useRef<string | null>(null);
   const [storageUsage, setStorageUsage] = useState<StorageUsageGuardrail | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => {
@@ -3115,6 +3119,10 @@ function BuildTrackWebWorkspace() {
   }, [activeTab, searchTarget]);
 
   const [alertTaskId, setAlertTaskId] = useState('');
+  const [planningCompanyId, setPlanningCompanyId] = useState('');
+  useEffect(() => {
+    if (activeTab === 'planning' && planningCompanyId) setPlanningCompanyId('');
+  }, [activeTab, planningCompanyId]);
   const [correctiveReserve, setCorrectiveReserve] = useState<any>(null);
   useEffect(() => {
     if (activeTab !== 'planning') setCorrectiveReserve(null);
@@ -3494,6 +3502,7 @@ function BuildTrackWebWorkspace() {
 
   async function loadEverything(user: SupabaseUser, opts: { background?: boolean } = {}) {
     const loadLease = authLoadGuard.begin(user.id);
+    const companyReadRevision = companyRefreshGuard.checkpoint();
     if (!loadLease.isCurrent()) return;
     if (opts.background) setSyncing(true);
     else setLoading(true);
@@ -3663,7 +3672,7 @@ function BuildTrackWebWorkspace() {
           const visible = visibleReservesForProfile(reserves, loadedProfile, companies);
           setData(previous => ({
             ...previous,
-            companies,
+            companies: companyRefreshGuard.merge(companies, companyReadRevision),
             reserves: visible.filter((reserve: any) => !isReserveDeleted(reserve)),
             deletedReserves: visible.filter((reserve: any) => isReserveDeleted(reserve)),
           }));
@@ -3768,7 +3777,7 @@ function BuildTrackWebWorkspace() {
         reserves: scopedReserves,
         deletedReserves: scopedDeletedReserves,
         sitePlans,
-        companies,
+        companies: companyRefreshGuard.merge(companies, companyReadRevision),
         organizations,
         visites,
         messages,
@@ -6511,6 +6520,7 @@ function BuildTrackWebWorkspace() {
             saved = current.data;
           }
         }
+        if (stillOwned() && table === 'companies' && saved && write.action !== 'delete') companyRefreshGuard.remember(saved, Object.keys(write.fields));
         if (stillOwned()) setData(previous => {
           const rows = previous[state];
           const index = rows.findIndex(row => row.id === write.id);
@@ -7843,6 +7853,7 @@ function BuildTrackWebWorkspace() {
                    setActiveTab('visites');
                  }}
                 initialTaskId={searchTarget?.tab === 'planning' ? searchTarget.id : alertTaskId}
+                initialCompanyId={planningCompanyId}
                />
             )}
             {activeTab === 'notifications' && (
@@ -8016,6 +8027,9 @@ function BuildTrackWebWorkspace() {
                   tasks={projectScoped.tasks}
                   editable={canUpdateAttendance(profile)}
                   onUpdateCompanyField={updateCompanyField}
+                  onOpenCompanyTasks={(companyId: string) => {
+                    setSearchTarget(null); setAlertTaskId(''); setPlanningCompanyId(companyId); setActiveTab('planning');
+                  }}
                   onOpenCompanyReserves={(company: string) => {
                     reserveFilterScopeRef.current = selectedProjectId;
                     setReserveDetailRequest(null); setSelectedReserveId(null);
@@ -8216,10 +8230,10 @@ function ReservesView(props: {
   const [assistantLanguage, setAssistantLanguage] = useState<TextLang>('fr');
   const [pdfLanguage, setPdfLanguage] = useState<TextLang>(props.defaultReportLanguage);
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
-  const [pdfMode, setPdfMode] = useState<'view' | 'selected' | 'company' | 'company_multi' | 'no_company'>('view');
+  const [pdfMode, setPdfMode] = useState<'view' | 'selected' | 'batch' | 'company' | 'company_multi' | 'no_company'>('view');
   const [pdfCompany, setPdfCompany] = useState('');
   const [pdfCompaniesMulti, setPdfCompaniesMulti] = useState<Set<string>>(new Set());
-  const [assistantScope, setAssistantScope] = useState<'view' | 'project' | 'selected'>('view');
+  const [assistantScope, setAssistantScope] = useState<'view' | 'project' | 'selected' | 'batch'>('view');
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [assistantVisible, setAssistantVisible] = useState(false);
   const [photoLightboxIndex, setPhotoLightboxIndex] = useState<number | null>(null);
@@ -8302,7 +8316,10 @@ function ReservesView(props: {
     : reserves;
   const hiddenReserveRowCount = isCompactReserveView ? reserveNavigatorModel.hiddenCount : 0;
   const selectedAssistantReserves = selectedReserve ? [selectedReserve] : [];
-  const assistantTargets =
+  const checkedReserves = useMemo(() => selectedReserveRows(
+    reserves.filter(row => !isReserveArchived(row) && !isReserveDeleted(row)), batchSelection,
+  ), [reserves, batchSelection]);
+  const assistantTargets = assistantScope === 'batch' ? checkedReserves :
     assistantScope === 'project'
       ? activeReserves
       : assistantScope === 'selected'
@@ -8317,6 +8334,7 @@ function ReservesView(props: {
   ));
   const selectedAssistantLanguage = TEXT_LANG_OPTIONS.find(option => option.value === assistantLanguage) ?? TEXT_LANG_OPTIONS[0];
   const assistantScopeOptions = [
+    { key: 'batch', label: 'Réserves cochées', hint: 'Sélection multiple', count: checkedReserves.length },
     { key: 'view', label: 'Vue actuelle', hint: 'Filtres visibles', count: reserves.length },
     { key: 'project', label: 'Tout le chantier', hint: 'Réserves actives', count: activeReserves.length },
     { key: 'selected', label: 'Réserve ouverte', hint: selectedReserve?.id ?? 'Aucune réserve', count: selectedReserve ? 1 : 0 },
@@ -8345,6 +8363,7 @@ function ReservesView(props: {
   });
   const pdfCompanies = props.structuredFilters.companies;
   const pdfTargetReserves = useMemo(() => {
+    if (pdfMode === 'batch') return checkedReserves;
     if (pdfMode === 'selected') return selectedReserve ? [selectedReserve] : [];
     if (pdfMode === 'company') {
       if (!pdfCompany) return [];
@@ -8358,7 +8377,7 @@ function ReservesView(props: {
       return reserves.filter(reserve => reserveCompanies(reserve).length === 0);
     }
     return reserves;
-  }, [pdfCompaniesMulti, pdfCompany, pdfMode, reserves, selectedReserve]);
+  }, [checkedReserves, pdfCompaniesMulti, pdfCompany, pdfMode, reserves, selectedReserve]);
   const pdfCompanyPreviewCount = pdfCompany ? reserves.filter(reserve => reserveCompanies(reserve).includes(pdfCompany)).length : 0;
   const pdfCompaniesMultiPreviewCount = pdfCompaniesMulti.size
     ? reserves.filter(reserve => reserveCompanies(reserve).some(company => pdfCompaniesMulti.has(company))).length
@@ -8376,7 +8395,7 @@ function ReservesView(props: {
   const canUseReserveWorkflow = canEditReserveWorkflow || canUseSubcontractorWorkflow;
   const canSignCompany = (companyName?: string) => canSignReserveCompany(props.profile, props.companies, companyName);
   const pdfScopeLabel =
-    pdfMode === 'selected'
+    pdfMode === 'batch' ? 'Réserves cochées' : pdfMode === 'selected'
       ? selectedReserve?.id ?? 'Aucune réserve'
       : pdfMode === 'company'
         ? pdfCompany || 'Entreprise à choisir'
@@ -8763,7 +8782,7 @@ function ReservesView(props: {
             {props.canExport && (
               <button
                 type="button"
-                onClick={() => setPdfModalOpen(true)}
+                onClick={() => { setPdfMode(checkedReserves.length ? 'batch' : 'view'); setPdfModalOpen(true); }}
                 disabled={isTrashView || (reserves.length === 0 && !selectedReserve)}
               >
                 <WorkspaceIcon name="document" size={17} />
@@ -8771,7 +8790,7 @@ function ReservesView(props: {
               </button>
             )}
             {!isTrashView && props.canUseAssistant && activeReserves.length > 0 && (
-              <button type="button" onClick={() => setAssistantVisible(true)}>
+              <button type="button" onClick={() => { setAssistantScope(checkedReserves.length ? 'batch' : 'view'); setAssistantVisible(true); }}>
                 <WorkspaceIcon name="assistant" size={17} />
                 {workspaceCopy.assistant}
                 {assistantMissingDescriptionCount > 0 ? ` (${assistantMissingDescriptionCount > 9 ? '9+' : assistantMissingDescriptionCount})` : ''}
@@ -8906,27 +8925,32 @@ function ReservesView(props: {
             <option value="priority">Priorité (critique d’abord)</option><option value="deadline">Échéance (plus proche)</option><option value="status">Statut</option>
           </select>
         </label>
-        {props.editable && !isTrashView && (
+        {(props.editable || props.canExport) && !isTrashView && (
           <div className={styles.reserveBatch}>
             <button type="button" disabled={batchBusy} aria-expanded={batchSelectionOpen}
               onClick={() => { setBatchSelectionOpen(open => !open); setBatchSelection([]); setBatchError(''); }}>
-              Modifier plusieurs réserves
+              {props.editable ? 'Modifier plusieurs réserves' : 'Sélectionner des réserves'}
             </button>
-            {batchSelectionOpen && <form onSubmit={async event => {
+            {batchSelectionOpen && <>
+              <div className={styles.reserveSelectionActions}>
+                <span role="status">{checkedReserves.length} réserve(s) sélectionnée(s)</span>
+                <button type="button" disabled={batchBusy} onClick={() => setBatchSelection(
+                  reserves.filter(row => !isReserveArchived(row) && !isReserveDeleted(row)).map(row => String(row.id)),
+                )}>Tout sélectionner dans cette liste</button>
+                {props.canExport && <button type="button" disabled={!checkedReserves.length || pdfBusy} onClick={() => { setPdfMode('batch'); setPdfModalOpen(true); }}>PDF de la sélection</button>}
+                {props.canUseAssistant && <button type="button" disabled={!checkedReserves.length || props.saving} onClick={() => { setAssistantScope('batch'); setAssistantVisible(true); }}>Assistant sur la sélection</button>}
+              </div>
+            {props.editable && <form onSubmit={async event => {
               event.preventDefault();
-              if (!batchSelection.length || batchBusy) return;
+              if (!checkedReserves.length || batchBusy) return;
               setBatchBusy(true); setBatchError('');
               try {
-                await props.onBatchChange(batchSelection, { field: batchAction, value: batchAction === 'deadline' ? batchDeadline : batchAction === 'status' ? batchStatus : batchCompany });
+                await props.onBatchChange(checkedReserves.map(row => String(row.id)), { field: batchAction, value: batchAction === 'deadline' ? batchDeadline : batchAction === 'status' ? batchStatus : batchCompany });
                 setBatchSelection([]); setBatchSelectionOpen(false);
               } catch (cause) {
                 setBatchError(cause instanceof Error ? cause.message : 'Modification impossible.');
               } finally { setBatchBusy(false); }
             }}>
-              <span role="status">{batchSelection.length} réserve(s) sélectionnée(s)</span>
-              <button type="button" disabled={batchBusy} onClick={() => setBatchSelection(
-                reserves.filter(row => !isReserveArchived(row) && !isReserveDeleted(row)).map(row => String(row.id)),
-              )}>Tout sélectionner dans cette liste</button>
               <label>Action groupée<select value={batchAction} disabled={batchBusy}
                 onChange={event => setBatchAction(event.target.value as ReserveBatchChange['field'])}>
                 <option value="deadline">Échéance</option><option value="status">Statut</option><option value="company">Entreprise</option>
@@ -8942,9 +8966,10 @@ function ReservesView(props: {
                 <option value="">Choisir une entreprise</option>
                 {props.companies.map(company => <option key={company.id} value={company.name}>{company.name}</option>)}
               </select></label>}
-              <button type="submit" disabled={batchBusy || !batchSelection.length}>{batchBusy ? 'Enregistrement…' : 'Appliquer aux réserves sélectionnées'}</button>
+              <button type="submit" disabled={batchBusy || !checkedReserves.length}>{batchBusy ? 'Enregistrement…' : 'Appliquer aux réserves sélectionnées'}</button>
               {batchError && <p role="alert">{batchError}</p>}
             </form>}
+            </>}
           </div>
         )}
         <div className={styles.reserveListMeta} data-prw-list-meta>
@@ -8959,7 +8984,7 @@ function ReservesView(props: {
             const isSelected = selectedRowId != null && String(selectedRowId) === String(reserve.id);
             return (
               <div key={reserve.id} className={styles.reserveSelectableRow}>
-              {batchSelectionOpen && props.editable && !isTrashView && !isReserveArchived(reserve) && <label className={styles.reserveSelection}>
+              {batchSelectionOpen && (props.editable || props.canExport) && !isTrashView && !isReserveArchived(reserve) && <label className={styles.reserveSelection}>
                 <input type="checkbox" aria-label={'Sélectionner la réserve ' + reserve.id} disabled={batchBusy}
                   checked={batchSelection.includes(String(reserve.id))} onChange={event => {
                     const checked = event.currentTarget.checked;
@@ -9111,12 +9136,13 @@ function ReservesView(props: {
                 <div className={styles.reserveAssistantScopeGridWeb}>
                   {assistantScopeOptions.map(option => {
                     const active = assistantScope === option.key;
-                    const disabled = option.key === 'selected' && !selectedReserve;
+                    const disabled = option.key === 'batch' ? !checkedReserves.length : option.key === 'selected' && !selectedReserve;
                     return (
                       <button
                         key={option.key}
                         type="button"
                         className={active ? styles.reserveAssistantScopeActiveWeb : ''}
+                        aria-pressed={active}
                         disabled={props.saving || disabled}
                         onClick={() => setAssistantScope(option.key)}
                       >
@@ -9244,13 +9270,14 @@ function ReservesView(props: {
                 <div className={styles.reservePdfScopeGridWeb}>
                   {[
                     { key: 'view' as const, label: 'Vue actuelle', hint: 'Filtres actifs', count: reserves.length },
+                    { key: 'batch' as const, label: 'Réserves cochées', hint: 'Sélection multiple', count: checkedReserves.length },
                     { key: 'selected' as const, label: 'Fiche réserve', hint: selectedReserve?.id ?? 'Aucune réserve', count: selectedReserve ? 1 : 0 },
                     { key: 'company' as const, label: 'Entreprise', hint: pdfCompany || 'À choisir', count: pdfCompanyPreviewCount },
-                    { key: 'company_multi' as const, label: 'Plusieurs', hint: `${pdfCompaniesMulti.size} sélectionnée${pdfCompaniesMulti.size > 1 ? 's' : ''}`, count: pdfCompaniesMultiPreviewCount },
+                    { key: 'company_multi' as const, label: 'Plusieurs entreprises', hint: `${pdfCompaniesMulti.size} sélectionnée${pdfCompaniesMulti.size > 1 ? 's' : ''}`, count: pdfCompaniesMultiPreviewCount },
                     { key: 'no_company' as const, label: 'Sans entreprise', hint: 'Réserves non assignées', count: pdfMode === 'no_company' ? pdfTargetReserves.length : reserves.filter(reserve => reserveCompanies(reserve).length === 0).length },
                   ].map(option => {
                     const active = pdfMode === option.key;
-                    const disabled = option.key === 'selected'
+                    const disabled = option.key === 'batch' ? !checkedReserves.length : option.key === 'selected'
                       ? !selectedReserve
                       : option.key === 'company' || option.key === 'company_multi'
                         ? pdfCompanies.length === 0
@@ -9260,6 +9287,7 @@ function ReservesView(props: {
                         key={option.key}
                         type="button"
                         className={active ? styles.reservePdfScopeActiveWeb : ''}
+                        aria-pressed={active}
                         disabled={disabled || pdfBusy}
                         onClick={() => {
                           setPdfMode(option.key);
@@ -13787,7 +13815,7 @@ function VisitesView({
   );
 }
 
-function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onChangeTaskComment, commentUserId, commentUserName, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisit, initialTaskId, correctiveReserve, onCloseCorrectiveTask }: any) {
+function PlanningView({ tasks, visites, reserves, companies, profile, editable, canCreate, onUpdateTask, onAddTaskComment, onChangeTaskComment, commentUserId, commentUserName, onDeleteTask, onCreateTask, onOpenReserve, onOpenVisit, initialTaskId, initialCompanyId, correctiveReserve, onCloseCorrectiveTask }: any) {
   const { t, locale } = useWebI18n();
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Planning" />;
   return (
@@ -13812,6 +13840,7 @@ function PlanningView({ tasks, visites, reserves, companies, profile, editable, 
       onOpenReserve={onOpenReserve}
       onOpenVisit={onOpenVisit}
       initialTaskId={initialTaskId}
+      initialCompanyId={initialCompanyId}
       correctiveReserve={correctiveReserve}
       onCloseCorrectiveTask={onCloseCorrectiveTask}
     />
@@ -14422,7 +14451,10 @@ function CompanyAttendanceInput({ value, disabled, onCommit }: {
     }} />;
 }
 
-function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyField, onOpenCompanyReserves }: any) {
+function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyField, onOpenCompanyReserves, onOpenCompanyTasks }: any) {
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<TeamsSort>('name');
+  const visibleCompanies = useMemo(() => filterTeams(companies, reserves, query, sort), [companies, reserves, query, sort]);
   const totalActual = companies.reduce((sum: number, company: any) => sum + Number(company.actual_workers ?? 0), 0);
   const totalPlanned = companies.reduce((sum: number, company: any) => sum + Number(company.planned_workers ?? 0), 0);
   const presence = totalPlanned ? Math.round((totalActual / totalPlanned) * 100) : 0;
@@ -14442,13 +14474,18 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
             <p>Pointage rapide, contacts et réserves ouvertes par entreprise.</p>
           </div>
         </div>
+        <div className={styles.teamsControls}>
+          <label>Rechercher une entreprise<input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Nom, lot ou zone…" /></label>
+          <label>Trier les entreprises<select value={sort} onChange={event => setSort(event.target.value as TeamsSort)}>
+            <option value="name">Nom A–Z</option><option value="presence">Présence %</option><option value="reserves">Réserves ouvertes</option>
+          </select></label>
+          {query && <button type="button" onClick={() => setQuery('')}>Effacer la recherche</button>}
+          <span role="status">{`${visibleCompanies.length} entreprise(s) affichée(s)`}</span>
+        </div>
         <div className={styles.companyGrid}>
-          {companies.map((company: any) => {
-            const names = [company.name, company.short_name, company.shortName].filter(Boolean);
-            const openReserves = reserves.filter((reserve: any) => {
-              const reserveNames = reserveCompanies(reserve);
-              return reserve.status !== 'closed' && reserveNames.some(name => names.some(companyName => sameName(companyName, name)));
-            }).length;
+          {visibleCompanies.map((company: any) => {
+            const openReserves = companyOpenReserves(company, reserves);
+            const activeTasks = companyActiveTasks(company, tasks);
             return (
               <article className={styles.companyCard} key={company.id}>
                 <div className={styles.companyTop}>
@@ -14472,6 +14509,7 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
                 </div>
                 <div className={styles.companyFooter}>
                   <button type="button" onClick={() => onOpenCompanyReserves(company.name)} aria-label={'Voir les réserves de ' + company.name}>{openReserves} réserves ouvertes</button>
+                  <button type="button" onClick={() => onOpenCompanyTasks(String(company.id))} aria-label={'Voir les tâches de ' + company.name}>{`${activeTasks} ${activeTasks === 1 ? 'tâche active' : 'tâches actives'}`}</button>
                   {company.email ? <a href={`mailto:${company.email}`}>Email</a> : null}
                   {company.contact ? <a href={`tel:${company.contact}`}>Appeler</a> : null}
                 </div>
@@ -14480,6 +14518,7 @@ function EquipesView({ companies, reserves, tasks, editable, onUpdateCompanyFiel
           })}
         </div>
         {!companies.length && <p className={styles.empty}>Aucune entreprise chargée.</p>}
+        {companies.length > 0 && !visibleCompanies.length && <p className={styles.empty}>Aucune entreprise avec cette recherche.</p>}
       </section>
     </div>
   );
