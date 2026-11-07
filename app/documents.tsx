@@ -5,7 +5,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import * as DocumentPicker from 'expo-document-picker';
 import { C } from '@/constants/colors';
-import { resolveMediaRef } from '@/lib/media';
+import { isManagedMediaRef, resolveMediaRef } from '@/lib/media';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { DocumentType, Document } from '@/constants/types';
@@ -275,12 +275,12 @@ export default function DocumentsScreen() {
               {item.uri && (
                 <View style={styles.uriBadge}>
                   <Ionicons
-                    name={item.uri.startsWith('http') ? 'cloud-done-outline' : 'phone-portrait-outline'}
+                    name={(item.uri.startsWith('http') || isManagedMediaRef(item.uri)) ? 'cloud-done-outline' : 'phone-portrait-outline'}
                     size={10}
-                    color={item.uri.startsWith('http') ? C.closed : C.textMuted}
+                    color={(item.uri.startsWith('http') || isManagedMediaRef(item.uri)) ? C.closed : C.textMuted}
                   />
-                  <Text style={[styles.uriBadgeText, { color: item.uri.startsWith('http') ? C.closed : C.textMuted }]}>
-                    {item.uri.startsWith('http') ? t('documentsScreen.cloudSupabase') : t('documentsScreen.localFile')}
+                  <Text style={[styles.uriBadgeText, { color: (item.uri.startsWith('http') || isManagedMediaRef(item.uri)) ? C.closed : C.textMuted }]}>
+                    {(item.uri.startsWith('http') || isManagedMediaRef(item.uri)) ? t('documentsScreen.cloudSupabase') : t('documentsScreen.localFile')}
                   </Text>
                 </View>
               )}
@@ -288,7 +288,7 @@ export default function DocumentsScreen() {
             <View style={styles.docActions}>
               <TouchableOpacity onPress={() => handleDownload(item)} hitSlop={8} style={styles.docActionBtn}>
                 <Ionicons
-                  name={item.uri?.startsWith('http') ? 'open-outline' : 'download-outline'}
+                  name={(item.uri?.startsWith('http') || isManagedMediaRef(item.uri)) ? 'open-outline' : 'download-outline'}
                   size={18}
                   color={C.textMuted}
                 />

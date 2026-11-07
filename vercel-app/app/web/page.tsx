@@ -14613,48 +14613,12 @@ function JournalView({ onCreateIncident, profile, projectName, reportLanguage, s
   const entries = useMemo<any[]>(() => (rows ?? []).map(journalRowToEntry), [rows]);
 
   async function exportJournal() {
-    const { fieldReportTranslator } = await import('@/lib/field-report-translation');
+    const [{ fieldReportTranslator }, { buildJournalHTML }] = await Promise.all([
+      import('@/lib/field-report-translation'), import('../../../lib/journalReportHtml'),
+    ]);
     const t = fieldReportTranslator(reportLanguage);
-    const locale = localeForLang(reportLanguage);
-    const formatDate = (value: string) => {
-      const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(value) ? value + 'T00:00:00' : value;
-      return parseDateSafe(calendarDate)?.toLocaleDateString(locale) ?? value;
-    };
-    const columns = ['journal.pdf.date', 'journal.pdf.weather', 'journal.pdf.workers', 'journal.workDoneLabel',
-      'journal.materialsLabel', 'journal.observationsLabel', 'journal.pdf.incidents', 'journal.pdf.visitors', 'journal.pdf.author'];
-    const tableRows = [...entries]
-      .sort((a, b) => (parseDateSafe(b.date)?.getTime() ?? 0) - (parseDateSafe(a.date)?.getTime() ?? 0))
-      .map(entry => `
-      <tr>
-        <td>${xmlEscape(formatDate(entry.date))}</td>
-        <td>${xmlEscape([
-          entry.weather || '—',
-          entry.weatherTemp == null ? null : `${entry.weatherTemp} °C`,
-          entry.weatherWind == null ? null : `${entry.weatherWind} km/h`,
-        ].filter(Boolean).join(' · '))}</td>
-        <td>${Number(entry.workerCount ?? 0)}</td>
-        <td>${xmlEscape(entry.workDone)}</td>
-        <td>${xmlEscape(entry.materials || '')}</td>
-        <td>${xmlEscape(entry.observations || '')}</td>
-        <td>${xmlEscape(entry.incidents || '')}</td>
-        <td>${xmlEscape(entry.visitors || '')}</td>
-        <td>${xmlEscape(entry.author || '')}</td>
-      </tr>
-    `).join('');
-    const title = t('journal.pdf.documentTitle', { project: projectName });
-    printHtmlReport(`
-      <html lang="${reportLanguage}"><head><title>${xmlEscape(title)}</title>
-      <style>body{font-family:Arial,sans-serif;padding:24px;color:#1e293b}h1{color:#003082}table{width:100%;border-collapse:collapse}th{background:#eef3fa;color:#1e293b;padding:8px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}</style>
-      </head>
-      <body>
-        <h1>${xmlEscape(title)}</h1>
-        <p>${xmlEscape(t('journal.pdf.register', { count: entries.length }))} · ${formatDate(todayISO())}</p>
-        <table>
-          <thead><tr>${columns.map(key => `<th>${xmlEscape(t(key))}</th>`).join('')}</tr></thead>
-          <tbody>${tableRows || `<tr><td colspan="9">${xmlEscape(t('journal.pdf.noEntries'))}</td></tr>`}</tbody>
-        </table>
-      </body></html>
-    `, `BuildTrack_journal_${safeStorageName(projectName)}_${reportLanguage.toUpperCase()}.pdf`);
+    printHtmlReport(buildJournalHTML(entries, projectName, t, localeForLang(reportLanguage)),
+      `BuildTrack_journal_${safeStorageName(projectName)}_${reportLanguage.toUpperCase()}.pdf`);
   }
 
   if (profile?.role === 'sous_traitant') return <RestrictedTool title="Journal de chantier" />;

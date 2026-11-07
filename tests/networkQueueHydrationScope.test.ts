@@ -84,7 +84,7 @@ describe('tenant-aware queue hydration', () => {
       dismissal,
     );
     const eligible = source.indexOf(
-      'authorizedDismissal.kept.map(recoverRejectedOprWrite)',
+      'authorizedDismissal.kept.map(operation => recoverRejectedTimeEntryWrite(recoverRejectedOprWrite(operation)))',
       backup,
     );
 

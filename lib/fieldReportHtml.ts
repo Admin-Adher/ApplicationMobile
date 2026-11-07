@@ -7,6 +7,7 @@ import { buildPhotoAnnotationsOverlayHtml, formatReserveLocation, getReservePdfP
 import { RESERVE_PRIORITY_COLORS, RESERVE_STATUS_COLORS } from './reserveLabels';
 import { getReserveDescriptionText, hasCustomReserveDescription } from './reserveDescription';
 import { reserveMatchesCompany } from './reserveVisibility';
+import { activeReportReserves, reportReserveStats } from './reportReserveScope';
 
 export function incidentSeverityLabel(t: TFunc, severity: string): string {
   return t(`reportsScreen.severity.${severity}`, { defaultValue: severity });
@@ -46,6 +47,8 @@ function buildLotSummaryRows(reserves: any[], companies: any[], t: TFunc): strin
 }
 
 export function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, projectName: string, t: TFunc, locale = 'fr-FR'): string {
+  reserves = activeReportReserves(reserves);
+  stats = reportReserveStats(reserves);
   const now = new Date().toLocaleDateString(locale, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const today = new Date().toLocaleDateString(locale);
   const palette = getPdfCompanyPalette(companies);
@@ -145,6 +148,8 @@ export function buildDailyHTML(reserves: any[], companies: any[], tasks: any[], 
 }
 
 export function buildWeeklyHTML(reserves: any[], companies: any[], tasks: any[], incidents: any[], stats: any, userName: string, weekNum: number, projectName: string, t: TFunc, locale = 'fr-FR'): string {
+  reserves = activeReportReserves(reserves);
+  stats = reportReserveStats(reserves);
   const palette = getPdfCompanyPalette(companies);
   const today = new Date().toLocaleDateString(locale);
   const docRef = `RH-S${weekNum}-${new Date().getFullYear()}`;
@@ -289,6 +294,7 @@ export function buildIncidentHTML(incident: any, projectName: string, t: TFunc, 
 }
 
 export async function buildCompanyReserveHTML(company: any, companyReserves: any[], projectName: string, t: TFunc, locale: string, loadPhoto: (uri: string) => Promise<string | null>): Promise<string> {
+  companyReserves = activeReportReserves(companyReserves);
   const now = new Date().toLocaleDateString(locale, { day: 'numeric', month: 'long', year: 'numeric' });
   const today = new Date().toLocaleDateString(locale);
   const docRef = `BON-${company.name.slice(0, 4).toUpperCase().replace(/\s/g, '')}-${today.replace(/\//g, '')}`;

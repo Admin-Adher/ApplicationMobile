@@ -14,7 +14,7 @@ import DateInput from '@/components/DateInput';
 import CompanySelector from '@/components/CompanySelector';
 import DictationTextInput from '@/components/DictationTextInput';
 import { Task, TaskStatus, ReservePriority } from '@/constants/types';
-import { validateDeadline } from '@/lib/reserveUtils';
+import { validateDeadline, formatDate } from '@/lib/reserveUtils';
 import { genId, formatDateFR, nowTimestampFR } from '@/lib/utils';
 
 const STATUS_OPTS: { value: TaskStatus; labelKey: string; color: string; icon: string }[] = [
@@ -53,7 +53,7 @@ export default function NewTaskScreen() {
   const [priority, setPriority]     = useState<ReservePriority>(sourceReserve?.priority ?? 'medium');
   const [startDate, setStartDate]   = useState('');
   const [deadline, setDeadline]     = useState(
-    sourceReserve?.deadline && sourceReserve.deadline !== '—' ? sourceReserve.deadline : ''
+    sourceReserve?.deadline && sourceReserve.deadline !== '—' ? formatDate(sourceReserve.deadline) : ''
   );
   const [assignee, setAssignee]     = useState(user?.name ?? '');
   const [companyId, setCompanyId]   = useState(defaultCompanyId);

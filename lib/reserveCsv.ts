@@ -1,4 +1,5 @@
 import { reservePriorityLabel, reserveStatusLabel, type TFunc } from './reportLabels';
+import { activeReportReserves } from './reportReserveScope';
 
 export function buildCsvReport(reserves: any[], t: TFunc, locale: string): string {
   const localizedDate = (value?: string | null) => {
@@ -10,7 +11,7 @@ export function buildCsvReport(reserves: any[], t: TFunc, locale: string): strin
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString(locale);
   };
   const header = ['ID', t('reportsPdf.title'), t('reportsPdf.status'), t('reportsPdf.priority'), t('reportsPdf.building'), t('reportsPdf.zone'), t('reportsPdf.level'), t('reportsPdf.company'), t('reportsPdf.createdDate'), t('reportsPdf.deadline'), t('reportsPdf.closedDate'), t('reportsPdf.closedBy')];
-  const rows = reserves.map(r => [
+  const rows = activeReportReserves(reserves).map(r => [
     r.id, r.title, reserveStatusLabel(t, r.status), reservePriorityLabel(t, r.priority),
     r.building, r.zone, r.level, r.company, localizedDate(r.createdAt), localizedDate(r.deadline),
     localizedDate(r.closedAt), r.closedBy,

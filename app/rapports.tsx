@@ -9,6 +9,7 @@ import { C } from '@/constants/colors';
 import { exportPDF as exportPDFHelper, loadPhotoAsDataUrlForPdf } from '@/lib/pdfBase';
 import { buildDailyHTML, buildWeeklyHTML, buildIncidentHTML, buildCompanyReserveHTML, incidentSeverityLabel, type TFunc } from '@/lib/fieldReportHtml';
 import { buildCsvReport } from '@/lib/reserveCsv';
+import { activeReportReserves } from '@/lib/reportReserveScope';
 import { reserveStatusLabel } from '@/lib/reportLabels';
 import { getISOWeek } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
@@ -34,7 +35,8 @@ import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLangua
 
 export default function RapportsScreen() {
   const { t } = useTranslation();
-  const { reserves, companies, tasks, stats, chantiers, activeChantierId, photos } = useApp();
+  const { reserves: allReserves, companies, tasks, stats, chantiers, activeChantierId, photos } = useApp();
+  const reserves = activeReportReserves(allReserves);
   const { user, permissions } = useAuth();
   const { exportLanguage, setExportLanguage } = useLanguage();
   const { projectName } = useSettings();
