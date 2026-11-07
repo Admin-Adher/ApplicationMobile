@@ -14360,7 +14360,7 @@ function JournalView({ profile, projectName, reportLanguage, selectedProjectId, 
     const title = t('journal.pdf.documentTitle', { project: projectName });
     printHtmlReport(`
       <html lang="${reportLanguage}"><head><title>${xmlEscape(title)}</title>
-      <style>body{font-family:Arial,sans-serif;padding:24px;color:#1e293b}h1{color:#003082}table{width:100%;border-collapse:collapse}th{background:#003082;color:#fff;padding:8px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}</style>
+      <style>body{font-family:Arial,sans-serif;padding:24px;color:#1e293b}h1{color:#003082}table{width:100%;border-collapse:collapse}th{background:#eef3fa;color:#1e293b;padding:8px;text-align:left}td{padding:8px;border-bottom:1px solid #e2e8f0}</style>
       </head>
       <body>
         <h1>${xmlEscape(title)}</h1>
