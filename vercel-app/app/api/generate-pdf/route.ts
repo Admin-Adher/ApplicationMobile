@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { PdfReportPayload } from '@/types/pdfReport';
 import { buildGlobalReportHtml, buildGlobalReservesHtml, buildIndividualReserveHtml, buildVisitReportHtml } from '@/lib/reportBuilder';
+import { withPdfPagination } from '../../../../lib/pdfPagination';
 import { buildFieldReportHtml, isFieldReportType, validFieldReportPayload } from '@/lib/field-reports';
 import { sendEmail } from '@/lib/sender';
 import { getReserveStatusLabel } from '@/lib/reserveLabels';
@@ -660,6 +661,7 @@ async function acquirePdfBrowser(diagnostic: Record<string, any>) {
 }
 
 async function renderPdfBuffer(html: string): Promise<Buffer> {
+  html = withPdfPagination(html);
   let browser: any = null;
   let page: any = null;
   const chromiumEnvironment = prepareServerlessChromiumEnvironment();

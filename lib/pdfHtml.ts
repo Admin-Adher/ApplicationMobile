@@ -1,6 +1,7 @@
 import { getPdfCompanyPalette, renderPdfCompanyLabel, type PdfCompany } from './pdfCompanyColors';
 import { buildPhotoAnnotationsOverlayHtml } from './pdfReserveHelpers';
 import type { PhotoAnnotation } from '../constants/types';
+import { withPdfPagination } from './pdfPagination';
 
 /**
  * Escapes user-supplied strings so they are safe to embed in HTML.
@@ -325,7 +326,7 @@ export function buildPhotoGrid(
 }
 
 export function wrapHTML(body: string, title: string): string {
-  return `<!DOCTYPE html><html lang="fr"><head>
+  return withPdfPagination(`<!DOCTYPE html><html lang="fr"><head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>${escapeHtml(title)}</title>
@@ -334,5 +335,5 @@ export function wrapHTML(body: string, title: string): string {
     <div class="container">
       ${body}
     </div>
-  </body></html>`;
+  </body></html>`);
 }
