@@ -79,7 +79,7 @@ export default function OprSessionScreen() {
         signatories: updatedSignatories,
         status: allSigned ? 'signed' : 'in_progress',
         signedAt: allSigned ? now : opr.signedAt,
-      });
+      }, opr);
       setSigned(true);
     } finally {
       setSigning(false);

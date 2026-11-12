@@ -1,3 +1,6 @@
+import * as Crypto from 'expo-crypto';
+import { buildTerrainChanges, projectTerrainChanges, projectQueuedTerrainRows } from '@/lib/terrainPatch';
+import { showAlert } from '@/lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
@@ -16,9 +19,9 @@ import i18n from '@/lib/i18n';
 import { uploadLocalPhotosInPayload } from '@/lib/storage';
 
 export function useVisites() {
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
+  const { isOnline, enqueueOperation, enqueueOperationDurable, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -58,7 +61,7 @@ export function useVisites() {
         if (error) throw error;
         const fresh = (data ?? []).map(toVisite);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'visites');
-        const merged = mergeWithCache<Visite>(fresh, cached, pendingIds, { queueLoaded });
+        const merged = projectQueuedTerrainRows(mergeWithCache<Visite>(fresh, cached, pendingIds, { queueLoaded }), 'visites', queueRef.current, row => fromVisite(row, user!.organizationId), toVisite);
         await writeCache(VISITES_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
@@ -78,71 +81,31 @@ export function useVisites() {
   }, [userId]);
 
   const addVisite = useCallback(async (v: Visite) => {
-    const orgId = user?.organizationId ?? null;
-    queryClient.setQueryData<Visite[]>(queryKeys.visites(), old => {
-      if ((old ?? []).some(x => x.id === v.id)) return old ?? [];
-      return [v, ...(old ?? [])];
-    });
+    if (!permissions.canCreate) return;
+    if (isSupabaseConfigured) enqueueOperation({ table: 'visites', op: 'insert', data: fromVisite(v, user?.organizationId ?? null) }, { proveNeverStarted: true });
+    queryClient.setQueryData<Visite[]>(queryKeys.visites(), old => (old ?? []).some(row => row.id === v.id) ? old : [v, ...(old ?? [])]);
     persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
-    if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'visites', op: 'insert', data: fromVisite(v, orgId) });
-      return;
-    }
-    if (isSupabaseConfigured) {
-      const payload = fromVisite(v, orgId);
-      const prepared = await uploadLocalPhotosInPayload('visites', payload);
-      if (!prepared.allOk) {
-        console.warn('[sync] addVisite cover upload failed, queuing for retry:', prepared.uploadErrors.join('; '));
-        enqueueOperation({ table: 'visites', op: 'insert', data: payload });
-        return;
-      }
-      const persistedPayload = prepared.data ?? payload;
-      if (persistedPayload.cover_photo_uri && persistedPayload.cover_photo_uri !== payload.cover_photo_uri) {
-        queryClient.setQueryData<Visite[]>(queryKeys.visites(), old =>
-          (old ?? []).map(item => item.id === v.id ? { ...item, coverPhotoUri: persistedPayload.cover_photo_uri } : item)
-        );
-        persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
-      }
-      const { error } = await (supabase as any).from('visites').insert(persistedPayload);
-      if (error) {
-        console.warn('[sync] addVisite error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'visites', op: 'insert', data: persistedPayload });
-      }
-    }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+  }, [queryClient, user, permissions.canCreate, enqueueOperation, persist]);
 
-  const updateVisite = useCallback(async (v: Visite) => {
-    queryClient.setQueryData<Visite[]>(queryKeys.visites(), old =>
-      (old ?? []).map(x => x.id === v.id ? v : x)
-    );
-    persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
+  const updateVisite = useCallback(async (next: Visite, previous: Visite) => {
+    if (!permissions.canEdit || next.id !== previous.id) return;
     const orgId = user?.organizationId ?? null;
-    const { id, organization_id, ...fields } = fromVisite(v, orgId);
-    if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: fields });
-      return;
-    }
+    const changes = buildTerrainChanges('visites', fromVisite(previous, orgId), fromVisite(next, orgId));
+    if (!changes.length) return;
     if (isSupabaseConfigured) {
-      const prepared = await uploadLocalPhotosInPayload('visites', { id: v.id, organization_id: orgId, ...fields });
-      if (!prepared.allOk) {
-        console.warn('[sync] updateVisite cover upload failed, queuing for retry:', prepared.uploadErrors.join('; '));
-        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: fields });
+      try {
+        await enqueueOperationDurable({ table: 'visites', op: 'rpc', data: { id: next.id }, rpc: {
+          fn: 'apply_terrain_patch', args: { p_operation_id: Crypto.randomUUID(), p_table: 'visites', p_id: next.id, p_changes: changes },
+        } });
+      } catch (error: any) {
+        showAlert(i18n.t('common.error'), error?.message ?? 'Enregistrement local non confirmé.');
         return;
       }
-      const { id: _id, organization_id: _organizationId, ...persistedFields } = prepared.data ?? fields;
-      if (persistedFields.cover_photo_uri && persistedFields.cover_photo_uri !== fields.cover_photo_uri) {
-        queryClient.setQueryData<Visite[]>(queryKeys.visites(), old =>
-          (old ?? []).map(item => item.id === v.id ? { ...item, coverPhotoUri: persistedFields.cover_photo_uri } : item)
-        );
-        persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
-      }
-      const { error } = await (supabase as any).from('visites').update(persistedFields).eq('id', v.id);
-      if (error) {
-        console.warn('[sync] updateVisite error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'visites', op: 'update', filter: { column: 'id', value: v.id }, data: persistedFields });
-      }
     }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+    queryClient.setQueryData<Visite[]>(queryKeys.visites(), old => (old ?? []).map(row =>
+      row.id === next.id ? toVisite(projectTerrainChanges(fromVisite(row, orgId), changes)) : row));
+    persist(queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? []);
+  }, [queryClient, user, permissions.canEdit, enqueueOperationDurable, persist]);
 
   const deleteVisite = useCallback(async (id: string) => {
     const prev = queryClient.getQueryData<Visite[]>(queryKeys.visites()) ?? [];

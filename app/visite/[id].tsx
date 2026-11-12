@@ -981,7 +981,7 @@ export default function VisiteDetailScreen() {
 
   function setVisitStatus(next: VisiteStatus) {
     if (!visite) return;
-    updateVisite({ ...visite, id: visite.id!, status: next });
+    updateVisite({ ...visite, id: visite.id!, status: next }, visite);
     setStatusModalVisible(false);
   }
 
@@ -995,7 +995,7 @@ export default function VisiteDetailScreen() {
 
   function saveEditMeta() {
     if (!visite || !editTitle.trim()) return;
-    updateVisite({ ...visite, id: visite.id!, title: editTitle.trim(), date: editDate.trim() || visite.date, notes: editNotes.trim() || undefined });
+    updateVisite({ ...visite, id: visite.id!, title: editTitle.trim(), date: editDate.trim() || visite.date, notes: editNotes.trim() || undefined }, visite);
     setEditMetaVisible(false);
   }
 
@@ -1006,11 +1006,11 @@ export default function VisiteDetailScreen() {
       const lib = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (lib.status !== 'granted') return;
       const result = await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
-      if (!result.canceled && result.assets[0]) updateVisite({ ...visite, id: visite.id!, coverPhotoUri: result.assets[0].uri });
+      if (!result.canceled && result.assets[0]) updateVisite({ ...visite, id: visite.id!, coverPhotoUri: result.assets[0].uri }, visite);
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [16, 9], quality: 0.8 });
-    if (!result.canceled && result.assets[0]) updateVisite({ ...visite, id: visite.id!, coverPhotoUri: result.assets[0].uri });
+    if (!result.canceled && result.assets[0]) updateVisite({ ...visite, id: visite.id!, coverPhotoUri: result.assets[0].uri }, visite);
   }
 
   function toggleChecklistItem(itemId: string) {
@@ -1022,7 +1022,7 @@ export default function VisiteDetailScreen() {
       checklistItems: visite.checklistItems.map(item =>
         item.id === itemId ? { ...item, checked: !item.checked } : item
       ),
-    });
+    }, visite);
   }
 
   function handleDelete() {
@@ -1064,7 +1064,7 @@ export default function VisiteDetailScreen() {
         signedAt: today,
         entrepriseSignataire: signataire,
         status: 'completed',
-      });
+      }, visite);
       setSignModalVisible(false);
       showAlert(t('visits.detail.signedTitle'), t('visits.detail.signedText'));
     } finally {
@@ -1082,7 +1082,7 @@ export default function VisiteDetailScreen() {
 
   function saveEditLoc() {
     if (!visite) return;
-    updateVisite({ ...visite, id: visite.id!, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined });
+    updateVisite({ ...visite, id: visite.id!, building: editBuilding || undefined, level: editLevel || undefined, zone: editZone || undefined }, visite);
     setEditLocModal(false);
   }
 
