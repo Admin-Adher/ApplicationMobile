@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Text, View } from 'react-native';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, BackHandler, Pressable, Text, View } from 'react-native';
+import { Stack, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { Asset } from 'expo-asset';
@@ -33,7 +33,24 @@ export default function PlanProgressScreen() {
   const [html, setHtml] = useState('');
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
-  const [busy, setBusy] = useState(false);
+  const [closing, setClosing] = useState(false);
+  const ready = useRef(false);
+  const close = useRef(() => router.back());
+  close.current = () => {
+    if (!html || !ready.current || !bridge.current) { router.back(); return; }
+    if (closing) return;
+    setClosing(true);
+    web.current?.injectJavaScript('window.dispatchEvent(new MessageEvent("message",{data:' + JSON.stringify({ channel:'bt-plan-progress',nonce:bridge.current.nonce,type:'closeEditor' }) + '}));true;');
+  };
+  useFocusEffect(useCallback(() => {
+    const listener = BackHandler.addEventListener('hardwareBackPress',() => { close.current(); return true; });
+    return () => listener.remove();
+  },[]));
+  useEffect(() => {
+    if (!closing) return;
+    const timer = setTimeout(() => { setClosing(false); Alert.alert('Enregistrement','La fermeture n’a pas pu être confirmée. Les données restent affichées ; réessayez.'); },45_000);
+    return () => clearTimeout(timer);
+  },[closing]);
   const permissions = JSON.stringify({ edit: auth.permissions.canCreate && auth.permissions.canEdit,
     editOwn: auth.permissions.canEditOwn, delete: auth.permissions.canDelete, export: auth.permissions.canExport });
   const bridge = useRef<{ nonce: string; receive: (message: any) => Promise<unknown> } | null>(null);
@@ -41,6 +58,7 @@ export default function PlanProgressScreen() {
   useEffect(() => {
     let active = true;
     bridge.current = null;
+    ready.current = false;
     setHtml(''); setError('');
     const user = auth.user;
     if (!network.queueLoaded || !user?.organizationId || !plan?.uri) return;
@@ -86,6 +104,15 @@ export default function PlanProgressScreen() {
       const nonce = Crypto.randomUUID();
       bridge.current = { nonce, receive: async message => {
         if (!owned()) throw new Error('La session a changé. Rouvrez le plan.');
+        if (message.type === 'ready') { ready.current = true; return {}; }
+        if (message.type === 'exit') {
+          setClosing(false);
+          if (message.payload?.unconfirmed) Alert.alert('Enregistrement à vérifier','Revenir aux plans pour contrôler la file de synchronisation ?',[
+            { text:'Rester',style:'cancel' },{ text:'Revenir aux plans',onPress:() => router.back() },
+          ]); else router.back();
+          return {};
+        }
+        if (message.type === 'closeError') { setClosing(false); Alert.alert('Avancement',String(message.payload?.message ?? 'Enregistrement en cours.')); return {}; }
         if (message.type === 'save') {
           await session.save(message.payload);
           return { text: 'Enregistré sur cet appareil · synchronisation en attente' };
@@ -121,7 +148,7 @@ export default function PlanProgressScreen() {
   return <View style={{ flex: 1, backgroundColor: '#fff', paddingTop: insets.top, paddingBottom: insets.bottom }}>
     <Stack.Screen options={{ headerShown: false }} />
     <View style={{ minHeight: 48, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, gap: 12 }}>
-      <Pressable accessibilityRole="button" disabled={busy} onPress={() => router.back()} style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12 }}><Text style={{ color: '#003582', fontWeight: '700' }}>‹ Plans</Text></Pressable>
+      <Pressable accessibilityRole="button" disabled={closing} onPress={() => close.current()} style={{ minHeight: 48, justifyContent: 'center', paddingHorizontal: 12 }}><Text style={{ color: '#003582', fontWeight: '700' }}>‹ Plans</Text></Pressable>
       <Text numberOfLines={1} style={{ flex: 1, fontWeight: '600' }}>{plan?.name ?? 'Avancement'}</Text>
     </View>
     {error ? <View style={{ padding: 24, gap: 16 }}><Text accessibilityRole="alert">{error}</Text><Pressable onPress={() => setAttempt(value => value + 1)} style={{ minHeight: 48 }}><Text>Réessayer</Text></Pressable></View>
@@ -132,11 +159,10 @@ export default function PlanProgressScreen() {
           let message: any; try { if (event.nativeEvent.data.length > 21_000_000) return; message = JSON.parse(event.nativeEvent.data); } catch { return; }
           const host = bridge.current;
           if (!host || message?.channel !== 'bt-plan-progress' || message.nonce !== host.nonce || typeof message.id !== 'string') return;
-          if (message.type === 'save') setBusy(true);
           void host.receive(message).then(payload => ({ payload })).catch(cause => ({ error: cause instanceof Error ? cause.message : 'Action impossible.', uncertain: cause?.code === 'LOCAL_SAVE_UNCONFIRMED' })).then(result => {
             if (bridge.current !== host) return;
             web.current?.injectJavaScript('window.dispatchEvent(new MessageEvent("message",{data:' + JSON.stringify({ channel: 'bt-plan-progress', nonce: host.nonce, id: message.id, ...result }).replace(/</g, '\\u003c') + '}));true;');
-          }).finally(() => { if (message.type === 'save') setBusy(false); });
+          });
         }} onError={() => setError('Le lecteur du plan a été interrompu. Rouvrez le plan.')} />
         : <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}><ActivityIndicator /><Text>Chargement du plan et de son avancement…</Text></View>}
   </View>;

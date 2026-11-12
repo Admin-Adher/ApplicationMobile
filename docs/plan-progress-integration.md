@@ -4,6 +4,8 @@ Depuis **Plans → sélectionner un PDF → Avancement**, le web et Android ouvr
 
 Le parcours reprend l'ajout d'équipements, les longueurs droites ou avec coudes à 90°, les contours et rectangles, le bouton explicite de fin de surface, la modification des fiches et tracés, les dimensions, les états et l'export Excel. Les boutons tactiles mesurent au moins 44 px. La calibration s'applique à une page ; changer de PDF ou de page ne reprend pas l'échelle d'une autre page.
 
+Le retour aux plans, y compris le bouton Retour Android, attend l'enregistrement de la note ouverte. Une note quittée en cliquant un état est incluse dans l'écriture correspondante. Un tracé ou une fiche d'ouvrage non terminé doit d'abord être terminé ou annulé. Une erreur de stockage laisse les données affichées et demande une vérification explicite, au lieu de fermer silencieusement l'écran.
+
 Les dimensions sont enregistrées en mètres, avec saisie en mm, cm ou m. Le calcul du prix est explicite : unité, longueur, surface, emprise, surface verticale ou volume. Les volumes sont des volumes géométriques pleins. Les prix démarrent à zéro ; ajouter une dimension ne choisit pas automatiquement une autre unité de facturation.
 
 À faire = 0 %, En cours = 50 %, Terminé et Contrôlé = 100 %. Seul Contrôlé alimente le montant validé. Le total d'avancement est pondéré par la valeur HT des ouvrages chiffrés ; l'écran indique combien sont chiffrés et ne présente pas un faux 0 % quand aucun prix n'est renseigné. Des unités différentes ne sont jamais additionnées.

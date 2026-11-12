@@ -25,7 +25,8 @@ export default function PlanProgress(props: Props) {
   const [html,setHtml] = useState('');
   const [error,setError] = useState('');
   const [attempt,setAttempt] = useState(0);
-  const [busy,setBusy] = useState(false);
+  const [closing,setClosing] = useState(false);
+  const ready = useRef(false);
   const nonce = useRef('');
   const permissionKey = JSON.stringify(props.permissions);
 
@@ -33,6 +34,7 @@ export default function PlanProgress(props: Props) {
   useEffect(() => {
     let active = true;
     setHtml('');setError('');
+    ready.current = false;
     const captured = props;
     const owned = () => active && latest.current.owner === captured.owner && latest.current.plan.id === captured.plan.id && latest.current.plan.uri === captured.plan.uri;
     const key = progressScope(props.userId,props.organizationId,props.plan.id,props.plan.uri) + ':' + permissionKey;
@@ -56,10 +58,15 @@ export default function PlanProgress(props: Props) {
     const receive = async (event: MessageEvent) => {
       const message = event.data;
       if (!owned() || event.source !== frame.current?.contentWindow || message?.channel !== 'bt-plan-progress' || message.nonce !== nonce.current || typeof message.id !== 'string') return;
-      if (message.type === 'save') setBusy(true);
       try {
         let payload = {};
-        if (message.type === 'save') { await session.save(message.payload); payload = { text: 'Enregistré sur cet appareil · synchronisation en attente' }; }
+        if (message.type === 'ready') { ready.current = true; }
+        else if (message.type === 'exit') {
+          setClosing(false);
+          if (!message.payload?.unconfirmed || window.confirm('Enregistrement non confirmé. Revenir aux plans pour contrôler la file de synchronisation ?')) latest.current.onClose();
+        }
+        else if (message.type === 'closeError') { setClosing(false); window.alert(String(message.payload?.message ?? 'Enregistrement en cours.')); }
+        else if (message.type === 'save') { await session.save(message.payload); payload = { text: 'Enregistré sur cet appareil · synchronisation en attente' }; }
         else if (message.type === 'reload') { payload = await session.refresh() ?? {}; }
         else if (message.type === 'download' && captured.permissions.export) {
           const base64 = message.payload?.base64;
@@ -71,7 +78,7 @@ export default function PlanProgress(props: Props) {
         if (owned()) frame.current?.contentWindow?.postMessage({ channel:'bt-plan-progress',nonce:nonce.current,id:message.id,payload },'*');
       } catch (cause) {
         if (owned()) frame.current?.contentWindow?.postMessage({ channel:'bt-plan-progress',nonce:nonce.current,id:message.id,error:cause instanceof Error ? cause.message : 'Enregistrement impossible.' },'*');
-      } finally { if (owned() && message.type === 'save') setBusy(false); }
+      }
     };
     window.addEventListener('message',receive);
     void (async () => {
@@ -102,11 +109,22 @@ export default function PlanProgress(props: Props) {
     frame.current?.contentWindow?.postMessage({ channel:'bt-plan-progress',nonce:nonce.current,type:'status',text:props.syncError ? 'Synchronisation à vérifier dans la file hors ligne' : props.pendingCount ? `${props.pendingCount} modification(s) en attente de synchronisation` : navigator.onLine ? 'File d’attente vide · actualisation du suivi' : 'Hors ligne · enregistré sur cet appareil' },'*');
     if (!props.pendingCount && !props.syncError && navigator.onLine) frame.current?.contentWindow?.postMessage({ channel:'bt-plan-progress',nonce:nonce.current,type:'refreshAvailable' },'*');
   },[props.pendingCount,props.syncError,html]);
-  return <dialog ref={dialog} aria-label="Avancement sur plan" onCancel={event => { event.preventDefault(); if (!busy) props.onClose(); }}
+  function closeEditor() {
+    if (!html || !ready.current) { props.onClose(); return; }
+    if (closing) return;
+    setClosing(true);
+    frame.current?.contentWindow?.postMessage({ channel:'bt-plan-progress',nonce:nonce.current,type:'closeEditor' },'*');
+  }
+  useEffect(() => {
+    if (!closing) return;
+    const timer = setTimeout(() => { setClosing(false); window.alert('La fermeture n’a pas pu être confirmée. Les données restent affichées ; réessayez.'); },45_000);
+    return () => clearTimeout(timer);
+  },[closing]);
+  return <dialog ref={dialog} aria-label="Avancement sur plan" onCancel={event => { event.preventDefault(); closeEditor(); }}
     style={{ margin:0,padding:0,width:'100vw',height:'100dvh',maxWidth:'100vw',maxHeight:'100dvh',border:0,background:'#fff',fontFamily:'Arial, sans-serif' }}>
     <div style={{ display:'flex',flexDirection:'column',height:'100%',paddingTop:'env(safe-area-inset-top)' }}>
       <header style={{ display:'flex',alignItems:'center',gap:12,padding:'0 12px',minHeight:48 }}>
-        <button disabled={busy} onClick={props.onClose} style={{ minHeight:48,padding:'8px 16px',color:'#003582',fontWeight:700 }}>‹ Plans</button>
+        <button disabled={closing} onClick={closeEditor} style={{ minHeight:48,padding:'8px 16px',color:'#003582',fontWeight:700 }}>‹ Plans</button>
         <strong style={{ overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>{props.plan.name}</strong>
       </header>
       {error ? <div role="alert" style={{ padding:24 }}><p>{error}</p><button onClick={() => setAttempt(value => value + 1)} style={{ minHeight:48 }}>Réessayer</button></div>
