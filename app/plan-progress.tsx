@@ -66,6 +66,7 @@ export default function PlanProgressScreen() {
     const owned = () => active && latest.current.auth.user?.id === user.id &&
       latest.current.auth.user?.organizationId === user.organizationId && latest.current.plan?.uri === source;
     const key = progressScope(user.id, user.organizationId, plan.id, source) + ':' + permissions;
+    const drawingKey = `bt-progress-drawing-mode-v1:${user.id}:${user.organizationId}`;
     const pending = async () => latest.current.network.queue.filter(row => row.rpc?.fn === 'apply_plan_progress' &&
       row.rpc.args?.p_plan_id === plan.id && row.rpc.args?.p_source_ref === source).map(row => ({
         id: row.rpc!.args!.p_operation_id, planId: plan.id, sourceRef: source, changes: row.rpc!.args!.p_changes,
@@ -105,6 +106,12 @@ export default function PlanProgressScreen() {
       bridge.current = { nonce, receive: async message => {
         if (!owned()) throw new Error('La session a changé. Rouvrez le plan.');
         if (message.type === 'ready') { ready.current = true; return {}; }
+        if (message.type === 'drawingPreference') {
+          const value = message.payload?.value;
+          if (value !== 'free' && value !== 'right_angles') throw new Error('Réglage de tracé invalide.');
+          await AsyncStorage.setItem(drawingKey, value);
+          return {};
+        }
         if (message.type === 'exit') {
           setClosing(false);
           if (message.payload?.unconfirmed) Alert.alert('Enregistrement à vérifier','Revenir aux plans pour contrôler la file de synchronisation ?',[
@@ -129,7 +136,9 @@ export default function PlanProgressScreen() {
         }
         throw new Error('Action non autorisée.');
       } };
-      setHtml(editorHtml(template, { nonce, document, history: session.history, plan: { id: plan.id, name: plan.name, pages: plan.pdfPageCount ?? 1 },
+      const drawingPreference = await AsyncStorage.getItem(drawingKey).catch(() => null);
+      if (!owned()) return;
+      setHtml(editorHtml(template, { nonce, document, drawingPreference, history: session.history, plan: { id: plan.id, name: plan.name, pages: plan.pdfPageCount ?? 1 },
         projectName: project?.name ?? 'Chantier', groups, companyId: user.companyId, permissions: JSON.parse(permissions), pdfSource, pdfjs,
         syncText: (await pending()).length ? 'Modifications en attente de synchronisation' : session.fresh ? 'Suivi chargé · synchronisé' : 'Données locales · actualisation à la connexion' }));
     })().catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'Impossible de charger l’avancement.'); });

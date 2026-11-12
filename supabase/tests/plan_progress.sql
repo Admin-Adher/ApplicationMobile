@@ -66,6 +66,20 @@ select pg_temp.progress_error($q$select public.apply_plan_progress('00000000-000
  '[{"target":"elements","key":"work-a","before":{"page":1},"after":{"page":"1"}}]')$q$,'22023');
 select pg_temp.progress_error($q$select public.apply_plan_progress('00000000-0000-4000-8000-000000000019','progress-plan-a','btmedia:pdf-a',
  '[{"target":"elements","key":"work-a","before":{"name":"Gaine modifiée"},"after":{"name":{"invalid":true}}}]')$q$,'22023');
+-- Exact percentages are optional and field-level CAS remains intact.
+select public.apply_plan_progress('00000000-0000-4000-8000-000000000021','progress-plan-a','btmedia:pdf-a',
+ '[{"target":"elements","key":"work-a","before":{"status":"installed","progressPercent":null},"after":{"status":"progress","progressPercent":25}}]');
+select public.apply_plan_progress('00000000-0000-4000-8000-000000000022','progress-plan-a','btmedia:pdf-a',
+ '[{"target":"elements","key":"work-a","before":{"progressPercent":25},"after":{"progressPercent":37.5}}]');
+select public.apply_plan_progress('00000000-0000-4000-8000-000000000021','progress-plan-a','btmedia:pdf-a',
+ '[{"target":"elements","key":"work-a","before":{"status":"installed","progressPercent":null},"after":{"status":"progress","progressPercent":25}}]');
+select pg_temp.progress_assert(public.read_plan_progress('progress-plan-a','btmedia:pdf-a')->'elements'->0->>'progressPercent'='37.5','receipt cannot restore an older percentage');
+select pg_temp.progress_error($q$select public.apply_plan_progress(gen_random_uuid(),'progress-plan-a','btmedia:pdf-a',
+ '[{"target":"elements","key":"work-a","before":{"progressPercent":25},"after":{"progressPercent":75}}]')$q$,'22023');
+select pg_temp.progress_error($q$select public.apply_plan_progress(gen_random_uuid(),'progress-plan-a','btmedia:pdf-a',
+ '[{"target":"elements","key":"work-a","before":{"progressPercent":37.5},"after":{"progressPercent":101}}]')$q$,'22023');
+select public.apply_plan_progress(gen_random_uuid(),'progress-plan-a','btmedia:pdf-a',
+ '[{"target":"elements","key":"work-a","before":{"status":"progress","progressPercent":37.5},"after":{"status":"installed","progressPercent":null}}]');
 -- Role changes are read from active membership, not the stale profile projection.
 reset role;
 update public.organization_memberships set role = 'sous_traitant' where user_id = '70000000-0000-4000-8000-000000000004';

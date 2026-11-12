@@ -38,6 +38,7 @@ export default function PlanProgress(props: Props) {
     const captured = props;
     const owned = () => active && latest.current.owner === captured.owner && latest.current.plan.id === captured.plan.id && latest.current.plan.uri === captured.plan.uri;
     const key = progressScope(props.userId,props.organizationId,props.plan.id,props.plan.uri) + ':' + permissionKey;
+    const drawingKey = `bt-progress-drawing-mode-v1:${props.userId}:${props.organizationId}`;
     const pending = async () => (await listWebOperations(captured.owner)).filter(row => row.kind === 'plan_progress' && row.payload.planId === captured.plan.id && row.payload.sourceRef === captured.plan.uri).map(row => row.payload as unknown as ProgressOperation);
     const session = new ProgressSession({ planId: props.plan.id, sourceRef: props.plan.uri, owned, online: () => navigator.onLine,
       newId: () => crypto.randomUUID(), pending,
@@ -61,6 +62,11 @@ export default function PlanProgress(props: Props) {
       try {
         let payload = {};
         if (message.type === 'ready') { ready.current = true; }
+        else if (message.type === 'drawingPreference') {
+          const value = message.payload?.value;
+          if (value !== 'free' && value !== 'right_angles') throw new Error('Réglage de tracé invalide.');
+          localStorage.setItem(drawingKey,value);
+        }
         else if (message.type === 'exit') {
           setClosing(false);
           if (!message.payload?.unconfirmed || window.confirm('Enregistrement non confirmé. Revenir aux plans pour contrôler la file de synchronisation ?')) latest.current.onClose();
@@ -98,7 +104,9 @@ export default function PlanProgress(props: Props) {
       if (!owned()) return;
       nonce.current = crypto.randomUUID();
       const groups = progressGroups(props.companies,props.lots.map(lot => ({ id:lot.id,name:lot.name ?? 'Ouvrages',companyId:lot.company_id })));
-      setHtml(editorHtml(template,{ nonce:nonce.current,document,history:session.history,groups,companyId:props.companyId,permissions:props.permissions,
+      let drawingPreference: string | null = null;
+      try { drawingPreference = localStorage.getItem(drawingKey); } catch {}
+      setHtml(editorHtml(template,{ nonce:nonce.current,document,drawingPreference,history:session.history,groups,companyId:props.companyId,permissions:props.permissions,
         plan:{ id:props.plan.id,name:props.plan.name,pages:props.plan.pdf_page_count ?? 1 },projectName:props.projectName,pdfSource,pdfjs:{ moduleSource,workerSource },
         syncText:(await pending()).length ? 'Modifications en attente de synchronisation' : session.fresh ? 'Suivi chargé · synchronisé' : 'Données locales · actualisation à la connexion' }));
     })().catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'Impossible de charger l’avancement.'); });

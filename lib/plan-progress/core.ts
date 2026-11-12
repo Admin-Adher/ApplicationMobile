@@ -31,6 +31,7 @@ export function readProgress(value: unknown): ProgressDocument {
       typeof el.lotId !== 'string' || !Array.isArray(el.points) || el.points.length > 1000 ||
       el.points.length < (el.kind === 'point' ? 1 : el.kind === 'line' ? 2 : 3) || (el.kind === 'point' && el.points.length !== 1) ||
       el.points.some(point => !record(point) || typeof point.x !== 'number' || typeof point.y !== 'number' || !Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1000 || point.y < 0 || point.y > 100000) ||
+      (el.progressPercent != null && (typeof el.progressPercent !== 'number' || !Number.isFinite(el.progressPercent) || el.progressPercent < 0 || el.progressPercent > 100)) ||
       (el.price !== undefined && (typeof el.price !== 'number' || !Number.isFinite(el.price) || el.price < 0 || el.price > 1_000_000))) throw new Error('Ouvrage d’avancement invalide.');
     ids.add(el.id);
     let group: unknown;
