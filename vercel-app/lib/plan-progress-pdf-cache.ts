@@ -30,9 +30,10 @@ async function store(key: string, blob: Blob) {
     tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error); tx.onabort = () => reject(tx.error);
   }); } finally { db.close(); }
 }
-export async function progressPdfData(key: string, uri: string) {
+export async function progressPdfData(key: string, source: string | (() => Promise<string>)) {
   let blob = await cached(key).catch(() => null);
   if (!blob) {
+    const uri = typeof source === 'function' ? await source() : source;
     if (!uri) throw new Error('Ouvrez ce PDF en ligne une première fois pour le télécharger.');
     const response = await fetch(uri, { credentials: 'omit', signal: AbortSignal.timeout(30_000) });
     if (!response.ok) throw new Error('Le PDF est inaccessible. Rouvrez le plan pour renouveler son accès.');

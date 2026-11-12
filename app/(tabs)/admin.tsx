@@ -8,7 +8,7 @@ import PageContainer from '@/components/PageContainer';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useTranslation } from 'react-i18next';
 import * as Clipboard from 'expo-clipboard';
 import { C } from '@/constants/colors';
@@ -87,7 +87,8 @@ export default function AdminScreen() {
   const bottomPad = Platform.OS === 'web' ? 34 : insets.bottom;
   const router = useRouter();
 
-  const { user, deleteUserProfile } = useAuth();
+  const { user, deleteUserProfile, usersLoaded, usersLoading, usersError, loadAllUsers } = useAuth();
+  useFocusEffect(useCallback(() => { loadAllUsers(); }, [loadAllUsers]));
   const { companies, lots, addCompany, updateCompanyFull, deleteCompany, updateCompanyWorkers, updateCompanyHours } = useApp();
   const {
     plan, subscription, seatUsed, seatMax, canInvite, isLoading,
@@ -757,7 +758,7 @@ export default function AdminScreen() {
           contentContainerStyle={[styles.content, { paddingBottom: bottomPad + 32 }]}
           showsVerticalScrollIndicator={false}
         >
-          {isLoading && (
+          {(isLoading || usersLoading) && (
             <View style={{ alignItems: 'center', paddingVertical: 32 }}>
               <ActivityIndicator size="large" color={C.primary} />
               <Text style={{ marginTop: 10, fontSize: 13, color: C.textMuted, fontFamily: 'Inter_400Regular' }}>
@@ -765,6 +766,12 @@ export default function AdminScreen() {
               </Text>
             </View>
           )}
+          {usersError && <View accessibilityRole="alert" style={{ padding: 16, gap: 8 }}>
+            <Text style={{ color: C.critical }}>{usersError}</Text>
+            <TouchableOpacity accessibilityRole="button" disabled={usersLoading} onPress={loadAllUsers} style={{ minHeight: 48, justifyContent: 'center' }}>
+              <Text style={{ color: C.primary, fontWeight: '700' }}>Réessayer le chargement des utilisateurs</Text>
+            </TouchableOpacity>
+          </View>}
           <View style={styles.statsGrid}>
             {translatedRoles.map(r => (
               <TouchableOpacity
@@ -916,7 +923,7 @@ export default function AdminScreen() {
             <View style={styles.empty}>
               <Ionicons name={orgUsers.length === 0 ? 'people-outline' : 'search-outline'} size={36} color={C.textMuted} />
               <Text style={styles.emptyText}>
-                {orgUsers.length === 0 ? t('adminScreen.noUsers') : t('adminScreen.noResults')}
+                {orgUsers.length === 0 && !usersLoaded ? (usersError ? 'Liste des utilisateurs indisponible' : t('adminScreen.loadingMembers')) : orgUsers.length === 0 ? t('adminScreen.noUsers') : t('adminScreen.noResults')}
               </Text>
               {orgUsers.length === 0 && (
                 <Text style={styles.emptyHint}>{t('adminScreen.noUserHint')}</Text>

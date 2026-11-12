@@ -14,7 +14,7 @@ import { useNetwork } from '@/context/NetworkContext';
 import { ensurePlanCached } from '@/lib/planCache';
 import { loadFileAsDataUrl } from '@/lib/pdfBase';
 import { loadBundledPdfJsSources } from '@/lib/pdfjsAsset';
-import { supabaseRestRpc } from '@/lib/supabaseRest';
+import { readNativeProgress } from '@/lib/plan-progress/native-read';
 import { canTrackPdfPlan, editorHtml, emptyProgress, progressGroups, progressRpc, progressScope, type ProgressOperation } from '@/lib/plan-progress/core';
 import { ProgressSession } from '@/lib/plan-progress/session';
 
@@ -78,9 +78,7 @@ export default function PlanProgressScreen() {
       pending,
       read: async () => {
         if (!latest.current.network.isOnline) return emptyProgress();
-        const result = await supabaseRestRpc('read_plan_progress', { p_plan_id: plan.id, p_source_ref: source });
-        if (result.error) throw Object.assign(new Error(result.error.message),{ code:result.error.code });
-        return result.data;
+        return readNativeProgress(plan.id, source);
       },
       enqueue: async operation => {
         if (!owned()) throw new Error('Compte modifié.');
