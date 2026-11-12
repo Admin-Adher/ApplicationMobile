@@ -32,7 +32,7 @@ export default function ChecklistScreen() {
   const { activeChantierId } = useApp();
   // Persistance Supabase offline-first (la migration one-shot de l'ancienne
   // clé AsyncStorage buildtrack_checklists_v1 s'exécute au premier fetch).
-  const { checklists, addChecklist, updateChecklist } = useChecklists();
+  const { checklists, addChecklist, setChecklistItem, deleteChecklist } = useChecklists();
   const [showNew, setShowNew] = useState(false);
   const templateItems = useMemo(
     () => TEMPLATE_ITEM_KEYS.map(key => t(`checklistScreen.templates.${key}`)),
@@ -82,13 +82,20 @@ export default function ChecklistScreen() {
     } else {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
-    void updateChecklist({
-      ...cl,
-      items: newItems,
-      status: allChecked ? 'completed' : newItems.some(it => it.checked) ? 'in_progress' : 'draft',
-      completedAt: allChecked ? formatDateFR(new Date()) : undefined,
-    });
-  }, [permissions.canEdit, checklists, updateChecklist]);
+    const item = cl.items.find(it => it.id === itemId);
+    if (item) setChecklistItem(checklistId, itemId, !item.checked);
+  }, [permissions.canEdit, checklists, setChecklistItem]);
+
+  const confirmDelete = (cl: Checklist) => {
+    if (!permissions.canDelete) return;
+    showAlert(t('common.delete'), t('checklistScreen.deleteConfirmation', { title: cl.title }), [
+      { text: t('common.cancel'), style: 'cancel' },
+      { text: t('common.delete'), style: 'destructive', onPress: () => {
+        deleteChecklist(cl.id);
+        setExpandedId(null);
+      } },
+    ]);
+  };
 
   const getProgress = (cl: Checklist) => {
     if (cl.items.length === 0) return 0;
@@ -220,6 +227,17 @@ export default function ChecklistScreen() {
               <Text style={styles.clCount}>{t('checklistScreen.checkedCount', { checked, total: cl.items.length })}</Text>
               {isExpanded && (
                 <View style={styles.itemList}>
+                  {permissions.canDelete && (
+                    <TouchableOpacity
+                      accessibilityRole="button"
+                      accessibilityLabel={t('checklistScreen.deleteChecklist', { title: cl.title })}
+                      style={{ minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-end', paddingHorizontal: 12 }}
+                      onPress={e => { e.stopPropagation?.(); confirmDelete(cl); }}
+                    >
+                      <Ionicons name="trash-outline" size={18} color={C.open} />
+                      <Text style={{ color: C.open }}>{t('common.delete')}</Text>
+                    </TouchableOpacity>
+                  )}
                   {cl.items.map(item => (
                     <TouchableOpacity
                       key={item.id}

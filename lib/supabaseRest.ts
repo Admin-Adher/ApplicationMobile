@@ -54,6 +54,7 @@ type InternalRestRequestOptions = RestRequestOptions & {
  * appelants existants en beneficient sans changement.
  */
 const RPC_REQUIRING_RESULT = new Set([
+  'set_checklist_item_checked',
   'apply_plan_progress',
   'record_inventory_movement',
   'update_inventory_product',

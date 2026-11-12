@@ -25,6 +25,7 @@ export function queueHydrationScopeKey(
  */
 export function queueReplayPriority(op: DependencyQueuedOperation): number {
   if (op.table === 'visites' && op.op === 'insert') return 5;
+  if (op.table === 'checklists' && op.op === 'insert') return 25;
   if (op.op === 'rpc' && op.rpc?.fn === 'create_reserve_with_photos') return 10;
   if (op.table === 'reserves' && op.op === 'insert') return 10;
   if (op.op === 'rpc' && op.rpc?.fn === 'record_inventory_movement') return 12;

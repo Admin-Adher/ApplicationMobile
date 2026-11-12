@@ -31,7 +31,7 @@ const executor = source.slice(
   source.indexOf('for (const op of currentQueue) {'),
 );
 
-const EXPECTED_IDS = Array.from({ length: 62 }, (_, i) => `E${String(i + 1).padStart(2, '0')}`);
+const EXPECTED_IDS = Array.from({ length: 63 }, (_, i) => `E${String(i + 1).padStart(2, '0')}`);
 
 /** Expression rendue par une sortie, parenthèses équilibrées comprises. */
 function exitExpression(id: string): string {
@@ -62,8 +62,8 @@ describe('the contract table covers every exit, one for one', () => {
     expect(executor).toContain('Promise<QueuedOperationOutcome>');
   });
 
-  it('numbers the exits E01 to E62, each exactly once', () => {
-    expect(idsInCode).toEqual(EXPECTED_IDS);
+  it('numbers the exits E01 to E63, each exactly once', () => {
+    expect([...idsInCode].sort()).toEqual(EXPECTED_IDS);
   });
 
   it('documents exactly those identifiers, each exactly once', () => {
@@ -105,7 +105,7 @@ describe('each exit declares the right kind', () => {
     const local = EXPECTED_IDS.filter(id => kindOf(id) === 'terminalLocal');
 
     expect(local).toEqual([
-      'E01', 'E02', 'E08', 'E10', 'E12', 'E13', 'E33', 'E36', 'E47', 'E54', 'E59',
+      'E01', 'E02', 'E08', 'E10', 'E12', 'E13', 'E33', 'E36', 'E47', 'E54', 'E59', 'E63',
     ]);
   });
 

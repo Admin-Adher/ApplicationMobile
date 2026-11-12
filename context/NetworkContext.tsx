@@ -7,6 +7,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, resetAuthLock, SUPABASE_KEY, SUPABASE_URL } from '@/lib/supabase';
 import { isLocalUri, uploadLocalPhotosInPayload, purgeOrphanedPhotoFiles } from '@/lib/storage';
 import { getSupabaseRestAccessToken, supabaseRestMutation, supabaseRestRpc, supabaseRestSelect } from '@/lib/supabaseRest';
+import { isAppliedRpcAcknowledgement } from '@/lib/syncRpcAcknowledgement';
 import { isSessionExpired } from '@/lib/sessionExpiry';
 import {
   commitCachePairWithJournalStrict,
@@ -828,7 +829,7 @@ type QueuedOperationOutcome = PassOperationOutcome<QueuedOperation> & {
  * seule fois. Les numeros de ligne, eux, deviennent faux au premier changement.
  */
 type SyncExitId =
-  'E01' | 'E02' | 'E03' | 'E04' | 'E05' | 'E06' | 'E07' | 'E08' | 'E09' | 'E10' | 'E11' | 'E12' | 'E13' | 'E14' | 'E15' | 'E16' | 'E17' | 'E18' | 'E19' | 'E20' | 'E21' | 'E22' | 'E23' | 'E24' | 'E25' | 'E26' | 'E27' | 'E28' | 'E29' | 'E30' | 'E31' | 'E32' | 'E33' | 'E34' | 'E35' | 'E36' | 'E37' | 'E38' | 'E39' | 'E40' | 'E41' | 'E42' | 'E43' | 'E44' | 'E45' | 'E46' | 'E47' | 'E48' | 'E49' | 'E50' | 'E51' | 'E52' | 'E53' | 'E54' | 'E55' | 'E56' | 'E57' | 'E58' | 'E59' | 'E60' | 'E61' | 'E62';
+  'E01' | 'E02' | 'E03' | 'E04' | 'E05' | 'E06' | 'E07' | 'E08' | 'E09' | 'E10' | 'E11' | 'E12' | 'E13' | 'E14' | 'E15' | 'E16' | 'E17' | 'E18' | 'E19' | 'E20' | 'E21' | 'E22' | 'E23' | 'E24' | 'E25' | 'E26' | 'E27' | 'E28' | 'E29' | 'E30' | 'E31' | 'E32' | 'E33' | 'E34' | 'E35' | 'E36' | 'E37' | 'E38' | 'E39' | 'E40' | 'E41' | 'E42' | 'E43' | 'E44' | 'E45' | 'E46' | 'E47' | 'E48' | 'E49' | 'E50' | 'E51' | 'E52' | 'E53' | 'E54' | 'E55' | 'E56' | 'E57' | 'E58' | 'E59' | 'E60' | 'E61' | 'E62' | 'E63';
 
 /**
  * Marqueur d'identite d'une sortie. Ne transforme rien : l'issue traverse
@@ -2419,10 +2420,20 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
           // Tout RPC dont aucune branche ci-dessus n'a pris la main a réussi :
           // le succès n'est plus implicite.
-          if (op.rpc.fn === 'apply_plan_progress' && (rpcData as any)?.applied !== true) {
+          if (op.rpc.fn === 'apply_plan_progress' && !isAppliedRpcAcknowledgement(rpcData)) {
             throw new Error('Réponse d’avancement non confirmée. Opération conservée dans la file.');
           }
+          if (op.rpc.fn === 'set_checklist_item_checked' && !isAppliedRpcAcknowledgement(rpcData)) {
+            throw new Error('Modification de checklist non confirmée. Opération conservée dans la file.');
+          }
           return syncExit('E25', { kind: 'applied', operation: retryRpcOp });
+        }
+
+        // Older snapshots lack item-level intent. Replaying them could erase
+        // another user's checks. Keep them visible for review rather than send.
+        if (op.table === 'checklists' && op.op === 'update' && Array.isArray(op.data?.items)) {
+          return syncExit('E63', terminalLocalOperation(op, 'legacy_checklist_snapshot',
+            'Ancienne modification de checklist à vérifier : actualisez la liste et recochez les points concernés.'));
         }
 
         if (op.conflictCheck) {
