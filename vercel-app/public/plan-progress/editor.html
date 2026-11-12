@@ -278,6 +278,7 @@ button,input,select,textarea{touch-action:manipulation}
 .terrain-mode[data-view=plan] .app-footer{display:none!important}
 #storageNotice:not([hidden]){padding:12px;background:#fff4dd;color:#613c00}
 [data-progress-saving] button,[data-progress-saving] input,[data-progress-saving] select{pointer-events:none}
+[data-progress-saving][data-progress-note-saving]:not([data-progress-status-waiting]):not([data-progress-uncertain]) button[data-status]{pointer-events:auto}
 [data-progress-uncertain] button,[data-progress-uncertain] input,[data-progress-uncertain] select{pointer-events:none}
 @media(max-width:600px){.saved-state{max-width:100%;font-size:11px}}
 @media(min-width:540px) and (max-height:420px){
@@ -422,6 +423,8 @@ const dimensionForm = new dimension_form_js_1.DimensionForm({ root: $('elementFo
 function storageWarning(message) { $('storageNotice').textContent = message; $('storageNotice').hidden = false; }
 let durableDocument = JSON.stringify({ elements: state.elements, calibrations: state.calibrations, billed: state.billed });
 let saving = false;
+let noteSave = null;
+let changingStatus = false;
 let unconfirmed = false;
 let pendingNote = null;
 let closing = false;
@@ -494,7 +497,7 @@ setInterval(async () => {
         document.body.removeAttribute('data-progress-saving');
     }
 }, 800);
-function persist() {
+function persist(noteOnly = false) {
     const next = JSON.stringify({ elements: state.elements, calibrations: state.calibrations, billed: state.billed });
     if (sameDocument(JSON.parse(next), JSON.parse(durableDocument)))
         return;
@@ -504,7 +507,9 @@ function persist() {
     saving = true;
     document.body.setAttribute('data-progress-saving', '');
     $('savedState').textContent = 'Enregistrement sur cet appareil…';
-    (0, bridge_js_1.request)('save', JSON.parse(next)).then(result => {
+    if (noteOnly)
+        document.body.setAttribute('data-progress-note-saving', '');
+    const completion = (0, bridge_js_1.request)('save', JSON.parse(next)).then(result => {
         durableDocument = next;
         $('storageNotice').hidden = true;
         $('savedState').textContent = result.text;
@@ -514,7 +519,7 @@ function persist() {
             document.body.setAttribute('data-progress-uncertain', '');
             storageWarning(error.message);
             $('savedState').textContent = 'Enregistrement à vérifier';
-            return;
+            throw error;
         }
         Object.assign(state, JSON.parse(before));
         state.undo = [];
@@ -522,7 +527,20 @@ function persist() {
         render();
         storageWarning(error.message + ' La modification n’a pas été conservée.');
         $('savedState').textContent = 'Échec de l’enregistrement';
-    }).finally(() => { saving = false; document.body.removeAttribute('data-progress-saving'); flushPendingNote(); });
+        throw error;
+    }).finally(() => {
+        saving = false;
+        document.body.removeAttribute('data-progress-saving');
+        if (noteOnly) {
+            noteSave = null;
+            document.body.removeAttribute('data-progress-note-saving');
+        }
+        flushPendingNote();
+    });
+    completion.catch(() => { });
+    if (noteOnly)
+        noteSave = completion;
+    return completion;
 }
 function flushPendingNote() {
     if (!pendingNote || saving || unconfirmed)
@@ -531,7 +549,7 @@ function flushPendingNote() {
     pendingNote = null;
     const current = state.elements.find(item => item.id === note.id);
     if (current && current.note !== note.value)
-        record('Note de terrain enregistrée', `${current.reference} · ${current.name}`, () => { current.note = note.value; }, 'file');
+        record('Note de terrain enregistrée', `${current.reference} · ${current.name}`, () => { current.note = note.value; }, 'file', true);
 }
 function toast(message, undoable = false) {
     clearTimeout(toastTimer);
@@ -539,7 +557,7 @@ function toast(message, undoable = false) {
     $('toast').hidden = false;
     toastTimer = setTimeout(() => { $('toast').hidden = true; }, 5500);
 }
-function record(title, detail, mutate, eventIcon = 'checkCircle') {
+function record(title, detail, mutate, eventIcon = 'checkCircle', noteOnly = false) {
     if (saving)
         return;
     state.undo.push({ title, snapshot: JSON.stringify({ elements: state.elements, calibrations: state.calibrations, billed: state.billed, currentDoc: state.currentDoc, currentPage: state.currentPage }) });
@@ -555,7 +573,7 @@ function record(title, detail, mutate, eventIcon = 'checkCircle') {
     }
     state.history.push({ id: crypto.randomUUID(), time: new Date().toISOString(), title, detail, icon: eventIcon });
     state.history = state.history.slice(-80);
-    persist();
+    persist(noteOnly);
     render();
     toast(title, true);
 }
@@ -723,23 +741,46 @@ function selectElement(id, additive = false) {
         selected = new Set([id]);
     render();
 }
-function changeStatus(status) {
-    const elements = state.elements.filter(el => selected.has(el.id));
-    if (!elements.length)
-        return;
-    if (!(0, bridge_js_1.canChangeStatus)(elements, status) || saving) {
-        toast('Vous ne pouvez pas modifier cet avancement.');
-        return;
+async function changeStatus(status) {
+    if (changingStatus || unconfirmed)
+        return false;
+    const ids = new Set(selected);
+    if (!ids.size)
+        return false;
+    const input = $('detailsDialog').open ? $('elementNote') : null;
+    const current = ids.size === 1 ? state.elements.find(el => ids.has(el.id)) : null;
+    if (input && current && (0, bridge_js_1.canChangeStatus)([current], 'progress') && current.note !== input.value.trim())
+        pendingNote = { id: current.id, value: input.value.trim() };
+    changingStatus = true;
+    try {
+        while (saving && noteSave) {
+            document.body.setAttribute('data-progress-status-waiting', '');
+            await noteSave;
+        }
+        const elements = state.elements.filter(el => ids.has(el.id));
+        if (elements.length !== ids.size || !(0, bridge_js_1.canChangeStatus)(elements, status) || saving || unconfirmed) {
+            toast('Vous ne pouvez pas modifier cet avancement.');
+            return false;
+        }
+        if (elements.every(el => el.status === status)) {
+            flushPendingNote();
+            toast('Cet état est déjà renseigné.');
+            return true;
+        }
+        const title = `${elements.length === 1 ? elements[0].name : `${elements.length} ouvrages`} → ${(0, terrain_view_js_1.terrainLabel)(status)}`;
+        record(title, `${doc().name} · ${pageLabel()} · ${elements.map(el => el.reference).join(', ')}`, () => { for (const el of elements)
+            el.status = status; });
+        toast(`${(0, terrain_view_js_1.terrainLabel)(status)} · enregistrement en cours`);
+        return true;
     }
-    if (elements.every(el => el.status === status)) {
-        toast('Cet état est déjà renseigné.');
-        return;
+    catch {
+        toast('L’état n’a pas été enregistré. Vérifiez la note avant de réessayer.');
+        return false;
     }
-    const title = `${elements.length === 1 ? elements[0].name : `${elements.length} ouvrages`} → ${(0, terrain_view_js_1.terrainLabel)(status)}`;
-    record(title, `${doc().name} · ${pageLabel()} · ${elements.map(el => el.reference).join(', ')}`, () => { for (const el of elements)
-        el.status = status; });
-    toast(`${(0, terrain_view_js_1.terrainLabel)(status)} · enregistrement en cours`);
-    ($('inspector').querySelector(`[data-status="${status}"]`) || $('inspector').querySelector('[data-open-details]'))?.focus({ preventScroll: true });
+    finally {
+        changingStatus = false;
+        document.body.removeAttribute('data-progress-status-waiting');
+    }
 }
 function showGeometry(kind, points) {
     const lot = filter !== 'all' ? (0, model_js_1.lotFor)(filter) : (model_js_1.LOTS.find(lot => lot.kind === kind) || model_js_1.LOTS[0]), q = (0, model_js_1.shapeQuantity)(kind, points, state.calibrations[(0, model_js_1.scaleKey)(state.currentDoc, state.currentPage)]);
@@ -911,6 +952,14 @@ document.addEventListener('click', async (event) => {
         $('detailsDialog').showModal();
         return;
     }
+    if (button.dataset.status) {
+        if (await changeStatus(button.dataset.status)) {
+            if (button.closest('#detailsDialog'))
+                $('detailsDialog').close();
+            ($('inspector').querySelector(`[data-status="${button.dataset.status}"]`) || $('inspector').querySelector('[data-open-details]'))?.focus({ preventScroll: true });
+        }
+        return;
+    }
     if (button.closest('#detailsDialog') && !button.hasAttribute('data-close-dialog'))
         $('detailsDialog').close();
     if (button.dataset.view) {
@@ -934,10 +983,6 @@ document.addEventListener('click', async (event) => {
         variants[mode] = button.dataset.variant;
         drawing.clear();
         render();
-        return;
-    }
-    if (button.dataset.status) {
-        changeStatus(button.dataset.status);
         return;
     }
     if (button.hasAttribute('data-undo')) {
@@ -1240,9 +1285,14 @@ if (!model_js_1.LOTS.length)
     storageWarning('Ajoutez une entreprise au chantier pour pouvoir affecter vos ouvrages.');
 (0, bridge_js_1.request)('ready', {}).catch(() => { });
 openDocument();
+function isNoteStatusActivation(event) {
+    const button = event.target.closest?.('button[data-status]');
+    return saving && noteSave && !changingStatus && button && !button.disabled &&
+        (event.type === 'click' || event.type === 'keydown' && ['Enter', ' '].includes(event.key));
+}
 for (const type of ['click', 'submit', 'change', 'keydown'])
     document.addEventListener(type, event => {
-        if (saving || unconfirmed || closing) {
+        if (saving && !isNoteStatusActivation(event) || unconfirmed || closing) {
             event.preventDefault();
             event.stopImmediatePropagation();
         }
