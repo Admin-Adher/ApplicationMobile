@@ -179,3 +179,9 @@ jobs:
 
       - name: Verify PDF progress isolation, permissions, concurrency and idempotency
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/plan_progress.sql
+
+      - name: Apply atomic checklist checkbox updates
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261112153505_checklist_item_updates.sql
+
+      - name: Verify checklist concurrency, retries and permissions
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/checklist_item_updates.sql

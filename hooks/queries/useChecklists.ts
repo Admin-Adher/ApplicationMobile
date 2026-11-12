@@ -8,6 +8,7 @@ import { Checklist, ChecklistItem } from '@/constants/types';
 import { formatDateFR } from '@/lib/utils';
 import { useStartupDelay } from '@/hooks/useStartupDelay';
 import { frTimestampToISO } from '@/hooks/queries/useJournal';
+import { checklistStatus, projectChecklistIntents } from '@/lib/checklistMutations';
 import {
   mergeWithCache,
   readCache,
@@ -41,12 +42,6 @@ export interface ChecklistWithChantier extends Checklist {
   chantierId?: string | null;
 }
 
-function deriveStatus(items: ChecklistItem[]): Checklist['status'] {
-  if (items.length > 0 && items.every(it => it.checked)) return 'completed';
-  if (items.some(it => it.checked)) return 'in_progress';
-  return 'draft';
-}
-
 function toChecklist(row: any): ChecklistWithChantier {
   const rawItems = Array.isArray(row.items) ? row.items : [];
   const items: ChecklistItem[] = rawItems.map((it: any, idx: number) => ({
@@ -63,7 +58,7 @@ function toChecklist(row: any): ChecklistWithChantier {
     building: '',
     zone: '',
     level: '',
-    status: deriveStatus(items),
+    status: checklistStatus(items),
     items,
     createdAt: row.created_at ? formatDateFR(new Date(row.created_at)) : '',
     createdBy: row.author ?? '',
@@ -148,12 +143,10 @@ async function migrateLegacyChecklists(
 }
 
 export function useChecklists() {
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
+  const { enqueueOperation, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
-  const isOnlineRef = useRef(isOnline);
-  useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
   const startupReady = useStartupDelay(!!user);
@@ -189,7 +182,9 @@ export function useChecklists() {
         );
         if (uploaded.length > 0) fresh = [...uploaded, ...fresh];
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], CHECKLISTS_TABLE);
-        const merged = mergeWithCache<ChecklistWithChantier>(fresh, cached, pendingIds, { queueLoaded });
+        const merged = projectChecklistIntents(
+          mergeWithCache<ChecklistWithChantier>(fresh, cached, pendingIds, { queueLoaded }), queueRef.current,
+        );
         await writeCache(CHECKLISTS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
@@ -205,6 +200,7 @@ export function useChecklists() {
   }, [userId]);
 
   const addChecklist = useCallback(async (cl: ChecklistWithChantier) => {
+    if (!permissions.canCreate) return;
     const orgId = user?.organizationId ?? null;
     const authorId = user?.id ?? null;
     queryClient.setQueryData<ChecklistWithChantier[]>(CHECKLISTS_QUERY_KEY, old => {
@@ -214,43 +210,38 @@ export function useChecklists() {
     persist(queryClient.getQueryData<ChecklistWithChantier[]>(CHECKLISTS_QUERY_KEY) ?? []);
     if (!isSupabaseConfigured) return;
     const payload = fromChecklist(cl, orgId, authorId);
-    if (!isOnlineRef.current) {
-      enqueueOperation({ table: CHECKLISTS_TABLE, op: 'insert', data: payload });
-      return;
-    }
-    const { error } = await (supabase as any).from(CHECKLISTS_TABLE).insert(payload);
-    if (error) {
-      console.warn('[sync] addChecklist error, queuing for retry:', error.message);
-      enqueueOperation({ table: CHECKLISTS_TABLE, op: 'insert', data: payload });
-    }
-  }, [queryClient, user, enqueueOperation, persist]);
+    enqueueOperation({ table: CHECKLISTS_TABLE, op: 'insert', data: payload }, { proveNeverStarted: true });
+  }, [queryClient, user, permissions.canCreate, enqueueOperation, persist]);
 
-  const updateChecklist = useCallback(async (cl: ChecklistWithChantier) => {
+  const setChecklistItem = useCallback((checklistId: string, itemId: string, checked: boolean) => {
+    if (!permissions.canEdit) return;
+    const current = queryClient.getQueryData<ChecklistWithChantier[]>(CHECKLISTS_QUERY_KEY)?.find(row => row.id === checklistId);
+    if (!current?.items.some(item => item.id === itemId)) return;
+    const intent = {
+      table: CHECKLISTS_TABLE, op: 'rpc' as const,
+      rpc: { fn: 'set_checklist_item_checked', args: { p_checklist_id: checklistId, p_item_id: itemId, p_checked: checked } },
+    };
     queryClient.setQueryData<ChecklistWithChantier[]>(CHECKLISTS_QUERY_KEY, old =>
-      (old ?? []).map(x => x.id === cl.id ? cl : x)
+      projectChecklistIntents(old ?? [], [intent])
     );
     persist(queryClient.getQueryData<ChecklistWithChantier[]>(CHECKLISTS_QUERY_KEY) ?? []);
     if (!isSupabaseConfigured) return;
-    const orgId = user?.organizationId ?? null;
-    // Ne pas réécrire id / organization_id / created_at sur un update.
-    const { id, organization_id, created_at, ...fields } = fromChecklist(cl, orgId, user?.id ?? null);
-    const payload = { ...fields, updated_at: new Date().toISOString() };
-    if (!isOnlineRef.current) {
-      enqueueOperation({ table: CHECKLISTS_TABLE, op: 'update', filter: { column: 'id', value: cl.id }, data: payload });
-      return;
-    }
-    const { error } = await (supabase as any).from(CHECKLISTS_TABLE).update(payload).eq('id', cl.id);
-    if (error) {
-      console.warn('[sync] updateChecklist error, queuing for retry:', error.message);
-      enqueueOperation({ table: CHECKLISTS_TABLE, op: 'update', filter: { column: 'id', value: cl.id }, data: payload });
-    }
-  }, [queryClient, user, enqueueOperation, persist]);
+    enqueueOperation(intent, { proveNeverStarted: true });
+  }, [queryClient, permissions.canEdit, enqueueOperation, persist]);
+
+  const deleteChecklist = useCallback((checklistId: string) => {
+    if (!permissions.canDelete) return;
+    queryClient.setQueryData<ChecklistWithChantier[]>(CHECKLISTS_QUERY_KEY, old => (old ?? []).filter(row => row.id !== checklistId));
+    persist(queryClient.getQueryData<ChecklistWithChantier[]>(CHECKLISTS_QUERY_KEY) ?? []);
+    if (isSupabaseConfigured) enqueueOperation({ table: CHECKLISTS_TABLE, op: 'delete', filter: { column: 'id', value: checklistId } }, { proveNeverStarted: true });
+  }, [queryClient, permissions.canDelete, enqueueOperation, persist]);
 
   return {
     checklists: query.data ?? [],
     isLoadingChecklists: query.isLoading,
     addChecklist,
-    updateChecklist,
+    setChecklistItem,
+    deleteChecklist,
     invalidateChecklists: () => queryClient.invalidateQueries({ queryKey: CHECKLISTS_QUERY_KEY }),
   };
 }

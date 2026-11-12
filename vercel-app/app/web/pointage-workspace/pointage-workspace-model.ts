@@ -1,3 +1,5 @@
+import { attendanceMinutes, attendanceHoursText, attendanceCsv } from '../../../../lib/attendanceMath';
+
 export type TimeEntrySource = {
   id?: string | null;
   date?: string | null;
@@ -54,18 +56,8 @@ function safeTime(value: unknown) {
   return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59 ? text : '';
 }
 
-function minutesFromTime(value: string) {
-  const normalized = safeTime(value);
-  if (!normalized) return null;
-  const [hours, minutes] = normalized.split(':').map(Number);
-  return hours * 60 + minutes;
-}
-
 export function calculateAttendanceDuration(arrivalTime: string, departureTime: string) {
-  const arrival = minutesFromTime(arrivalTime);
-  const departure = minutesFromTime(departureTime);
-  if (arrival === null || departure === null || arrival === departure) return 0;
-  return departure > arrival ? departure - arrival : departure + 24 * 60 - arrival;
+  return attendanceMinutes(arrivalTime, departureTime);
 }
 
 export function summarizeTimeEntry(entry: TimeEntrySource): TimeEntrySummary {
@@ -155,20 +147,14 @@ export function buildWeeklyAttendanceCsv(entries: TimeEntrySource[], selectedDat
   if (!summaries.length) return null;
 
   const formatDate = new Intl.DateTimeFormat(locale, { day: '2-digit', month: '2-digit', year: 'numeric' });
-  const formatHours = new Intl.NumberFormat(locale, { maximumFractionDigits: 2, useGrouping: false });
   const header = ['Date', 'Compagnon', 'Entreprise', 'Arrivée', 'Départ', 'Heures', 'Tâche', 'Enregistré par', 'Notes'];
   const rows = summaries.map(entry => [
     formatDate.format(new Date(entry.date + 'T12:00:00')), entry.workerName, entry.companyName,
-    entry.arrivalTime, entry.departureTime, entry.departureTime ? formatHours.format(entry.durationMinutes / 60) : '',
+    entry.arrivalTime, entry.departureTime, entry.departureTime ? attendanceHoursText(entry.durationMinutes / 60, locale) : '',
     entry.source.task_title, entry.source.recorded_by, entry.notes,
   ]);
-  const encode = (value: unknown) => {
-    const text = String(value ?? '');
-    const safe = /^[\s\u0000-\u001f]*[=+@-]/.test(text) ? "'" + text : text;
-    return '"' + safe.replaceAll('"', '""') + '"';
-  };
   return {
-    csv: '\uFEFF' + [header, ...rows].map(row => row.map(encode).join(';')).join('\r\n') + '\r\n',
+    csv: attendanceCsv([header, ...rows]),
     filename: 'Pointage_' + weekStart + '_' + weekEnd + '.csv',
   };
 }

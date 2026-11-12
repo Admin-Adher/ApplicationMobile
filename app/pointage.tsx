@@ -21,6 +21,7 @@ import Header from '@/components/Header';
 import { TimeEntry } from '@/constants/types';
 import BottomNavBar from '@/components/BottomNavBar';
 import { getExportTranslator, localeForExportLanguage } from '@/lib/exportLanguage';
+import { attendanceMinutes, attendanceHoursText, attendanceCsv } from '@/lib/attendanceMath';
 
 function todayISO() {
   const date = new Date();
@@ -52,11 +53,7 @@ function getDayLabel(iso: string, days: string[]): string {
 
 function calcHours(arrival: string, departure?: string): number | null {
   if (!departure) return null;
-  const [ah, am] = arrival.split(':').map(Number);
-  const [dh, dm] = departure.split(':').map(Number);
-  let diff = (dh * 60 + dm) - (ah * 60 + am);
-  if (diff <= 0) diff += 24 * 60;
-  return Math.round((diff / 60) * 10) / 10;
+  return attendanceMinutes(arrival, departure) / 60;
 }
 
 function timeToMinutes(t: string): number {
@@ -117,6 +114,7 @@ export default function PointageScreen() {
   const { companies, tasks } = useApp();
   const { user, permissions } = useAuth();
   const { exportLanguage } = useLanguage();
+  const hoursText = (hours: number) => attendanceHoursText(hours, localeForExportLanguage(exportLanguage));
   const { entries, addEntry, updateEntry, deleteEntry } = usePointage();
   const { defaultArrivalTime } = useSettings();
   const router = useRouter();
@@ -295,6 +293,16 @@ export default function PointageScreen() {
     return h >= 0 && h <= 23 && m >= 0 && m <= 59;
   }
 
+  async function confirmOvernight(arrivals: string[], departure: string): Promise<boolean> {
+    if (!arrivals.some(arrival => timeToMinutes(departure) < timeToMinutes(arrival))) return true;
+    return new Promise(resolve => showAlert(
+      t('pointage.overnightTitle'), t('pointage.overnightText'), [
+        { text: t('common.cancel'), style: 'cancel', onPress: () => resolve(false) },
+        { text: t('pointage.confirmNextDay'), onPress: () => resolve(true) },
+      ],
+    ));
+  }
+
   async function handleSave() {
     const trimmedName = workerName.trim();
     if (!trimmedName) {
@@ -315,11 +323,12 @@ export default function PointageScreen() {
       return;
     }
     if (effDeparture && validateTime(effDeparture)) {
-      if (timeToMinutes(effDeparture) <= timeToMinutes(arrivalTime)) {
+      if (effDeparture === arrivalTime) {
         showAlert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrivalStrict'));
         return;
       }
     }
+    if (effDeparture && !(await confirmOvernight([arrivalTime], effDeparture))) return;
 
     const company = companies.find(c => c.id === selectedCompanyId);
     if (!company) return;
@@ -385,6 +394,7 @@ export default function PointageScreen() {
       showAlert(t('pointage.timeConflictTitle'), t('pointage.departureAfterArrival', { arrival: departureModal.arrivalTime }));
       return;
     }
+    if (!(await confirmOvernight([departureModal.arrivalTime], depTime))) return;
     await updateEntry(departureModal.id, { departureTime: depTime });
     setDepartureModal(null);
   }
@@ -403,6 +413,7 @@ export default function PointageScreen() {
       );
       return;
     }
+    if (!(await confirmOvernight(activeEntries.map(entry => entry.arrivalTime), depTime))) return;
     await Promise.all(activeEntries.map(e => updateEntry(e.id, { departureTime: depTime })));
     setBulkDepModal(false);
   }
@@ -445,7 +456,7 @@ export default function PointageScreen() {
       showAlert(t('pointage.noDataTitle'), t('pointage.noWeeklyData'));
       return;
     }
-    const header = exportT('pointage.csvHeader');
+    const header = exportT('pointage.csvHeader').split(',');
     const rows = weekEntries.map(e => {
       const h = calcHours(e.arrivalTime, e.departureTime);
       const cols = [
@@ -454,14 +465,14 @@ export default function PointageScreen() {
         e.companyName,
         e.arrivalTime,
         e.departureTime ?? '',
-        h !== null ? String(h).replace('.', ',') : '',
+        h !== null ? attendanceHoursText(h, exportLocale) : '',
         e.taskTitle ?? '',
         e.recordedBy ?? '',
-        (e.notes ?? '').replace(/[\r\n,]/g, ' '),
+        e.notes ?? '',
       ];
-      return cols.map(c => `"${c}"`).join(',');
+      return cols;
     });
-    const csv = `\uFEFF${[header, ...rows].join('\n')}`;
+    const csv = attendanceCsv([header, ...rows]);
     const weekLabel = `${weekDates[0]}_${weekDates[6]}`;
     const filename = `${exportT('pointage.csvFilename')}_${exportLanguage}_${weekLabel}.csv`;
     if (Platform.OS === 'web') {
@@ -603,7 +614,7 @@ export default function PointageScreen() {
         <View style={styles.kpiDivider} />
         <View style={styles.kpiCard}>
           <Text style={[styles.kpiVal, { color: C.medium }]}>
-            {totalHours > 0 ? `${Math.round(totalHours * 10) / 10}h` : '—'}
+            {totalHours > 0 ? `${hoursText(totalHours)}h` : '—'}
           </Text>
           <Text style={styles.kpiLabel}>{t('pointage.totalHours')}</Text>
         </View>
@@ -635,7 +646,7 @@ export default function PointageScreen() {
                   {t('pointage.dailyLogSub', {
                     count: allDateEntries.length,
                     hours: totalHours > 0
-                      ? t('pointage.hoursRecorded', { hours: `${Math.round(totalHours * 10) / 10}h` })
+                      ? t('pointage.hoursRecorded', { hours: `${hoursText(totalHours)}h` })
                       : t('pointage.hoursInProgress'),
                   })}
                 </Text>
@@ -794,7 +805,7 @@ export default function PointageScreen() {
                       </View>
                       {hours !== null && (
                         <View style={styles.hoursBadge}>
-                          <Text style={styles.hoursText}>{hours}h</Text>
+                          <Text style={styles.hoursText}>{hoursText(hours)}h</Text>
                         </View>
                       )}
                     </View>
@@ -842,7 +853,7 @@ export default function PointageScreen() {
                   </View>
                   {hours !== null && (
                     <View style={styles.gridHoursBadge}>
-                      <Text style={styles.gridHoursText}>{hours}h</Text>
+                      <Text style={styles.gridHoursText}>{hoursText(hours)}h</Text>
                     </View>
                   )}
                   {isActive && canEdit && (
@@ -870,7 +881,7 @@ export default function PointageScreen() {
                 <Text style={styles.companySummaryName}>{co.name}</Text>
                 <Text style={styles.companySummaryCount}>{t('pointage.peopleShort', { count: co.count })}</Text>
                 {co.hours > 0 && (
-                  <Text style={styles.companySummaryHours}>{Math.round(co.hours * 10) / 10}h</Text>
+                  <Text style={styles.companySummaryHours}>{hoursText(co.hours)}h</Text>
                 )}
                 <View style={styles.companySummaryBarBg}>
                   <View style={[
@@ -1028,8 +1039,8 @@ export default function PointageScreen() {
             ) : (
               <>
                 {(() => {
-                  const depDiff = validateTime(arrivalTime) && validateTime(departureTime) && timeToMinutes(departureTime) > timeToMinutes(arrivalTime)
-                    ? timeToMinutes(departureTime) - timeToMinutes(arrivalTime)
+                  const depDiff = validateTime(arrivalTime) && validateTime(departureTime) && departureTime !== arrivalTime
+                    ? attendanceMinutes(arrivalTime, departureTime)
                     : null;
                   const depDuration = depDiff !== null
                     ? depDiff >= 60 ? `${Math.floor(depDiff / 60)}h${depDiff % 60 > 0 ? String(depDiff % 60).padStart(2, '0') : ''}` : `${depDiff}min`
@@ -1083,6 +1094,9 @@ export default function PointageScreen() {
                   accessibilityLabel={t('pointage.departureA11y')}
                   accessibilityHint={t('pointage.timeHintDeparture')}
                 />
+                {validateTime(arrivalTime) && validateTime(departureTime) && departureTime < arrivalTime && (
+                  <Text style={styles.fieldLabel}>{t('pointage.overnightText')}</Text>
+                )}
                 {departureTime.length >= 4 && !validateTime(departureTime) && (
                   <Text style={styles.fieldError}>{t('pointage.departureInlineError')}</Text>
                 )}

@@ -231,7 +231,13 @@ create table public.oprs (
 create table public.checklists (
   id text primary key,
   organization_id uuid references public.organizations(id),
-  chantier_id text
+  chantier_id text,
+  title text,
+  items jsonb default '[]',
+  author text,
+  author_id uuid,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
 create table public.journal_entries (
