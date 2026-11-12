@@ -7,6 +7,11 @@ import { formatDateFR } from '../../../lib/utils';
 import { supabaseBrowser } from '../../lib/supabase-browser';
 import styles from './web.module.css';
 
+const meetingStorage = {
+  getItem: async (key: string) => window.localStorage.getItem(key),
+  setItem: async (key: string, value: string) => window.localStorage.setItem(key, value),
+};
+
 const TEMPLATES = [
   { subject: 'Réunion hebdomadaire', agenda: 'Avancement des travaux\nRéserves en cours\nPlanning de la semaine suivante',
     notes: 'Consigner les points d’avancement, les blocages et les réserves à traiter.', weekly: true },
@@ -42,7 +47,7 @@ export default function MeetingsWorkspace({ userId, organizationId, chantierId, 
   const key = `buildtrack-web-meetings-v1:${userId}:${organizationId}:${chantierId}`;
   const shared = useProjectMeetingReports(
     { useState, useRef, useEffect, useCallback },
-    supabaseBrowser, userId, organizationId, chantierId,
+    supabaseBrowser, userId, organizationId, chantierId, meetingStorage,
   );
   const [reports, setReports] = useState<MeetingReport[]>([]);
   const [ready, setReady] = useState(false);
@@ -187,7 +192,7 @@ export default function MeetingsWorkspace({ userId, organizationId, chantierId, 
         {canOpenForm && canCreate && editing === undefined && <button className={styles.settingsGhostButton} type="button" disabled={sharedLoading} onClick={() => open(null)}>Nouveau compte rendu</button>}
       </div>
     </div>
-    {shared.failed && <p role="status">Comptes rendus partagés indisponibles. Les nouveaux comptes rendus restent dans ce navigateur. <button type="button" onClick={() => void shared.refresh()}>Réessayer</button></p>}
+    {shared.failed && <p role="status">{shared.rows.length ? 'Copie hors ligne des comptes rendus · Lecture seule.' : 'Comptes rendus partagés indisponibles.'} Les nouveaux comptes rendus restent dans ce navigateur. <button type="button" onClick={() => void shared.refresh()}>Réessayer</button></p>}
     {error && <p role="alert">{error}</p>}
     {canOpenForm && editing !== undefined && <form key={editing?.id ?? 'new'} className={`${styles.reportCard} ${styles.fieldForm}`} onSubmit={submit}>
       {!editing && <p>{shared.ready ? 'Ce compte rendu sera visible par l’équipe de ce chantier.' : 'Ce compte rendu sera conservé dans ce navigateur.'}</p>}
@@ -212,13 +217,13 @@ export default function MeetingsWorkspace({ userId, organizationId, chantierId, 
         <summary><strong>{report.subject}</strong> · {report.date} · {report.actions.length} action(s){sharedById.has(report.id) ? '' : ' · Sur ce navigateur'}</summary>
         <p style={{ whiteSpace: 'pre-wrap' }}>{[report.location, report.participants, report.agenda, report.notes, ...report.decisions, report.nextMeeting].filter(Boolean).join('\n\n')}</p>
         <ul>{report.actions.map((action, index) => <li key={action.id ?? index}>
-          <label><input type="checkbox" checked={action.status === 'done'} disabled={!canEdit || busy} onChange={event => {
+          <label><input type="checkbox" checked={action.status === 'done'} disabled={!canEdit || busy || (sharedById.has(report.id) && !shared.ready)} onChange={event => {
             const checked = event.currentTarget.checked;
             changeActions(report.id, actions => actions.map(item => item.id === action.id ? { ...item, status: checked ? 'done' : 'pending' } : item));
           }} />{[action.description, action.responsible, action.deadline, action.reserveId].filter(Boolean).join(' · ')}</label>
-          {canEdit && <button type="button" disabled={busy} onClick={() => removeAction(report.id, action)}>Retirer</button>}
+          {canEdit && (!sharedById.has(report.id) || shared.ready) && <button type="button" disabled={busy} onClick={() => removeAction(report.id, action)}>Retirer</button>}
         </li>)}</ul>
-        {canEdit && <form className={styles.fieldForm} onSubmit={event => addAction(event, report)} noValidate>
+        {canEdit && (!sharedById.has(report.id) || shared.ready) && <form className={styles.fieldForm} onSubmit={event => addAction(event, report)} noValidate>
           <label>Action<input name="description" required maxLength={300} /></label>
           <label>Responsable<input name="responsible" required maxLength={160} /></label>
           <label>Échéance<input name="deadline" type="date" required /></label>
@@ -227,13 +232,13 @@ export default function MeetingsWorkspace({ userId, organizationId, chantierId, 
           <button type="submit" disabled={busy}>Ajouter l’action</button>
         </form>}
         <div className={styles.segmented}>
-          {canEdit && <button type="button" disabled={busy} onClick={() => open(report)}>Modifier</button>}
+          {canEdit && (!sharedById.has(report.id) || shared.ready) && <button type="button" disabled={busy} onClick={() => open(report)}>Modifier</button>}
           {exportReport && <button type="button" disabled={exporting} onClick={() => exportReport(report)}>Télécharger PDF</button>}
           {canCreate && shared.ready && !sharedById.has(report.id) && <button type="button" disabled={busy} onClick={async () => {
             if (!window.confirm(`Partager « ${report.subject} » avec l’équipe de ce chantier ?`)) return;
             if (await write(() => shared.save(report, 'create'))) store(previous => previous.filter(item => item.id !== report.id));
           }}>Partager sur le chantier</button>}
-          {canDelete && <button type="button" disabled={busy} onClick={() => {
+          {canDelete && (!sharedById.has(report.id) || shared.ready) && <button type="button" disabled={busy} onClick={() => {
             if (!window.confirm(`Supprimer le compte rendu « ${report.subject} » ?`)) return;
             if (sharedById.has(report.id)) void write(() => shared.remove(report.id));
             else store(previous => previous.filter(item => item.id !== report.id));

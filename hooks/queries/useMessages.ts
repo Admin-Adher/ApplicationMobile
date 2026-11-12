@@ -1,3 +1,6 @@
+import * as Crypto from 'expo-crypto';
+import { projectMessageReactions } from '@/lib/messageReactions';
+import { showAlert } from '@/lib/appAlert';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -60,7 +63,7 @@ function trimMessagesForClient(input: Message[]): Message[] {
 
 export function useMessages() {
   const { user } = useAuth();
-  const { isOnline, enqueueOperation, registerReloadHandler } = useNetwork();
+  const { isOnline, enqueueOperation, enqueueOperationDurable, registerReloadHandler, queue } = useNetwork();
   const [messages, setMessages] = useState<Message[]>([]);
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const [reconnectSeq, setReconnectSeq] = useState(0);
@@ -330,15 +333,15 @@ export function useMessages() {
   }, [enqueueOperation]);
 
   const updateMessage = useCallback((msg: Message) => {
-    setMessages(prev => prev.map(m => m.id === msg.id ? msg : m));
+    setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isPinned: msg.isPinned } : m));
     if (isSupabaseConfigured) {
       if (!isOnlineRef.current) {
-        enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: fromMessage(msg) });
+        enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: { is_pinned: msg.isPinned } });
         return;
       }
       void (async () => {
         try {
-          const data = fromMessage(msg);
+          const data = { is_pinned: msg.isPinned };
           const { error } = await (supabase as any).from('messages').update(data).eq('id', msg.id);
           if (error) {
             console.warn('[sync] updateMessage error:', error.message);
@@ -346,35 +349,33 @@ export function useMessages() {
           }
         } catch (err: any) {
           console.warn('[sync] updateMessage network error:', err?.message ?? err);
-          enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: fromMessage(msg) });
+          enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: { is_pinned: msg.isPinned } });
         }
       })();
     }
   }, [enqueueOperation]);
 
-  const toggleReaction = useCallback((emoji: string, msg: Message, userName: string) => {
-    const current = msg.reactions[emoji] ?? [];
-    const updated = current.includes(userName)
-      ? current.filter((u: string) => u !== userName)
-      : [...current, userName];
-    const newReactions = { ...msg.reactions, [emoji]: updated };
-    if (updated.length === 0) delete newReactions[emoji];
-    const optimistic = { ...msg, reactions: newReactions };
-    setMessages(prev => prev.map(m => m.id === msg.id ? optimistic : m));
+  const toggleReaction = useCallback(async (emoji: string, msg: Message, userName: string) => {
+    const active = !(msg.reactions[emoji] ?? []).includes(userName);
     if (isSupabaseConfigured) {
-      if (!isOnlineRef.current) {
-        enqueueOperation({ table: 'messages', op: 'update', filter: { column: 'id', value: msg.id }, data: { reactions: newReactions } });
+      try {
+        await enqueueOperationDurable({ table: 'messages', op: 'rpc', data: { id: msg.id }, rpc: {
+          fn: 'set_message_reaction', args: { p_operation_id: Crypto.randomUUID(), p_message_id: msg.id, p_emoji: emoji, p_active: active },
+        } });
+      } catch (error: any) {
+        showAlert('Réaction non enregistrée', error?.message ?? 'Enregistrement local non confirmé.');
         return;
       }
-      (supabase as any).rpc('toggle_message_reaction', {
-        p_message_id: msg.id, p_emoji: emoji, p_user_name: userName,
-      }).then(({ error }: { error: any }) => {
-        if (error) {
-          setMessages(prev => prev.map(m => m.id === msg.id ? msg : m));
-        }
-      });
     }
-  }, [enqueueOperation]);
+    setMessages(prev => prev.map(m => {
+      if (m.id !== msg.id) return m;
+      const reactions = { ...m.reactions };
+      const names = (reactions[emoji] ?? []).filter(name => name !== userName);
+      if (active) names.push(userName);
+      if (names.length) reactions[emoji] = names; else delete reactions[emoji];
+      return { ...m, reactions };
+    }));
+  }, [enqueueOperationDurable]);
 
   // Bug 11: markMessagesRead now takes optional channelId to only mark that channel's messages
   const markMessagesRead = useCallback((channelId?: string) => {
@@ -554,7 +555,7 @@ export function useMessages() {
   }, [registerReloadHandler]);
 
   return {
-    messages,
+    messages: projectMessageReactions(messages, queue, user?.name ?? ''),
     realtimeConnected,
     addMessage,
     deleteMessage,

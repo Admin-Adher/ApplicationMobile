@@ -1,4 +1,5 @@
 'use client';
+import { projectMessageReactions } from '../../../lib/messageReactions';
 
 import NextImage from 'next/image';
 import dynamic from 'next/dynamic';
@@ -6062,14 +6063,22 @@ function BuildTrackWebWorkspace() {
   async function actOnMessage(message: MessageRecord, action: MessageAction) {
     if (!authUser || !profile) throw new Error('Reconnectez-vous pour continuer.');
     if (action.type === 'reaction') {
-      const { error } = await supabaseBrowser.rpc('toggle_message_reaction', {
-        p_message_id: message.id, p_emoji: action.emoji, p_user_name: userLabel(profile, authUser),
+      const name = userLabel(profile, authUser);
+      const reactions = (message.reactions ?? {}) as Record<string, string[]>;
+      const active = !(reactions[action.emoji] ?? []).includes(name);
+      await outbox.enqueue('message_reaction', {
+        id: crypto.randomUUID(), messageId: message.id, emoji: action.emoji, active,
       });
-      if (error) throw new Error(error.message);
-      const { data: current, error: refreshError } = await supabaseBrowser.from('messages')
-        .select('reactions').eq('id', message.id).maybeSingle();
-      if (refreshError || !current) throw new Error('La réaction a été envoyée. Synchronisez la conversation pour l’afficher.');
-      setData(previous => ({ ...previous, messages: previous.messages.map(row => row.id === message.id ? { ...row, reactions: current.reactions } : row) }));
+      setData(previous => ({ ...previous, messages: previous.messages.map(row => {
+        if (row.id !== message.id) return row;
+        const reactions = { ...(row.reactions ?? {}) };
+        const names = (reactions[action.emoji] ?? []).filter((value: string) => value !== name);
+        if (active) names.push(name);
+        if (names.length) reactions[action.emoji] = names; else delete reactions[action.emoji];
+        return { ...row, reactions };
+      }) }));
+      if (navigator.onLine) void outbox.flush();
+      else setNotice('Réaction conservée sur ce navigateur. Elle sera envoyée au retour du réseau.');
       return;
     }
     if (message.sender_id !== authUser.id && !isAdmin(profile)) throw new Error('Action réservée à l’auteur ou à un administrateur.');
@@ -6159,6 +6168,18 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'message_reaction') {
+      const { id, messageId, emoji, active } = operation.payload;
+      if (typeof id !== 'string' || typeof messageId !== 'string' || typeof emoji !== 'string' || typeof active !== 'boolean') throw new Error('Réaction invalide.');
+      const { data: result, error } = await supabaseBrowser.rpc('set_message_reaction', {
+        p_operation_id: id, p_message_id: messageId, p_emoji: emoji, p_active: active,
+      });
+      if (error) throw error;
+      if (result?.applied !== true) throw new Error('Réaction non confirmée.');
+      await assertOwner();
+      setData(previous => ({ ...previous, messages: previous.messages.map(row => row.id === messageId ? { ...row, reactions: result.reactions } : row) }));
+      return;
+    }
     if (operation.kind === 'plan_progress') {
       const payload = operation.payload as unknown as ProgressOperation;
       if (typeof payload.id !== 'string' || typeof payload.planId !== 'string' || typeof payload.sourceRef !== 'string' || !Array.isArray(payload.changes)) throw new Error('Modification d’avancement invalide.');
@@ -6893,7 +6914,7 @@ function BuildTrackWebWorkspace() {
 
   const fieldData = useMemo(() => ({
     chantiers: projectFieldRows(data.chantiers, 'chantiers', outbox.rows),
-    messages: projectFieldRows(data.messages, 'messages', outbox.rows) as MessageRecord[],
+    messages: projectMessageReactions(projectFieldRows(data.messages, 'messages', outbox.rows) as MessageRecord[], outbox.rows, profile && authUser ? userLabel(profile, authUser) : ''),
     timeEntries: projectFieldRows(data.timeEntries, 'time_entries', outbox.rows),
     companies: projectFieldRows(data.companies, 'companies', outbox.rows),
     journalEntries: projectFieldRows(data.journalEntries, 'journal_entries', outbox.rows),
@@ -6908,7 +6929,7 @@ function BuildTrackWebWorkspace() {
     reserves: projectPendingRowPatches(projectTerrainChanges(projectReserveComments(data.reserves, outbox.rows), outbox.rows, 'reserve_archive'), outbox.rows, 'reserve_pin'),
     inventoryProducts: projectPendingRowPatches(data.inventoryProducts, outbox.rows, 'inventory_product_edit'),
     sitePlans: projectPlanAnnotations(data.sitePlans, outbox.rows),
-  }), [data, outbox.rows]);
+  }), [data, outbox.rows, profile, authUser]);
 
   const projectScoped = useMemo(() => {
     const byProject = (item: any) => selectedProjectId === 'all' || item.chantier_id === selectedProjectId || item.chantierId === selectedProjectId;
@@ -7470,7 +7491,7 @@ function BuildTrackWebWorkspace() {
                 operation.kind === 'terrain_action' ? terrainActionLabels[(operation.payload.change as WebTerrainChange).action] :
                 operation.kind === 'reserve_pin' ? 'Épingle · ' + String(operation.payload.rowId) :
                 operation.kind === 'inventory_product_edit' ? 'Fiche produit · ' + String(operation.payload.rowId) :
-                operation.kind === 'plan_progress' ? 'Avancement · ' + String(operation.payload.planId) : operation.kind === 'plan_revision' ? 'Révision de plan · ' + String((operation.payload.newPlan as Record<string, unknown>).name) : operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
+                operation.kind === 'plan_progress' ? 'Avancement · ' + String(operation.payload.planId) : operation.kind === 'plan_revision' ? 'Révision de plan · ' + String((operation.payload.newPlan as Record<string, unknown>).name) : operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'message_reaction' ? 'Réaction' : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
               {canDiscardFieldOperation(operation) && (

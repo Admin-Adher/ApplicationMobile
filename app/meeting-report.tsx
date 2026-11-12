@@ -58,7 +58,7 @@ export default function MeetingReportScreen() {
   const allowed = user?.role !== 'sous_traitant' && user?.role !== 'magasinier';
   const shared = useProjectMeetingReports(
     { useState, useRef, useEffect, useCallback },
-    supabase, allowed ? user?.id : undefined, user?.organizationId, chantierId,
+    supabase, allowed ? user?.id : undefined, user?.organizationId, chantierId, AsyncStorage,
   );
   const draftKey = user?.id ? `buildtrack_meetings_v2:${user.id}:${user.organizationId ?? ''}:${chantierId ?? ''}` : null;
   const draftKeyRef = useRef(draftKey);
@@ -327,7 +327,7 @@ export default function MeetingReportScreen() {
         {chantierId && (
           <TouchableOpacity style={styles.templateBanner} disabled={busy} onPress={() => void shared.refresh()}>
             <Ionicons name="refresh" size={18} color={C.primary} />
-            <Text style={styles.templateBannerTitle}>{t(shared.failed ? 'meetingReport.syncUnavailable' : 'meetingReport.refreshShared')}</Text>
+            <Text style={styles.templateBannerTitle}>{shared.failed && shared.rows.length ? 'Copie hors ligne · Lecture seule. Appuyez pour actualiser.' : t(shared.failed ? 'meetingReport.syncUnavailable' : 'meetingReport.refreshShared')}</Text>
           </TouchableOpacity>
         )}
         {!showNew && permissions.canCreate && (
@@ -413,14 +413,14 @@ export default function MeetingReportScreen() {
                 )}
               </View>
 
-              {permissions.canEdit && !showNew && (
+              {permissions.canEdit && (!isShared || shared.ready) && !showNew && (
                 <TouchableOpacity style={styles.addActionBtn} disabled={busy} onPress={() => openEditor(report)}><Text style={styles.addActionBtnText}>{t('meetingReport.editReport')}</Text></TouchableOpacity>
               )}
               {permissions.canCreate && !isShared && shared.ready && (
                 <TouchableOpacity style={styles.addActionBtn} disabled={busy} onPress={() => shareReport(report)}><Text style={styles.addActionBtnText}>{t('meetingReport.shareOnSite')}</Text></TouchableOpacity>
               )}
               {permissions.canDelete && (
-                <TouchableOpacity style={styles.addActionBtn} disabled={busy || showNew} onPress={() => deleteReport(report)}><Text style={styles.addActionBtnText}>{t('common.delete')}</Text></TouchableOpacity>
+                <TouchableOpacity style={styles.addActionBtn} disabled={busy || showNew || (isShared && !shared.ready)} onPress={() => deleteReport(report)}><Text style={styles.addActionBtnText}>{t('common.delete')}</Text></TouchableOpacity>
               )}
 
               {report.decisions.length > 0 && (
@@ -471,7 +471,7 @@ export default function MeetingReportScreen() {
                       <View key={action.id} style={styles.actionRow}>
                         <TouchableOpacity
                           onPress={() => toggleAction(report.id, action.id!)}
-                          disabled={busy || !permissions.canEdit}
+                          disabled={busy || !permissions.canEdit || (isShared && !shared.ready)}
                           hitSlop={8}
                           style={[
                             styles.actionCheck,
@@ -501,7 +501,7 @@ export default function MeetingReportScreen() {
                             </View>
                           )}
                         </View>
-                        {permissions.canEdit && (
+                        {permissions.canEdit && (!isShared || shared.ready) && (
                           <TouchableOpacity
                             onPress={() => removeAction(report.id, action.id!)}
                             hitSlop={8}
@@ -513,7 +513,7 @@ export default function MeetingReportScreen() {
                     );
                   })}
 
-                  {permissions.canEdit && !showAddAction && (
+                  {permissions.canEdit && (!isShared || shared.ready) && !showAddAction && (
                     <TouchableOpacity
                       style={styles.addActionBtn}
                       onPress={() => setShowAddAction(true)}
@@ -523,7 +523,7 @@ export default function MeetingReportScreen() {
                     </TouchableOpacity>
                   )}
 
-                  {showAddAction && (
+                  {showAddAction && (!isShared || shared.ready) && (
                     <View style={styles.addActionForm}>
                       <TextInput
                         style={styles.actionInput}

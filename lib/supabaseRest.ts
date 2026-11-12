@@ -56,6 +56,8 @@ type InternalRestRequestOptions = RestRequestOptions & {
 const RPC_REQUIRING_RESULT = new Set([
   'set_checklist_item_checked',
   'apply_plan_progress',
+  'apply_terrain_patch',
+  'set_message_reaction',
   'record_inventory_movement',
   'update_inventory_product',
   'apply_reserve_patch',

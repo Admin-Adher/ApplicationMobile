@@ -180,7 +180,7 @@ photo distinct (`deferredPhotoPatch`).
 | E60 | rejeu générique refusé | — | `retryOpForCatch` | `fail` | politique | mutation | `result.meta` |
 | E61 | rejeu générique accepté | notifications, patch photo différé empilé | `retryOpForCatch` | `applied` | — | mutation | — |
 | E62 | exception non rattrapée | — | `retryOpForCatch` | `fail` | politique | exception locale | n.a. |
-| E63 | ancien snapshot de checklist sans intention par point | — | `op` | `terminalLocalOperation` | refus local conservé | aucune écriture réseau | n.a. |
+| E63 | ancien snapshot de checklist, visite, OPR ou réactions sans intention ciblée | — | `op` | `terminalLocalOperation` | refus local conservé | aucune écriture réseau | n.a. |
 
 ## Preuve que le backend répond
 

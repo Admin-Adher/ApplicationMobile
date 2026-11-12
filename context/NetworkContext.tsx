@@ -2128,6 +2128,27 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           let args = { ...(op.rpc.args ?? {}) };
           let retryRpcOp = op;
 
+          if (op.rpc.fn === 'apply_terrain_patch' && args.p_table === 'visites') {
+            // Persist uploaded replacements before dispatch. Replays must keep the
+            // same receipt fingerprint even if the process stops after dispatch.
+            const changes = [...(args.p_changes ?? [])];
+            for (let index = 0; index < changes.length; index += 1) {
+              const change = changes[index];
+              if (change.target === 'cover_photo_uri' && isLocalUri(change.after)) {
+                const prepared = await uploadLocalPhotosInPayload('visites', { id: args.p_id, organization_id: user?.organizationId, cover_photo_uri: change.after }, { signal: passSignal });
+                if (!prepared.allOk || !prepared.data) throw new Error(prepared.uploadErrors?.join(' | ') || 'Photo de visite non envoyée.');
+                changes[index] = { ...change, after: prepared.data.cover_photo_uri };
+              }
+            }
+            args = { ...args, p_changes: changes };
+            retryRpcOp = { ...op, rpc: { ...op.rpc, args } };
+            retryOpForCatch = retryRpcOp;
+            const next = queueRef.current.map(item => item.id === op.id ? retryRpcOp : item);
+            queueRef.current = next;
+            setQueue(next);
+            await writeQueueStrict(next);
+          }
+
           if (op.rpc.fn === 'create_reserve_with_photos') {
             const rawReserve = hydrateQueuedOrganizationId(
               'reserves',
@@ -2426,14 +2447,22 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           if (op.rpc.fn === 'set_checklist_item_checked' && !isAppliedRpcAcknowledgement(rpcData)) {
             throw new Error('Modification de checklist non confirmée. Opération conservée dans la file.');
           }
+          if (['apply_terrain_patch', 'set_message_reaction'].includes(op.rpc.fn) && !isAppliedRpcAcknowledgement(rpcData)) {
+            throw new Error('Modification non confirmée. Opération conservée dans la file.');
+          }
           return syncExit('E25', { kind: 'applied', operation: retryRpcOp });
         }
 
         // Older snapshots lack item-level intent. Replaying them could erase
         // another user's checks. Keep them visible for review rather than send.
-        if (op.table === 'checklists' && op.op === 'update' && Array.isArray(op.data?.items)) {
+        if (op.op === 'update' && (
+          (op.table === 'checklists' && Array.isArray(op.data?.items)) ||
+          (op.table === 'visites' && Object.hasOwn(op.data ?? {}, 'checklist_items')) ||
+          (op.table === 'oprs' && Object.hasOwn(op.data ?? {}, 'items')) ||
+          (op.table === 'messages' && Object.hasOwn(op.data ?? {}, 'reactions'))
+        )) {
           return syncExit('E63', terminalLocalOperation(op, 'legacy_checklist_snapshot',
-            'Ancienne modification de checklist à vérifier : actualisez la liste et recochez les points concernés.'));
+            'Ancienne modification à vérifier : actualisez les données et réappliquez les changements concernés.'));
         }
 
         if (op.conflictCheck) {
@@ -3423,7 +3452,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   }, [saveQueue, scheduleSync]);
 
   const enqueueOperationDurable = useCallback(async (op: EnqueueOperationInput) => {
-    if (!queueLoadedRef.current || !userId || op.op !== 'rpc' || op.rpc?.fn !== 'apply_plan_progress' ||
+    if (!queueLoadedRef.current || !userId || op.op !== 'rpc' || !['apply_plan_progress', 'apply_terrain_patch', 'set_message_reaction'].includes(op.rpc?.fn ?? '') ||
       lastLoadedScopeRef.current !== queueHydrationScopeKey(offlineQueueKey, userOrganizationId, queueNeedsHistoricalVisitRecoveryEvaluation(queueRef.current))) {
       throw new Error('La file du compte n’est pas prête.');
     }

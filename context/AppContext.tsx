@@ -166,7 +166,7 @@ interface AppContextValue {
     progress: number; totalWorkers: number; plannedWorkers: number;
   };
   addVisite: (v: Visite) => void;
-  updateVisite: (v: Visite) => void;
+  updateVisite: (v: Visite, previous: Visite) => Promise<void>;
   deleteVisite: (id: string) => void;
   attachReservesToVisite: (visiteId: string, reserveIds: string[]) => Promise<{ success: boolean; queued?: boolean; movedCount?: number; error?: string }>;
   unlinkReservesFromVisite: (visiteId: string, reserveIds: string[]) => Promise<{ success: boolean; queued?: boolean; updatedCount?: number; error?: string }>;
@@ -175,7 +175,7 @@ interface AppContextValue {
   updateLot: (l: Lot) => void;
   deleteLot: (id: string) => void;
   addOpr: (o: Opr) => void;
-  updateOpr: (o: Opr) => void;
+  updateOpr: (o: Opr, previous: Opr) => Promise<void>;
   deleteOpr: (id: string) => void;
   batchUpdateReserves: (ids: string[], updates: Partial<Pick<Reserve, 'status' | 'company' | 'companies' | 'deadline' | 'priority'>>, author?: string) => void;
   addSitePlanVersion: (parentPlanId: string, newPlan: SitePlan) => void;

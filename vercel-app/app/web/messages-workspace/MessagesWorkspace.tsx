@@ -1,4 +1,5 @@
 'use client';
+import { MESSAGE_REACTION_CHOICES } from '../../../../lib/messageReactions';
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
 import type { SupportedLang } from '@/lib/i18n';
@@ -208,7 +209,7 @@ function MessageBubble({
             {hasContent ? <p>{message.content}</p> : null}
           </div>
           <div className={styles.messageActions}>
-            {Array.from(new Set(['👍', '✅', '❤️', ...reactions.map(reaction => reaction.emoji)])).map(emoji => {
+            {Array.from(new Set([...MESSAGE_REACTION_CHOICES, ...reactions.map(reaction => reaction.emoji)])).map(emoji => {
               const count = reactions.find(reaction => reaction.emoji === emoji)?.count ?? 0;
               return <button key={emoji} type="button" aria-label={'Basculer la réaction ' + emoji} disabled={actionBusy} onClick={() => void change({ type: 'reaction', emoji })}>{emoji}{count ? ' ' + count : ''}</button>;
             })}

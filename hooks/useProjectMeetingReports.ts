@@ -1,4 +1,5 @@
 import type { MeetingReport } from '../constants/types';
+import { meetingCacheKey, readMeetingSnapshot, writeMeetingSnapshot, type MeetingStorage } from '../lib/meetingReportCache';
 
 type MeetingRow = { report: MeetingReport; version: number };
 const TABLE = 'project_meeting_reports';
@@ -39,6 +40,7 @@ export function useProjectMeetingReports(
   userId: string | undefined,
   organizationId: string | null | undefined,
   chantierId: string | null,
+  storage?: MeetingStorage,
 ) {
   const scope = client && userId && organizationId && chantierId ? `${userId}:${organizationId}:${chantierId}` : null;
   const scopeRef = useRef(scope);
@@ -47,6 +49,18 @@ export function useProjectMeetingReports(
   const request = useRef(0);
   const current = state?.scope === scope ? state : null;
   const rows = current?.rows ?? [];
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  function commit(next: NonNullable<typeof state>) {
+    stateRef.current = next;
+    setState(next);
+    if (storage) void writeMeetingSnapshot(storage, next.scope, next.rows).catch(() => {
+      // The server remains authoritative. Do not turn a successful server write
+      // into a second create merely because the device cache is unavailable.
+      console.warn('[meetings] Offline copy could not be updated.');
+    });
+  }
 
   const refresh = useCallback(async () => {
     if (!client || !scope || scopeRef.current !== scope || !organizationId || !chantierId) return;
@@ -63,16 +77,32 @@ export function useProjectMeetingReports(
         reports.push(...data as MeetingRow[]);
         if (data.length < pageSize) break;
       }
-      if (lease === request.current) setState({ scope, rows: reports, ready: true, failed: false });
+      if (lease === request.current && scopeRef.current === scope) commit({ scope, rows: reports, ready: true, failed: false });
     } catch {
-      if (lease === request.current) setState({ scope, rows: [], ready: false, failed: true });
+      if (lease === request.current && scopeRef.current === scope) {
+        const previous = stateRef.current;
+        const next = { scope, rows: previous?.scope === scope ? previous.rows : [], ready: false, failed: true };
+        stateRef.current = next;
+        setState(next);
+      }
     }
-  }, [client, scope, organizationId, chantierId]);
+  }, [client, scope, organizationId, chantierId, storage]);
 
   useEffect(() => {
+    let cancelled = false;
+    if (scope && storage) {
+      void storage.getItem(meetingCacheKey(scope)).then(raw => {
+        if (cancelled || scopeRef.current !== scope || stateRef.current?.scope === scope && stateRef.current.ready) return;
+        const cached = readMeetingSnapshot(raw, scope);
+        if (!cached) return;
+        const next = { scope, rows: cached, ready: false, failed: stateRef.current?.scope === scope && stateRef.current.failed || false };
+        stateRef.current = next;
+        setState(next);
+      }).catch(() => {});
+    }
     void refresh();
-    return () => { request.current += 1; };
-  }, [refresh]);
+    return () => { cancelled = true; request.current += 1; };
+  }, [refresh, scope, storage]);
 
   async function save(report: MeetingReport, mode: 'create' | 'update', expectedVersion?: number) {
     if (!client || !scope || scopeRef.current !== scope || !organizationId || !chantierId || !current?.ready) return false;
@@ -93,13 +123,14 @@ export function useProjectMeetingReports(
     }
     if (scopeRef.current !== scope) return true;
     request.current += 1;
-    setState(value => {
-      if (value?.scope !== scope) return value;
+    {
+      const value = stateRef.current;
+      if (value?.scope !== scope) return true;
       const saved = data as MeetingRow;
       const existing = value.rows.find(row => row.report.id === report.id);
-      if (existing && existing.version > saved.version) return value;
-      return { ...value, rows: existing ? value.rows.map(row => row.report.id === report.id ? saved : row) : [saved, ...value.rows] };
-    });
+      if (existing && existing.version > saved.version) return true;
+      commit({ ...value, rows: existing ? value.rows.map(row => row.report.id === report.id ? saved : row) : [saved, ...value.rows] });
+    }
     return true;
   }
 
@@ -114,7 +145,8 @@ export function useProjectMeetingReports(
     }
     if (scopeRef.current !== scope) return true;
     request.current += 1;
-    setState(value => value?.scope === scope ? { ...value, rows: value.rows.filter(row => row.report.id !== id) } : value);
+    const value = stateRef.current;
+    if (value?.scope === scope) commit({ ...value, rows: value.rows.filter(row => row.report.id !== id) });
     return true;
   }
 

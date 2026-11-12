@@ -185,3 +185,21 @@ jobs:
 
       - name: Verify checklist concurrency, retries and permissions
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/checklist_item_updates.sql
+
+      - name: Extend disposable terrain catalogue
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/terrain_catalogue.sql
+
+      - name: Apply existing OPR signature protection
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261105220903_accept_opr_contradictory_visit_date.sql
+
+      - name: Apply existing local-first reserve events
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20260615120000_reserve_local_first_slice.sql
+
+      - name: Apply existing OPR and reserve transaction
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261107144451_sync_web_opr_reserve_status.sql
+
+      - name: Apply collaborative terrain mutations
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261112170549_terrain_collaboration_mutations.sql
+
+      - name: Verify collaborative terrain mutations
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/terrain_collaboration.sql

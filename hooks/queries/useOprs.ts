@@ -1,3 +1,6 @@
+import * as Crypto from 'expo-crypto';
+import { buildTerrainChanges, projectTerrainChanges, projectQueuedTerrainRows } from '@/lib/terrainPatch';
+import { showAlert } from '@/lib/appAlert';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useCallback, useEffect, useRef } from 'react';
 import { Alert } from 'react-native';
@@ -15,9 +18,9 @@ import i18n from '@/lib/i18n';
 const OPRS_CACHE_KEY = 'buildtrack_oprs_cache_v1';
 
 export function useOprs() {
-  const { user } = useAuth();
+  const { user, permissions } = useAuth();
   const userId = user?.id;
-  const { isOnline, enqueueOperation, queue, queueLoaded } = useNetwork();
+  const { isOnline, enqueueOperation, enqueueOperationDurable, queue, queueLoaded } = useNetwork();
   const queryClient = useQueryClient();
   const isOnlineRef = useRef(isOnline);
   useEffect(() => { isOnlineRef.current = isOnline; }, [isOnline]);
@@ -57,7 +60,7 @@ export function useOprs() {
         if (error) throw error;
         const fresh = (data ?? []).map(toOpr);
         const pendingIds = pendingIdsForTable(queueRef.current ?? [], 'oprs');
-        const merged = mergeWithCache<Opr>(fresh, cached, pendingIds, { queueLoaded });
+        const merged = projectQueuedTerrainRows(mergeWithCache<Opr>(fresh, cached, pendingIds, { queueLoaded }), 'oprs', queueRef.current, row => fromOpr(row, user!.organizationId), toOpr);
         await writeCache(OPRS_CACHE_KEY, merged, userId);
         return merged;
       } catch (err) {
@@ -73,45 +76,31 @@ export function useOprs() {
   }, [userId]);
 
   const addOpr = useCallback(async (o: Opr) => {
-    const orgId = user?.organizationId ?? null;
-    queryClient.setQueryData<Opr[]>(queryKeys.oprs(), old => {
-      if ((old ?? []).some(x => x.id === o.id)) return old ?? [];
-      return [o, ...(old ?? [])];
-    });
+    if (!permissions.canCreate) return;
+    if (isSupabaseConfigured) enqueueOperation({ table: 'oprs', op: 'insert', data: fromOpr(o, user?.organizationId ?? null) }, { proveNeverStarted: true });
+    queryClient.setQueryData<Opr[]>(queryKeys.oprs(), old => (old ?? []).some(row => row.id === o.id) ? old : [o, ...(old ?? [])]);
     persist(queryClient.getQueryData<Opr[]>(queryKeys.oprs()) ?? []);
-    if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'oprs', op: 'insert', data: fromOpr(o, orgId) });
-      return;
-    }
-    if (isSupabaseConfigured) {
-      const payload = fromOpr(o, orgId);
-      const { error } = await (supabase as any).from('oprs').insert(payload);
-      if (error) {
-        console.warn('[sync] addOpr error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'oprs', op: 'insert', data: payload });
-      }
-    }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+  }, [queryClient, user, permissions.canCreate, enqueueOperation, persist]);
 
-  const updateOpr = useCallback(async (o: Opr) => {
-    queryClient.setQueryData<Opr[]>(queryKeys.oprs(), old =>
-      (old ?? []).map(x => x.id === o.id ? o : x)
-    );
-    persist(queryClient.getQueryData<Opr[]>(queryKeys.oprs()) ?? []);
+  const updateOpr = useCallback(async (next: Opr, previous: Opr) => {
+    if (!permissions.canEdit || next.id !== previous.id) return;
     const orgId = user?.organizationId ?? null;
-    const { id, organization_id, ...fields } = fromOpr(o, orgId);
-    if (!isOnlineRef.current && isSupabaseConfigured) {
-      enqueueOperation({ table: 'oprs', op: 'update', filter: { column: 'id', value: o.id }, data: fields });
-      return;
-    }
+    const changes = buildTerrainChanges('oprs', fromOpr(previous, orgId), fromOpr(next, orgId));
+    if (!changes.length) return;
     if (isSupabaseConfigured) {
-      const { error } = await (supabase as any).from('oprs').update(fields).eq('id', o.id);
-      if (error) {
-        console.warn('[sync] updateOpr error, queuing for retry:', error.message);
-        enqueueOperation({ table: 'oprs', op: 'update', filter: { column: 'id', value: o.id }, data: fields });
+      try {
+        await enqueueOperationDurable({ table: 'oprs', op: 'rpc', data: { id: next.id }, rpc: {
+          fn: 'apply_terrain_patch', args: { p_operation_id: Crypto.randomUUID(), p_table: 'oprs', p_id: next.id, p_changes: changes },
+        } });
+      } catch (error: any) {
+        showAlert(i18n.t('common.error'), error?.message ?? 'Enregistrement local non confirmé.');
+        return;
       }
     }
-  }, [queryClient, user, isOnlineRef, enqueueOperation, persist]);
+    queryClient.setQueryData<Opr[]>(queryKeys.oprs(), old => (old ?? []).map(row =>
+      row.id === next.id ? toOpr(projectTerrainChanges(fromOpr(row, orgId), changes)) : row));
+    persist(queryClient.getQueryData<Opr[]>(queryKeys.oprs()) ?? []);
+  }, [queryClient, user, permissions.canEdit, enqueueOperationDurable, persist]);
 
   const deleteOpr = useCallback(async (id: string) => {
     const prev = queryClient.getQueryData<Opr[]>(queryKeys.oprs()) ?? [];

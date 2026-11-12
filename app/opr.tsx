@@ -448,7 +448,7 @@ function buildConvocationPDF(opr: Opr, projectName: string, companies: PdfCompan
 
 export default function OprScreen() {
   const { t } = useTranslation();
-  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, companies, activeChantierId, activeChantier, updateReserveStatus, photos } = useApp();
+  const { oprs, addOpr, updateOpr, deleteOpr, lots, reserves, companies, activeChantierId, activeChantier, photos } = useApp();
   const { user, permissions } = useAuth();
   const { exportLanguage } = useLanguage();
   const { projectName } = useSettings();
@@ -503,7 +503,7 @@ export default function OprScreen() {
       role: inviteRole.trim() || t('oprScreen.participant'),
       email: inviteEmail.trim() || undefined,
     };
-    updateOpr({ ...opr, signatories: [...(opr.signatories ?? []), newSig] });
+    updateOpr({ ...opr, signatories: [...(opr.signatories ?? []), newSig] }, opr);
     setInviteName(''); setInviteRole(''); setInviteEmail('');
     setInviteModal(null);
   }
@@ -512,7 +512,7 @@ export default function OprScreen() {
     showAlert(t('oprScreen.remove'), t('oprScreen.removeSignatoryText'), [
       { text: t('common.cancel'), style: 'cancel' },
       { text: t('oprScreen.remove'), style: 'destructive', onPress: () =>
-        updateOpr({ ...opr, signatories: (opr.signatories ?? []).filter(s => s.id !== sigId) })
+        updateOpr({ ...opr, signatories: (opr.signatories ?? []).filter(s => s.id !== sigId) }, opr)
       },
     ]);
   }
@@ -537,15 +537,9 @@ export default function OprScreen() {
     const item = opr.items.find(i => i.id === itemId);
     if (!item) return;
     const updated = opr.items.map(i => i.id === itemId ? { ...i, status: newStatus } : i);
-    updateOpr({ ...opr, items: updated });
+    updateOpr({ ...opr, items: updated }, opr);
 
-    if (item.reserveId) {
-      if (newStatus === 'ok') {
-        updateReserveStatus(item.reserveId, 'closed', user?.name ?? 'OPR');
-      } else if (item.status === 'ok' && newStatus === 'reserve') {
-        updateReserveStatus(item.reserveId, 'in_progress', user?.name ?? 'OPR');
-      }
-    }
+    // The OPR delta and its linked reserve transition commit in one server transaction.
 
     if (newStatus === 'reserve') {
       setItemEdits(prev => ({
@@ -561,7 +555,7 @@ export default function OprScreen() {
   function addParticipant(opr: Opr) {
     if (!newParticipantName.trim()) return;
     const p = { id: genId(), name: newParticipantName.trim(), company: newParticipantCompany.trim(), present: true };
-    updateOpr({ ...opr, visitParticipants: [...(opr.visitParticipants ?? []), p] });
+    updateOpr({ ...opr, visitParticipants: [...(opr.visitParticipants ?? []), p] }, opr);
     setNewParticipantName('');
     setNewParticipantCompany('');
   }
@@ -570,11 +564,11 @@ export default function OprScreen() {
     const updated = (opr.visitParticipants ?? []).map(p =>
       p.id === participantId ? { ...p, present: !p.present } : p
     );
-    updateOpr({ ...opr, visitParticipants: updated });
+    updateOpr({ ...opr, visitParticipants: updated }, opr);
   }
 
   function removeParticipant(opr: Opr, participantId: string) {
-    updateOpr({ ...opr, visitParticipants: (opr.visitParticipants ?? []).filter(p => p.id !== participantId) });
+    updateOpr({ ...opr, visitParticipants: (opr.visitParticipants ?? []).filter(p => p.id !== participantId) }, opr);
   }
 
   function linkReserveToItem(opr: Opr, itemId: string, reserveId: string) {
@@ -584,7 +578,7 @@ export default function OprScreen() {
         ? { ...item, reserveId, status: 'reserve' as const, description: reserve?.title ?? item.description }
         : item
     );
-    updateOpr({ ...opr, items: updated });
+    updateOpr({ ...opr, items: updated }, opr);
     setLinkReserveModal(null);
   }
 
@@ -730,7 +724,7 @@ export default function OprScreen() {
       signedAt: now,
       conducteurSignature: conducteurSig,
       moSignature: moSig,
-    });
+    }, signModalOpr);
     setSignModalOpr(null);
   }
 
@@ -760,7 +754,7 @@ export default function OprScreen() {
         ? { ...item, entreprise: edit.entreprise.trim() || undefined, deadline: edit.deadline.trim() || undefined, note: edit.note.trim() || undefined }
         : item
     );
-    updateOpr({ ...opr, items: updated });
+    updateOpr({ ...opr, items: updated }, opr);
     setExpandedItemId(null);
   }
 
@@ -769,7 +763,7 @@ export default function OprScreen() {
     const updated = opr.items.map(item =>
       item.id === itemId ? { ...item, verifiedAt: now, verifiedBy: user?.name ?? t('oprScreen.constructionManager') } : item
     );
-    updateOpr({ ...opr, items: updated });
+    updateOpr({ ...opr, items: updated }, opr);
     showAlert(t('oprScreen.closureVerifiedTitle'), t('oprScreen.closureVerifiedText'));
   }
 
@@ -1070,7 +1064,7 @@ export default function OprScreen() {
                               style={styles.visitDateSaveBtn}
                               onPress={() => {
                                 const trimmed = editingVisitDate.trim();
-                                if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
+                                if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed }, opr);
                                 setEditingVisitOprId(null);
                               }}
                               accessibilityLabel={t('oprScreen.confirmVisitDate')}
@@ -1207,7 +1201,7 @@ export default function OprScreen() {
                             style={styles.visitDateSaveBtn}
                             onPress={() => {
                               const trimmed = editingVisitDate.trim();
-                              if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed });
+                              if (trimmed) updateOpr({ ...opr, visitContradictoire: trimmed }, opr);
                               setEditingVisitOprId(null);
                             }}
                             accessibilityLabel={t('oprScreen.confirmVisitDate')}
@@ -1371,7 +1365,7 @@ export default function OprScreen() {
                                 <TouchableOpacity
                                   onPress={() => {
                                     const updated = opr.items.map(i => i.id === item.id ? { ...i, reserveId: undefined } : i);
-                                    updateOpr({ ...opr, items: updated });
+                                    updateOpr({ ...opr, items: updated }, opr);
                                   }}
                                   hitSlop={8}
                                   accessibilityLabel={t('oprScreen.unlinkReserveA11y', { lot: item.lotName })}

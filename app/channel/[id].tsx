@@ -1,3 +1,4 @@
+import { MESSAGE_REACTION_CHOICES } from '@/lib/messageReactions';
 import { messageDateLabel as formatTimestampLabel, messageDateKey as getDateFromTimestamp } from '@/lib/messageTimestamp';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, Alert,
@@ -25,7 +26,7 @@ import MembersModal from '@/components/channel/MembersModal';
 import AttachItemModal, { LinkedItem, getLinkedItemIcon, getLinkedItemColor } from '@/components/channel/AttachItemModal';
 import DictationTextInput from '@/components/DictationTextInput';
 
-const REACTIONS = ['👍', '✅', '⚠️', '🔥', '💯', '❌'];
+const REACTIONS = MESSAGE_REACTION_CHOICES;
 
 function DateSeparator({ label }: { label: string }) {
   return (
