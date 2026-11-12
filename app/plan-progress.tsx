@@ -69,7 +69,7 @@ export default function PlanProgressScreen() {
       },
     });
     void (async () => {
-      if (!canTrackPdfPlan(plan)) throw new Error('Le suivi d’avancement s’applique aux plans PDF.');
+      if (!canTrackPdfPlan(plan)) throw new Error('Choisissez un PDF dont l’import est synchronisé depuis Plans.');
       const [document, cached, pdfjs] = await Promise.all([session.open(), ensurePlanCached(source), loadBundledPdfJsSources()]);
       const info = await FileSystem.getInfoAsync(cached.localUri);
       if (info.exists && info.size > 25 * 1024 * 1024) throw new Error('Ce PDF dépasse 25 Mo. Utilisez une version optimisée pour le suivi.');

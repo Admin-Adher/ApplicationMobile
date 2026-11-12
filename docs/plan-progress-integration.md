@@ -1,6 +1,6 @@
 # Avancement des ouvrages sur plans PDF
 
-Depuis **Plans → sélectionner un PDF → Avancement**, le web et Android ouvrent le même éditeur 2D. Les plans et entreprises viennent du chantier connecté. Aucun PDF ni repère de démonstration n'est livré avec l'application.
+Depuis **Plans → sélectionner un PDF → Avancement**, le web et Android ouvrent le même éditeur 2D. Les plans et entreprises viennent du chantier connecté. L'import du PDF doit être synchronisé avant de préparer son avancement : les références temporaires de fichiers locaux ne sont pas utilisées pour des écritures serveur. Ensuite, les ouvrages du PDF téléchargé sont modifiables hors connexion. Aucun PDF ni repère de démonstration n'est livré avec l'application.
 
 Le parcours reprend l'ajout d'équipements, les longueurs droites ou avec coudes à 90°, les contours et rectangles, le bouton explicite de fin de surface, la modification des fiches et tracés, les dimensions, les états et l'export Excel. Les boutons tactiles mesurent au moins 44 px. La calibration s'applique à une page ; changer de PDF ou de page ne reprend pas l'échelle d'une autre page.
 

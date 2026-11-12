@@ -17,6 +17,8 @@ describe('PDF progress integration',() => {
     expect(canTrackPdfPlan({uri:'btmedia:image',fileType:'image'})).toBe(false);
     expect(canTrackPdfPlan({uri:'https://example.test/plan.jpg?signature=test'})).toBe(false);
     expect(canTrackPdfPlan({uri:'btmedia:dxf',file_type:'dxf'})).toBe(false);
+    expect(canTrackPdfPlan({uri:'file:///pending-plan.pdf',fileType:'pdf'})).toBe(false);
+    expect(canTrackPdfPlan({uri:'blob:https://example.test/pending',file_type:'pdf'})).toBe(false);
   });
   it('merges independent fields without replacing geometry or another user’s change',() => {
     const previous = document();

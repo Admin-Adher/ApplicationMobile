@@ -10,6 +10,9 @@ export const emptyProgress = (): ProgressDocument => ({ elements: [], calibratio
 /** Match the existing viewer's PDF default for legacy plans without file_type. */
 export function canTrackPdfPlan(plan: { uri?: unknown; file_type?: unknown; fileType?: unknown } | null | undefined) {
   if (!plan || typeof plan.uri !== 'string' || !plan.uri) return false;
+  // Pending imports change reference after upload. Do not attach coordinates
+  // to a temporary file/blob reference that the server cannot authorise/replay.
+  if (/^(file|content|blob|ph|assets-library|data):/i.test(plan.uri) || /^[a-z]:[\\/]/i.test(plan.uri)) return false;
   const type = String(plan.file_type ?? plan.fileType ?? '').toLowerCase();
   if (type) return type === 'pdf' || type === 'application/pdf';
   return !/\.(png|jpe?g|gif|webp|dxf)(?:[?#]|$)|^data:image\//i.test(plan.uri);
