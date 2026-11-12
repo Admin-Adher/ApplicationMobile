@@ -1,4 +1,19 @@
 /* Existing BuildTrack blue and the approved one-screen touch workflow. */
+/* The adjustment dock stays outside the scroll/zoom canvas. */
+.adjust-dock{flex:none;border-top:1px solid var(--line);padding:10px 12px;background:#fff;overflow:auto;max-height:52%;scroll-padding:8px}
+.precision-pick,.precision-nudges,.precision-validation{display:flex;gap:8px;align-items:center}
+.precision-pick select{min-width:0;flex:1}.precision-pick button{flex:1}
+.adjust-dock button,.adjust-dock select{min-height:44px;border:1px solid #b8c9df;border-radius:6px;font-size:14px;padding:6px 10px}
+.adjust-dock [aria-pressed=true]{background:#eaf1fc;border-color:var(--brand);color:var(--brand)}
+.precision-hint{font-size:12px;line-height:1.4;margin:6px 0}.precision-nudges select{width:84px;background:#fff}.precision-nudges button{flex:1;font-size:24px;min-width:44px;padding:0}
+.precision-more summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-size:13px;color:var(--brand)}.precision-more>div{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+#precisionMeasure{font-size:13px;margin:4px 0 8px}.precision-validation{justify-content:flex-end;position:sticky;bottom:-10px;padding:6px 0;background:#fff}.precision-validation button{min-height:48px}.precision-validation .primary{flex:1;max-width:300px}
+.precision-shape{stroke:#003082;fill:rgba(0,48,130,.06);pointer-events:none}.precision-handle{fill:#fff;stroke:#003082}.precision-handle.chosen{fill:#003082}.precision-number{fill:#003082;text-anchor:middle;dominant-baseline:central;pointer-events:none}.chosen+.precision-number{fill:#fff}
+.precision-loupe{position:fixed;width:120px;height:120px;z-index:25;border:2px solid #003082;border-radius:8px;background:#fff;pointer-events:none;box-shadow:0 3px 12px #12233d33}
+.precision-quantity{font-size:13px;line-height:1.5;padding:8px 10px;background:#edf3fa;border-radius:6px}.measurement-impact{margin:8px 0;padding:8px 0;border-top:1px solid var(--line)}.measurement-impact strong{display:block}.measurement-impact span{font-size:14px;display:block}
+.is-adjusting #drawingMessage{display:none!important}.is-adjusting #drawingDock{display:none!important}.is-adjusting .plan-footer{padding-block:0}
+.is-adjusting .plan-paper{cursor:crosshair}.is-adjusting .precision-handle{cursor:grab}.is-adjusting .precision-handle:active{cursor:grabbing}
+.precise-progress-button{min-height:44px;font-size:13px;color:var(--brand);text-decoration:underline}
 #importButton,#pdfInput,#resetButton,#resetDialog,[data-proxy="importButton"],.prototype-badge,.avatar,#sourceContext{display:none!important}
 .app-footer{min-height:36px}.app-footer span{font-size:12px}
 .rail-bottom{padding-bottom:env(safe-area-inset-bottom)}
@@ -19,4 +34,23 @@
   .terrain-mode .plan-footer .zoom-controls{pointer-events:auto;background:#fff;border:1px solid var(--line);border-radius:6px}
   .terrain-mode .plan-footer .zoom-controls button{width:44px;height:44px;min-height:44px}
   .terrain-mode .plan-focus-actions{display:none}
+}
+/* Compact drawing controls leave the PDF and validation visible on short phones. */
+.precision-line{fill:none}
+.angle-options{display:flex;gap:4px;margin-left:auto}.angle-options [aria-pressed=true]{background:#eaf1fc;border-color:#003082!important;color:#003082}
+.terrain-mode.is-drawing .shape-options:not([hidden]){flex-wrap:nowrap;align-items:center;overflow-x:auto;gap:4px;padding:4px 8px}
+.terrain-mode.is-drawing .shape-options button{min-width:60px;padding:6px 10px;min-height:44px;flex:none}
+.is-drawing .drawing-message:not([hidden]){padding:6px 10px!important;line-height:1.35!important;font-size:12px!important}.is-drawing .drawing-message strong{font-size:13px;margin:0 0 2px}
+.is-drawing .drawing-dock{padding:6px 8px!important;gap:4px!important}.is-drawing .drawing-dock>div:first-child{display:flex;gap:8px;flex-wrap:wrap}.is-drawing #draftCount,.is-drawing #draftMeasure{font-size:12px!important;line-height:1.4!important}
+.is-drawing .drawing-dock-actions{display:grid!important;grid-template-columns:44px 68px minmax(0,1fr);gap:6px!important;width:100%}.is-drawing .drawing-dock-actions #finishDrawing{grid-column:auto;min-height:48px;font-size:14px;white-space:nowrap}.is-drawing .drawing-dock-actions #removeLastPoint{width:44px;min-width:44px;font-size:0}.is-drawing #removeLastPoint svg{width:20px;height:20px}.is-drawing .drawing-dock-actions [data-cancel-drawing]{min-height:48px;padding:6px}
+.terrain-mode.is-drawing[data-view=plan] .plan-layout{gap:0;height:100%}.terrain-mode.is-drawing .plan-panel{flex:1;min-height:0;height:100%}.terrain-mode.is-drawing .plan-canvas{flex:1;min-height:60px;max-height:none;height:auto}
+.terrain-mode.is-drawing .plan-footer{padding:0 8px!important;min-height:44px}.is-drawing .touch-plan-hint{display:none!important}
+@media(max-width:740px){
+  .terrain-mode.is-drawing .topbar{display:none!important}.is-drawing .integration-sync{padding:2px 8px;font-size:10px;line-height:13px}
+  .terrain-mode.is-drawing main{padding:0 4px 4px!important;overflow:hidden;min-height:0}.is-drawing .shape-options{max-width:100%}.terrain-mode.is-drawing .shape-options button{font-size:12px;padding:6px 8px}
+  .angle-options{margin-left:auto;gap:2px}.angle-options button{min-width:54px!important}
+  .is-adjusting .adjust-dock{padding:4px 6px;max-height:55%;flex-shrink:0}.is-adjusting .precision-hint{font-size:11px;margin:3px 0;line-height:1.3}.is-adjusting #precisionMeasure{font-size:12px;margin:3px 0}.is-adjusting .precision-validation{bottom:-4px;padding:3px 0}.precision-pick,.precision-nudges,.precision-validation{gap:4px}.adjust-dock select{font-size:16px;padding:4px}.precision-nudges select{width:80px}.precision-more summary{font-size:12px}.precision-pick button{font-size:12px}.precision-nudges button{font-size:22px}
+}
+@media(min-width:540px) and (max-height:500px){
+  .is-adjusting .plan-panel{display:grid!important;grid-template-columns:minmax(0,1fr) 310px;grid-template-rows:minmax(0,1fr) 44px}.is-adjusting #planViewport{grid-row:1;grid-column:1}.is-adjusting #adjustDock{grid-row:1/3;grid-column:2;max-height:none;overflow:auto}.is-adjusting .plan-footer{grid-row:2;grid-column:1}
 }

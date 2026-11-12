@@ -177,6 +177,9 @@ jobs:
       - name: Apply PDF progress foreign-key indexes
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261112140026_plan_progress_foreign_key_indexes.sql
 
+      - name: Apply precise progress compatibility
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261112181124_precise_plan_progress.sql
+
       - name: Verify PDF progress isolation, permissions, concurrency and idempotency
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/plan_progress.sql
 

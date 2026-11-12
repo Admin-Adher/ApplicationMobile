@@ -21,6 +21,7 @@ function editor() {
     let state={elements:[{id:'a',name:'A',reference:'A-1',status:'todo',note:''},{id:'b',name:'B',reference:'B-1',status:'todo',note:''}],calibrations:{},billed:{},undo:[],history:[]};
     let durableDocument=JSON.stringify({elements:state.elements,calibrations:state.calibrations,billed:state.billed});
     let selected=new Set(['a']),saving=false,noteSave=null,changingStatus=false,unconfirmed=false,pendingNote=null;
+    const geometry={active:false};
     const sameDocument=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
     ${functions}
     Object.assign(api,{changeStatus,isNoteStatusActivation,

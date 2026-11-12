@@ -10,7 +10,10 @@ const source = path.join(root, 'lib/plan-progress/editor');
 const read = filename => fs.readFileSync(filename,'utf8').replace(/\r\n/g,'\n');
 const definitions = [];
 for (const name of fs.readdirSync(source).filter(name => name.endsWith('.js')).sort()) {
-  const code = ts.transpileModule(read(path.join(source,name)), { compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, newLine: ts.NewLineKind.LineFeed, removeComments: true } }).outputText;
+  const compiled = ts.transpileModule(read(path.join(source,name)), { reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, newLine: ts.NewLineKind.LineFeed, removeComments: true } });
+  const errors = compiled.diagnostics?.filter(item => item.category === ts.DiagnosticCategory.Error) ?? [];
+  if (errors.length) throw Error(name + ': ' + errors.map(item => ts.flattenDiagnosticMessageText(item.messageText,' ')).join('; '));
+  const code = compiled.outputText;
   definitions.push(`M[${JSON.stringify(name)}]=function(require,exports,module){${code}\n};`);
 }
 const xlsx = read(require.resolve('xlsx/dist/xlsx.full.min.js'));
