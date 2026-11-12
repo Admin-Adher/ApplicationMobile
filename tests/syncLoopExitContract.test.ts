@@ -274,9 +274,9 @@ describe('a prepared rebase identity is durable before the write', () => {
   });
 
   it('stamps a local identity on every operation it creates', () => {
-    // Enqueue utilisateur et patch photo differe : deux entrees nees pendant
+    // Enqueue utilisateur, enqueue durable d’avancement et patch photo : trois entrees nees pendant
     // l'execution, qui doivent etre localisables comme les autres.
-    expect(source.split('queueEntryId: genQueueId(),').length - 1).toBe(2);
+    expect(source.split('queueEntryId: genQueueId(),').length - 1).toBe(3);
   });
 });
 

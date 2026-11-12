@@ -1,0 +1,21 @@
+/* Existing BuildTrack blue and the approved one-screen touch workflow. */
+#importButton,#pdfInput,#resetButton,#resetDialog,[data-proxy="importButton"],.prototype-badge,.avatar,#sourceContext{display:none!important}
+.app-footer{min-height:36px}.app-footer span{font-size:12px}
+.rail-bottom{padding-bottom:env(safe-area-inset-bottom)}
+.saved-state{max-width:70vw;white-space:normal!important;line-height:1.35}
+.terrain-mode[data-view=plan] .saved-state{display:inline-flex!important}
+.integration-sync{padding:0 16px 6px;background:#fff;color:#536477;font-size:11px;flex:none}
+.integration-sync .saved-state{display:inline!important;font-size:11px;margin:0!important}
+.terrain-mode[data-view=plan] .app-footer{display:none!important}
+#storageNotice:not([hidden]){padding:12px;background:#fff4dd;color:#613c00}
+[data-progress-saving] button,[data-progress-saving] input,[data-progress-saving] select{pointer-events:none}
+[data-progress-uncertain] button,[data-progress-uncertain] input,[data-progress-uncertain] select{pointer-events:none}
+@media(max-width:600px){.saved-state{max-width:100%;font-size:11px}}
+@media(min-width:540px) and (max-height:420px){
+  .terrain-mode .topbar{height:50px;min-height:50px;padding:2px 8px}
+  .integration-sync{padding:0 8px 3px;line-height:14px}
+  .terrain-mode[data-view=plan] .plan-footer{position:absolute;right:3px;bottom:3px;padding:0;background:transparent;pointer-events:none;border:0}
+  .terrain-mode .plan-footer .zoom-controls{pointer-events:auto;background:#fff;border:1px solid var(--line);border-radius:6px}
+  .terrain-mode .plan-footer .zoom-controls button{width:44px;height:44px;min-height:44px}
+  .terrain-mode .plan-focus-actions{display:none}
+}

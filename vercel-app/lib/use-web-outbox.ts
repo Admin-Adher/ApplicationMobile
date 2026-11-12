@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { progressReplayBarrier } from '../../lib/plan-progress/replay-order';
 import {
   canDiscardFieldOperation, changeQueuedReserveEdit, isReserveEditConflict, isWebNetworkFailure, listWebOperations,
   listenWebOperations, removeWebOperation, ReserveEditConflict, saveWebOperation, type WebQueuedOperation,
@@ -42,13 +43,16 @@ export function useWebOutbox(owner: string, execute: (operation: WebQueuedOperat
     try {
       const drain = async () => {
         const pending = await listWebOperations(scope);
+        const progressOrder = progressReplayBarrier(Date.now());
         for (const operation of pending) {
           if (!stillOwned() || !navigator.onLine) return;
-          if (isReserveEditConflict(operation) || (operation.error && !retryFailed)) continue;
+          if (progressOrder.deadline(operation)) continue;
+          if (isReserveEditConflict(operation) || (operation.error && !retryFailed)) { progressOrder.block(operation); continue; }
           try {
             await executeRef.current(operation, stillOwned);
             if (stillOwned()) await removeWebOperation(operation.key);
           } catch (cause) {
+            progressOrder.block(operation);
             if (!stillOwned()) return;
             const conflict = cause instanceof ReserveEditConflict;
             if (!conflict && (!navigator.onLine || isWebNetworkFailure(cause))) return;

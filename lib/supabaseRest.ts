@@ -54,6 +54,7 @@ type InternalRestRequestOptions = RestRequestOptions & {
  * appelants existants en beneficient sans changement.
  */
 const RPC_REQUIRING_RESULT = new Set([
+  'apply_plan_progress',
   'record_inventory_movement',
   'update_inventory_product',
   'apply_reserve_patch',
