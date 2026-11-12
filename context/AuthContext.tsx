@@ -17,7 +17,8 @@ import { markIntentionalLogout } from '@/lib/authIntent';
 import { setPersisterUserId } from '@/lib/queryPersister';
 import { deleteCurrentPushToken } from '@/lib/push/deviceRegistration';
 import { subscribeSessionExpiry, isSessionExpired, notifySessionRecovered } from '@/lib/sessionExpiry';
-import { clearSupabaseRestTokenCache } from '@/lib/supabaseRest';
+import { clearSupabaseRestTokenCache, supabaseRestRpc } from '@/lib/supabaseRest';
+import { readDirectory } from '@/lib/directoryRetry';
 import i18n from '@/lib/i18n';
 import { ROLE_PERMISSIONS, resolvePermissions } from '@/lib/permissions';
 import { clearMediaDiskCache, setMediaCacheUserId } from '@/lib/media';
@@ -105,6 +106,8 @@ interface AuthContextValue {
   permissions: UserPermissions;
   users: User[];
   usersLoaded: boolean;
+  usersLoading: boolean;
+  usersError: string;
   loadAllUsers: () => void;
   seedStatus: 'idle' | 'seeding' | 'done' | 'error';
   updateUserRole: (userId: string, newRole: UserRole) => Promise<void>;
@@ -335,7 +338,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [seedStatus, setSeedStatus] = useState<'idle' | 'seeding' | 'done' | 'error'>('idle');
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoaded, setUsersLoaded] = useState(false);
-  const usersLoadedRef = useRef(false);
+  const [usersLoading, setUsersLoading] = useState(false);
+  const [usersError, setUsersError] = useState('');
+  const directoryOwner = user ? `${user.id}:${user.organizationId ?? ''}:${user.role}` : '';
+  const currentDirectoryOwner = useRef(directoryOwner);
+  currentDirectoryOwner.current = directoryOwner;
+  const [usersOwner, setUsersOwner] = useState('');
+  const usersLoadedRef = useRef('');
+  const directoryRequest = useRef<{ owner: string; controller: AbortController } | null>(null);
   const isSeedingRef = useRef(false);
   const abortSeedingRef = useRef(false);
   const isRegisteringRef = useRef(false);
@@ -666,8 +676,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const loadAllUsers = useCallback(() => {
     if (!user || !isSupabaseConfigured) return;
-    if (usersLoadedRef.current) return;
-    usersLoadedRef.current = true;
+    const owner = directoryOwner;
+    if (currentDirectoryOwner.current !== owner || usersLoadedRef.current === owner || directoryRequest.current?.owner === owner) return;
+    directoryRequest.current?.controller.abort();
+    const request = { owner, controller: new AbortController() };
+    directoryRequest.current = request;
+    const owned = () => currentDirectoryOwner.current === owner && directoryRequest.current === request && !request.controller.signal.aborted;
+    setUsersLoading(true); setUsersError('');
 
     const mapProfile = (p: any): User => ({
       id: p.id,
@@ -685,26 +700,35 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     void (async () => {
       try {
-        const { data, error } = await (supabase as any).rpc('get_org_users');
-        if (error) throw error;
-        setUsers((Array.isArray(data) ? data : []).map(mapProfile));
+        const data = await readDirectory(async () => {
+          const result = await supabaseRestRpc('get_org_users', {}, { signal: request.controller.signal });
+          if (result.error) throw result.error;
+          if (!Array.isArray(result.data)) throw new Error('Réponse utilisateurs invalide.');
+          return result.data;
+        }, request.controller.signal);
+        if (!owned()) return;
+        setUsers(data.map(mapProfile));
+        setUsersOwner(owner);
+        usersLoadedRef.current = owner;
         setUsersLoaded(true);
       } catch (error: any) {
+        if (!owned()) return;
         console.warn('[AuthContext] get_org_users RPC failed:', error?.code, error?.message);
-        usersLoadedRef.current = false;
+        setUsersError('Impossible de charger les utilisateurs. Vérifiez la connexion puis réessayez.');
+      } finally {
+        if (owned()) { directoryRequest.current = null; setUsersLoading(false); }
       }
     })();
-  }, [user]);
+  }, [directoryOwner]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
-    if (!user || !isSupabaseConfigured) {
-      usersLoadedRef.current = false;
-      setUsersLoaded(false);
-      return;
-    }
+    directoryRequest.current?.controller.abort(); directoryRequest.current = null;
+    usersLoadedRef.current = '';
+    setUsers([]); setUsersOwner(directoryOwner); setUsersLoaded(false); setUsersLoading(false); setUsersError('');
+    if (!directoryOwner || !isSupabaseConfigured) return;
     const timer = setTimeout(loadAllUsers, 3000);
-    return () => clearTimeout(timer);
-  }, [user?.id]);
+    return () => { clearTimeout(timer); directoryRequest.current?.controller.abort(); directoryRequest.current = null; };
+  }, [directoryOwner, loadAllUsers]);
 
   // Synchronisation temps réel : rechargement automatique quand un profil change
   useEffect(() => {
@@ -715,7 +739,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'profiles' },
         (_payload: any) => {
-          usersLoadedRef.current = false;
+          usersLoadedRef.current = '';
           loadAllUsers();
         }
       )
@@ -1331,8 +1355,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       logout,
       permissions,
-      users,
-      usersLoaded,
+      users: usersOwner === directoryOwner ? users : [],
+      usersLoaded: usersOwner === directoryOwner && usersLoaded,
+      usersLoading,
+      usersError,
       loadAllUsers,
       seedStatus,
       updateUserRole,

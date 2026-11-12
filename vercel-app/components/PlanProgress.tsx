@@ -6,6 +6,7 @@ import { ProgressSession } from '../../lib/plan-progress/session';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { listWebOperations } from '@/lib/web-outbox';
 import { progressPdfData } from '@/lib/plan-progress-pdf-cache';
+import { waitForPlanUri } from '../../lib/plan-progress/startup';
 
 type Props = {
   owner: string; userId: string; organizationId: string; companyId?: string;
@@ -33,6 +34,7 @@ export default function PlanProgress(props: Props) {
   useEffect(() => { const previous = document.activeElement; dialog.current?.showModal(); return () => { if (previous instanceof HTMLElement) previous.focus(); }; },[]);
   useEffect(() => {
     let active = true;
+    const startup = new AbortController();
     setHtml('');setError('');
     ready.current = false;
     const captured = props;
@@ -99,7 +101,8 @@ export default function PlanProgress(props: Props) {
       };
       const [document,template,moduleSource,workerSource,pdfSource] = await Promise.all([
         session.open(),readText('/plan-progress/editor.html'),readText('/plan-progress/pdf.mjs'),readText('/plan-progress/pdf.worker.mjs'),
-        progressPdfData(progressScope(props.userId,props.organizationId,props.plan.id,props.plan.uri),props.resolvedUri),
+        progressPdfData(progressScope(props.userId,props.organizationId,props.plan.id,props.plan.uri),
+          () => waitForPlanUri(() => owned() ? latest.current.resolvedUri : '', startup.signal)),
       ]);
       if (!owned()) return;
       nonce.current = crypto.randomUUID();
@@ -110,7 +113,7 @@ export default function PlanProgress(props: Props) {
         plan:{ id:props.plan.id,name:props.plan.name,pages:props.plan.pdf_page_count ?? 1 },projectName:props.projectName,pdfSource,pdfjs:{ moduleSource,workerSource },
         syncText:(await pending()).length ? 'Modifications en attente de synchronisation' : session.fresh ? 'Suivi chargé · synchronisé' : 'Données locales · actualisation à la connexion' }));
     })().catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'Impossible de charger l’avancement.'); });
-    return () => { active = false; window.removeEventListener('message',receive); };
+    return () => { active = false; startup.abort(); window.removeEventListener('message',receive); };
   },[props.owner,props.plan.id,props.plan.uri,permissionKey,attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

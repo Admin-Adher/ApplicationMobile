@@ -74,6 +74,18 @@ afterEach(() => {
 });
 
 describe('transport metadata', () => {
+  it('opens a native progress session from a scalar JSON RPC without changing the REST array contract', async () => {
+    const { readNativeProgress } = await import('../lib/plan-progress/native-read');
+    const { ProgressSession } = await import('../lib/plan-progress/session');
+    const document = { elements: [], calibrations: {}, billed: {}, history: [{ id: 'history-1' }] };
+    fetchMock.mockResolvedValue(httpResponse(200, document));
+    const session = new ProgressSession({ planId: 'plan', sourceRef: 'source', owned: () => true,
+      cacheRead: async () => null, cacheWrite: async () => {}, pending: async () => [],
+      read: () => readNativeProgress('plan', 'source'), enqueue: async () => {}, newId: () => 'operation' });
+    expect(await session.open()).toEqual({ elements: [], calibrations: {}, billed: {} });
+    expect(session.history).toEqual(document.history);
+    expect((await supabaseRestRpc('read_plan_progress')).data).toEqual([document]);
+  });
   it('reports a successful response', async () => {
     fetchMock.mockResolvedValue(httpResponse(200, [{ id: 'R1' }]));
 
