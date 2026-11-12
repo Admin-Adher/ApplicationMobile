@@ -1,7 +1,7 @@
 export type WebQueuedOperation = {
   key: string;
   owner: string;
-  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit' | 'reserve_edit_full' | 'field_write' | 'visit_reserves' | 'reserve_lift' | 'reserve_comment' | 'plan_annotation' | 'terrain_action' | 'plan_revision' | 'reserve_pin' | 'inventory_product_edit' | 'reserve_workflow' | 'create_chantier';
+  kind: 'create_reserve' | 'send_message' | 'reserve_status' | 'reserve_edit' | 'reserve_edit_full' | 'field_write' | 'visit_reserves' | 'reserve_lift' | 'reserve_comment' | 'plan_annotation' | 'terrain_action' | 'plan_revision' | 'reserve_pin' | 'inventory_product_edit' | 'reserve_workflow' | 'create_chantier' | 'plan_progress';
   payload: Record<string, unknown>;
   createdAt: number;
   files?: unknown;
@@ -29,7 +29,7 @@ const listeners = new Set<() => void>();
 
 export function canDiscardFieldOperation(operation: WebQueuedOperation) {
   return Boolean(operation.error) && (
-    operation.kind === 'field_write' || operation.kind === 'visit_reserves' ||
+    operation.kind === 'field_write' || operation.kind === 'visit_reserves' || operation.kind === 'plan_progress' ||
     operation.kind === 'reserve_comment' || operation.kind === 'plan_annotation' ||
     operation.kind === 'terrain_action' || operation.kind === 'plan_revision' ||
     operation.kind === 'reserve_pin' || operation.kind === 'inventory_product_edit' || operation.kind === 'reserve_workflow' || operation.kind === 'create_chantier'

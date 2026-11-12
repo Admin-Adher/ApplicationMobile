@@ -1,0 +1,118 @@
+/* Same BuildTrack palette, with a plan-first layout and generous touch controls. */
+button,input,select,textarea{touch-action:manipulation}
+.element{-webkit-tap-highlight-color:transparent}
+.terrain-button:active,.terrain-status:active,.work-row:active{background:#dce8f8}
+.terrain-lot-picker{display:none}
+.terrain-mode .terrain-lot-picker{display:block;border:1px solid var(--line);border-radius:6px;padding:0 8px;flex:none}
+.terrain-mode .terrain-lot-picker select{min-height:44px;border:0;background:none;font-size:13px;max-width:142px}
+.terrain-tools{display:none}.terrain-button,.terrain-icon-button,.terrain-text-button{min-height:48px;font-size:14px;border-radius:7px;gap:8px}
+.terrain-button{border:1px solid #cbd6e3;padding:10px 14px;background:white;font-weight:600}
+.terrain-icon-button{width:48px;min-width:48px;border:1px solid var(--line);color:var(--muted)}
+.terrain-text-button{color:var(--brand);padding:8px 10px;font-size:13px;font-weight:600}
+.terrain-button:disabled{opacity:.4}.terrain-button:hover,.work-row:hover{background:#f0f5fc}
+.terrain-tools p{font-size:12px;color:#53657a;margin:0 auto 0 0;line-height:1.4}
+.terrain-mode[data-view=plan]{overflow:hidden}
+.terrain-mode .rail{display:none}.terrain-mode .workspace{margin-left:0}
+.terrain-mode .topbar{height:68px;padding:8px 20px;gap:16px;flex:none}
+.terrain-mode .breadcrumbs{font-size:13px;min-width:0}.terrain-mode .breadcrumbs>span:nth-of-type(1),.terrain-mode .breadcrumbs>svg:first-of-type{display:none}
+.terrain-mode .mobile-help{display:flex;width:44px;height:44px}
+.terrain-mode[data-view=plan] .workspace{height:100dvh;display:flex;flex-direction:column;min-height:0}
+.terrain-mode[data-view=plan] main{display:flex;flex-direction:column;flex:1;min-height:0;min-width:0;width:100%;max-width:none;margin:0;padding:0 16px 12px}
+.terrain-mode[data-view=plan] :is(.page-heading,.metrics,.source-context,.app-footer){display:none}
+.terrain-mode[data-view=plan] .tabs{display:none}
+.terrain-mode[data-view=plan] .tab{font-size:13px;padding:10px 0;min-height:44px}
+.terrain-mode[data-view=plan] .saved-state{display:none}
+.terrain-mode[data-view=plan] .plan-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:12px;flex:1;min-height:0}
+.terrain-mode[data-view=plan] .plan-panel{display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden}
+.terrain-mode[data-view=plan] .plan-header{padding:6px 12px;gap:8px;flex:none}
+.terrain-mode .plan-file select{font-size:13px;min-height:44px;max-width:100%;width:100%}
+.terrain-mode .plan-file span{display:none}.terrain-mode .page-picker{padding:0 8px}
+.terrain-mode .page-picker select{min-height:44px;font-size:13px}.terrain-mode .plan-file{min-width:0;flex:1}.terrain-mode .plan-file>div{min-width:0;width:100%}
+.terrain-mode .plan-filters{display:none}
+.terrain-mode #multiButton{display:none}.terrain-mode .lot-filters{flex-wrap:nowrap;overflow-x:auto;padding:1px;scrollbar-width:thin}
+.terrain-mode .lot-chip{min-height:44px;padding:8px 14px;font-size:13px;flex:none;gap:7px}
+.terrain-mode .lot-chip svg{width:16px;height:16px}
+.terrain-mode .drawing-tools,.terrain-mode .shape-options,.terrain-mode .drawing-message{display:none}
+.terrain-mode .terrain-tools{display:flex;gap:8px;padding:8px 12px;border-top:1px solid var(--line);align-items:center;flex:none}
+.terrain-mode .plan-canvas{flex:1;height:auto;min-height:100px;touch-action:none}
+.terrain-mode .plan-footer{padding:8px 12px;flex:none;flex-wrap:nowrap;gap:8px;margin:0}
+.terrain-mode .legend{display:none}.terrain-mode .plan-focus-actions{margin:0;gap:8px;flex:1}
+.terrain-mode .plan-focus-actions [data-tool=focus]{display:none}
+.terrain-mode .plan-focus-actions .compact-button{min-height:44px;font-size:12px;padding:8px 10px}
+.terrain-mode .zoom-controls{margin:0;gap:0;padding:0}
+.terrain-mode .zoom-controls button{width:44px;height:44px}.terrain-mode .zoom-controls svg{width:18px;height:18px}
+.terrain-mode .zoom-controls span{width:42px;font-size:11px}
+.terrain-mode .inspector{padding:16px;max-height:none;min-height:0;overflow:auto;align-self:start}
+.terrain-selection-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.terrain-selection-heading>div{min-width:0}.terrain-reference{font-size:12px;line-height:1.5;color:#53657a;display:block}
+.terrain-selection-heading h2{font-size:21px;line-height:1.25;letter-spacing:-.4px;margin:6px 0;overflow-wrap:anywhere}
+.terrain-selection-heading p{font-size:13px;color:#53657a;margin:6px 0 0;line-height:1.4}
+.terrain-statuses{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:18px}
+.terrain-status{min-height:86px;padding:10px 6px;display:flex;flex-direction:column;gap:6px;border:2px solid #d7e0eb;border-radius:9px;background:white}
+.terrain-status-mark{color:var(--status-color);font-size:23px;font-weight:600;line-height:1}.terrain-status strong{font-size:15px;font-weight:600}
+.terrain-status[aria-pressed=true]{border-color:var(--brand);background:#eaf1fc;color:var(--brand);box-shadow:0 0 0 1px var(--brand)}
+.terrain-status[aria-pressed=true] .terrain-status-mark{color:var(--brand)}
+.terrain-selection-footer{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:10px}
+.terrain-current-state{font-size:11px;line-height:1.5;color:#53657a;display:flex;align-items:center;gap:6px}.terrain-current-state svg{color:#147958}
+.terrain-empty>div{display:flex;align-items:flex-start;gap:12px}.terrain-empty>div>svg{margin-top:5px;color:var(--brand)}
+.terrain-empty h2{font-size:18px;line-height:1.35;margin:0 0 6px}.terrain-empty p{font-size:13px;line-height:1.5;color:#53657a;margin:0 0 14px}
+.terrain-empty>.terrain-button{width:100%}
+.works-dialog{padding:20px;max-width:520px}.works-dialog h2{font-size:25px;margin:14px 0 8px}.works-dialog>p{font-size:14px;line-height:1.5}
+.works-dialog .input{font-size:16px;min-height:48px;margin:8px 0 12px}
+.works-list{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.work-row{display:flex;align-items:center;text-align:left;gap:12px;width:100%;min-height:88px;border:1px solid #cbd6e3;border-radius:8px;padding:12px}
+.work-symbol{color:var(--status-color);background:#f3f6fa;width:40px;height:40px;border-radius:7px;display:grid;place-items:center;flex:none}
+.work-description{display:flex;flex-direction:column;gap:5px;flex:1;min-width:0}.work-description strong{font-size:16px;line-height:1.35;overflow-wrap:anywhere}
+.work-description>span{font-size:12px;color:#53657a;line-height:1.4}.work-description small{font-size:13px;color:#34485f;line-height:1.4}
+.work-row>svg{width:18px;color:#53657a;flex:none}
+.details-dialog{max-width:520px}.details-dialog .status-option{min-height:60px;font-size:14px}.details-dialog .status-option small{font-size:12px}
+.details-dialog .selection-meta,.details-dialog .field-hint,.details-dialog .dimension-summary dl>div{font-size:13px}
+.details-dialog .text-button,.details-dialog .compact-button{min-height:44px;font-size:13px}.details-dialog .icon-button{width:44px;height:44px}
+.details-dialog .selection-quantity span,.details-dialog .mini-fact,.details-dialog .dimension-summary h3{font-size:13px}
+.details-dialog .inspector-heading .inspector-close{display:none}.details-dialog .input{font-size:16px}
+.toast{font-size:14px;max-width:min(640px,calc(100vw - 24px));gap:12px;padding:10px 16px}.toast button{min-height:48px;min-width:76px;font-size:14px;border:1px solid #a5d5c5;border-radius:6px;padding:8px;text-decoration:none}
+.terrain-mode[data-view=plan] .toast{top:76px;bottom:auto}
+.drawing-dock #finishDrawing{min-height:52px;font-size:14px}.drawing-dock #removeLastPoint{min-height:48px;font-size:12px}.drawing-dock [data-cancel-drawing]{min-height:48px;font-size:12px}
+.drawing-dock #draftCount{font-size:13px}.drawing-dock #draftMeasure{font-size:12px}
+@media(max-width:1100px){
+  .terrain-mode[data-view=plan] .plan-layout{display:flex;flex-direction:column;gap:8px;width:100%}
+  .terrain-mode .inspector{align-self:stretch;flex:none;padding:12px 16px;max-height:43dvh}
+  .terrain-selection-heading h2{font-size:18px;margin:3px 0}.terrain-selection-heading p{font-size:12px;margin:3px 0 0}
+  .terrain-statuses{margin-top:10px}.terrain-status{min-height:66px;flex-direction:row;gap:8px}.terrain-status strong{font-size:16px}
+  .terrain-selection-footer{margin-top:4px}.terrain-empty{display:flex;align-items:center;justify-content:space-between;gap:16px}.terrain-empty h2{font-size:16px}.terrain-empty p{font-size:12px;margin:0}.terrain-empty>.terrain-button{width:auto;flex:none}
+  .terrain-mode .plan-focus-actions #focusBuilding{display:none}.terrain-mode .breadcrumbs strong{display:none}.terrain-mode .breadcrumbs>svg{display:none}
+  .terrain-mode .local-label{display:none}
+}
+@media(max-width:740px){
+  .topbar{height:auto;min-height:100px;display:grid;grid-template-columns:1fr auto;gap:5px;padding:7px 12px}
+  .terrain-mode .topbar{height:auto;min-height:100px;padding:6px 12px;gap:4px}
+  .terrain-mode .topbar-right{gap:6px}.terrain-mode .prototype-badge{font-size:8px;padding:4px}.terrain-mode .mobile-help{width:32px;height:32px}
+  .terrain-mode[data-view=plan] main{padding:0 8px 8px}
+  .terrain-mode[data-view=plan] .tabs{gap:18px;justify-content:space-between;min-height:44px;margin-bottom:6px}
+  .terrain-mode[data-view=plan] .tab{font-size:12px;gap:5px}.terrain-mode[data-view=plan] .tab svg{width:16px;height:16px}
+  .terrain-mode .plan-header{padding:2px 8px!important}.terrain-mode .plan-file select{font-size:12px}
+  .terrain-mode .plan-filters{padding:2px 6px 4px}.terrain-mode .lot-filters{gap:6px}
+  .terrain-mode .lot-chip{font-size:12px;padding:7px 10px;min-height:44px}
+  .terrain-mode .terrain-tools{padding:4px 8px;gap:6px}.terrain-tools .terrain-button{font-size:13px;min-height:44px;padding:8px 10px}
+  .terrain-mode .terrain-tools p{display:none}.terrain-mode .terrain-tools .terrain-button{flex:1}.terrain-mode .plan-footer{padding:5px 6px;gap:4px}
+  .terrain-mode .plan-focus-actions .compact-button{font-size:11px;padding:6px}.terrain-mode .plan-focus-actions{flex:1}
+  .terrain-mode .inspector{padding:10px 12px;max-height:44dvh}
+  .terrain-reference{font-size:11px}.terrain-selection-heading h2{font-size:17px}.terrain-selection-heading p{font-size:11px}
+  .terrain-selection-heading .terrain-icon-button{width:44px;min-width:44px;min-height:44px}
+  .terrain-statuses{gap:8px;margin-top:8px}.terrain-status{min-height:64px;flex-direction:column;gap:5px;padding:8px 4px}.terrain-status strong{font-size:14px}.terrain-status-mark{font-size:20px}
+  .terrain-current-state{font-size:10px}.terrain-selection-footer .terrain-text-button{font-size:12px;padding:6px 0;min-height:44px}
+  .terrain-empty{gap:8px}.terrain-empty>div>svg{display:none}.terrain-empty h2{font-size:14px}.terrain-empty p{font-size:11px}.terrain-empty>.terrain-button{padding:8px;font-size:12px;min-height:48px}
+  .terrain-empty>.terrain-button svg,.terrain-empty>.terrain-button span{display:none}
+  .works-dialog,.details-dialog{padding:16px;width:calc(100% - 16px);max-height:calc(100dvh - 16px)}
+  .work-row{padding:10px;gap:10px}.work-symbol{width:32px;height:36px}.work-description strong{font-size:15px}.work-description>span{font-size:11px}
+  .toast{bottom:10px;padding:8px 12px;font-size:12px;gap:8px}.toast button{min-width:72px;font-size:13px}
+  .terrain-mode[data-view=plan] .toast{top:106px;bottom:auto}
+}
+@media(max-height:650px) and (max-width:1100px){
+  .terrain-mode[data-view=plan] .tabs{display:none}
+  .terrain-mode .terrain-tools p{display:none}.terrain-mode .terrain-tools{padding:2px 8px}
+  .terrain-mode .inspector{max-height:42dvh}.terrain-selection-heading p{display:none}
+  .terrain-mode .plan-header{justify-content:space-between}
+  .terrain-status{min-height:52px;flex-direction:row}.terrain-statuses{margin-top:6px}
+}
+@media(max-width:740px){.terrain-mode .terrain-lot-picker{padding:0 3px}.terrain-mode .terrain-lot-picker select{font-size:12px;max-width:112px}.terrain-mode .page-picker{padding:0 3px}.terrain-mode .page-picker select{font-size:12px;max-width:62px}.terrain-mode .plan-header{gap:5px}}

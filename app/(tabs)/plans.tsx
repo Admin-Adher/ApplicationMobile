@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { C } from '@/constants/colors';
 import { MediaImage } from '@/components/MediaImage';
 import { useApp } from '@/context/AppContext';
+import { canTrackPdfPlan } from '@/lib/plan-progress/core';
 import { useAuth } from '@/context/AuthContext';
 import { useLanguage } from '@/context/LanguageContext';
 import ExportLanguageSelector from '@/components/ExportLanguageSelector';
@@ -3536,8 +3537,15 @@ export default function PlansScreen() {
                 </View>
                 )}
               </View>
-              {(hasVersions || (currentPlan?.uri && permissions.canCreate) || (permissions.canDelete && (currentPlan?.uri || currentPlanId))) && (
+              {(hasVersions || (currentPlan?.uri && (permissions.canCreate || canTrackPdfPlan(currentPlan))) || (permissions.canDelete && (currentPlan?.uri || currentPlanId))) && (
                 <View style={styles.planActionsRow}>
+                  {currentPlan?.uri && canTrackPdfPlan(currentPlan) && <TouchableOpacity
+                    accessibilityRole="button" accessibilityLabel="Avancement des ouvrages sur ce plan"
+                    style={[styles.versionBtn, { minHeight: 48, paddingHorizontal: 14 }]}
+                    onPress={() => router.push({ pathname: '/plan-progress', params: { planId: currentPlan.id } })}>
+                    <Ionicons name="stats-chart-outline" size={18} color={C.primary} />
+                    <Text style={[styles.versionBtnText, { color: C.primary }]}>Avancement</Text>
+                  </TouchableOpacity>}
                   {hasVersions && (
                     <TouchableOpacity
                       style={[styles.versionBtn, showVersionHistory && styles.versionBtnActive]}

@@ -55,6 +55,9 @@ jobs:
       - name: Run application and tenant-isolation contracts
         run: npm test
 
+      - name: Verify shared PDF progress editor assets
+        run: node scripts/build-plan-progress.cjs --check
+
       - name: Type-check Expo application
         run: npx tsc --noEmit --pretty false
 
@@ -167,3 +170,9 @@ jobs:
 
       - name: Verify transactional email isolation, deduplication and crash recovery
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/transactional_email_outbox.sql
+
+      - name: Apply PDF progress migration
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261112140000_plan_progress.sql
+
+      - name: Verify PDF progress isolation, permissions, concurrency and idempotency
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/plan_progress.sql

@@ -20,6 +20,7 @@ import { normalizeOprPayloadForSupabase, normalizeVisitePayloadForSupabase } fro
 import { recoverRejectedOprWrite } from '@/lib/oprQueueRecovery';
 import { recoverRejectedTimeEntryWrite } from '@/lib/timeEntryQueueRecovery';
 import { useAuth } from '@/context/AuthContext';
+import { progressReplayBarrier } from '@/lib/plan-progress/replay-order';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { RESERVES_CACHE_KEY, VISITES_CACHE_KEY } from '@/lib/cacheKeys';
@@ -464,6 +465,8 @@ interface NetworkContextValue {
     op: EnqueueOperationInput,
     options?: EnqueueOperationOptions,
   ) => void;
+  /** New editors acknowledge local saves only after the operation is durable. */
+  enqueueOperationDurable: (op: EnqueueOperationInput) => Promise<void>;
   resolveConflict: (conflictId: string, chosenStatus: string) => Promise<void>;
   dismissConflicts: () => void;
   registerReloadHandler: (fn: () => void) => void;
@@ -496,6 +499,7 @@ const NetworkContext = createContext<NetworkContextValue>({
   historicalVisitRecovery: emptyHistoricalVisitRecoveryAudit(),
   conflicts: [],
   enqueueOperation: () => {},
+  enqueueOperationDurable: async () => { throw new Error('File de synchronisation indisponible.'); },
   resolveConflict: async () => {},
   dismissConflicts: () => {},
   registerReloadHandler: () => {},
@@ -2415,6 +2419,9 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
           // Tout RPC dont aucune branche ci-dessus n'a pris la main a réussi :
           // le succès n'est plus implicite.
+          if (op.rpc.fn === 'apply_plan_progress' && (rpcData as any)?.applied !== true) {
+            throw new Error('Réponse d’avancement non confirmée. Opération conservée dans la file.');
+          }
           return syncExit('E25', { kind: 'applied', operation: retryRpcOp });
         }
 
@@ -3032,6 +3039,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     };
 
     const appliedReserveCreateIds = new Set<string>();
+    const progressOrder = progressReplayBarrier(Date.now(), prepared.operations.filter(operation => operation.terminal));
 
     for (const op of currentQueue) {
       // Le disjoncteur ne s'ouvre qu'après plusieurs échecs d'infrastructure
@@ -3042,6 +3050,16 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       // réveillés), on cesse immédiatement tout travail : la passe courante
       // possède la file et a déjà rejoué (ou est en train de rejouer) ces ops.
       if (!isCurrentGeneration()) break;
+
+      const progressDeadline = progressOrder.deadline(op);
+      if (progressDeadline) {
+        failedOps.push({ ...op, nextAttemptAt: progressDeadline });
+        processed += 1;
+        if (op.queueEntryId) processedEntryIds.add(op.queueEntryId);
+        syncProgressAtRef.current = Date.now();
+        setSyncProgress({ done: processed, total: currentQueue.length });
+        continue;
+      }
 
       // Une annotation enregistrée pendant l'upload local-first d'une réserve
       // ne doit jamais partir avant sa création parente. Sinon la même URI
@@ -3081,6 +3099,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       }
 
       const outcome = await executeQueuedOperation(op);
+      if (outcome.kind !== 'applied') progressOrder.block(op, outcome.operation?.nextAttemptAt);
       processed += 1;
       // Enregistré APRÈS exécution, jamais déduit d'un décompte : c'est cette
       // entrée physique qui vient d'être traitée, quelle que soit l'identité
@@ -3392,6 +3411,32 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
     scheduleSync();
   }, [saveQueue, scheduleSync]);
 
+  const enqueueOperationDurable = useCallback(async (op: EnqueueOperationInput) => {
+    if (!queueLoadedRef.current || !userId || op.op !== 'rpc' || op.rpc?.fn !== 'apply_plan_progress' ||
+      lastLoadedScopeRef.current !== queueHydrationScopeKey(offlineQueueKey, userOrganizationId, queueNeedsHistoricalVisitRecoveryEvaluation(queueRef.current))) {
+      throw new Error('La file du compte n’est pas prête.');
+    }
+    const generation = queueHydrationGenerationRef.current;
+    const operation: QueuedOperation = {
+      ...op, id: genQueueId(), queueEntryId: genQueueId(), dispatchState: 'never_started', queuedAt: new Date().toISOString(),
+    };
+    const next = [...queueRef.current, operation];
+    queueRef.current = next;
+    setQueue(next);
+    try {
+      await writeQueueStrict(next);
+      if (generation !== queueHydrationGenerationRef.current) throw new Error('Le compte a changé.');
+      scheduleSync();
+    } catch (error) {
+      // A concurrent sync may already have persisted this identity through its
+      // own strict barrier. Never remove an ambiguous write on a storage error.
+      // Keep the intent visible; the editor requires reopening before editing.
+      if (generation !== queueHydrationGenerationRef.current) throw error;
+      scheduleSync();
+      throw Object.assign(new Error('Enregistrement local non confirmé. Rouvrez le plan pour contrôler la file de synchronisation.'), { code: 'LOCAL_SAVE_UNCONFIRMED' });
+    }
+  }, [userId, userOrganizationId, offlineQueueKey, writeQueueStrict, scheduleSync]);
+
   /**
    * Suppression EXPLICITE demandée par l'utilisateur.
    *
@@ -3604,6 +3649,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
       historicalVisitRecovery,
       conflicts,
       enqueueOperation,
+      enqueueOperationDurable,
       resolveConflict,
       dismissConflicts,
       registerReloadHandler,

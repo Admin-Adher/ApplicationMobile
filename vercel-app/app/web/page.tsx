@@ -19,6 +19,8 @@ import {
 import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
 import { publishWhenCurrent } from '@/lib/progressive-workspace-load';
 import { supabaseBrowser } from '@/lib/supabase-browser';
+import { canTrackPdfPlan, progressRpc, type ProgressOperation } from '../../../lib/plan-progress/core';
+const PlanProgress = dynamic(() => import('@/components/PlanProgress'), { ssr: false });
 import { dmChannelIdByUserIds } from '../../../lib/directMessageId';
 import {
   WEB_PDF_BATCH_CONCURRENCY,
@@ -6157,6 +6159,15 @@ function BuildTrackWebWorkspace() {
       }
     };
     await assertOwner();
+    if (operation.kind === 'plan_progress') {
+      const payload = operation.payload as unknown as ProgressOperation;
+      if (typeof payload.id !== 'string' || typeof payload.planId !== 'string' || typeof payload.sourceRef !== 'string' || !Array.isArray(payload.changes)) throw new Error('Modification d’avancement invalide.');
+      const { data: result, error } = await supabaseBrowser.rpc('apply_plan_progress', progressRpc(payload));
+      if (error) throw error;
+      if (result?.applied !== true) throw new Error('Enregistrement d’avancement non confirmé.');
+      await assertOwner();
+      return;
+    }
     if (operation.kind === 'create_chantier') {
       const { id, organization_id, project } = operation.payload;
       if (!profile?.organization_id || organization_id !== profile.organization_id || !canCreate(profile)) {
@@ -7459,7 +7470,7 @@ function BuildTrackWebWorkspace() {
                 operation.kind === 'terrain_action' ? terrainActionLabels[(operation.payload.change as WebTerrainChange).action] :
                 operation.kind === 'reserve_pin' ? 'Épingle · ' + String(operation.payload.rowId) :
                 operation.kind === 'inventory_product_edit' ? 'Fiche produit · ' + String(operation.payload.rowId) :
-                operation.kind === 'plan_revision' ? 'Révision de plan · ' + String((operation.payload.newPlan as Record<string, unknown>).name) : operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
+                operation.kind === 'plan_progress' ? 'Avancement · ' + String(operation.payload.planId) : operation.kind === 'plan_revision' ? 'Révision de plan · ' + String((operation.payload.newPlan as Record<string, unknown>).name) : operation.kind === 'reserve_comment' ? 'Commentaire · ' + String(operation.payload.reserveId) : operation.kind === 'plan_annotation' ? 'Annotations · ' + String(operation.payload.planId) : operation.kind === 'reserve_lift' ? 'Demande de levée · ' + String(operation.payload.reserveId) : operation.kind === 'visit_reserves' ? 'Rattachement de visite' : operation.kind === 'field_write' ? (fieldWrites(operation) ? fieldTables[fieldWrites(operation)!.table].label : 'Saisie Terrain') : operation.kind === 'send_message' ? 'Message' : operation.kind === 'reserve_status' ? 'Statut · ' + String(operation.payload.reserveId)
                 : 'Réserve · ' + String(operation.payload.title ?? operation.payload.id)}
               {operation.error ? ' · ' + operation.error : ' · En attente'}
               {canDiscardFieldOperation(operation) && (
@@ -7634,6 +7645,17 @@ function BuildTrackWebWorkspace() {
             {activeTab === 'plans' && (
               <PlansView
                 authUserId={authUser?.id ?? ''}
+                progressContext={profile?.organization_id && outboxOwner ? {
+                  owner: outboxOwner, userId: authUser?.id ?? '', organizationId: profile.organization_id,
+                  companyId: profile.company_id, lots: data.lots,
+                  permissions: { edit: canCreate(profile) && canEdit(profile), editOwn: resolveWebPermissions(profile).canEditOwn, delete: canDelete(profile), export: canExport(profile) },
+                  pendingCount: outbox.rows.filter(row => row.kind === 'plan_progress' && row.payload.planId === selectedPlan?.id && row.payload.sourceRef === selectedPlan?.uri).length,
+                  syncError: outbox.rows.some(row => row.kind === 'plan_progress' && row.payload.planId === selectedPlan?.id && row.payload.sourceRef === selectedPlan?.uri && row.error),
+                  enqueue: async (operation: ProgressOperation) => {
+                    await outbox.enqueue('plan_progress', operation as unknown as Record<string, unknown>);
+                    void outbox.flush();
+                  },
+                } : null}
                 plans={projectScoped.plans}
                 reserves={projectScoped.reserves}
                 companies={data.companies}
@@ -11065,6 +11087,7 @@ function WebPdfPlan({
 
 function PlansView({
   authUserId,
+  progressContext,
   plans,
   reserves,
   companies,
@@ -11136,6 +11159,7 @@ function PlansView({
   const [planFile, setPlanFile] = useState<File | null>(null);
   const [migrateRevisionReserves, setMigrateRevisionReserves] = useState(true);
   const [planActionsOpen, setPlanActionsOpen] = useState(false);
+  const [progressOpen, setProgressOpen] = useState(false);
   const [pinCreateMode, setPinCreateMode] = useState(false);
   const [cachedPlanPreview, setCachedPlanPreview] = useState<{
     ownerId: string;
@@ -11487,6 +11511,7 @@ function PlansView({
     setFocusedPlanReserveId(null);
     setPinPlacementPreview(null);
     setPlanActionsOpen(false);
+    setProgressOpen(false);
     setPinCreateMode(false);
   }, [selectedPlan?.id]);
   useEffect(() => {
@@ -12042,6 +12067,15 @@ function PlansView({
             }}
           />
         ) : null}
+        {progressOpen && selectedPlan && progressContext ? <PlanProgress
+          {...progressContext} plan={selectedPlan} resolvedUri={selectedPlanResolvedUri ?? ''}
+          projectName={projects.find((row: any) => row.id === selectedPlan.chantier_id)?.name ?? 'Chantier'}
+          companies={companies.filter((row: any) => (!row.organization_id || row.organization_id === progressContext.organizationId) && (() => {
+            const ids = projects.find((project: any) => project.id === selectedPlan.chantier_id)?.company_ids;
+            return !Array.isArray(ids) || ids.length === 0 || ids.includes(row.id);
+          })())}
+          lots={(progressContext.lots ?? []).filter((row: any) => !row.chantier_id || row.chantier_id === selectedPlan.chantier_id)}
+          onClose={() => setProgressOpen(false)} /> : null}
         {selectedPlan ? (
           <>
             <div className={`${styles.sectionHeader} ${styles.planPreviewHeader}`} data-prw-plan-preview-header>
@@ -12051,6 +12085,7 @@ function PlansView({
                 <span>{[getPlanBuildingName(selectedPlan), getPlanLevelName(selectedPlan), selectedPlan.revision_code].filter(Boolean).join(' · ')}</span>
               </div>
               <div className={styles.planHeaderActions} data-prw-plan-actions>
+                {progressContext && canTrackPdfPlan(selectedPlan) ? <button type="button" className={styles.planActionPrimary} onClick={() => setProgressOpen(true)}><span>Avancement</span></button> : null}
                 {planCanExport ? (
                   <button
                     type="button"
