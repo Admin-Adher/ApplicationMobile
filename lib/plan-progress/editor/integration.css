@@ -9,6 +9,7 @@
 .terrain-mode[data-view=plan] .app-footer{display:none!important}
 #storageNotice:not([hidden]){padding:12px;background:#fff4dd;color:#613c00}
 [data-progress-saving] button,[data-progress-saving] input,[data-progress-saving] select{pointer-events:none}
+[data-progress-saving][data-progress-note-saving]:not([data-progress-status-waiting]):not([data-progress-uncertain]) button[data-status]{pointer-events:auto}
 [data-progress-uncertain] button,[data-progress-uncertain] input,[data-progress-uncertain] select{pointer-events:none}
 @media(max-width:600px){.saved-state{max-width:100%;font-size:11px}}
 @media(min-width:540px) and (max-height:420px){
