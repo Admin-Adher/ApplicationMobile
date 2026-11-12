@@ -115,3 +115,7 @@
  .is-adjusting .precision-nudges{gap:2px}
  .is-adjusting .precision-fine{gap:8px}
 }
+@media(min-width:540px) and (max-height:500px){
+ .terrain-mode .terrain-status{flex-direction:column;min-height:64px;gap:4px;padding:6px 2px}
+ .terrain-mode .selected-inspector{padding:8px 10px}
+}
