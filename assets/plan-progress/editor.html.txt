@@ -355,10 +355,10 @@ button,input,select,textarea{touch-action:manipulation}
 .adjust-dock .precision-whole-control{display:flex;align-items:center;gap:5px;background:#fff;min-height:44px;font-size:12px;white-space:normal;padding:6px}
 .precision-whole-control svg{width:18px;height:18px;flex:none}
 /* The notification participates in layout, including its Undo action. */
-.terrain-mode .integration-sync .toast{position:static!important;inset:auto!important;transform:none!important;margin:0;width:100%;max-width:none;max-height:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0;background:transparent;color:var(--ink);box-shadow:none;border:0;border-radius:0;font-size:12px;line-height:1.4}
-.integration-sync .toast:not([hidden])+.saved-state{display:none!important}
-.integration-sync .toast span{min-width:0;overflow-wrap:anywhere;color:inherit;font-size:inherit}
-.integration-sync .toast button{min-height:44px;min-width:76px;flex:none;color:var(--brand);border-color:#b8c9df;background:#fff;padding:6px 10px}
+.terrain-mode[data-view=plan] .integration-sync .toast{position:static!important;inset:auto!important;transform:none!important;margin:0;width:100%;max-width:none;max-height:none;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:2px 0;background:transparent;color:var(--ink);box-shadow:none;border:0;border-radius:0;font-size:12px;line-height:1.4}
+.terrain-mode[data-view=plan] .integration-sync .toast:not([hidden])+.saved-state{display:none!important}
+.terrain-mode[data-view=plan] .integration-sync .toast span{min-width:0;overflow-wrap:anywhere;color:inherit;font-size:inherit}
+.terrain-mode[data-view=plan] .integration-sync .toast button{min-height:44px;min-width:76px;flex:none;color:var(--brand);border-color:#b8c9df;background:#fff;padding:6px 10px}
 .terrain-title-button{display:block;text-align:left;font:inherit;color:inherit;line-height:inherit;padding:0;min-height:44px;max-width:100%;width:100%}
 .terrain-title-button span{overflow-wrap:anywhere}
 @media(max-width:740px){
