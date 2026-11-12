@@ -535,7 +535,7 @@ function flushPendingNote() {
 }
 function toast(message, undoable = false) {
     clearTimeout(toastTimer);
-    $('toast').innerHTML = `<span>${(0, model_js_1.escapeHtml)(message)}</span>${undoable ? '<button data-undo>Annuler</button>' : ''}`;
+    $('toast').innerHTML = `<span>${(0, model_js_1.escapeHtml)(message)}</span>${undoable && (0, bridge_js_1.canUndo)(state) ? '<button data-undo>Annuler</button>' : ''}`;
     $('toast').hidden = false;
     toastTimer = setTimeout(() => { $('toast').hidden = true; }, 5500);
 }
@@ -560,7 +560,7 @@ function record(title, detail, mutate, eventIcon = 'checkCircle') {
     toast(title, true);
 }
 async function undo() {
-    if (saving || !bridge_js_1.boot.permissions.edit)
+    if (saving || !(0, bridge_js_1.canUndo)(state))
         return;
     const action = state.undo.pop();
     if (!action)
@@ -612,7 +612,7 @@ function render() {
     $('trackingView').querySelectorAll('input[type="number"]').forEach(input => input.inputMode = 'decimal');
     (0, views_js_1.renderHistory)($('historyView'), state);
     $('historyCount').textContent = state.history.length;
-    $('terrainUndo').disabled = !state.undo.length;
+    $('terrainUndo').disabled = !(0, bridge_js_1.canUndo)(state);
     $('terrainHint').textContent = multi ? 'Sélection multiple · touchez les ouvrages' : (0, model_js_1.currentElements)(state, state.currentDoc, state.currentPage, filter).length ? 'Touchez un ouvrage · glissez pour déplacer' : 'Aucun ouvrage dans ce lot';
     $('menuMultiButton').innerHTML = (0, icons_js_1.icon)('select') + (multi ? 'Terminer la sélection multiple' : 'Sélectionner plusieurs ouvrages');
     $('menuMultiButton').setAttribute('aria-pressed', String(multi));
@@ -621,7 +621,7 @@ function render() {
     $('legend').innerHTML = Object.values(model_js_1.STATUSES).map(s => `<span><b class="status-dot" style="background:${s.color}"></b>${s.label}</span>`).join('');
     (0, icons_js_1.fillIcons)();
     updateMode();
-    (0, bridge_js_1.applyPermissions)(state.elements.filter(el => selected.has(el.id)));
+    (0, bridge_js_1.applyPermissions)(state.elements.filter(el => selected.has(el.id)), state);
 }
 function setView(next) {
     if (next !== 'plan' && drawing.isDrawing()) {
@@ -907,7 +907,7 @@ document.addEventListener('click', async (event) => {
     }
     if (button.hasAttribute('data-open-details')) {
         (0, views_js_1.renderInspector)($('detailsContent'), state, state.currentDoc, state.currentPage, selected);
-        (0, bridge_js_1.applyPermissions)(state.elements.filter(el => selected.has(el.id)));
+        (0, bridge_js_1.applyPermissions)(state.elements.filter(el => selected.has(el.id)), state);
         $('detailsDialog').showModal();
         return;
     }
@@ -1254,6 +1254,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.boot = void 0;
 exports.request = request;
 exports.canChangeStatus = canChangeStatus;
+exports.canUndo = canUndo;
 exports.applyPermissions = applyPermissions;
 const pending = new Map();
 exports.boot = window.BT_BOOT;
@@ -1309,11 +1310,27 @@ function canChangeStatus(elements, status) {
         return true;
     return status !== 'checked' && exports.boot.permissions.editOwn && elements.length > 0 && elements.every(el => el.status !== 'checked' && JSON.parse(el.lotId)[0] === exports.boot.companyId);
 }
-function applyPermissions(selectedElements = []) {
+function canUndo(state) {
+    if (!exports.boot.permissions.edit || !state.undo.length)
+        return false;
+    if (exports.boot.permissions.delete)
+        return true;
+    try {
+        const previous = JSON.parse(state.undo.at(-1).snapshot);
+        const ids = new Set(previous.elements.map(el => el.id));
+        return state.elements.every(el => ids.has(el.id));
+    }
+    catch {
+        return false;
+    }
+}
+function applyPermissions(selectedElements = [], state = null) {
     const p = exports.boot.permissions;
     document.querySelectorAll('[data-edit-element],[data-edit-dimensions],[data-redraw-element],[data-tool="calibrate"]').forEach(el => el.hidden = !p.edit);
     document.querySelectorAll('[data-delete-element]').forEach(el => el.hidden = !p.delete);
     document.querySelectorAll('[data-open-add],[data-add-kind],[data-undo]').forEach(el => el.hidden = !p.edit || !exports.boot.groups.length);
+    if (state)
+        document.querySelectorAll('[data-undo]').forEach(el => el.disabled = !canUndo(state));
     document.querySelectorAll('[data-status]').forEach(el => el.disabled = !canChangeStatus(selectedElements, el.dataset.status));
     document.querySelectorAll('[data-billed]').forEach(el => el.disabled = !(p.edit && p.export));
     document.querySelectorAll('[data-view="tracking"],[data-proxy="exportButton"],#exportButton').forEach(el => el.hidden = !p.export);

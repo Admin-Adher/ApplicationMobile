@@ -57,4 +57,13 @@ describe('shared PDF progress transport',() => {
     expect(api.canChangeStatus([{lotId:'["company-a",null]',status:'todo'}],'checked')).toBe(false);
     expect(api.canChangeStatus([{lotId:'["company-a",null]',status:'checked'}],'progress')).toBe(false);
   });
+  it('does not offer undoing a creation to an editor without deletion rights',() => {
+    const {api}=bridge(true);api.boot.permissions.edit=true;api.boot.permissions.delete=false;
+    const state={elements:[{id:'new'}],undo:[{snapshot:JSON.stringify({elements:[]})}]};
+    expect(api.canUndo(state)).toBe(false);
+    state.undo[0].snapshot=JSON.stringify({elements:[{id:'new',status:'todo'}]});
+    expect(api.canUndo(state)).toBe(true);
+    api.boot.permissions.delete=true;state.undo[0].snapshot=JSON.stringify({elements:[]});
+    expect(api.canUndo(state)).toBe(true);
+  });
 });
