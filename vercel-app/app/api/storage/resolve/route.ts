@@ -4,7 +4,7 @@ import { authenticateRequest, enforcePrivateMediaClient } from '@/lib/server-aut
 import { resolveAuthorizedMediaRefs } from '@/lib/private-media-server';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 20;
+export const maxDuration = 45;
 
 function corsHeaders(req: NextRequest) {
   const origin = req.headers.get('origin') ?? '';

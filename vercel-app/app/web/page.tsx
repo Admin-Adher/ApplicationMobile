@@ -18,10 +18,11 @@ import {
   type WebTranslator,
 } from '@/lib/i18n';
 import { createAuthScopedLoadGuard } from '@/lib/auth-load-guard';
-import { publishWhenCurrent } from '@/lib/progressive-workspace-load';
+import { publishWhenCurrent, createWorkspaceReadQueue, workspaceTablesForTab, sameWorkspaceAuthority } from '@/lib/progressive-workspace-load';
+import { boundedRead, readSupabase } from '@/lib/bounded-read';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { canTrackPdfPlan, progressRpc, type ProgressOperation } from '../../../lib/plan-progress/core';
-const PlanProgress = dynamic(() => import('@/components/PlanProgress'), { ssr: false });
+const PlanProgress = dynamic(() => import('@/components/PlanProgress'), { ssr: false, loading: () => <div className={styles.loadingBlock} role="status">Chargement de l’outil…</div> });
 import { dmChannelIdByUserIds } from '../../../lib/directMessageId';
 import {
   WEB_PDF_BATCH_CONCURRENCY,
@@ -32,6 +33,7 @@ import {
 import { BuildTrackAccess, BuildTrackAccessLoading } from './BuildTrackAccess';
 import { useAuthenticatedWorkspaceSession } from './AuthenticatedWorkspaceSession';
 import { WorkspaceChrome } from './WorkspaceChrome';
+import { WorkspaceLoadBoundary } from './WorkspaceLoadBoundary';
 import { DashboardWebView, type DashboardIntent, type DashboardSource } from './dashboard/DashboardWebView';
 import {
   WorkspaceBackButton,
@@ -122,6 +124,8 @@ import {
   isRegistryBackedRef,
   resolvePrivateMediaRefs,
   retryPrivateMedia,
+  resetPrivateMedia,
+  refreshPrivateMediaSession,
   uploadRegisteredWebFile,
 } from '@/lib/private-media-client';
 import { RESERVE_STATUS_LABELS, RESERVE_PRIORITY_LABELS } from '@/lib/reserveLabels';
@@ -2844,6 +2848,7 @@ async function fetchScopedTable<T = any>(
     scoped?: boolean;
     orgId?: string | null;
     onError?: (table: string, message: string) => void;
+    signal?: AbortSignal;
   } = {},
 ): Promise<T[]> {
   try {
@@ -2851,28 +2856,25 @@ async function fetchScopedTable<T = any>(
     const rows: T[] = [];
     const pageSize = options.limit ? Math.min(options.limit, SUPABASE_PAGE_SIZE) : SUPABASE_PAGE_SIZE;
     for (let from = 0; ; from += pageSize) {
-      let query = supabaseBrowser.from(table).select('*');
-      if (options.scoped !== false) {
-        if (profile.role === 'super_admin') {
-          const orgId = options.orgId ?? webSupportOrgId;
-          if (!orgId) return [];
-          query = query.eq('organization_id', orgId);
-        } else if (profile.organization_id) {
-          query = query.eq('organization_id', profile.organization_id);
+      const data = await readSupabase<any[]>(signal => {
+        let query = supabaseBrowser.from(table).select('*');
+        if (options.scoped !== false) {
+          if (profile.role === 'super_admin') {
+            const orgId = options.orgId ?? webSupportOrgId;
+            if (!orgId) return Promise.resolve({ data: [], error: null });
+            query = query.eq('organization_id', orgId);
+          } else if (profile.organization_id) {
+            query = query.eq('organization_id', profile.organization_id);
+          }
         }
-      }
-      if (table === 'chantiers' || table === 'site_plans' || table === 'photos') {
-        query = query.is('deleted_at', null);
-      }
-      if (options.order) query = query.order(options.order, { ascending: options.ascending ?? false });
-      query = query.order('id', { ascending: true });
-      query = query.range(from, from + pageSize - 1);
-      const { data, error } = await query;
-      if (error) {
-        console.warn(`[web] ${table}`, error.message);
-        options.onError?.(table, error.message);
-        return rows;
-      }
+        if (table === 'chantiers' || table === 'site_plans' || table === 'photos') {
+          query = query.is('deleted_at', null);
+        }
+        if (options.order) query = query.order(options.order, { ascending: options.ascending ?? false });
+        query = query.order('id', { ascending: true });
+        query = query.range(from, from + pageSize - 1);
+        return query.abortSignal(signal);
+      }, { signal: options.signal });
       rows.push(...((data ?? []) as T[]));
       if (!data || data.length < pageSize) break;
       if (options.limit && rows.length >= options.limit) break;
@@ -2885,10 +2887,9 @@ async function fetchScopedTable<T = any>(
   }
 }
 
-async function fetchOrgUsers(onError?: (table: string, message: string) => void): Promise<Profile[]> {
+async function fetchOrgUsers(onError?: (table: string, message: string) => void, signal?: AbortSignal): Promise<Profile[]> {
   try {
-    const { data, error } = await supabaseBrowser.rpc('get_org_users');
-    if (error) throw error;
+    const data = await readSupabase(signal => supabaseBrowser.rpc('get_org_users').abortSignal(signal), { signal });
     return (Array.isArray(data) ? data : []) as Profile[];
   } catch (error: any) {
     console.warn('[web] get_org_users', error);
@@ -3026,6 +3027,11 @@ function BuildTrackWebWorkspace() {
   });
   const [profile, setProfile] = useState<Profile | null>(null);
   const [data, setData] = useState<WebState>(EMPTY_DATA);
+  const workspaceSnapshotRef = useRef({ profile, data });
+  workspaceSnapshotRef.current = { profile, data };
+  const [loadedTables, setLoadedTables] = useState<string[]>([]);
+  const [failedLoadTables, setFailedLoadTables] = useState<string[]>([]);
+  const readQueueRef = useRef<ReturnType<typeof createWorkspaceReadQueue> | null>(null);
   const [offlineSnapshotAt, setOfflineSnapshotAt] = useState<number | null>(null);
   const outboxOwner = authUser && profile?.id === authUser.id && profile.organization_id ? authUser.id + ':' + profile.organization_id : '';
   const workspaceOwnerRef = useRef(outboxOwner);
@@ -3042,6 +3048,9 @@ function BuildTrackWebWorkspace() {
     if (saved && TABS.some(tab => tab.id === saved) && saved !== 'inventory') return saved as TabId;
     return 'dashboard';
   });
+  const activeTabRef = useRef(activeTab); activeTabRef.current = activeTab;
+  useEffect(() => { readQueueRef.current?.pump(); }, [activeTab]);
+  useEffect(() => { refreshPrivateMediaSession(true); }, [session?.access_token]);
   const previousActiveTabRef = useRef<TabId>('dashboard');
   const reserveHistoryNavigationRef = useRef(false);
   const initialReserveDeepLinkHandledRef = useRef(false);
@@ -3278,6 +3287,8 @@ function BuildTrackWebWorkspace() {
     const previousUserId = workspaceUserIdRef.current;
     if (previousUserId === nextUserId) return;
     workspaceUserIdRef.current = nextUserId;
+    resetPrivateMedia();
+    setLoadedTables([]); setFailedLoadTables([]);
 
     if (previousUserId !== undefined || !nextUserId) {
       setProfile(null);
@@ -3448,9 +3459,15 @@ function BuildTrackWebWorkspace() {
     else setLoading(true);
     setError('');
     let loadT = t;
+    const deadline = setTimeout(() => loadLease.cancel(), 40_000);
+    setFailedLoadTables([]);
     const failedTables: string[] = [];
     const onError = (table: string) => {
       if (!failedTables.includes(table)) failedTables.push(table);
+      if (loadLease.isCurrent()) {
+        setFailedLoadTables([...failedTables]);
+        setError(loadT('sync.partialLoad', { tables: failedTableList(loadT, failedTables) }));
+      }
     };
     function saveOfflineSnapshot(loadedProfile: Profile, workspace: Partial<WebState>) {
       if (failedTables.length || !loadedProfile.organization_id || loadedProfile.role === 'super_admin') return;
@@ -3480,8 +3497,9 @@ function BuildTrackWebWorkspace() {
         setOfflineSnapshotAt(entry.savedAt);
         return;
       }
-      let { data: profileRows, error: profileError } = await supabaseBrowser
-        .rpc('get_profile_for_current_user');
+      const cachedWorkspace = boundedRead(() => readWorkspaceSnapshot<{ profile: Profile; workspace: Partial<WebState> }>(user.id), { timeoutMs: 500, retries: 0 }).catch(() => null);
+      let profileRows = await readSupabase(signal => supabaseBrowser.rpc('get_profile_for_current_user').abortSignal(signal), { signal: loadLease.signal });
+      let profileError: any = null;
       if (!loadLease.isCurrent()) return;
       if (profileError) throw profileError;
       if (!Array.isArray(profileRows) || profileRows.length === 0) {
@@ -3490,18 +3508,29 @@ function BuildTrackWebWorkspace() {
         });
         if (!loadLease.isCurrent()) return;
         if (ensureError) throw ensureError;
-        const refreshed = await supabaseBrowser.rpc('get_profile_for_current_user');
+        const refreshed = await readSupabase(signal => supabaseBrowser.rpc('get_profile_for_current_user').abortSignal(signal), { signal: loadLease.signal });
         if (!loadLease.isCurrent()) return;
-        profileRows = refreshed.data;
-        profileError = refreshed.error;
-        if (profileError) throw profileError;
+        profileRows = refreshed;
       }
       const loadedProfile = ((Array.isArray(profileRows) ? profileRows[0] : null) ?? null) as Profile | null;
       if (!loadedProfile) {
         setError(t('login.missingProfile'));
+        setFailedLoadTables(['profiles']);
         return;
       }
 
+      if (!sameWorkspaceAuthority(workspaceSnapshotRef.current.profile, loadedProfile)) {
+        setLoadedTables([]); setData(EMPTY_DATA);
+        const cached = await cachedWorkspace;
+        if (!loadLease.isCurrent()) return;
+        if (cached && sameWorkspaceAuthority(cached.snapshot.profile, loadedProfile)) {
+          const available = Object.fromEntries(Object.entries(cached.snapshot.workspace).filter(([, rows]) => Array.isArray(rows)));
+          setData({ ...EMPTY_DATA, ...available });
+          const tableNames: Record<string, string> = { sitePlans: 'site_plans', timeEntries: 'time_entries', journalEntries: 'journal_entries', inventoryProducts: 'inventory_products', inventoryMovements: 'inventory_movements' };
+          setLoadedTables(Object.keys(available).map(key => tableNames[key] ?? key));
+          setSelectedProjectId(previous => cached.snapshot.workspace.chantiers?.some(project => project.id === previous) ? previous : cached.snapshot.workspace.chantiers?.[0]?.id ?? 'all');
+        }
+      }
       const storedPreference = readStoredWebLanguagePreference();
       const profileLanguage = loadedProfile.preferred_language ? normalizeLang(loadedProfile.preferred_language) : null;
       const nextPreference: WebLanguagePreference = storedPreference.hasStored
@@ -3533,12 +3562,12 @@ function BuildTrackWebWorkspace() {
       if (loadedProfile.role === 'magasinier') {
         setActiveTab('inventory');
         const [chantiers, companies, organizations, notificationPreferences, inventoryProducts, inventoryMovements] = await Promise.all([
-          fetchScopedTable('chantiers', loadedProfile, { order: 'created_at', onError }),
-          fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError }),
-          fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError }),
-          fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError }),
-          fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError }),
-          fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError }),
+          fetchScopedTable('chantiers', loadedProfile, { signal: loadLease.signal, order: 'created_at', onError }),
+          fetchScopedTable('companies', loadedProfile, { signal: loadLease.signal, order: 'name', ascending: true, onError }),
+          fetchScopedTable<Organization>('organizations', loadedProfile, { signal: loadLease.signal, order: 'name', ascending: true, scoped: false, onError }),
+          fetchScopedTable('notification_preferences', loadedProfile, { signal: loadLease.signal, scoped: false, onError }),
+          fetchScopedTable('inventory_products', loadedProfile, { signal: loadLease.signal, order: 'reference', ascending: true, onError }),
+          fetchScopedTable('inventory_movements', loadedProfile, { signal: loadLease.signal, order: 'created_at', ascending: false, onError }),
         ]);
         if (!loadLease.isCurrent()) return;
         setStorageUsage(null);
@@ -3551,7 +3580,9 @@ function BuildTrackWebWorkspace() {
           inventoryProducts,
           inventoryMovements,
         };
-        setData(warehouseData);
+        const names: Record<string, string> = { chantiers: 'chantiers', companies: 'companies', organizations: 'organizations', notificationPreferences: 'notification_preferences', inventoryProducts: 'inventory_products', inventoryMovements: 'inventory_movements' };
+        setLoadedTables(Object.values(names).filter(table => !failedTables.includes(table)));
+        setData(previous => Object.fromEntries(Object.entries(warehouseData).map(([key, value]) => [key, failedTables.includes(names[key]) ? previous[key as keyof WebState] : value])) as WebState);
         saveOfflineSnapshot(loadedProfile, warehouseData);
         setSelectedProjectId(prev => prev !== 'all' && chantiers.some((chantier: any) => chantier.id === prev) ? prev : chantiers[0]?.id ?? 'all');
         if (failedTables.length) {
@@ -3560,96 +3591,61 @@ function BuildTrackWebWorkspace() {
         return;
       }
 
+      const queue = createWorkspaceReadQueue(table => workspaceTablesForTab(activeTabRef.current).includes(table) ? 10 : ['chantiers', 'reserves', 'companies', 'site_plans'].includes(table) ? 5 : 0);
+      readQueueRef.current = queue;
       // Storage usage is informational and must never hold the workspace open.
-      void Promise.resolve((supabaseBrowser as any).rpc('get_storage_usage_guardrail', {
-        p_warning_mb: 850,
-        p_critical_mb: 950,
-      })).then(({ data: storageGuardrail, error: storageGuardrailError }) => {
-        if (!loadLease.isCurrent()) return;
-        setStorageUsage(storageGuardrailError ? null : (storageGuardrail as StorageUsageGuardrail));
-      }).catch(() => {
-        if (loadLease.isCurrent()) setStorageUsage(null);
-      });
+      void queue.run('storage_usage', () => readSupabase(signal => (supabaseBrowser as any).rpc('get_storage_usage_guardrail', {
+        p_warning_mb: 850, p_critical_mb: 950,
+      }).abortSignal(signal), { signal: loadLease.signal, timeoutMs: 6_000, retries: 0 })).then(value => {
+        if (loadLease.isCurrent()) setStorageUsage(value as StorageUsageGuardrail);
+      }).catch(() => { if (loadLease.isCurrent()) setStorageUsage(null); });
 
-      // Start every independent request in the same wave. Documents and the
-      // project list publish progressively instead of waiting for slow media or
-      // secondary modules to finish.
-      const chantiersPromise = publishWhenCurrent(
-        fetchScopedTable('chantiers', loadedProfile, { order: 'created_at', onError }),
-        loadLease,
-        chantiers => {
-          setData(previous => ({ ...previous, chantiers }));
-          setSelectedProjectId(previous => previous !== 'all' && chantiers.some((chantier: any) => chantier.id === previous)
-            ? previous
-            : chantiers[0]?.id ?? 'all');
-        },
-      );
-      const documentsPromise = publishWhenCurrent(
-        loadedProfile.role === 'sous_traitant'
-          ? Promise.resolve<any[]>([])
-          : fetchScopedTable('documents', loadedProfile, { order: 'uploaded_at', onError }),
-        loadLease,
-        documents => setData(previous => ({ ...previous, documents })),
-      );
-      const reservesPromise = fetchScopedTable('reserves', loadedProfile, { order: 'created_at', onError });
-      const sitePlansPromise = publishWhenCurrent(
-        fetchScopedTable('site_plans', loadedProfile, { order: 'created_at', onError }),
-        loadLease,
-        sitePlans => {
-          setData(previous => ({ ...previous, sitePlans }));
-          setSelectedPlanId(previous => previous && sitePlans.some((plan: any) => plan.id === previous)
-            ? previous
-            : sitePlans[0]?.id ?? null);
-        },
-      );
-      const companiesPromise = fetchScopedTable('companies', loadedProfile, { order: 'name', ascending: true, onError });
-      void publishWhenCurrent(
-        Promise.all([chantiersPromise, reservesPromise, companiesPromise]),
-        loadLease,
-        ([chantiers, reserves, companies]) => {
-          // La liste et le deep-link d'une réserve ne doivent pas attendre les
-          // modules secondaires (messages, journal, stock, documents...).
-          const visible = visibleReservesForProfile(reserves, loadedProfile, companies);
-          setData(previous => ({
-            ...previous,
-            companies: companyRefreshGuard.merge(companies, companyReadRevision),
-            reserves: visible.filter((reserve: any) => !isReserveDeleted(reserve)),
-            deletedReserves: visible.filter((reserve: any) => isReserveDeleted(reserve)),
-          }));
-          setSelectedProjectId(previous => previous !== 'all' && chantiers.some((chantier: any) => chantier.id === previous)
-            ? previous
-            : chantiers[0]?.id ?? 'all');
-          const canRevealReserveCore = typeof window !== 'undefined'
-            && (activeTab === 'reserves' || new URL(window.location.href).searchParams.has('reserve'));
-          if (!opts.background && canRevealReserveCore) {
-            setLoading(false);
-            setSyncing(true);
-          }
-        },
-      );
-      const organizationsPromise = fetchScopedTable<Organization>('organizations', loadedProfile, { order: 'name', ascending: true, scoped: false, onError });
-      const visitesPromise = fetchScopedTable('visites', loadedProfile, { order: 'created_at', onError });
-      const messagesPromise = fetchScopedTable('messages', loadedProfile, { order: 'created_at', ascending: false, limit: 800, onError });
-      const channelsPromise = fetchScopedTable('channels', loadedProfile, { order: 'created_at', onError });
-      const profilesPromise = fetchOrgUsers(onError);
-      const lotsPromise = fetchScopedTable('lots', loadedProfile, { order: 'name', ascending: true, onError });
-      const tasksPromise = fetchScopedTable('tasks', loadedProfile, { order: 'created_at', onError });
-      const incidentsPromise = fetchScopedTable('incidents', loadedProfile, { order: 'created_at', onError });
-      const photosPromise = fetchScopedTable('photos', loadedProfile, { order: 'taken_at', scoped: false, onError });
-      const oprsPromise = fetchScopedTable('oprs', loadedProfile, { order: 'created_at', onError });
-      const timeEntriesPromise = fetchScopedTable('time_entries', loadedProfile, { order: 'created_at', onError });
-      const regulatoryDocsPromise = loadedProfile.role === 'sous_traitant'
-        ? Promise.resolve<any[]>([])
-        : fetchScopedTable('regulatory_docs', loadedProfile, { order: 'created_at', onError });
-      const notificationPreferencesPromise = fetchScopedTable('notification_preferences', loadedProfile, { scoped: false, onError });
-      const journalEntriesPromise = fetchScopedTable('journal_entries', loadedProfile, { order: 'entry_date', onError });
-      const checklistsPromise = fetchScopedTable('checklists', loadedProfile, { order: 'created_at', onError });
-      const inventoryProductsPromise = canViewInventory(loadedProfile)
-        ? fetchScopedTable('inventory_products', loadedProfile, { order: 'reference', ascending: true, onError })
-        : Promise.resolve<any[]>([]);
-      const inventoryMovementsPromise = canViewInventory(loadedProfile)
-        ? fetchScopedTable('inventory_movements', loadedProfile, { order: 'created_at', ascending: false, onError })
-        : Promise.resolve<any[]>([]);
+      const readTable = (table: string, key: keyof WebState, options: any = {}, enabled = true) => publishWhenCurrent(queue.run(table, async () => {
+        let failed = false;
+        const reportError = (name: string) => { failed = true; onError(name); };
+        const rows = !enabled ? [] : table === 'profiles'
+          ? await fetchOrgUsers(reportError, loadLease.signal)
+          : await fetchScopedTable(table, loadedProfile, { ...options, onError: reportError, signal: loadLease.signal });
+        if (failed) {
+          const previous = workspaceSnapshotRef.current;
+          return sameWorkspaceAuthority(previous.profile, loadedProfile) ? previous.data[key] : [];
+        }
+        if (loadLease.isCurrent() && table !== 'reserves') setLoadedTables(previous => previous.includes(table) ? previous : [...previous, table]);
+        return rows;
+      }), loadLease, rows => {
+        if (table === 'reserves' || failedTables.includes(table)) return;
+        setData(previous => ({ ...previous, [key]: table === 'companies' ? companyRefreshGuard.merge(rows, companyReadRevision) : rows }));
+        if (table === 'chantiers') setSelectedProjectId(previous => previous !== 'all' && rows.some((row: any) => row.id === previous) ? previous : rows[0]?.id ?? 'all');
+        if (table === 'site_plans') setSelectedPlanId(previous => previous && rows.some((row: any) => row.id === previous) ? previous : rows[0]?.id ?? null);
+      });
+      const chantiersPromise = readTable('chantiers', 'chantiers', {"order":"created_at"}, true);
+      const reservesPromise = readTable('reserves', 'reserves', {"order":"created_at"}, true);
+      const sitePlansPromise = readTable('site_plans', 'sitePlans', {"order":"created_at"}, true);
+      const companiesPromise = readTable('companies', 'companies', {"order":"name","ascending":true}, true);
+      const organizationsPromise = readTable('organizations', 'organizations', {"order":"name","ascending":true,"scoped":false}, true);
+      const visitesPromise = readTable('visites', 'visites', {"order":"created_at"}, true);
+      const messagesPromise = readTable('messages', 'messages', {"order":"created_at","ascending":false,"limit":800}, true);
+      const channelsPromise = readTable('channels', 'channels', {"order":"created_at"}, true);
+      const profilesPromise = readTable('profiles', 'profiles', {}, true);
+      const lotsPromise = readTable('lots', 'lots', {"order":"name","ascending":true}, true);
+      const tasksPromise = readTable('tasks', 'tasks', {"order":"created_at"}, true);
+      const incidentsPromise = readTable('incidents', 'incidents', {"order":"created_at"}, true);
+      const documentsPromise = readTable('documents', 'documents', {"order":"uploaded_at"}, loadedProfile.role !== 'sous_traitant');
+      const photosPromise = readTable('photos', 'photos', {"order":"taken_at","scoped":false}, true);
+      const oprsPromise = readTable('oprs', 'oprs', {"order":"created_at"}, true);
+      const timeEntriesPromise = readTable('time_entries', 'timeEntries', {"order":"created_at"}, true);
+      const regulatoryDocsPromise = readTable('regulatory_docs', 'regulatoryDocs', {"order":"created_at"}, loadedProfile.role !== 'sous_traitant');
+      const notificationPreferencesPromise = readTable('notification_preferences', 'notificationPreferences', {"scoped":false}, true);
+      const journalEntriesPromise = readTable('journal_entries', 'journalEntries', {"order":"entry_date"}, true);
+      const checklistsPromise = readTable('checklists', 'checklists', {"order":"created_at"}, true);
+      const inventoryProductsPromise = readTable('inventory_products', 'inventoryProducts', {"order":"reference","ascending":true}, canViewInventory(loadedProfile));
+      const inventoryMovementsPromise = readTable('inventory_movements', 'inventoryMovements', {"order":"created_at"}, canViewInventory(loadedProfile));
+      void publishWhenCurrent(Promise.all([chantiersPromise, reservesPromise, companiesPromise]), loadLease, ([, reserves, companies]) => {
+        if (failedTables.includes('reserves') || failedTables.includes('companies')) return;
+        const visible = visibleReservesForProfile(reserves, loadedProfile, companies);
+        setData(previous => ({ ...previous, reserves: visible.filter((reserve: any) => !isReserveDeleted(reserve)), deletedReserves: visible.filter((reserve: any) => isReserveDeleted(reserve)) }));
+        if (!failedTables.includes('reserves') && !failedTables.includes('companies')) setLoadedTables(previous => previous.includes('reserves') ? previous : [...previous, 'reserves']);
+      });
 
       const [
         chantiers,
@@ -3738,18 +3734,7 @@ function BuildTrackWebWorkspace() {
         inventoryMovements,
       };
       saveOfflineSnapshot(loadedProfile, nextData);
-      setData(previous => opts.background
-        ? nextData
-        : {
-            ...nextData,
-            // Le noyau visible a déjà été publié. Le conserver empêche la
-            // photographie finale, démarrée quelques secondes plus tôt,
-            // d'écraser un événement realtime reçu entre-temps.
-            chantiers: previous.chantiers,
-            companies: previous.companies,
-            reserves: previous.reserves,
-            deletedReserves: previous.deletedReserves,
-          });
+      // Datasets were published independently; do not overwrite later edits/realtime here.
       setSelectedProjectId(prev => prev !== 'all' && chantiers.some((c: any) => c.id === prev) ? prev : chantiers[0]?.id ?? 'all');
       setSelectedReserveId(prev => prev && scopedReserves.some((r: any) => r.id === prev) ? prev : null);
       setSelectedPlanId(prev => prev && sitePlans.some((p: any) => p.id === prev) ? prev : sitePlans[0]?.id ?? null);
@@ -3760,6 +3745,7 @@ function BuildTrackWebWorkspace() {
       }
     } catch (err: any) {
       if (loadLease.isCurrent()) {
+        setFailedLoadTables(previous => previous.length ? previous : ['profiles']);
         if (offlineSnapshotAt && !isWebNetworkFailure(err)) {
           setProfile(null);
           setData(EMPTY_DATA);
@@ -3769,7 +3755,9 @@ function BuildTrackWebWorkspace() {
         setError(err?.message ?? loadT('login.loadError'));
       }
     } finally {
+      clearTimeout(deadline);
       if (loadLease.isCurrent()) {
+        readQueueRef.current = null;
         setLoading(false);
         setSyncing(false);
       }
@@ -7519,6 +7507,7 @@ function BuildTrackWebWorkspace() {
         {error ? (
           <div className={styles.floatingAlert} role="alert">
             <span>{error}</span>
+            {failedLoadTables.length > 0 && <button className={styles.loadRetry} type="button" onClick={() => authUser && void loadEverything(authUser, { background: true })}>{t('plans.retry')}</button>}
             <button type="button" aria-label="Fermer" onClick={() => setError('')}>×</button>
           </div>
         ) : null}
@@ -7538,8 +7527,12 @@ function BuildTrackWebWorkspace() {
         ) : null}
         {storageAlert ? <div className={styles.storageAlert}>{storageAlert}</div> : null}
 
-        {loading ? (
-          <div className={styles.loadingBlock}>{t('common.loadingData')}</div>
+        <WorkspaceLoadBoundary key={activeTab + outboxOwner} language={webLang} onBack={() => setActiveTab('terrain')}>
+        {loading || (!profile && Boolean(error)) || workspaceTablesForTab(activeTab).some(table => !loadedTables.includes(table) && (syncing || failedLoadTables.includes(table))) ? (
+          <div className={styles.loadingBlock} role="status" aria-live="polite">
+            <p>{!profile && error ? error : failedLoadTables.some(table => workspaceTablesForTab(activeTab).includes(table)) ? t('sync.partialLoad', { tables: failedTableList(t, failedLoadTables) }) : t('common.loadingData')}</p>
+            {failedLoadTables.length > 0 && <button type="button" onClick={() => authUser && void loadEverything(authUser, { background: true })}>{t('plans.retry')}</button>}
+          </div>
         ) : (
           <>
             {activeTab === 'inventory' && (
@@ -8121,6 +8114,7 @@ function BuildTrackWebWorkspace() {
             )}
           </>
         )}
+        </WorkspaceLoadBoundary>
       </WorkspaceChrome>
       {reserveModalMode && (
         <ReserveModal
@@ -10109,6 +10103,8 @@ function WebPdfPlan({
   const [retryVersion, setRetryVersion] = useState(0);
   const [pdfPageVersion, setPdfPageVersion] = useState(0);
   const [pdfDocument, setPdfDocument] = useState<any>(null);
+  const mediaRecoveryRef = useRef({ key: previewCacheKey ?? name, attempts: 0 });
+  if (mediaRecoveryRef.current.key !== (previewCacheKey ?? name)) mediaRecoveryRef.current = { key: previewCacheKey ?? name, attempts: 0 };
   const [pageNumber, setPageNumber] = useState(1);
   const pageCount: number = pdfDocument?.numPages ?? 1;
   // Existing reserve coordinates are tied to the plan, without a page field.
@@ -10335,17 +10331,20 @@ function WebPdfPlan({
         if (isImage) {
           const image = new Image();
           image.src = uri;
-          await image.decode();
+          await boundedRead(() => image.decode(), { timeoutMs: 20_000, retries: 0 });
           if (cancelled) return;
           imageRef.current = image;
           setPdfPageVersion(version => version + 1);
           return;
         }
-        const pdfjs: any = await loadPdfJs();
-        if (cancelled) return;
-        pdfSession = createDedicatedPdfLoadingTask(pdfjs, { url: uri });
-        const pdf = await pdfSession.loadingTask.promise;
-        if (!cancelled) setPdfDocument(pdf);
+        const pdf = await boundedRead(async signal => {
+          const pdfjs: any = await loadPdfJs();
+          if (cancelled || signal.aborted) throw new Error('Ouverture annulée.');
+          pdfSession = createDedicatedPdfLoadingTask(pdfjs, { url: uri });
+          signal.addEventListener('abort', () => { void pdfSession?.destroy()?.catch?.(() => {}); }, { once: true });
+          return pdfSession.loadingTask.promise;
+        }, { timeoutMs: 20_000, retries: 0 });
+        if (!cancelled) { mediaRecoveryRef.current.attempts = 0; setPdfDocument(pdf); }
       } catch (pdfError: any) {
         if (cancelled) return;
         console.warn('[web-pdf] plan loading failed', {
@@ -10354,6 +10353,10 @@ function WebPdfPlan({
         });
         setError(true);
         setLoading(false);
+        if (onRetryMedia && mediaRecoveryRef.current.attempts < 1) {
+          mediaRecoveryRef.current.attempts++;
+          onRetryMedia();
+        }
       }
     }
 
@@ -11041,7 +11044,7 @@ function WebPdfPlan({
                 <span className={styles.webPdfErrorIcon} aria-hidden="true">!</span>
                 <strong>{t('plans.pdfUnavailable')}</strong>
                 <span>{t('plans.pdfUnavailableBody')}</span>
-                <button type="button" onClick={uri ? retryPdfLoad : onRetryMedia ?? retryPdfLoad}>{t('plans.retry')}</button>
+                <button type="button" onClick={() => { onRetryMedia?.(); retryPdfLoad(); }}>{t('plans.retry')}</button>
               </div>
             </div>
           )}

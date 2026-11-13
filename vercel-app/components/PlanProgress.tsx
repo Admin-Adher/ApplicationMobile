@@ -7,6 +7,8 @@ import { supabaseBrowser } from '@/lib/supabase-browser';
 import { listWebOperations } from '@/lib/web-outbox';
 import { progressPdfData } from '@/lib/plan-progress-pdf-cache';
 import { waitForPlanUri } from '../../lib/plan-progress/startup';
+import { readSupabase } from '@/lib/bounded-read';
+import { loadProgressAsset } from '@/lib/plan-progress-assets';
 
 type Props = {
   owner: string; userId: string; organizationId: string; companyId?: string;
@@ -48,9 +50,7 @@ export default function PlanProgress(props: Props) {
       cacheWrite: async value => { if (owned()) localStorage.setItem(key,value); },
       read: async () => {
         if (!navigator.onLine) return emptyProgress();
-        const { data,error } = await supabaseBrowser.rpc('read_plan_progress',{ p_plan_id: captured.plan.id, p_source_ref: captured.plan.uri });
-        if (error) throw error;
-        return data;
+        return readSupabase(signal => supabaseBrowser.rpc('read_plan_progress', { p_plan_id: captured.plan.id, p_source_ref: captured.plan.uri }).abortSignal(signal), { signal: startup.signal });
       },
       enqueue: async operation => {
         const { data } = await supabaseBrowser.auth.getSession();
@@ -90,17 +90,8 @@ export default function PlanProgress(props: Props) {
     };
     window.addEventListener('message',receive);
     void (async () => {
-      const readText = async (path: string) => {
-        const cache = await caches.open('buildtrack-plan-progress-assets-v1').catch(() => null);
-        try {
-          const response = await fetch(path);
-          if (!response.ok) throw new Error('Le lecteur d’avancement est indisponible.');
-          await cache?.put(path,response.clone()).catch(() => {});
-          return response.text();
-        } catch (cause) { const response = await cache?.match(path); if (response) return response.text(); throw cause; }
-      };
       const [document,template,moduleSource,workerSource,pdfSource] = await Promise.all([
-        session.open(),readText('/plan-progress/editor.html'),readText('/plan-progress/pdf.mjs'),readText('/plan-progress/pdf.worker.mjs'),
+        session.open(),loadProgressAsset('editor.html'),loadProgressAsset('pdf.mjs'),loadProgressAsset('pdf.worker.mjs'),
         progressPdfData(progressScope(props.userId,props.organizationId,props.plan.id,props.plan.uri),
           () => waitForPlanUri(() => owned() ? latest.current.resolvedUri : '', startup.signal)),
       ]);

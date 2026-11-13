@@ -1,4 +1,5 @@
 /** Account-scoped PDF bytes only. Signed URLs and tokens are never persisted. */
+import { boundedRead } from './bounded-read';
 async function database() {
   return new Promise<IDBDatabase>((resolve,reject) => {
     const request = indexedDB.open('buildtrack-plan-progress-pdf-v1',1);
@@ -31,7 +32,7 @@ async function store(key: string, blob: Blob) {
   }); } finally { db.close(); }
 }
 export async function progressPdfData(key: string, source: string | (() => Promise<string>)) {
-  let blob = await cached(key).catch(() => null);
+  let blob = await boundedRead(() => cached(key), { timeoutMs: 1500, retries: 0 }).catch(() => null);
   if (!blob) {
     const uri = typeof source === 'function' ? await source() : source;
     if (!uri) throw new Error('Ouvrez ce PDF en ligne une première fois pour le télécharger.');
@@ -40,7 +41,7 @@ export async function progressPdfData(key: string, source: string | (() => Promi
     blob = await response.blob();
     if (blob.size > 25 * 1024 * 1024) throw new Error('Ce PDF dépasse 25 Mo. Utilisez une version optimisée pour le suivi.');
     if (!(await blob.slice(0,1024).text()).includes('%PDF-')) throw new Error('Le fichier du plan n’est pas un PDF valide.');
-    await store(key,blob).catch(() => {});
+    await boundedRead(() => store(key,blob!), { timeoutMs: 1500, retries: 0 }).catch(() => {});
   }
   return new Promise<string>((resolve,reject) => {
     const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = () => reject(reader.error); reader.readAsDataURL(blob);

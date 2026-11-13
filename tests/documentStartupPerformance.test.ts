@@ -64,13 +64,14 @@ describe('document startup performance', () => {
     const page = read('vercel-app/app/web/page.tsx');
     const profileCommit = page.indexOf('setProfile({ ...loadedProfile');
     const revealWorkspace = page.indexOf('setLoading(false);', profileCommit);
-    const progressiveDocuments = page.indexOf('const documentsPromise = publishWhenCurrent', revealWorkspace);
+    const progressiveDocuments = page.indexOf("const documentsPromise = readTable('documents', 'documents'", revealWorkspace);
     const coherentSnapshot = page.indexOf('] = await Promise.all([', progressiveDocuments);
 
     expect(profileCommit).toBeGreaterThan(-1);
     expect(revealWorkspace).toBeGreaterThan(profileCommit);
     expect(progressiveDocuments).toBeGreaterThan(revealWorkspace);
     expect(coherentSnapshot).toBeGreaterThan(progressiveDocuments);
+    expect(page).toContain('publishWhenCurrent(queue.run(table');
     expect(page).toContain('Storage usage is informational and must never hold the workspace open.');
   });
 });

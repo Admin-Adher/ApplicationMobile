@@ -1,6 +1,7 @@
 'use client';
 
 import { supabaseBrowser } from './supabase-browser';
+import { boundedRead } from './bounded-read';
 
 type CachedMediaUrl = { url: string; expiresAt: number };
 
@@ -26,8 +27,14 @@ const retryAfter = new Map<string, number>();
 const failures = new Map<string, ResolveFailure>();
 const criticalQueuedRefs = new Set<string>();
 const backgroundQueuedRefs = new Set<string>();
-const resolvingRefs = new Set<string>();
+const resolvingRefs = new Map<string, number>();
+const failureAttempts = new Map<string, number>();
+const mediaWatches = new Map<string, Map<() => void, PrivateMediaPriority>>();
+const wakeTimers = new Map<string, ReturnType<typeof setTimeout>>();
+let mediaGeneration = 0;
+let mediaController = new AbortController();
 const listeners = new Set<() => void>();
+const watchedListeners = new Set<() => void>();
 let criticalResolveScheduled = false;
 let backgroundResolveScheduled = false;
 let criticalFlushPromise: Promise<void> | null = null;
@@ -45,8 +52,11 @@ export function isRegistryBackedRef(value: string) {
     || /buildtrack-files\.[^/]*workers\.dev/i.test(value);
 }
 
-function emitResolved() {
-  for (const listener of listeners) listener();
+function emitResolved(refs?: string[]) {
+  if (!refs) { for (const listener of listeners) listener(); return; }
+  const affected = new Set<() => void>([...listeners].filter(listener => !watchedListeners.has(listener)));
+  for (const ref of refs) for (const listener of mediaWatches.get(ref)?.keys() ?? []) affected.add(listener);
+  for (const listener of affected) listener();
 }
 
 function markFailure(
@@ -58,64 +68,58 @@ function markFailure(
   refs.forEach(ref => {
     failures.set(ref, { reason });
     retryAfter.set(ref, nextRetry);
+    failureAttempts.set(ref, (failureAttempts.get(ref) ?? 0) + 1);
+    scheduleMediaWake(ref);
   });
 }
 
-async function resolveBatch(refs: string[]) {
+async function resolveBatch(refs: string[], generation: number, signal: AbortSignal) {
   try {
-    const { data } = await supabaseBrowser.auth.getSession();
-    const token = data.session?.access_token;
-    if (!token) {
-      markFailure(refs, 'session_required', 5_000);
-      return;
-    }
-
-    const response = await fetch('/api/storage/resolve', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-        ...PRIVATE_MEDIA_HEADERS,
-      },
-      body: JSON.stringify({ refs }),
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-    const payload = await response.json().catch(() => ({}));
+    const payload = await boundedRead(async requestSignal => {
+      const { data } = await supabaseBrowser.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw Object.assign(new Error('Session requise.'), { code: 'MEDIA_SESSION_REQUIRED' });
+      if (requestSignal.aborted) throw new Error('Lecture annulée.');
+      const response = await fetch('/api/storage/resolve', {
+        method: 'POST', signal: requestSignal,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...PRIVATE_MEDIA_HEADERS },
+        body: JSON.stringify({ refs }),
+      });
+      if (!response.ok) throw Object.assign(new Error('HTTP ' + response.status), { status: response.status });
+      return response.json();
+    }, { signal, timeoutMs: 12_000, retries: 1 });
+    if (generation !== mediaGeneration) return;
     const returned = new Set<string>();
     for (const asset of Array.isArray(payload?.assets) ? payload.assets : []) {
-      const ref = String(asset?.ref ?? '').trim();
-      const url = String(asset?.url ?? '').trim();
-      if (!ref || !url) continue;
+      const ref = String(asset?.ref ?? '').trim(), url = String(asset?.url ?? '').trim();
+      if (!refs.includes(ref) || !url) continue;
       returned.add(ref);
-      resolvedUrls.set(ref, {
-        url,
-        expiresAt: Number(asset?.expiresAt ?? Date.now() + 60_000),
-      });
-      retryAfter.delete(ref);
-      failures.delete(ref);
+      const expiry = Number(asset?.expiresAt);
+      resolvedUrls.set(ref, { url, expiresAt: Number.isFinite(expiry) && expiry > Date.now() ? expiry : Date.now() + 600_000 });
+      retryAfter.delete(ref); failures.delete(ref); failureAttempts.delete(ref); scheduleMediaWake(ref);
     }
-
     markFailure(refs.filter(ref => !returned.has(ref)), 'unavailable', 5_000);
   } catch (error) {
-    console.warn('[private-media] signed media resolution temporarily unavailable', error);
-    markFailure(refs, 'temporary_failure', 5_000);
+    if (generation !== mediaGeneration || signal.aborted) return;
+    console.warn('[private-media] signed media resolution temporarily unavailable');
+    markFailure(refs, (error as { code?: string })?.code === 'MEDIA_SESSION_REQUIRED' ? 'session_required' : 'temporary_failure', 5_000);
   } finally {
-    refs.forEach(ref => resolvingRefs.delete(ref));
-    emitResolved();
+    for (const ref of refs) if (resolvingRefs.get(ref) === generation) resolvingRefs.delete(ref);
+    if (generation === mediaGeneration) emitResolved(refs);
   }
 }
 
 async function runResolveLane(priority: PrivateMediaPriority) {
   const queue = priority === 'critical' ? criticalQueuedRefs : backgroundQueuedRefs;
   const batchSize = priority === 'critical' ? 10 : 100;
-  while (queue.size > 0) {
+  const generation = mediaGeneration, signal = mediaController.signal;
+  while (generation === mediaGeneration && queue.size > 0) {
     const refs = Array.from(queue).slice(0, batchSize);
     refs.forEach(ref => {
       queue.delete(ref);
-      resolvingRefs.add(ref);
+      resolvingRefs.set(ref, generation);
     });
-    await resolveBatch(refs);
+    await resolveBatch(refs, generation, signal);
   }
 }
 
@@ -123,10 +127,11 @@ async function flushResolveLane(priority: PrivateMediaPriority) {
   const queue = priority === 'critical' ? criticalQueuedRefs : backgroundQueuedRefs;
   let lanePromise = priority === 'critical' ? criticalFlushPromise : backgroundFlushPromise;
   if (!lanePromise) {
-    lanePromise = runResolveLane(priority).finally(() => {
-      if (priority === 'critical') criticalFlushPromise = null;
-      else backgroundFlushPromise = null;
+    const work = runResolveLane(priority).finally(() => {
+      if (priority === 'critical' && criticalFlushPromise === work) criticalFlushPromise = null;
+      else if (priority === 'background' && backgroundFlushPromise === work) backgroundFlushPromise = null;
     });
+    lanePromise = work;
     if (priority === 'critical') criticalFlushPromise = lanePromise;
     else backgroundFlushPromise = lanePromise;
   }
@@ -158,9 +163,71 @@ function queueResolve(ref: string, priority: PrivateMediaPriority = 'background'
   });
 }
 
-export function subscribePrivateMedia(listener: () => void) {
+function scheduleMediaWake(ref: string) {
+  clearTimeout(wakeTimers.get(ref)); wakeTimers.delete(ref);
+  if (!mediaWatches.has(ref)) return;
+  const cached = resolvedUrls.get(ref);
+  const retry = retryAfter.get(ref);
+  if (!cached && (!retry || (failureAttempts.get(ref) ?? 0) >= 3)) return;
+  const delay = Math.max(1000, (cached ? cached.expiresAt - 60_000 : retry!) - Date.now());
+  const timer = setTimeout(() => {
+    wakeTimers.delete(ref);
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+    refreshPrivateMediaSession();
+  }, delay);
+  (timer as any).unref?.();
+  wakeTimers.set(ref, timer);
+}
+
+/** Wake mounted media after expiry, reconnect, token refresh or returning to the tab. */
+export function refreshPrivateMediaSession(resume?: Event | boolean) {
+  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+  for (const [ref, watches] of mediaWatches) {
+    if (resume && failures.has(ref)) { failureAttempts.delete(ref); retryAfter.delete(ref); }
+    const access = peekPrivateMediaAccess(ref);
+    if (access.status === 'ready') { scheduleMediaWake(ref); continue; }
+    if (access.status === 'idle' || (access.status === 'error' && (retryAfter.get(ref) ?? 0) <= Date.now() && (failureAttempts.get(ref) ?? 0) < 3)) {
+      queueResolve(ref, [...watches.values()].includes('critical') ? 'critical' : 'background');
+    }
+  }
+  emitResolved();
+}
+
+export function resetPrivateMedia() {
+  mediaGeneration++; mediaController.abort(); mediaController = new AbortController();
+  for (const timer of wakeTimers.values()) clearTimeout(timer);
+  wakeTimers.clear(); resolvedUrls.clear(); retryAfter.clear(); failures.clear(); failureAttempts.clear();
+  criticalQueuedRefs.clear(); backgroundQueuedRefs.clear(); resolvingRefs.clear();
+  criticalFlushPromise = null; backgroundFlushPromise = null;
+  emitResolved();
+}
+
+export function subscribePrivateMedia(listener: () => void, watch?: { ref: string; priority: PrivateMediaPriority }) {
   listeners.add(listener);
-  return () => { listeners.delete(listener); };
+  if (watch?.ref) {
+    watchedListeners.add(listener);
+    const first = mediaWatches.size === 0;
+    const watches = mediaWatches.get(watch.ref) ?? new Map();
+    watches.set(listener, watch.priority); mediaWatches.set(watch.ref, watches); scheduleMediaWake(watch.ref);
+    if (first && typeof window !== 'undefined') {
+      window.addEventListener('focus', refreshPrivateMediaSession);
+      window.addEventListener('online', refreshPrivateMediaSession);
+      document.addEventListener('visibilitychange', refreshPrivateMediaSession);
+    }
+  }
+  return () => {
+    listeners.delete(listener);
+    watchedListeners.delete(listener);
+    if (watch?.ref) {
+      const watches = mediaWatches.get(watch.ref); watches?.delete(listener);
+      if (!watches?.size) { mediaWatches.delete(watch.ref); clearTimeout(wakeTimers.get(watch.ref)); wakeTimers.delete(watch.ref); }
+      if (!mediaWatches.size && typeof window !== 'undefined') {
+        window.removeEventListener('focus', refreshPrivateMediaSession);
+        window.removeEventListener('online', refreshPrivateMediaSession);
+        document.removeEventListener('visibilitychange', refreshPrivateMediaSession);
+      }
+    }
+  };
 }
 
 export function peekPrivateMediaAccess(raw: unknown): PrivateMediaAccess {
@@ -176,7 +243,7 @@ export function peekPrivateMediaAccess(raw: unknown): PrivateMediaAccess {
 
   const failure = failures.get(ref);
   const throttled = (retryAfter.get(ref) ?? 0) > Date.now();
-  if (failure && throttled) {
+  if (failure && (throttled || (failureAttempts.get(ref) ?? 0) >= 3)) {
     return { managed: true, status: 'error', url: '', reason: failure.reason };
   }
 
@@ -214,6 +281,7 @@ export function retryPrivateMedia(raw: unknown, options: PrivateMediaRequestOpti
   resolvedUrls.delete(ref);
   failures.delete(ref);
   retryAfter.delete(ref);
+  failureAttempts.delete(ref);
   queueResolve(ref, options.priority);
   emitResolved();
 }
