@@ -1,5 +1,7 @@
 export type AuthScopedLoadLease = {
   isCurrent: () => boolean;
+  signal: AbortSignal;
+  cancel: () => void;
 };
 
 export type AuthScopedLoadGuard = {
@@ -15,19 +17,26 @@ export type AuthScopedLoadGuard = {
 export function createAuthScopedLoadGuard(): AuthScopedLoadGuard {
   let authenticatedUserId: string | null = null;
   let generation = 0;
+  let controller: AbortController | null = null;
 
   return {
     setAuthenticatedUser(userId) {
       if (authenticatedUserId === userId) return;
       authenticatedUserId = userId;
+      controller?.abort();
       generation += 1;
     },
 
     begin(userId) {
+      controller?.abort();
+      controller = new AbortController();
+      const loadController = controller;
       generation += 1;
       const loadGeneration = generation;
 
       return {
+        signal: controller.signal,
+        cancel: () => loadController.abort(),
         isCurrent: () => authenticatedUserId === userId && generation === loadGeneration,
       };
     },

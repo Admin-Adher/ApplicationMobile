@@ -205,7 +205,8 @@ describe('BuildTrack web plan and reserve workspaces', () => {
     expect(mediaHook).toContain("requestPrivateMedia(ref, { priority })");
     expect(page).not.toContain('uri={selectedPlan.uri}');
     expect(page).not.toContain('href={selectedPlan.uri}');
-    expect(page).toContain("const sitePlansPromise = publishWhenCurrent(");
+    expect(page).toContain("const sitePlansPromise = readTable('site_plans', 'sitePlans'");
+    expect(page).toContain('publishWhenCurrent(queue.run(table');
     expect(page).toContain('const selectedPlan = projectScoped.plans.find');
   });
 

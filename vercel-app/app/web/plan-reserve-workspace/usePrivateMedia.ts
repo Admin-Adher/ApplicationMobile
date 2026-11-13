@@ -31,14 +31,14 @@ export function usePrivateMediaAccess(
   const access = snapshot.ref === ref ? snapshot.access : peekPrivateMediaAccess(ref);
 
   useEffect(() => {
-    const refresh = () => setSnapshot({ ref, access: peekPrivateMediaAccess(ref) });
+    const refresh = () => {
+      const access = enabled ? requestPrivateMedia(ref, { priority }) : peekPrivateMediaAccess(ref);
+      setSnapshot(previous => previous.ref === ref && previous.access.status === access.status &&
+        previous.access.url === access.url && previous.access.reason === access.reason ? previous : { ref, access });
+    };
+    const unsubscribe = subscribePrivateMedia(refresh, enabled ? { ref, priority } : undefined);
     refresh();
-    return subscribePrivateMedia(refresh);
-  }, [ref]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    setSnapshot({ ref, access: requestPrivateMedia(ref, { priority }) });
+    return unsubscribe;
   }, [enabled, priority, ref]);
 
   return access;

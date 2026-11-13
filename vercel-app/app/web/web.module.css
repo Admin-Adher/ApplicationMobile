@@ -418,9 +418,26 @@
 }
 
 .floatingAlert {
+  flex-wrap: wrap;
   border: 1px solid #fecaca;
   background: #fef2f2;
   color: #b42318;
+}
+
+.floatingAlert > span {
+  flex: 1 1 200px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.floatingAlert .loadRetry {
+  flex-shrink: 0;
+  min-height: 44px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.2;
+  padding: 8px 12px;
 }
 
 .floatingNotice {
@@ -845,6 +862,26 @@
   padding: 48px;
   color: #64748b;
   text-align: center;
+}
+
+.loadRecoveryActions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.loadRecoveryActions button,
+.loadingBlock > button {
+  min-height: 48px;
+  border: 1px solid #dde4ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #003082;
+  padding: 10px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 @media (min-width: 1181px) {
