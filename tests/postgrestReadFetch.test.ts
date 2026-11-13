@@ -12,7 +12,7 @@ describe('secondary web read deadlines', () => {
     vi.useFakeTimers(); const response = new Response(new ReadableStream({ start() {} }));
     const transport = createPostgrestReadFetch(vi.fn(async () => response), 100);
     const pending = transport('https://fixture.invalid/rest/v1/messages');
-    const assertion = expect(pending).rejects.toMatchObject({ code: 'READ_TIMEOUT' });
+    const assertion = expect(pending).rejects.toMatchObject({ code: 'READ_TIMEOUT', name: 'AbortError' });
     await vi.advanceTimersByTimeAsync(100); await assertion;
   });
   it('leaves writes and authentication requests untouched', async () => {
@@ -23,6 +23,7 @@ describe('secondary web read deadlines', () => {
       expect(fetcher).toHaveBeenLastCalledWith('https://fixture.invalid/rest/v1/messages', init);
     }
     expect(await transport('https://fixture.invalid/auth/v1/user')).toBe(response);
+    expect(await transport('https://fixture.invalid/auth/v1/user?redirect_to=/rest/v1/messages')).toBe(response);
   });
   it('supports HEAD responses without inventing a body', async () => {
     const transport = createPostgrestReadFetch(vi.fn(async () => new Response(null, { headers: { 'content-range': '*/15' } })));

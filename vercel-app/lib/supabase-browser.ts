@@ -5,8 +5,7 @@ import { supabaseUrl, supabaseAnonKey } from './supabase-public-config';
 import { createPostgrestReadFetch } from './postgrest-read-fetch';
 
 export const supabaseBrowser = createClient(supabaseUrl, supabaseAnonKey, {
-  // Reads have one visible, bounded retry policy rather than nested SDK backoff.
-  db: { retry: false },
+  // Secondary GET/HEAD reads also have a deadline; writes/auth keep their transport.
   global: { fetch: createPostgrestReadFetch((input, init) => fetch(input, init)) },
   auth: {
     persistSession: true,

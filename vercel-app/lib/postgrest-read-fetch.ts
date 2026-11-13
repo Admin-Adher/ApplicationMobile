@@ -6,7 +6,7 @@ export function createPostgrestReadFetch(fetcher: typeof fetch, timeoutMs = 12_0
     const request = typeof Request !== 'undefined' && input instanceof Request ? input : null;
     const method = String(init?.method ?? request?.method ?? 'GET').toUpperCase();
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (!['GET', 'HEAD'].includes(method) || !/\/rest\/v1\//.test(url)) return fetcher(input, init);
+    if (!['GET', 'HEAD'].includes(method) || !/\/rest\/v1\//.test(url.split(/[?#]/, 1)[0])) return fetcher(input, init);
     return boundedRead(async signal => {
       const response = await fetcher(input, { ...init, signal });
       // Include the body in the deadline: headers alone do not finish a read.
@@ -14,6 +14,11 @@ export function createPostgrestReadFetch(fetcher: typeof fetch, timeoutMs = 12_0
       return new Response(bytes.byteLength ? bytes : null, {
         status: response.status, statusText: response.statusText, headers: response.headers,
       });
-    }, { signal: init?.signal ?? request?.signal, timeoutMs, retries: 0 });
+    }, { signal: init?.signal ?? request?.signal, timeoutMs, retries: 0 }).catch(error => {
+      // The installed SDK never retries AbortError. Preserve the timeout code
+      // for our explicit read wrappers without nesting the SDK network backoff.
+      if (error?.code === 'READ_TIMEOUT') error.name = 'AbortError';
+      throw error;
+    });
   };
 }
