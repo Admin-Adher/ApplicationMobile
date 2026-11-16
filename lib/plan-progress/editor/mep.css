@@ -66,3 +66,40 @@
 
 .mep-portion-toolbar{flex:none;background:#f3f7fc;border-bottom:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px}.mep-portion-toolbar>div{min-width:0}.mep-portion-toolbar strong{display:block;font-size:15px;line-height:1.4}.mep-portion-toolbar p{font-size:13px;line-height:1.4;margin:3px 0 0;color:var(--muted)}.mep-portion-controls{display:flex;gap:8px;flex-wrap:wrap;flex:none}.mep-portion-controls button{min-height:48px;font-size:13px}.mep-portion-toolbar button{white-space:normal}.is-mep-portion #mepPortionLayer text{paint-order:stroke;stroke:white;stroke-width:2}
 @media(max-width:740px){.mep-portion-toolbar{padding:6px 8px;display:block}.mep-portion-toolbar strong{font-size:13px}.mep-portion-toolbar p{font-size:12px;margin:2px 0 6px}.mep-portion-controls{display:grid;grid-template-columns:64px 86px minmax(0,1fr);gap:6px}.mep-portion-controls button{font-size:12px;min-height:48px;padding:6px}.is-mep-portion .topbar{display:none!important}}
+
+/* A supervisor can read ownership and freshness without opening every work. */
+.mep-lot-guidance{padding:12px;border:1px solid #e6cc91;border-radius:6px;color:#674115;background:#fff8e8;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.mep-works-section{min-width:0;margin:18px 0}
+.mep-works-heading{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:0 0 12px}
+.mep-works-heading>div{min-width:0}.mep-works-heading h3{font-size:19px;line-height:1.4;margin:0 0 4px}.mep-works-heading p{margin:0;line-height:1.6;font-size:13px}
+.mep-work-table{min-width:1120px!important;table-layout:fixed}
+.mep-work-table th:first-child{width:25%}.mep-work-table th:nth-child(2){width:10%}.mep-work-table th:nth-child(3),.mep-work-table th:nth-child(4),.mep-work-table th:nth-child(5){width:8%}.mep-work-table th:nth-child(6){width:13%}.mep-work-table th:nth-child(7){width:16%}.mep-work-table th:nth-child(8){width:12%}
+.mep-table-scroll .mep-work-table td{white-space:normal;min-width:0;max-width:none;vertical-align:top;font-size:14px;line-height:1.55;overflow-wrap:anywhere;padding:15px 12px}
+.mep-work-table td>span:not(.mep-work-status):not(.mep-unit){display:block}.mep-work-table td>.mep-unit{display:inline}.mep-work-table td>strong{display:block}.mep-work-table small{font-size:12px;line-height:1.55}
+.mep-work-status{display:inline-flex;align-items:center;border:1px solid #d4dce5;background:#f2f5f8;color:#45596d;border-radius:5px;padding:5px 8px;line-height:1.4;font-size:12px;font-weight:700;max-width:100%;overflow-wrap:anywhere}
+.mep-work-status.progress{color:#775017;background:#fff5df;border-color:#e8d7af}.mep-work-status.installed{color:#275f9a;background:#edf5ff;border-color:#c2d7ef}.mep-work-status.checked{color:#126647;background:#eaf7f0;border-color:#acd8c1}.mep-work-status.is-blocked{color:#9b3029;background:#fff0ed;border-color:#edc0b8}
+.mep-local-activity{color:#775017!important}.mep-open-plan-hint{display:block;color:var(--muted);font-size:12px;line-height:1.6}.mep-locate-work{font-size:13px;min-height:48px;padding:8px 10px;white-space:normal;width:100%;text-align:center}
+.mep-estimate,.mep-muted{color:var(--muted);font-size:13px;line-height:1.5}.mep-unit{white-space:nowrap}
+.mep-mobile-works{display:none}.mep-work-card{min-width:0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:16px;overflow-wrap:anywhere}
+.mep-work-card>header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.mep-work-card>header>div{min-width:0}.mep-work-reference{font-size:12px;line-height:1.4;color:var(--muted)}.mep-work-card h4{font-size:17px;line-height:1.4;margin:4px 0 0;font-weight:700}.mep-work-card>header>.mep-work-status{flex:none;max-width:40%}
+.mep-work-location{font-size:13px;line-height:1.6;color:var(--muted);margin:12px 0}.mep-work-location strong{color:var(--ink)}
+.mep-work-quantities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 0;margin:0}
+.mep-work-quantities>div,.mep-work-ownership>div{min-width:0}.mep-work-card dt{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 4px}.mep-work-card dd{font-size:15px;line-height:1.5;margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.mep-work-card dd>small{display:block;font-size:12px;color:var(--muted);line-height:1.5;margin-top:3px}
+.mep-work-ownership{display:grid;gap:12px;margin:12px 0 16px}.mep-work-ownership dd{font-size:14px}.mep-work-card .mep-locate-work{width:100%;font-size:14px}
+#mepMoreWorks{margin-top:12px;min-height:48px;font-size:14px}
+.mep-export-scope{border:1px solid var(--line);border-radius:8px;background:white;padding:14px 16px;margin:18px 0 12px;min-width:0}
+.mep-export-scope legend{padding:0 6px;font-size:14px;font-weight:700;color:var(--ink)}.mep-export-scope .mep-checkbox{font-size:15px;font-weight:600;min-height:48px}.mep-export-scope p{font-size:13px;line-height:1.6;margin:6px 0 0}.mep-export-scope input:focus-visible{outline:3px solid #5c96dd;outline-offset:3px}
+@media(max-width:1100px){
+ .mep-desktop-works{display:none}
+ .mep-mobile-works{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .mep-works-heading h3{font-size:19px}
+}
+@media(max-width:639px){
+ .mep-mobile-works{grid-template-columns:minmax(0,1fr)}
+ .mep-work-card{padding:14px}
+ .mep-work-card h4{font-size:17px}
+ .mep-work-card>header{flex-wrap:wrap}.mep-work-card>header>.mep-work-status{max-width:100%;flex:none}
+ .mep-export-scope{padding:12px;margin-top:16px}
+ .mep-works-heading{align-items:flex-start;flex-direction:column;gap:8px}
+}
+@media(prefers-reduced-motion:reduce){.mep-work-card,.mep-work-status{transition:none}}

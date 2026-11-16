@@ -55,6 +55,70 @@ describe('MEP exports',()=>{
     const sheet=book.Sheets['Réseaux MEP'];expect(sheet.N2.v).toBe(100);expect(sheet.O2.v).toBe(30);expect(sheet.Q2.v).toBe(.3);expect(sheet.Q2.z||sheet.Q2.w).toBeTruthy();
     expect(book.Sheets['Synthèse physique MEP'].M2.v).toBe(.3);
   });
+  it('exports each work responsible and exact activity time without borrowing the plan update date',async()=>{
+    const {api,sent}=exportsApi();const first=work({mep:{...work().mep,responsibleId:'u1'}}),second=work({id:'w2',reference:'EAU-002',name:'Retour eau'});
+    const s=state([first,second]);
+    const snapshot={plans:[{id:'p1',updatedAt:'2026-11-16T23:59:00.000Z',elementActivity:{w1:{time:'2026-11-15T10:12:13.000Z',author:'Chef A'},w2:{time:'2026-11-16T08:09:10.000Z',author:'Chef B'}},document:s}],history:[]};
+    await api.exportMepWorkbook(s,snapshot,{});
+    const book=XLSX.read(sent[0].payload.base64,{type:'base64'}),sheet=book.Sheets['Réseaux MEP'];
+    expect(sheet.AA2.v).toBe('Responsable test');expect(sheet.AA3.v).toBe('Entreprise <A>');
+    expect(sheet.AB2.v).toBe('2026-11-15T10:12:13.000Z');expect(sheet.AB3.v).toBe('2026-11-16T08:09:10.000Z');
+    expect(sheet.AC2.v).toBe('Chef A');expect(sheet.AC3.v).toBe('Chef B');
+    expect(sheet.AD2.v).toBe('Synchronisée');expect(sheet.U2.v).toBe('En cours');
+    expect(sheet.N2.v).toBe(100);expect(sheet.O2.v).toBe(30);expect(sheet.Q2.v).toBe(.3);
+    expect(sheet['!autofilter']?.ref).toBe('A1:AE3');expect(sheet.AE2.v).toContain('Chantier');
+    const rows=api.mepExportRows(s,snapshot,{}),pdf=api.buildMepReportHtml(rows);
+    expect(pdf).toContain('Responsable test');expect(pdf).toContain('2026-11-15T10:12:13.000Z');expect(pdf).toContain('2026-11-16T08:09:10.000Z');
+    expect(pdf).not.toContain('2026-11-16T23:59:00.000Z');
+    await api.exportMepCsv(s,snapshot,{});
+    const csv=Buffer.from(sent[1].payload.base64,'base64').toString('utf8');
+    expect(csv).toContain('"Responsable du tronçon"');expect(csv).toContain('"Dernière mise à jour du tronçon UTC"');
+    expect(csv).toContain('Responsable test');expect(csv).toContain('2026-11-15T10:12:13.000Z');
+  });
+  it('shows unknown and pending local work activity explicitly while excluding unrelated updates',()=>{
+    const {api}=exportsApi(),s:any=state([work(),work({id:'w2'})]);
+    s.history=[{time:'2026-11-16T10:11:12.000Z',authorName:'Auteur local',pending:true,planId:'p1',changes:[{target:'elements',key:'w1',before:{progressPercent:10},after:{progressPercent:30}}]},
+      {time:'2026-11-16T22:00:00.000Z',authorName:'Autre auteur',planId:'p1',changes:[{target:'elements',key:'w3',before:{note:''},after:{note:'Sans lien'}}]}];
+    const data=api.mepExportRows(s,{plans:[{id:'p1',updatedAt:'2026-11-16T23:00:00.000Z',document:s}],history:[]});
+    expect(data.works[0]).toMatchObject({updatedAt:'2026-11-16T10:11:12.000Z',updatedBy:'Auteur local',updatePending:true});
+    expect(data.works[1].updatedAt).toBeNull();
+    const html=api.buildMepReportHtml(data);expect(html).toContain('modification locale en attente');expect(html).toContain('non renseignée');
+    expect(html).not.toContain('2026-11-16T22:00:00.000Z');expect(html).not.toContain('2026-11-16T23:00:00.000Z');
+  });
+  it('exports only active blockers and their works without reintroducing closed markers, photos or totals',async()=>{
+    const {api,sent}=exportsApi();
+    const open=blocker({id:'open',description:'ACTION-ACTIVE',photoRefs:['btmedia://open']}),resolved=blocker({id:'resolved',status:'resolved',description:'ACTION-RESOLVED',photoRefs:['btmedia://resolved']}),closed=blocker({id:'closed',status:'closed',description:'ACTION-CLOSED',photoRefs:['btmedia://closed']});
+    const s=state([work({blockers:[open,resolved,closed]}),work({id:'closed-work',name:'OUVRAGE-FERME',mep:{...work().mep,plannedQuantity:900},blockers:[closed]})]);
+    const data=api.mepExportRows(s,null,{openOnly:true});expect(data.works).toHaveLength(1);expect(data.blockers.map((r:any)=>r.blocker.id)).toEqual(['open']);expect(data.scope).toContain('points ouverts uniquement');
+    await api.exportMepWorkbook(s,null,{openOnly:true});
+    const book=XLSX.read(sent[0].payload.base64,{type:'base64'}),works=XLSX.utils.sheet_to_json<any>(book.Sheets['Réseaux MEP']),blockers=XLSX.utils.sheet_to_json<any>(book.Sheets['Points bloquants']);
+    expect(works).toHaveLength(1);expect(blockers).toHaveLength(1);expect(blockers[0]['Description']).toBe('ACTION-ACTIVE');
+    expect(book.Sheets['Synthèse physique MEP'].J2.v).toBe(100);expect(book.Sheets['Méthode MEP']).toBeTruthy();
+    const png='data:image/png;base64,iVBORw0KGgo=';
+    const html=api.buildMepReportHtml(data,{filters:{openOnly:true},pages:[{...data.plans[0],page:1,height:680,image:png,elements:data.works.map((r:any)=>r.el),blockers:data.blockers}],photos:{'btmedia://open':png}});
+    expect(html).toContain('ACTION-ACTIVE');expect(html).toContain('Points ouverts uniquement');
+    for(const hidden of ['ACTION-RESOLVED','ACTION-CLOSED','OUVRAGE-FERME','Photo 2 du point','>900<'])expect(html).not.toContain(hidden);
+    expect((html.match(/alt="Photo /g)||[]).length).toBe(1);
+    await api.exportMepCsv(s,null,{openOnly:true});
+    const csv=Buffer.from(sent[1].payload.base64,'base64').toString('utf8');expect(csv).not.toContain('OUVRAGE-FERME');expect(csv).not.toContain('900');expect(csv).toContain('points ouverts uniquement');
+    expect(csv.split('\r\n')).toHaveLength(2);
+  });
+  it('keeps resolved and verified points in unfiltered exports while excluding both from open-only exports',()=>{
+    const {api}=exportsApi(),s=state([work({blockers:[blocker({id:'r',status:'resolved'}),blocker({id:'c',status:'closed'})]})]);
+    expect(api.mepExportRows(s).blockers).toHaveLength(2);expect(api.mepExportRows(s,null,{openOnly:true}).works).toHaveLength(0);expect(api.mepExportRows(s,null,{openOnly:true}).blockers).toHaveLength(0);
+  });
+  it('keeps the audit of the selected open work, without importing the unrelated closed work history',async()=>{
+    const {api,sent}=exportsApi(),s=state([work({blockers:[blocker()]}),work({id:'w2',name:'OUVRAGE-CLOS',blockers:[blocker({status:'closed'})]})]);
+    const snapshot={plans:[{id:'p1',document:s}],history:[
+      {id:'op-selected',planId:'p1',time:'2026-11-16T08:00:00Z',changes:[{target:'elements',key:'w1',before:{blockers:[blocker({status:'closed'})]},after:{blockers:[blocker()]}}]},
+      {id:'op-other',planId:'p1',time:'2026-11-16T08:10:00Z',changes:[{target:'elements',key:'w2',before:{name:'Ancien'},after:{name:'OUVRAGE-CLOS'}}]},
+    ]};
+    await api.exportMepWorkbook(s,snapshot,{openOnly:true});
+    const book=XLSX.read(sent[0].payload.base64,{type:'base64'}),history=XLSX.utils.sheet_to_json<any[]>(book.Sheets['Historique MEP'],{header:1});
+    expect(history).toHaveLength(2);expect(history[1][5]).toBe('op-selected');
+    expect(history[1][7]).toContain('"status":"closed"');expect(history[1][7]).not.toContain('OUVRAGE-CLOS');
+    const current=XLSX.utils.sheet_to_json<any>(book.Sheets['Points bloquants']);expect(current).toHaveLength(1);expect(current[0]['Statut']).toBe('Ouvert');
+  });
   it('keeps estimates explicit and refuses to manufacture a measured zero when scale is absent',()=>{
     const {api}=exportsApi();const s=state([work({mep:{...work().mep,quantityMode:'drawing'}})]);s.calibrations={} as any;
     expect(api.mepExportRows(s).works[0]).toMatchObject({planned:null,executed:null,method:'Mesure du tracé / échelle de la page'});

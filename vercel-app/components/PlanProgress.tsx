@@ -52,6 +52,7 @@ export default function PlanProgress(props: Props) {
     const photoScope=captured.userId+':'+captured.organizationId;
     const pending = async () => (await listWebOperations(captured.owner)).filter(row => row.kind === 'plan_progress' && row.payload.planId === captured.plan.id && row.payload.sourceRef === captured.plan.uri).map(row => row.payload as unknown as ProgressOperation);
     const session = new ProgressSession({ planId: props.plan.id, sourceRef: props.plan.uri, owned, online: () => navigator.onLine,
+      actor:{id:captured.userId,name:captured.people?.find(person=>person.id===captured.userId)?.name||'Utilisateur de cet appareil'},
       newId: () => crypto.randomUUID(), pending,
       cacheRead: async () => localStorage.getItem(key),
       cacheWrite: async value => { if (owned()) localStorage.setItem(key,value); },
@@ -81,7 +82,7 @@ export default function PlanProgress(props: Props) {
           if (!message.payload?.unconfirmed || window.confirm('Enregistrement non confirmé. Revenir aux plans pour contrôler la file de synchronisation ?')) latest.current.onClose();
         }
         else if (message.type === 'closeError') { setClosing(false); window.alert(String(message.payload?.message ?? 'Enregistrement en cours.')); }
-        else if (message.type === 'save') { await session.save(message.payload); payload = { text: 'Enregistré sur cet appareil · synchronisation en attente' }; }
+        else if (message.type === 'save') { await session.save(message.payload); payload = { text: 'Enregistré sur cet appareil · synchronisation en attente',history:session.history,elementActivity:session.elementActivity }; }
         else if (message.type === 'reload') { payload = await session.refresh() ?? {}; }
         else if(message.type==='projectMep'){
           if(!navigator.onLine){const cached=localStorage.getItem(projectKey);if(!cached)throw Error('Ouvrez la synthèse en ligne avant de la consulter hors connexion.');payload={...JSON.parse(cached),offline:true};}
@@ -139,10 +140,10 @@ export default function PlanProgress(props: Props) {
       ]);
       if (!owned()) return;
       nonce.current = crypto.randomUUID();
-      const groups = progressGroups(props.companies,props.lots.map(lot => ({ id:lot.id,name:lot.name ?? 'Ouvrages',companyId:lot.company_id })));
+      const groups = progressGroups(props.companies,props.lots.filter(lot=>session.assignableLotIds.includes(lot.id)).map(lot => ({ id:lot.id,name:lot.name ?? 'Ouvrages',companyId:lot.company_id,chantierId:lot.chantier_id })),props.plan.chantier_id);
       let drawingPreference: string | null = null;
       try { drawingPreference = localStorage.getItem(drawingKey); } catch {}
-      setHtml(editorHtml(template,{ nonce:nonce.current,document,drawingPreference,history:session.history,groups,companyId:props.companyId,userId:props.userId,permissions:props.permissions,
+      setHtml(editorHtml(template,{ nonce:nonce.current,document,drawingPreference,history:session.history,elementActivity:session.elementActivity,groups,companyId:props.companyId,userId:props.userId,permissions:props.permissions,
         plan:{ id:props.plan.id,name:props.plan.name,pages:props.plan.pdf_page_count ?? 1,building:props.plan.building||'',level:props.plan.level||'',revision:props.plan.revision_code||'' },people:(props.people||[]).map(p=>({id:p.id,name:p.name||p.id,companyId:p.companyId||p.company_id})),projectName:props.projectName,pdfSource,pdfjs:{ moduleSource,workerSource },
         syncText:(await pending()).length ? 'Modifications en attente de synchronisation' : session.fresh ? 'Suivi chargé · synchronisé' : 'Données locales · actualisation à la connexion' }));
     })().catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'Impossible de charger l’avancement.'); });

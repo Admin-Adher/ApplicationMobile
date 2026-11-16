@@ -463,6 +463,43 @@ button,input,select,textarea{touch-action:manipulation}
 .mep-portion-toolbar{flex:none;background:#f3f7fc;border-bottom:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px}.mep-portion-toolbar>div{min-width:0}.mep-portion-toolbar strong{display:block;font-size:15px;line-height:1.4}.mep-portion-toolbar p{font-size:13px;line-height:1.4;margin:3px 0 0;color:var(--muted)}.mep-portion-controls{display:flex;gap:8px;flex-wrap:wrap;flex:none}.mep-portion-controls button{min-height:48px;font-size:13px}.mep-portion-toolbar button{white-space:normal}.is-mep-portion #mepPortionLayer text{paint-order:stroke;stroke:white;stroke-width:2}
 @media(max-width:740px){.mep-portion-toolbar{padding:6px 8px;display:block}.mep-portion-toolbar strong{font-size:13px}.mep-portion-toolbar p{font-size:12px;margin:2px 0 6px}.mep-portion-controls{display:grid;grid-template-columns:64px 86px minmax(0,1fr);gap:6px}.mep-portion-controls button{font-size:12px;min-height:48px;padding:6px}.is-mep-portion .topbar{display:none!important}}
 
+/* A supervisor can read ownership and freshness without opening every work. */
+.mep-lot-guidance{padding:12px;border:1px solid #e6cc91;border-radius:6px;color:#674115;background:#fff8e8;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.mep-works-section{min-width:0;margin:18px 0}
+.mep-works-heading{display:flex;gap:12px;align-items:center;justify-content:space-between;margin:0 0 12px}
+.mep-works-heading>div{min-width:0}.mep-works-heading h3{font-size:19px;line-height:1.4;margin:0 0 4px}.mep-works-heading p{margin:0;line-height:1.6;font-size:13px}
+.mep-work-table{min-width:1120px!important;table-layout:fixed}
+.mep-work-table th:first-child{width:25%}.mep-work-table th:nth-child(2){width:10%}.mep-work-table th:nth-child(3),.mep-work-table th:nth-child(4),.mep-work-table th:nth-child(5){width:8%}.mep-work-table th:nth-child(6){width:13%}.mep-work-table th:nth-child(7){width:16%}.mep-work-table th:nth-child(8){width:12%}
+.mep-table-scroll .mep-work-table td{white-space:normal;min-width:0;max-width:none;vertical-align:top;font-size:14px;line-height:1.55;overflow-wrap:anywhere;padding:15px 12px}
+.mep-work-table td>span:not(.mep-work-status):not(.mep-unit){display:block}.mep-work-table td>.mep-unit{display:inline}.mep-work-table td>strong{display:block}.mep-work-table small{font-size:12px;line-height:1.55}
+.mep-work-status{display:inline-flex;align-items:center;border:1px solid #d4dce5;background:#f2f5f8;color:#45596d;border-radius:5px;padding:5px 8px;line-height:1.4;font-size:12px;font-weight:700;max-width:100%;overflow-wrap:anywhere}
+.mep-work-status.progress{color:#775017;background:#fff5df;border-color:#e8d7af}.mep-work-status.installed{color:#275f9a;background:#edf5ff;border-color:#c2d7ef}.mep-work-status.checked{color:#126647;background:#eaf7f0;border-color:#acd8c1}.mep-work-status.is-blocked{color:#9b3029;background:#fff0ed;border-color:#edc0b8}
+.mep-local-activity{color:#775017!important}.mep-open-plan-hint{display:block;color:var(--muted);font-size:12px;line-height:1.6}.mep-locate-work{font-size:13px;min-height:48px;padding:8px 10px;white-space:normal;width:100%;text-align:center}
+.mep-estimate,.mep-muted{color:var(--muted);font-size:13px;line-height:1.5}.mep-unit{white-space:nowrap}
+.mep-mobile-works{display:none}.mep-work-card{min-width:0;border:1px solid var(--line);border-radius:8px;background:#fff;padding:16px;overflow-wrap:anywhere}
+.mep-work-card>header{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}.mep-work-card>header>div{min-width:0}.mep-work-reference{font-size:12px;line-height:1.4;color:var(--muted)}.mep-work-card h4{font-size:17px;line-height:1.4;margin:4px 0 0;font-weight:700}.mep-work-card>header>.mep-work-status{flex:none;max-width:40%}
+.mep-work-location{font-size:13px;line-height:1.6;color:var(--muted);margin:12px 0}.mep-work-location strong{color:var(--ink)}
+.mep-work-quantities{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);padding:12px 0;margin:0}
+.mep-work-quantities>div,.mep-work-ownership>div{min-width:0}.mep-work-card dt{font-size:12px;color:var(--muted);line-height:1.5;margin:0 0 4px}.mep-work-card dd{font-size:15px;line-height:1.5;margin:0;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.mep-work-card dd>small{display:block;font-size:12px;color:var(--muted);line-height:1.5;margin-top:3px}
+.mep-work-ownership{display:grid;gap:12px;margin:12px 0 16px}.mep-work-ownership dd{font-size:14px}.mep-work-card .mep-locate-work{width:100%;font-size:14px}
+#mepMoreWorks{margin-top:12px;min-height:48px;font-size:14px}
+.mep-export-scope{border:1px solid var(--line);border-radius:8px;background:white;padding:14px 16px;margin:18px 0 12px;min-width:0}
+.mep-export-scope legend{padding:0 6px;font-size:14px;font-weight:700;color:var(--ink)}.mep-export-scope .mep-checkbox{font-size:15px;font-weight:600;min-height:48px}.mep-export-scope p{font-size:13px;line-height:1.6;margin:6px 0 0}.mep-export-scope input:focus-visible{outline:3px solid #5c96dd;outline-offset:3px}
+@media(max-width:1100px){
+ .mep-desktop-works{display:none}
+ .mep-mobile-works{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+ .mep-works-heading h3{font-size:19px}
+}
+@media(max-width:639px){
+ .mep-mobile-works{grid-template-columns:minmax(0,1fr)}
+ .mep-work-card{padding:14px}
+ .mep-work-card h4{font-size:17px}
+ .mep-work-card>header{flex-wrap:wrap}.mep-work-card>header>.mep-work-status{max-width:100%;flex:none}
+ .mep-export-scope{padding:12px;margin-top:16px}
+ .mep-works-heading{align-items:flex-start;flex-direction:column;gap:8px}
+}
+@media(prefers-reduced-motion:reduce){.mep-work-card,.mep-work-status{transition:none}}
+
 .mep-layer-dialog{width:min(540px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto;overscroll-behavior:contain}
 .mep-layer-dialog p{line-height:1.5}.mep-layer-dialog #mepLayerStatus{margin:12px 0;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
 .mep-layer-dialog #mepLayerStatus[role=alert]{color:#a12d2d}.mep-layer-dialog select,.mep-layer-dialog input,.mep-layer-dialog button,.mep-layer-dialog summary{min-height:44px}
@@ -548,9 +585,9 @@ button,input,select,textarea{touch-action:manipulation}
         <div class="mep-dashboard-filters"><label>Bâtiment<select class="input" id="mepBuildingFilter"></select></label><label>Niveau<select class="input" id="mepLevelFilter"></select></label><label>Discipline<select class="input" id="mepProjectDiscipline"><option value="">Toutes les disciplines</option><option value="plumbing">Plomberie / eau</option><option value="hvac">CVC / ventilation</option><option value="cfo">Électricité CFO</option><option value="cfa">Électricité CFA</option><option value="sprinkler">Sprinklers</option><option value="other">Autre réseau</option></select></label><label>Zone / local<select class="input" id="mepZoneFilter"></select></label><label>Entreprise / lot<select class="input" id="mepLotFilter"></select></label><label>Réseau<select class="input" id="mepProjectNetworkFilter"></select></label><label>Plans mis à jour depuis<input class="input" type="date" id="mepUpdatedAfter"></label><label>Plans mis à jour jusqu’au<input class="input" type="date" id="mepUpdatedBefore"></label></div>
         <div class="mep-project-metrics" id="mepProjectMetrics"></div>
         <p class="field-hint">Les mètres, surfaces, volumes et équipements sont présentés séparément. Le total du chantier utilise les poids renseignés dans les fiches, pas une addition d’unités différentes. Le déclaré est distinct du vérifié.</p>
-        <div id="mepProjectTable"></div><section id="mepNotifications" aria-label="Alertes MEP personnelles"></section><details class="mep-detail-list"><summary>Points bloquants du chantier</summary><div id="mepProjectBlockers"></div></details>
-        <div class="mep-export-actions"><button class="terrain-button" data-mep-export="xlsx">Excel MEP</button><button class="terrain-button" data-mep-export="csv">CSV MEP</button><button class="terrain-button" data-mep-export="pdf">Plan annoté et rapport PDF</button><span id="mepExportStatus" role="status"></span></div>
-        <details class="mep-detail-list"><summary>Tronçons et quantités détaillés</summary><div id="mepProjectDetails"></div></details>
+        <section aria-labelledby="mepWorksTitle" class="mep-works-section"><header class="mep-works-heading"><div><h3 id="mepWorksTitle">Tronçons à suivre</h3><p id="mepWorksCount" class="field-hint"></p></div></header><div id="mepProjectTable"></div><button class="terrain-button full" id="mepMoreWorks" data-mep-more-works hidden>Afficher les tronçons suivants</button></section><details class="mep-detail-list"><summary>Totaux par réseau et entreprise</summary><div id="mepNetworkSummary"></div></details><section id="mepNotifications" aria-label="Alertes MEP personnelles"></section><details class="mep-detail-list"><summary>Points bloquants du chantier</summary><div id="mepProjectBlockers"></div></details>
+        <fieldset class="mep-export-scope" id="mepExportScope"><legend>Points bloquants à exporter</legend><label class="mep-checkbox" for="mepOpenOnlyExport"><input type="checkbox" id="mepOpenOnlyExport">Points ouverts uniquement</label><p class="field-hint" id="mepExportScopeHelp">Tous les points sont inclus, y compris les points résolus et clos. Le tableau à l’écran reste inchangé.</p><p id="mepExportScopeCount" class="field-hint" role="status"></p></fieldset><div class="mep-export-actions"><button class="terrain-button" data-mep-export="xlsx">Excel MEP</button><button class="terrain-button" data-mep-export="csv">CSV MEP</button><button class="terrain-button" data-mep-export="pdf">Plan annoté et rapport PDF</button><span id="mepExportStatus" role="status"></span></div>
+        <details class="mep-detail-list"><summary>Lire les statuts et les mises à jour</summary><div id="mepProjectDetails"></div></details>
         <details class="mep-detail-list"><summary>Évolution entre deux dates</summary><div class="mep-compare-dates"><label>Du<input class="input" type="date" id="mepCompareFrom"></label><label>Au<input class="input" type="date" id="mepCompareTo"></label><button class="terrain-button" id="mepCompareDates">Comparer</button></div><p id="mepComparison" role="status"></p><div id="mepComparisonHistory"></div></details>
       </section>
       <section class="history-view" id="historyView" hidden></section>
@@ -565,8 +602,8 @@ button,input,select,textarea{touch-action:manipulation}
 <dialog id="detailsDialog" class="modal details-dialog" aria-label="Détails et contrôle de l’ouvrage"><div class="modal-top"><span class="eyebrow">FICHE DE L’OUVRAGE</span><button class="terrain-icon-button" data-close-dialog aria-label="Fermer les détails"><i data-icon="close"></i></button></div><div id="detailsContent"></div><button class="terrain-button full" data-close-dialog>Revenir au plan</button></dialog>
 <dialog id="helpDialog" class="modal"><div class="modal-top"><span class="eyebrow">BIENVENUE SUR LE TERRAIN</span><button class="icon-button" data-close-dialog aria-label="Fermer le guide"><i data-icon="close"></i></button></div><h2>Un plan. Des gestes simples.<br>Un suivi qui avance.</h2><div class="help-steps"><div><b>01</b><p><strong>Touchez votre ouvrage</strong><span>Glissez pour déplacer le plan. Touchez un repère ou utilisez la liste. Si plusieurs ouvrages sont proches, choisissez celui qui vous intéresse.</span></p></div><div><b>02</b><p><strong>Indiquez ce qui est fait</strong><span>À faire, En cours ou Terminé. L’action s’enregistre sur cet appareil ; « Annuler » permet de revenir en arrière. Le contrôle est accessible dans « Détails et contrôle ».</span></p></div><div><b>03</b><p><strong>Ajoutez ou corrigez un ouvrage</strong><span>« Ajouter un ouvrage » propose Équipement, Cheminement ou Surface. « Ajuster le tracé » corrige les points au doigt ou au centimètre. « Modifier » ouvre sa fiche. Les dimensions et les prix sont dépliables dans sa fiche ; les autres actions sont dans le menu ⋯.</span></p></div></div><div class="help-note"><strong>Réseaux et blocages MEP</strong><br>Dans la fiche, indiquez la discipline, le réseau, la zone et la base de quantité. Sur un cheminement, « Marquer une portion réalisée » demande un début et une fin au stylet ; le réalisé vient de leur longueur. Le pourcentage manuel est identifié lorsqu’il s’agit d’une estimation. Un point bloquant associe son emplacement, une photo et un responsable. Les quantités physiques MEP restent distinctes des montants financiers. Le menu propose la synthèse du chantier et les exports. La superposition de PDF est une comparaison visuelle locale et temporaire ; elle ne modifie jamais l’échelle ni les tracés.</div><div class="help-note">Les modifications sont enregistrées sur cet appareil puis synchronisées avec votre chantier. En cours démarre à 50 %, ajustable dans la fiche. Seuls les ouvrages Contrôlés alimentent le montant validé.</div><button class="button primary full" data-close-dialog>Explorer le plan<i data-icon="arrow"></i></button></dialog>
 <dialog id="calibrationDialog" class="modal small"><div class="modal-top"><span class="eyebrow">ÉCHELLE DU PLAN</span><button class="icon-button" data-close-dialog aria-label="Fermer"><i data-icon="close"></i></button></div><h2>Quelle est cette distance ?</h2><p>Renseignez la longueur réelle entre les deux points que vous venez de placer.</p><form id="calibrationForm"><label class="field-label" for="realDistance">Distance réelle, en mètres</label><input id="realDistance" class="input" type="number" min="0.01" max="10000" step="any" placeholder="Ex. : 5" required><p class="field-hint">Cette échelle s’applique aux longueurs et surfaces de cette page.</p><button class="button primary full" type="submit">Appliquer l’échelle</button><button class="terrain-button full" type="button" data-mep-unscaled>Tracer sans métrage (quantitatif ou estimation MEP)</button></form></dialog>
-<dialog id="elementDialog" class="modal small" aria-labelledby="newElementTitle"><div class="modal-top"><span class="eyebrow" id="elementDialogEyebrow">NOUVEL OUVRAGE</span><button class="icon-button" data-close-dialog aria-label="Fermer"><i data-icon="close"></i></button></div><h2 id="newElementTitle">Ajouter un ouvrage</h2><form id="elementForm" novalidate><label class="field-label" for="elementName">Nom de l’ouvrage</label><input id="elementName" class="input" maxlength="120" required><label class="field-label" for="elementLot">Entreprise / lot du chantier</label><select id="elementLot" class="input"></select><div class="new-element-info" id="newElementInfo"></div>
-<fieldset class="mep-element-fields"><legend>Réseau technique MEP</legend><label class="mep-checkbox"><input type="checkbox" id="mepEnabled">Suivre cet ouvrage dans un réseau technique</label><div id="mepFields" hidden><label class="field-label" for="mepDiscipline">Discipline</label><select class="input" id="mepDiscipline"><option value="plumbing">Plomberie / eau / évacuations</option><option value="hvac">CVC / ventilation</option><option value="cfo">Électricité CFO</option><option value="cfa">Électricité CFA</option><option value="sprinkler">Sprinklers</option><option value="other">Autre réseau technique</option></select><label class="field-label" for="mepNetwork">Réseau</label><input class="input" id="mepNetwork" maxlength="120" placeholder="Ex. : Eau froide sanitaire"><p class="field-hint">Un ouvrage représente un tronçon du même réseau. Après création, « Marquer une portion réalisée » permet de repérer son installation exacte au stylet.</p><label class="field-label" for="mepSubnetwork">Sous-réseau (facultatif)</label><input class="input" id="mepSubnetwork" maxlength="120" placeholder="Ex. : Distribution local 105"><label class="field-label" for="mepZone">Zone / local</label><input class="input" id="mepZone" maxlength="120" placeholder="Ex. : Local 105R"><label class="field-label" for="mepQuantityMode">Base de calcul du prévu</label><select class="input" id="mepQuantityMode"><option value="drawing">Mesure du tracé et échelle du plan</option><option value="manual">Quantitatif prévu renseigné</option><option value="estimate">Estimation manuelle du pourcentage</option></select><div class="mep-field-pair"><label id="mepPlannedField" hidden>Quantité totale prévue<input class="input" id="mepPlanned" type="number" min="0.000000001" max="1000000000" step="any" inputmode="decimal"></label><label id="mepUnitField" hidden>Unité<select class="input" id="mepUnit"><option value="m">m linéaires</option><option value="u">équipements (u)</option><option value="m²">m²</option><option value="m³">m³</option></select></label></div><p id="mepQuantityHelp" class="field-hint"></p><label class="field-label" for="mepWeight">Poids du tronçon pour la synthèse entre unités différentes</label><input class="input" id="mepWeight" type="number" min="0.000000001" max="1000000000" step="any" value="1" inputmode="decimal"><p class="field-hint">Poids explicite : 1 par défaut. Dans un même réseau et une même unité, la consolidation utilise les quantités prévues.</p></div></fieldset>
+<dialog id="elementDialog" class="modal small" aria-labelledby="newElementTitle"><div class="modal-top"><span class="eyebrow" id="elementDialogEyebrow">NOUVEL OUVRAGE</span><button class="icon-button" data-close-dialog aria-label="Fermer"><i data-icon="close"></i></button></div><h2 id="newElementTitle">Ajouter un ouvrage</h2><form id="elementForm" novalidate><label class="field-label" for="elementName">Nom de l’ouvrage</label><input id="elementName" class="input" maxlength="120" required><label class="field-label" for="elementCompany">Entreprise</label><select id="elementCompany" class="input" required></select><label class="field-label" for="elementLot">Lot du chantier</label><select id="elementLot" class="input" required></select><div class="new-element-info" id="newElementInfo"></div>
+<fieldset class="mep-element-fields"><legend>Réseau technique MEP</legend><label class="mep-checkbox"><input type="checkbox" id="mepEnabled">Suivre cet ouvrage dans un réseau technique</label><div id="mepFields" hidden><p id="mepLotGuidance" class="mep-lot-guidance" role="status" hidden></p><label class="field-label" for="mepWorkResponsible">Responsable du tronçon <span class="field-hint">(facultatif)</span></label><select class="input" id="mepWorkResponsible"><option value="">Entreprise du lot (par défaut)</option></select><p class="field-hint">Choisissez une personne de l’entreprise affectée, ou gardez l’entreprise comme responsable.</p><label class="field-label" for="mepDiscipline">Discipline</label><select class="input" id="mepDiscipline"><option value="plumbing">Plomberie / eau / évacuations</option><option value="hvac">CVC / ventilation</option><option value="cfo">Électricité CFO</option><option value="cfa">Électricité CFA</option><option value="sprinkler">Sprinklers</option><option value="other">Autre réseau technique</option></select><label class="field-label" for="mepNetwork">Réseau</label><input class="input" id="mepNetwork" maxlength="120" placeholder="Ex. : Eau froide sanitaire"><p class="field-hint">Un ouvrage représente un tronçon du même réseau. Après création, « Marquer une portion réalisée » permet de repérer son installation exacte au stylet.</p><label class="field-label" for="mepSubnetwork">Sous-réseau (facultatif)</label><input class="input" id="mepSubnetwork" maxlength="120" placeholder="Ex. : Distribution local 105"><label class="field-label" for="mepZone">Zone / local</label><input class="input" id="mepZone" maxlength="120" placeholder="Ex. : Local 105R"><label class="field-label" for="mepQuantityMode">Base de calcul du prévu</label><select class="input" id="mepQuantityMode"><option value="drawing">Mesure du tracé et échelle du plan</option><option value="manual">Quantitatif prévu renseigné</option><option value="estimate">Estimation manuelle du pourcentage</option></select><div class="mep-field-pair"><label id="mepPlannedField" hidden>Quantité totale prévue<input class="input" id="mepPlanned" type="number" min="0.000000001" max="1000000000" step="any" inputmode="decimal"></label><label id="mepUnitField" hidden>Unité<select class="input" id="mepUnit"><option value="m">m linéaires</option><option value="u">équipements (u)</option><option value="m²">m²</option><option value="m³">m³</option></select></label></div><p id="mepQuantityHelp" class="field-hint"></p><label class="field-label" for="mepWeight">Poids du tronçon pour la synthèse entre unités différentes</label><input class="input" id="mepWeight" type="number" min="0.000000001" max="1000000000" step="any" value="1" inputmode="decimal"><p class="field-hint">Poids explicite : 1 par défaut. Dans un même réseau et une même unité, la consolidation utilise les quantités prévues.</p></div></fieldset>
 <details class="advanced-element-options" id="advancedElementOptions"><summary>Dimensions et prix <span>En option</span></summary>
 <fieldset id="dimensionFields" class="dimension-fields"><legend>Dimensions réelles <span>en option</span></legend>
   <div class="dimension-settings"><div id="dimensionProfileField"><label class="field-label" for="dimensionProfile">Section</label><select id="dimensionProfile" class="input"><option value="rect">Rectangulaire</option><option value="round">Circulaire</option></select></div><div><label class="field-label" for="dimensionUnit">Saisir en</label><select id="dimensionUnit" class="input"><option value="cm">cm</option><option value="mm">mm</option><option value="m">m</option></select></div></div>
@@ -640,6 +677,7 @@ const pageLabel = () => (0, model_js_1.documentPageName)(doc(), state.currentPag
 const dimensionForm = new dimension_form_js_1.DimensionForm({ root: $('elementForm'), getBase: () => pendingGeometry ? (0, model_js_1.shapeQuantity)(pendingGeometry.kind, pendingGeometry.points, state.calibrations[(0, model_js_1.scaleKey)(state.currentDoc, state.currentPage)]) : 0 });
 function storageWarning(message) { $('storageNotice').textContent = message; $('storageNotice').hidden = false; }
 let durableDocument = JSON.stringify({ elements: state.elements, calibrations: state.calibrations, billed: state.billed });
+let durableHistory = JSON.stringify(state.history), durableActivity = JSON.stringify(state.elementActivity || {});
 let saving = false;
 let noteSave = null;
 let changingStatus = false;
@@ -697,7 +735,10 @@ setInterval(async () => {
                 selected.clear();
             }
             state.history = value.history || state.history;
+            state.elementActivity = value.elementActivity || state.elementActivity;
             durableDocument = next;
+            durableHistory = JSON.stringify(state.history);
+            durableActivity = JSON.stringify(state.elementActivity);
             render();
             $('savedState').textContent = 'Synchronisé avec le chantier';
         }
@@ -722,13 +763,21 @@ function persist(noteOnly = false) {
     if (saving)
         return;
     const before = durableDocument;
+    const beforeHistory = durableHistory, beforeActivity = durableActivity;
     saving = true;
     document.body.setAttribute('data-progress-saving', '');
     $('savedState').textContent = 'Enregistrement sur cet appareil…';
     if (noteOnly)
         document.body.setAttribute('data-progress-note-saving', '');
-    const completion = (0, bridge_js_1.request)('save', JSON.parse(next)).then(result => {
+    const recent = state.history.at(-1);
+    const completion = (0, bridge_js_1.request)('save', { ...JSON.parse(next), activity: recent ? { title: recent.title, detail: recent.detail, icon: recent.icon } : undefined }).then(result => {
+        if (result.history)
+            state.history = result.history;
+        if (result.elementActivity)
+            state.elementActivity = result.elementActivity;
         durableDocument = next;
+        durableHistory = JSON.stringify(state.history);
+        durableActivity = JSON.stringify(state.elementActivity);
         $('storageNotice').hidden = true;
         $('savedState').textContent = result.text;
     }).catch(error => {
@@ -740,6 +789,8 @@ function persist(noteOnly = false) {
             throw error;
         }
         Object.assign(state, JSON.parse(before));
+        state.history = JSON.parse(beforeHistory);
+        state.elementActivity = JSON.parse(beforeActivity);
         state.undo = [];
         selected.clear();
         if (geometry.active) {
@@ -794,7 +845,12 @@ function record(title, detail, mutate, eventIcon = 'checkCircle', noteOnly = fal
         if (current)
             current.note = note.value;
     }
-    state.history.push({ id: crypto.randomUUID(), time: new Date().toISOString(), title, detail, icon: eventIcon });
+    const previous = JSON.parse(state.undo.at(-1).snapshot), old = new Map(previous.elements.map(el => [el.id, el]));
+    const changes = state.elements.filter(el => !sameDocument(old.get(el.id) || null, el)).map(el => ({ target: 'elements', key: el.id, before: old.get(el.id) || null, after: el }));
+    for (const el of previous.elements)
+        if (!state.elements.some(item => item.id === el.id))
+            changes.push({ target: 'elements', key: el.id, before: el, after: null });
+    state.history.push({ id: crypto.randomUUID(), time: new Date().toISOString(), title, detail, icon: eventIcon, changes: JSON.parse(JSON.stringify(changes)), planId: state.currentDoc, userId: bridge_js_1.boot.userId, author: (bridge_js_1.boot.people || []).find(person => person.id === bridge_js_1.boot.userId)?.name || 'Utilisateur de cet appareil', pending: true });
     state.history = state.history.slice(-80);
     persist(noteOnly);
     render();
@@ -1737,7 +1793,8 @@ function editSelected() {
     $('elementName').value = el.name;
     $('elementPrice').value = el.price;
     $('elementLot').innerHTML = model_js_1.LOTS.map(lot => `<option value="${(0, model_js_1.escapeHtml)(lot.id)}" ${el.lotId === lot.id ? 'selected' : ''}>${(0, model_js_1.escapeHtml)(lot.company)} · ${(0, model_js_1.escapeHtml)(lot.name)}</option>`).join('');
-    $('newElementInfo').textContent = `Mesure du tracé : ${(0, model_js_1.num)((0, model_js_1.geometricQuantity)(el, state), 2)} ${(0, model_js_1.unitFor)(el.kind)}`;
+    const unscaled = el.kind !== 'point' && !state.calibrations[(0, model_js_1.scaleKey)(el.docId, el.page)];
+    $('newElementInfo').textContent = unscaled ? (el.mep?.quantityMode === 'manual' ? `Tracé sans échelle · prévu MEP : ${(0, model_js_1.num)((0, mep_calculations_js_1.plannedQuantity)(el, state), 3)} ${(0, mep_calculations_js_1.mepUnit)(el)} (quantitatif renseigné)` : el.mep?.quantityMode === 'estimate' ? 'Tracé sans échelle · avancement par estimation manuelle' : 'Tracé sans échelle · définissez l’échelle pour obtenir un métrage.') : `Mesure du tracé : ${(0, model_js_1.num)((0, model_js_1.geometricQuantity)(el, state), 2)} ${(0, model_js_1.unitFor)(el.kind)}`;
     dimensionForm.setElement(el);
     mep.setElement(el);
     $('elementDialog').showModal();
@@ -1769,7 +1826,8 @@ function deleteSelected() {
     record(`${ids.size} ouvrage${ids.size > 1 ? 's' : ''} retiré${ids.size > 1 ? 's' : ''}`, `${pageLabel()} · suppression annulable`, () => { state.elements = state.elements.filter(el => !ids.has(el.id)); selected.clear(); }, 'trash');
 }
 $('terrainLotSelect').innerHTML = '<option value="all">Toutes les entreprises / lots</option>' + model_js_1.LOTS.map(lot => `<option value="${(0, model_js_1.escapeHtml)(lot.id)}">${(0, model_js_1.escapeHtml)(lot.company)} · ${(0, model_js_1.escapeHtml)(lot.name)}</option>`).join('');
-mep = (0, mep_ui_js_1.createMepUI)({ getState: () => state, getSelected: () => selected, getDoc: doc, record, toast, render, setView, isBusy: () => saving || unconfirmed, clearSelection: () => { selected.clear(); }, beginPositioning: () => { mode = 'mep-blocker'; document.body.classList.add('is-mep-positioning'); setView('plan'); render(); }, endPositioning: () => { mode = 'select'; document.body.classList.remove('is-mep-positioning'); render(); }, beginPortion: () => { mode = 'mep-portion'; document.body.classList.add('is-mep-positioning', 'is-mep-portion'); setView('plan'); render(); }, endPortion: () => { mode = 'select'; document.body.classList.remove('is-mep-positioning', 'is-mep-portion'); render(); } });
+mep = (0, mep_ui_js_1.createMepUI)({ locateWork: async (el) => { if (saving || unconfirmed || el.docId !== state.currentDoc)
+        return; filter = 'all'; setView('plan'); await setPage(el.page); selectElement(el.id); }, getState: () => state, getSelected: () => selected, getDoc: doc, record, toast, render, setView, isBusy: () => saving || unconfirmed, clearSelection: () => { selected.clear(); }, beginPositioning: () => { mode = 'mep-blocker'; document.body.classList.add('is-mep-positioning'); setView('plan'); render(); }, endPositioning: () => { mode = 'select'; document.body.classList.remove('is-mep-positioning'); render(); }, beginPortion: () => { mode = 'mep-portion'; document.body.classList.add('is-mep-positioning', 'is-mep-portion'); setView('plan'); render(); }, endPortion: () => { mode = 'select'; document.body.classList.remove('is-mep-positioning', 'is-mep-portion'); render(); } });
 (0, icons_js_1.fillIcons)();
 render();
 $('savedState').textContent = bridge_js_1.boot.syncText;
@@ -2701,6 +2759,56 @@ function fillIcons(root = document) {
 }
 
 };
+M["mep-audit.js"]=function(require,exports,module){"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.eventAuthor = eventAuthor;
+exports.workActivity = workActivity;
+exports.responsibleLabel = responsibleLabel;
+const validTime = value => typeof value === 'string' && Number.isFinite(Date.parse(value));
+function eventAuthor(event = {}) {
+    const value = event.authorName || event.author?.name || (typeof event.author === 'string' ? event.author : '') || event.actorName;
+    return typeof value === 'string' && value.trim() ? value.trim() : 'Auteur non renseigné';
+}
+function workActivity(state = {}, plan = {}, el = {}, snapshotHistory = []) {
+    let result = { updatedAt: null, authorName: 'Auteur non renseigné', authorId: null, pending: false };
+    const accept = value => {
+        if (!value)
+            return;
+        const time = value.updatedAt || value.time;
+        if (!validTime(time))
+            return;
+        const pending = Boolean(value.pending);
+        if (result.updatedAt && Date.parse(time) < Date.parse(result.updatedAt))
+            return;
+        if (result.updatedAt && Date.parse(time) === Date.parse(result.updatedAt) && result.pending && !pending)
+            return;
+        result = { updatedAt: time, authorName: eventAuthor(value), authorId: value.userId || value.authorId || null, pending };
+    };
+    accept(plan.elementActivity?.[el.id]);
+    const isCurrent = (!state.currentDoc || state.currentDoc === el.docId) && (!plan.id || plan.id === el.docId);
+    if (isCurrent)
+        accept(state.elementActivity?.[el.id]);
+    for (const event of [...(snapshotHistory || []), ...(isCurrent ? state.history || [] : [])]) {
+        if (event.planId && event.planId !== (plan.id || el.docId))
+            continue;
+        if (event.sourceRef && plan.sourceRef && event.sourceRef !== plan.sourceRef)
+            continue;
+        if (!(event.changes || []).some(change => change.target === 'elements' && change.key === el.id))
+            continue;
+        accept(event);
+    }
+    if (isCurrent && state.elementActivity?.[el.id]?.pending)
+        result.pending = true;
+    return result;
+}
+function responsibleLabel(el = {}, people = [], lotFallback = {}) {
+    const id = el.mep?.responsibleId;
+    if (id)
+        return people.find(person => person.id === id)?.name || 'Responsable indisponible';
+    return (typeof lotFallback === 'string' ? lotFallback : lotFallback.company) || 'Entreprise à affecter';
+}
+
+};
 M["mep-calculations.js"]=function(require,exports,module){"use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.rangePercent = exports.executedQuantity = exports.isBlocking = exports.isOpenBlocker = exports.mepUnit = exports.mepPercent = exports.BLOCKER_STATUSES = exports.DISCIPLINES = void 0;
@@ -2906,6 +3014,7 @@ exports.exportMepPdf = exportMepPdf;
 const bridge_js_1 = require("./bridge.js");
 const model_js_1 = require("./model.js");
 const mep_calculations_js_1 = require("./mep-calculations.js");
+const mep_audit_js_1 = require("./mep-audit.js");
 const disciplines = { plumbing: 'Plomberie / eau', hvac: 'CVC / ventilation', cfo: 'Électricité CFO', cfa: 'Électricité CFA', sprinkler: 'Sprinklers', other: 'Autre réseau' };
 const blockerStatuses = { open: 'Ouvert', assigned: 'Affecté', in_progress: 'En traitement', resolved: 'Résolu', closed: 'Vérifié / clos' };
 const number = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -2945,6 +3054,7 @@ function matchesMepExportFilters(el, plan, filters = {}) {
 }
 function mepExportRows(state, snapshot, filters = {}) {
     const plans = mepExportPlans(state, snapshot), works = [], blockers = [];
+    const scope = (snapshot ? 'Chantier — versions actuelles des plans' : 'PDF courant — toutes les pages') + (filters.openOnly ? ' · points ouverts uniquement et ouvrages concernés' : '');
     for (const plan of plans) {
         const document = plan.document || { elements: [], calibrations: {} };
         for (const el of document.elements || []) {
@@ -2952,7 +3062,9 @@ function mepExportRows(state, snapshot, filters = {}) {
                 continue;
             const mep = el.mep || {}, lot = (0, model_js_1.lotFor)(el.lotId), measured = number((0, mep_calculations_js_1.plannedQuantity)(el, document)), planned = measured > 0 ? measured : null, executed = planned === null ? null : number((0, mep_calculations_js_1.executedQuantity)(el, document));
             const progress = number((0, mep_calculations_js_1.mepPercent)(el)) ?? 0;
-            const common = { plan, el, building: plan.building || 'Sans bâtiment', level: plan.level || `Page ${el.page}`, zone: mep.zone || el.room || 'Non renseignée', discipline: disciplines[mep.discipline] || 'Non classé MEP', network: mep.network || 'Non renseigné', subnetwork: mep.subnetwork || '', company: lot.company, lot: lot.name, planned, executed, unit: (0, mep_calculations_js_1.mepUnit)(el), percent: progress / 100, validated: el.status === 'checked' ? executed : 0, method: mep.quantityMode === 'estimate' ? 'Estimation manuelle' : mep.quantityMode === 'manual' ? 'Quantité prévue saisie' : 'Mesure du tracé / échelle de la page', weight: number(mep.weight) ?? 1 };
+            const activity = (0, mep_audit_js_1.workActivity)(state, plan, el, snapshot?.history || []);
+            const common = { plan, el, building: plan.building || 'Sans bâtiment', level: plan.level || `Page ${el.page}`, zone: mep.zone || el.room || 'Non renseignée', discipline: disciplines[mep.discipline] || 'Non classé MEP', network: mep.network || 'Non renseigné', subnetwork: mep.subnetwork || '', company: lot.company, lot: lot.name, planned, executed, unit: (0, mep_calculations_js_1.mepUnit)(el), percent: progress / 100, validated: el.status === 'checked' ? executed : 0, method: mep.quantityMode === 'estimate' ? 'Estimation manuelle' : mep.quantityMode === 'manual' ? 'Quantité prévue saisie' : 'Mesure du tracé / échelle de la page', weight: number(mep.weight) ?? 1,
+                workResponsible: (0, mep_audit_js_1.responsibleLabel)(el, bridge_js_1.boot.people || [], lot.company), updatedAt: activity.updatedAt || null, updatedBy: activity.authorName || '', updatePending: Boolean(activity.pending), exportScope: scope };
             works.push(common);
             for (const blocker of el.blockers || []) {
                 if (filters.openOnly && !active(blocker))
@@ -2962,17 +3074,17 @@ function mepExportRows(state, snapshot, filters = {}) {
             }
         }
     }
-    return { plans, works, blockers, scope: snapshot ? 'Chantier — versions actuelles des plans' : 'PDF courant — toutes les pages', generatedAt: generated(), snapshotAt: snapshot?.generatedAt || null, truncated: Boolean(snapshot?.truncated) };
+    return { plans, works, blockers, scope, generatedAt: generated(), snapshotAt: snapshot?.generatedAt || null, truncated: Boolean(snapshot?.truncated) };
 }
-const workColumns = ['Bâtiment', 'Niveau', 'Zone / local', 'Plan', 'Indice / révision', 'Page', 'Discipline', 'Réseau', 'Sous-réseau', 'Référence', 'Ouvrage', 'Entreprise', 'Lot', 'Prévu', 'Exécuté', 'Unité', 'Avancement', 'Vérifié', 'Méthode de calcul', 'Poids de consolidation', 'État', 'Blocage actif', 'Note', 'Identifiant du plan', 'Identifiant du tronçon', 'Portions exécutées normalisées (JSON)'];
-function workCells(row) { return [row.building, row.level, row.zone, row.plan.name, row.plan.revision || '', row.el.page, row.discipline, row.network, row.subnetwork, row.el.reference || '', row.el.name, row.company, row.lot, row.planned, row.executed, row.unit, row.percent, row.validated, row.method, row.weight, model_js_1.STATUSES[row.el.status]?.label || row.el.status, (0, mep_calculations_js_1.isBlocking)(row.el) ? 'Oui' : 'Non', row.el.note || '', row.plan.id, row.el.id, row.el.executedRanges ? JSON.stringify(row.el.executedRanges) : '']; }
+const workColumns = ['Bâtiment', 'Niveau', 'Zone / local', 'Plan', 'Indice / révision', 'Page', 'Discipline', 'Réseau', 'Sous-réseau', 'Référence', 'Ouvrage', 'Entreprise', 'Lot', 'Prévu', 'Exécuté', 'Unité', 'Avancement', 'Vérifié', 'Méthode de calcul', 'Poids de consolidation', 'État', 'Blocage actif', 'Note', 'Identifiant du plan', 'Identifiant du tronçon', 'Portions exécutées normalisées (JSON)', 'Responsable du tronçon', 'Dernière mise à jour du tronçon UTC', 'Auteur de mise à jour', 'Source de mise à jour', 'Périmètre de l’export'];
+function workCells(row) { return [row.building, row.level, row.zone, row.plan.name, row.plan.revision || '', row.el.page, row.discipline, row.network, row.subnetwork, row.el.reference || '', row.el.name, row.company, row.lot, row.planned, row.executed, row.unit, row.percent, row.validated, row.method, row.weight, model_js_1.STATUSES[row.el.status]?.label || row.el.status, (0, mep_calculations_js_1.isBlocking)(row.el) ? 'Oui' : 'Non', row.el.note || '', row.plan.id, row.el.id, row.el.executedRanges ? JSON.stringify(row.el.executedRanges) : '', row.workResponsible, row.updatedAt || '', row.updatedBy, row.updatePending ? 'Locale — synchronisation en attente' : row.updatedAt ? 'Synchronisée' : 'Non renseignée', row.exportScope]; }
 const blockerColumns = ['Repère', 'Bâtiment', 'Niveau', 'Zone / local', 'Plan', 'Indice / révision', 'Page', 'Réseau', 'Tronçon', 'Description', 'Entreprise responsable', 'Responsable', 'Ouverture UTC', 'Échéance', 'Statut', 'Bloque la progression', 'Priorité', 'En retard', 'Nombre de photos', 'Identifiant du blocage', 'Identifiant du tronçon', 'Position X', 'Position Y'];
 function blockerCells(row) { const b = row.blocker; return [row.number, row.building, row.level, row.zone, row.plan.name, row.plan.revision || '', row.el.page, row.network, row.el.reference || row.el.name, b.description, row.responsibleCompany, row.responsible, b.openedAt, b.dueDate || '', blockerStatuses[b.status] || b.status, b.blocksProgress ? 'Oui' : 'Non', b.priority, row.overdue ? 'Oui' : 'Non', (b.photoRefs || []).length, b.id, row.el.id, b.point?.x, b.point?.y]; }
 function appendMepSheets(book, XLSX, state, snapshot = null, filters = {}) {
     const data = mepExportRows(state, snapshot, filters);
     const works = XLSX.utils.aoa_to_sheet([workColumns, ...data.works.map(workCells)]);
     works['!cols'] = workColumns.map((_, index) => ({ wch: [0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 18, 22].includes(index) ? 32 : 20 }));
-    works['!autofilter'] = { ref: `A1:Z${Math.max(1, data.works.length + 1)}` };
+    works['!autofilter'] = { ref: `A1:${XLSX.utils.encode_col(workColumns.length - 1)}${Math.max(1, data.works.length + 1)}` };
     for (let i = 2; i <= data.works.length + 1; i++) {
         if (works[`Q${i}`])
             works[`Q${i}`].z = '0.0%';
@@ -3016,6 +3128,10 @@ function exportNotes(data, filters) {
         ['Unité', 'Les mètres, unités, m² et m³ restent séparés. Aucune somme inter-unités.'],
         ['Poids', 'Les poids de consolidation explicites sont indépendants des prix HT. Les quantités homogènes sont totalisées par unité.'],
         ['Vérifié', 'Seuls les ouvrages Contrôlés alimentent la quantité vérifiée. Résolu est distinct de Vérifié / clos pour un blocage.'],
+        ['Responsable', 'Personne désignée sur le tronçon, sinon entreprise affectée. Un nom de personne indisponible ne remplace pas arbitrairement la responsabilité entreprise.'],
+        ['Mise à jour du tronçon', 'Dernière opération affectant cet ouvrage, sans reprendre la date globale du plan. Une date inconnue reste vide ; les modifications locales en attente sont identifiées.'],
+        ['Points bloquants', filters.openOnly ? 'Points non résolus uniquement (Ouvert, Affecté, En traitement), avec leurs ouvrages concernés. Les preuves et repères des points Résolu ou Vérifié / clos sont exclus de la liste et du rapport.' : 'Tous les points du périmètre, y compris Résolu et Vérifié / clos.'],
+        ['Historique', 'La trace avant / après reste conservée, y compris les anciens statuts des ouvrages du périmètre ; elle ne constitue pas une liste de points actuellement ouverts.'],
         ['Filtres', JSON.stringify(filters)], ['Limite atteinte', data.truncated ? 'Oui — export incomplet, réduire le périmètre' : 'Non'],
         ['Finances', 'Ce fichier est un suivi physique, sans émission de facture. L’export financier reste distinct.'],
     ];
@@ -3033,7 +3149,7 @@ async function exportMepWorkbook(state, snapshot = null, filters = {}) {
         throw Error('Le moteur Excel est indisponible.');
     const book = XLSX.utils.book_new(), data = appendMepSheets(book, XLSX, state, snapshot, filters);
     addMepSummary(book, XLSX, data);
-    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['Date UTC', 'Plan', 'Auteur', 'Action', 'Détail', 'Identifiant de modification', 'Partie JSON', 'Modifications avant / après (JSON)'], ...mepHistoryRows(state, snapshot)]), 'Historique MEP');
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet([['Date UTC', 'Plan', 'Auteur', 'Action', 'Détail', 'Identifiant de modification', 'Partie JSON', 'Modifications avant / après (JSON)'], ...mepHistoryRows(state, snapshot, data.works)]), 'Historique MEP');
     const notes = XLSX.utils.aoa_to_sheet(exportNotes(data, filters));
     notes['!cols'] = [{ wch: 28 }, { wch: 130 }];
     XLSX.utils.book_append_sheet(book, notes, 'Méthode MEP');
@@ -3041,9 +3157,22 @@ async function exportMepWorkbook(state, snapshot = null, filters = {}) {
     await (0, bridge_js_1.request)('download', { base64: XLSX.write(book, { type: 'base64', bookType: 'xlsx', compression: true }), format: 'xlsx', filename: 'BuildTrack-suivi-MEP.xlsx' });
     return { elements: data.works.length, blockers: data.blockers.length, plans: data.plans.length };
 }
-function mepHistoryRows(state, snapshot) {
+function mepHistoryRows(state, snapshot, works = null) {
     const events = new Map();
-    for (const event of [...(snapshot?.history || []), ...(state.history || [])]) {
+    for (const original of [...(snapshot?.history || []), ...(state.history || [])]) {
+        let event = original;
+        if (works) {
+            const planId = event.planId || bridge_js_1.boot.plan.id, related = works.filter(row => row.plan.id === planId);
+            if (!related.length)
+                continue;
+            if (Array.isArray(event.changes)) {
+                const ids = new Set(related.map(row => row.el.id)), pages = new Set(related.map(row => `${row.el.docId}:${row.el.page}`));
+                const changes = event.changes.filter(change => change.target === 'elements' && ids.has(change.key) || change.target === 'calibrations' && pages.has(change.key));
+                if (!changes.length)
+                    continue;
+                event = { ...event, changes };
+            }
+        }
         const key = event.id || JSON.stringify([event.time, event.planId, event.title, event.detail]);
         if (!events.has(key))
             events.set(key, event);
@@ -3098,11 +3227,11 @@ function buildMepReportHtml(data, { pages = [], photos = {}, filters = {}, proje
     const open = data.blockers.filter(row => active(row.blocker)).length, overdue = data.blockers.filter(row => row.overdue).length;
     const physical = (0, mep_calculations_js_1.summarizeMep)(data.plans.map(plan => ({ ...plan, document: { ...plan.document, elements: data.works.filter(row => row.plan.id === plan.id).map(row => row.el) } })), {});
     const quantities = Object.entries(physical.byUnit).map(([unit, q]) => `${format(q.executed)} / ${format(q.planned)} ${(0, model_js_1.escapeHtml)(unit)} exécutés ; ${format(q.validated)} ${(0, model_js_1.escapeHtml)(unit)} vérifiés`).join(' · ');
-    const cards = data.works.map(row => `<article class="work ${text(row.el.note).length > 1800 ? 'long' : ''}"><div class="work-intro"><header><strong>${(0, model_js_1.escapeHtml)(row.el.reference || row.el.name)}</strong><span class="percent">${format(row.percent * 100)} %</span></header><h3>${(0, model_js_1.escapeHtml)(row.el.name)}</h3><p>${(0, model_js_1.escapeHtml)(row.building)} · ${(0, model_js_1.escapeHtml)(row.level)} · ${(0, model_js_1.escapeHtml)(row.zone)}<br>${(0, model_js_1.escapeHtml)(row.discipline)} · ${(0, model_js_1.escapeHtml)(row.network)}${row.subnetwork ? ' / ' + (0, model_js_1.escapeHtml)(row.subnetwork) : ''}<br>${(0, model_js_1.escapeHtml)(row.company)} · ${(0, model_js_1.escapeHtml)(row.lot)}</p><p class="measure"><b>${format(row.executed)} / ${format(row.planned)} ${(0, model_js_1.escapeHtml)(row.unit)}</b> · vérifié : ${format(row.validated)} ${(0, model_js_1.escapeHtml)(row.unit)}</p><p>${(0, model_js_1.escapeHtml)(row.method)} · ${(0, model_js_1.escapeHtml)(model_js_1.STATUSES[row.el.status]?.label || row.el.status)}${(0, mep_calculations_js_1.isBlocking)(row.el) ? ' · <b class="danger">Progression bloquée</b>' : ''}</p></div>${row.el.note ? '<p class="note">' + (0, model_js_1.escapeHtml)(row.el.note) + '</p>' : ''}<small>${(0, model_js_1.escapeHtml)(row.plan.name)} · page ${row.el.page} · indice ${(0, model_js_1.escapeHtml)(row.plan.revision || 'non renseigné')}</small></article>`).join('');
+    const cards = data.works.map(row => `<article class="work ${text(row.el.note).length > 1800 ? 'long' : ''}"><div class="work-intro"><header><strong>${(0, model_js_1.escapeHtml)(row.el.reference || row.el.name)}</strong><span class="percent">${format(row.percent * 100)} %</span></header><h3>${(0, model_js_1.escapeHtml)(row.el.name)}</h3><p>${(0, model_js_1.escapeHtml)(row.building)} · ${(0, model_js_1.escapeHtml)(row.level)} · ${(0, model_js_1.escapeHtml)(row.zone)}<br>${(0, model_js_1.escapeHtml)(row.discipline)} · ${(0, model_js_1.escapeHtml)(row.network)}${row.subnetwork ? ' / ' + (0, model_js_1.escapeHtml)(row.subnetwork) : ''}<br>${(0, model_js_1.escapeHtml)(row.company)} · ${(0, model_js_1.escapeHtml)(row.lot)}</p><p class="work-activity">Responsable du tronçon : <b>${(0, model_js_1.escapeHtml)(row.workResponsible)}</b><br>Dernière mise à jour : ${(0, model_js_1.escapeHtml)(row.updatedAt || 'non renseignée')}${row.updatedAt ? ' (UTC)' : ''}${row.updatedBy ? ' · ' + (0, model_js_1.escapeHtml)(row.updatedBy) : ''}${row.updatePending ? ' · modification locale en attente' : ''}</p><p class="measure"><b>${format(row.executed)} / ${format(row.planned)} ${(0, model_js_1.escapeHtml)(row.unit)}</b> · vérifié : ${format(row.validated)} ${(0, model_js_1.escapeHtml)(row.unit)}</p><p>${(0, model_js_1.escapeHtml)(row.method)} · ${(0, model_js_1.escapeHtml)(model_js_1.STATUSES[row.el.status]?.label || row.el.status)}${(0, mep_calculations_js_1.isBlocking)(row.el) ? ' · <b class="danger">Progression bloquée</b>' : ''}</p></div>${row.el.note ? '<p class="note">' + (0, model_js_1.escapeHtml)(row.el.note) + '</p>' : ''}<small>${(0, model_js_1.escapeHtml)(row.plan.name)} · page ${row.el.page} · indice ${(0, model_js_1.escapeHtml)(row.plan.revision || 'non renseigné')}</small></article>`).join('');
     const blockers = data.blockers.map(row => `<article class="blocker ${text(row.blocker.description).length > 1400 || (row.blocker.photoRefs || []).length > 2 ? 'long' : ''}"><div class="work-intro"><header><b>Point ${row.number} — ${(0, model_js_1.escapeHtml)(blockerStatuses[row.blocker.status] || row.blocker.status)}</b>${row.overdue ? '<strong class="danger">Échéance dépassée</strong>' : ''}</header><h3>${(0, model_js_1.escapeHtml)(row.el.reference || row.el.name)} · ${(0, model_js_1.escapeHtml)(row.network)}</h3><p>${(0, model_js_1.escapeHtml)(row.building)} · ${(0, model_js_1.escapeHtml)(row.level)} · ${(0, model_js_1.escapeHtml)(row.zone)} · page ${row.el.page}</p></div><p class="note">${(0, model_js_1.escapeHtml)(row.blocker.description)}</p><p>Responsable : <b>${(0, model_js_1.escapeHtml)(row.responsibleCompany)} · ${(0, model_js_1.escapeHtml)(row.responsible)}</b><br>Ouvert le ${(0, model_js_1.escapeHtml)(row.blocker.openedAt)} · échéance ${(0, model_js_1.escapeHtml)(row.blocker.dueDate || 'non définie')}<br>${row.blocker.blocksProgress ? 'Empêche la progression' : 'Réserve à traiter, sans arrêt du tronçon'} · priorité ${(0, model_js_1.escapeHtml)(row.blocker.priority)}</p><div class="photos">${(row.blocker.photoRefs || []).map((ref, i) => photos[ref] ? `<figure><img src="${safeImageData(photos[ref])}" alt="Photo ${i + 1} du point ${row.number}"><figcaption>Point ${row.number} · photo ${i + 1}</figcaption></figure>` : '<p>Photo indisponible — réouvrir le média en ligne avant export.</p>').join('')}</div><small>Blocage ${(0, model_js_1.escapeHtml)(row.blocker.id)} · tronçon ${(0, model_js_1.escapeHtml)(row.el.id)}</small></article>`).join('');
     const pageHtml = pages.map(page => `<section class="plan-page"><header><h2>${(0, model_js_1.escapeHtml)(page.name)} · page ${page.page}</h2><p>${(0, model_js_1.escapeHtml)(page.building || 'Sans bâtiment')} · ${(0, model_js_1.escapeHtml)(page.level || '')} · indice ${(0, model_js_1.escapeHtml)(page.revision || 'non renseigné')}</p></header><div class="plan-image" style="width:${Math.min(270, 149 * 1000 / Number(page.height))}mm;aspect-ratio:1000/${Number(page.height)}"><img src="${safeImageData(page.image)}" alt="Fond de plan PDF complet">${mepAnnotationSvg(page.elements, page.blockers, page.height)}</div><p class="legend"><span style="color:#718096">● À faire</span><span style="color:#b7770c">● En cours</span><span style="color:#2766ae">● Terminé</span><span style="color:#087f5b">● Contrôlé / clos</span><span style="color:#bd2436">● Bloqué / point ouvert</span></p></section>`).join('');
     return `<!doctype html><html lang="fr"><head><meta charset="utf-8"><title>BuildTrack — suivi MEP</title><style>
-@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font:11px Arial,sans-serif;color:#12233d;margin:0;line-height:1.45}h1{font-size:24px;margin:0 0 8px}h2{font-size:18px;margin:0 0 6px}h3{font-size:13px;margin:6px 0}p{margin:6px 0;overflow-wrap:anywhere}header{display:flex;justify-content:space-between;align-items:baseline;gap:12px}section>header{display:block}.cover{margin-bottom:18px}.scope{background:#edf3fa;padding:12px;border-left:4px solid #003582}.summary{display:flex;gap:20px;margin:14px 0}.summary strong{display:block;font-size:20px}.plan-page{break-before:page;page-break-before:always;break-inside:avoid;page-break-inside:avoid}.plan-page h2{font-size:15px}.plan-image{position:relative;width:100%;margin:auto}.plan-image>img{width:100%;height:100%;object-fit:contain;display:block}.plan-image>svg{position:absolute;inset:0;width:100%;height:100%}.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10px}.work,.blocker{border:1px solid #d5deeb;border-radius:6px;padding:12px;margin:10px 0;break-inside:avoid;page-break-inside:avoid;overflow-wrap:anywhere}.work header,.blocker header{font-size:12px}.long{break-inside:auto;page-break-inside:auto}.long header,.long h3{break-after:avoid;page-break-after:avoid}.percent{font-weight:bold;font-size:18px;color:#003582}.measure{background:#f3f6fb;padding:8px}.danger{color:#b21d32}.work-intro{break-inside:avoid;page-break-inside:avoid;break-after:avoid;page-break-after:avoid}.note{white-space:pre-wrap;overflow-wrap:anywhere;orphans:3;widows:3}.photos{display:flex;gap:10px;flex-wrap:wrap}figure{margin:4px 0;width:31%;break-inside:avoid;page-break-inside:avoid}figure img{display:block;width:100%;max-height:80mm;object-fit:contain}figcaption,small{font-size:9px;color:#52627a}footer{margin-top:18px;padding-top:8px;border-top:1px solid #d5deeb;font-size:9px}.section-title{break-after:avoid;page-break-after:avoid;margin-top:20px}img{max-width:100%}</style></head><body><section class="cover"><h1>Suivi MEP — ${(0, model_js_1.escapeHtml)(projectName)}</h1><p>Généré le ${(0, model_js_1.escapeHtml)(data.generatedAt)} · ${(0, model_js_1.escapeHtml)(data.scope)}</p><div class="scope">${(0, model_js_1.escapeHtml)(data.snapshotAt ? 'Instantané chantier du ' + data.snapshotAt : 'PDF courant')} · Les modifications locales du plan ouvert sont incluses. Les autres plans reflètent l’instantané serveur. Les anciennes révisions ne sont pas superposées ni déplacées automatiquement.</div><div class="summary"><div><strong>${data.works.length}</strong>tronçons / ouvrages</div><div><strong>${open}</strong>points ouverts</div><div><strong>${overdue}</strong>échéances dépassées</div></div><p><b>Avancement consolidé : ${physical.percent === null ? 'non calculable' : format(physical.percent) + ' %'}</b> · ${(0, model_js_1.escapeHtml)(physical.method)}</p><p>${quantities || 'Aucune quantité mesurable dans ce périmètre.'}</p><p><b>Calcul physique :</b> exécuté / prévu × 100. Les unités restent séparées. Les estimations manuelles sont identifiées ; seuls les ouvrages Contrôlés sont vérifiés. Les pourcentages physiques sont indépendants de la valorisation HT.</p><p>Filtres : ${(0, model_js_1.escapeHtml)(Object.entries(filters).filter(([, v]) => v && v !== 'all').map(([k, v]) => k + ' = ' + v).join(' · ') || 'aucun')}</p><p>Les feuilles de plan annotées ci-après concernent le PDF ouvert. Les ouvrages des autres plans du chantier sont repris dans la liste.</p></section><h2 class="section-title">Réseaux et quantités</h2>${cards || '<p>Aucun ouvrage dans ce périmètre.</p>'}${pageHtml}<h2 class="section-title">Points bloquants et actions</h2>${blockers || '<p>Aucun point bloquant dans ce périmètre.</p>'}<footer>Généré par BuildTrack · Suivi physique, sans émission de facture · ${(0, model_js_1.escapeHtml)(data.generatedAt)}</footer></body></html>`;
+@page{size:A4 landscape;margin:12mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{font:11px Arial,sans-serif;color:#12233d;margin:0;line-height:1.45}h1{font-size:24px;margin:0 0 8px}h2{font-size:18px;margin:0 0 6px}h3{font-size:13px;margin:6px 0}p{margin:6px 0;overflow-wrap:anywhere}header{display:flex;justify-content:space-between;align-items:baseline;gap:12px}section>header{display:block}.cover{margin-bottom:18px}.scope{background:#edf3fa;padding:12px;border-left:4px solid #003582}.summary{display:flex;gap:20px;margin:14px 0}.summary strong{display:block;font-size:20px}.plan-page{break-before:page;page-break-before:always;break-inside:avoid;page-break-inside:avoid}.plan-page h2{font-size:15px}.plan-image{position:relative;width:100%;margin:auto}.plan-image>img{width:100%;height:100%;object-fit:contain;display:block}.plan-image>svg{position:absolute;inset:0;width:100%;height:100%}.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:10px}.work,.blocker{border:1px solid #d5deeb;border-radius:6px;padding:12px;margin:10px 0;break-inside:avoid;page-break-inside:avoid;overflow-wrap:anywhere}.work header,.blocker header{font-size:12px}.long{break-inside:auto;page-break-inside:auto}.long header,.long h3{break-after:avoid;page-break-after:avoid}.percent{font-weight:bold;font-size:18px;color:#003582}.measure{background:#f3f6fb;padding:8px}.danger{color:#b21d32}.work-intro{break-inside:avoid;page-break-inside:avoid;break-after:avoid;page-break-after:avoid}.note{white-space:pre-wrap;overflow-wrap:anywhere;orphans:3;widows:3}.photos{display:flex;gap:10px;flex-wrap:wrap}figure{margin:4px 0;width:31%;break-inside:avoid;page-break-inside:avoid}figure img{display:block;width:100%;max-height:80mm;object-fit:contain}figcaption,small{font-size:9px;color:#52627a}footer{margin-top:18px;padding-top:8px;border-top:1px solid #d5deeb;font-size:9px}.section-title{break-after:avoid;page-break-after:avoid;margin-top:20px}img{max-width:100%}</style></head><body><section class="cover"><h1>Suivi MEP — ${(0, model_js_1.escapeHtml)(projectName)}</h1><p>Généré le ${(0, model_js_1.escapeHtml)(data.generatedAt)} · ${(0, model_js_1.escapeHtml)(data.scope)}</p><div class="scope">${(0, model_js_1.escapeHtml)(data.snapshotAt ? 'Instantané chantier du ' + data.snapshotAt : 'PDF courant')} · Les modifications locales du plan ouvert sont incluses. Les autres plans reflètent l’instantané serveur. Les anciennes révisions ne sont pas superposées ni déplacées automatiquement.</div><div class="summary"><div><strong>${data.works.length}</strong>tronçons / ouvrages</div><div><strong>${open}</strong>points ouverts</div><div><strong>${overdue}</strong>échéances dépassées</div></div><p><b>Avancement consolidé : ${physical.percent === null ? 'non calculable' : format(physical.percent) + ' %'}</b> · ${(0, model_js_1.escapeHtml)(physical.method)}</p><p>${quantities || 'Aucune quantité mesurable dans ce périmètre.'}</p><p><b>Calcul physique :</b> exécuté / prévu × 100. Les unités restent séparées. Les estimations manuelles sont identifiées ; seuls les ouvrages Contrôlés sont vérifiés. Les pourcentages physiques sont indépendants de la valorisation HT.</p><p>Filtres : ${(0, model_js_1.escapeHtml)(Object.entries(filters).filter(([, v]) => v && v !== 'all').map(([k, v]) => k + ' = ' + v).join(' · ') || 'aucun')}</p><p>${filters.openOnly ? 'Points ouverts uniquement : les points Résolu et Vérifié / clos, leurs repères et leurs photos sont exclus.' : 'Points bloquants : tous les statuts du périmètre sont inclus.'}</p><p>Les feuilles de plan annotées ci-après concernent le PDF ouvert. Les ouvrages des autres plans du chantier sont repris dans la liste.</p></section><h2 class="section-title">Réseaux et quantités</h2>${cards || '<p>Aucun ouvrage dans ce périmètre.</p>'}${pageHtml}<h2 class="section-title">Points bloquants et actions</h2>${blockers || '<p>Aucun point bloquant dans ce périmètre.</p>'}<footer>Généré par BuildTrack · Suivi physique, sans émission de facture · ${(0, model_js_1.escapeHtml)(data.generatedAt)}</footer></body></html>`;
 }
 function safeImageData(value) { if (typeof value !== 'string' || !/^data:image\/(?:png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/.test(value))
     throw Error('Image du rapport invalide.'); return value; }
@@ -3180,13 +3309,17 @@ async function exportMepPdf(state, snapshot = null, filters = {}) {
 };
 M["mep-ui.js"]=function(require,exports,module){"use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.networkKey = exports.BLOCKER_STATUSES = exports.DISCIPLINES = void 0;
+exports.networkKey = exports.workStatus = exports.WORK_STATUSES = exports.BLOCKER_STATUSES = exports.DISCIPLINES = void 0;
 exports.createMepUI = createMepUI;
 const bridge_js_1 = require("./bridge.js");
 const model_js_1 = require("./model.js");
+const mep_audit_js_1 = require("./mep-audit.js");
 const mep_calculations_js_1 = require("./mep-calculations.js");
 exports.DISCIPLINES = { plumbing: 'Plomberie / eau / évacuations', hvac: 'CVC / ventilation', cfo: 'Électricité CFO', cfa: 'Électricité CFA', sprinkler: 'Sprinklers', other: 'Autre réseau technique' };
 exports.BLOCKER_STATUSES = { open: 'Ouvert', assigned: 'Affecté', in_progress: 'En traitement', resolved: 'Résolu', closed: 'Vérifié / clos' };
+exports.WORK_STATUSES = { todo: 'À faire', progress: 'En cours', installed: 'Terminé', checked: 'Contrôlé' };
+const workStatus = el => `${exports.WORK_STATUSES[el.status] || 'Statut à vérifier'}${(0, mep_calculations_js_1.isBlocking)(el) ? ' · Bloqué' : ''}`;
+exports.workStatus = workStatus;
 const networkKey = el => el.mep ? JSON.stringify([el.mep.discipline, el.mep.network, el.mep.subnetwork || '']) : '';
 exports.networkKey = networkKey;
 const active = b => b.status !== 'closed' && b.status !== 'resolved';
@@ -3199,6 +3332,7 @@ function createMepUI(ports) {
     let blockerElementId = null, blockerId = null, blockerPoint = null, photoRefs = [], placing = false, photoBusy = false, photoUrls = [];
     let actionStatus = 'open', actionSearch = '';
     let formHadMep = false;
+    let originalWorkResponsible = null, originalWorkCompany = '', workRowsLimit = 40;
     let portionMode = '', portionElementId = null, portionPoints = [];
     let dashboardFilters = { building: '', level: '', discipline: '', zone: '', lotId: '', network: '', updatedAfter: '', updatedBefore: '' };
     const state = ports.getState;
@@ -3207,9 +3341,69 @@ function createMepUI(ports) {
     const matches = el => (!discipline || el.mep?.discipline === discipline) && (!network || (0, exports.networkKey)(el) === network) && (!onlyBlocked || (0, mep_calculations_js_1.isBlocking)(el));
     const canTreat = b => Boolean(b && bridge_js_1.boot.permissions.editOwn && b.status !== 'closed' && (b.responsibleId ? b.responsibleId === bridge_js_1.boot.userId : b.companyId === bridge_js_1.boot.companyId));
     const currentBlocker = () => state().elements.find(el => el.id === blockerElementId)?.blockers?.find(b => b.id === blockerId);
+    function realGroup(id) { try {
+        const [companyId, lotId] = JSON.parse(id);
+        return typeof companyId === 'string' && typeof lotId === 'string' && Boolean(lotId.trim()) && model_js_1.LOTS.some(lot => lot.id === id && lot.companyId === companyId);
+    }
+    catch {
+        return false;
+    } }
+    const groupCompany = lot => { try {
+        return JSON.parse(lot.id)[0] || '';
+    }
+    catch {
+        return lot.companyId || '';
+    } };
+    function scopeFormLots(companyId, preferred) {
+        const lots = model_js_1.LOTS.filter(lot => groupCompany(lot) === companyId), chosen = lots.some(lot => lot.id === preferred) ? preferred : (lots.find(lot => realGroup(lot.id)) || lots[0])?.id || '';
+        $('elementLot').innerHTML = lots.map(lot => `<option value="${(0, model_js_1.escapeHtml)(lot.id)}"${lot.id === chosen ? ' selected' : ''}>${(0, model_js_1.escapeHtml)(realGroup(lot.id) ? lot.name : 'Entreprise seule · lot à préciser')}</option>`).join('');
+        $('elementLot').value = chosen;
+    }
+    function prepareCompanyAndLot(el) {
+        const preferred = el.lotId || $('elementLot').value || model_js_1.LOTS[0]?.id || '';
+        let companyId = '';
+        try {
+            [companyId] = JSON.parse(preferred);
+        }
+        catch { }
+        const companyMap = new Map();
+        for (const lot of model_js_1.LOTS) {
+            const id = groupCompany(lot);
+            if (id && !companyMap.has(id))
+                companyMap.set(id, [id, lot.company]);
+        }
+        const companies = [...companyMap.values()];
+        $('elementCompany').innerHTML = options(companies, companyId, 'Choisir une entreprise');
+        $('elementCompany').value = companyId;
+        scopeFormLots(companyId, !el.id && !realGroup(preferred) ? null : preferred);
+    }
+    function renderWorkPeople(value = $('mepWorkResponsible').value) {
+        let companyId = '';
+        try {
+            [companyId] = JSON.parse($('elementLot').value);
+        }
+        catch { }
+        const people = (bridge_js_1.boot.people || []).filter(person => person.companyId === companyId).map(person => [person.id, person.name || 'Membre du chantier']);
+        if (value && !people.some(([id]) => id === value) && value === originalWorkResponsible && companyId === originalWorkCompany)
+            people.push([value, 'Responsable précédemment affecté · indisponible']);
+        const keep = value && people.some(([id]) => id === value) ? value : '';
+        $('mepWorkResponsible').innerHTML = options(people, keep, 'Entreprise du lot (par défaut)');
+        $('mepWorkResponsible').value = keep;
+        $('mepLotGuidance').hidden = realGroup($('elementLot').value) || !$('mepEnabled').checked;
+        const noRealLots = !model_js_1.LOTS.some(lot => realGroup(lot.id));
+        $('mepLotGuidance').textContent = noRealLots ? 'Aucun lot du chantier n’est disponible. Un responsable peut en créer un sur BuildTrack Web : Terrain → Équipes → Gestion des lots. Rouvrez ensuite ce plan pour le sélectionner.' : formHadMep ? 'Ce réseau ancien est rattaché à une entreprise sans lot précis. Sa lecture et son avancement restent disponibles. Dans la fiche, choisissez un lot du chantier avant de créer un nouveau blocage.' : 'Choisissez un lot du chantier dans le champ « Lot ». Une entreprise seule ne suffit pas pour préparer un nouveau réseau MEP.';
+    }
     function setElement(el = {}) {
         const m = el.mep;
         formHadMep = Boolean(m);
+        originalWorkResponsible = m?.responsibleId || null;
+        prepareCompanyAndLot(el);
+        try {
+            [originalWorkCompany] = JSON.parse(el.lotId || $('elementLot').value);
+        }
+        catch {
+            originalWorkCompany = '';
+        }
         $('mepEnabled').checked = Boolean(m);
         $('mepFields').hidden = !m;
         $('mepDiscipline').value = m?.discipline || 'plumbing';
@@ -3220,6 +3414,7 @@ function createMepUI(ports) {
         $('mepPlanned').value = m?.plannedQuantity ?? '';
         $('mepUnit').value = m?.unit || ({ point: 'u', line: 'm', area: 'm²' }[el.kind] || 'm');
         $('mepWeight').value = m?.weight ?? 1;
+        renderWorkPeople(m?.responsibleId || '');
         formMode();
     }
     function formMode() {
@@ -3230,12 +3425,25 @@ function createMepUI(ports) {
         $('mepPlanned').required = enabled && manual;
         $('mepPlannedField').hidden = !manual;
         $('mepUnitField').hidden = !manual;
+        renderWorkPeople();
         $('mepQuantityHelp').textContent = $('mepQuantityMode').value === 'estimate' ? 'Estimation manuelle : le pourcentage sera identifié comme une estimation. Le poids sert à la consolidation entre réseaux.' : manual ? 'Le prévu vient du quantitatif renseigné. Le réalisé se calcule à partir du pourcentage ou de la quantité saisie.' : 'Le prévu vient du tracé et de l’échelle de la page, en m, m² ou unités. Définissez l’échelle avant de mesurer.';
     }
     function readElement(kind) {
         if (!$('mepEnabled').checked)
             return { ...(formHadMep ? { mep: null } : {}), room: $('mepZone').value.trim() };
+        if (!formHadMep && !realGroup($('elementLot').value))
+            throw Error('Choisissez une entreprise, puis un lot réel du chantier dans la fiche pour préparer ce réseau MEP.');
+        let companyId = '';
+        try {
+            [companyId] = JSON.parse($('elementLot').value);
+        }
+        catch { }
+        const responsibleId = $('mepWorkResponsible').value, unchangedResponsible = responsibleId === originalWorkResponsible && companyId === originalWorkCompany;
+        if (responsibleId && !unchangedResponsible && !(bridge_js_1.boot.people || []).some(person => person.id === responsibleId && person.companyId === companyId))
+            throw Error('Choisissez un responsable de l’entreprise affectée, ou gardez l’entreprise du lot.');
         const value = { discipline: $('mepDiscipline').value, network: $('mepNetwork').value.trim(), subnetwork: $('mepSubnetwork').value.trim(), zone: $('mepZone').value.trim(), quantityMode: $('mepQuantityMode').value, plannedQuantity: $('mepQuantityMode').value === 'manual' ? number($('mepPlanned').value) : null, unit: $('mepQuantityMode').value === 'manual' ? $('mepUnit').value : ({ point: 'u', line: 'm', area: 'm²' }[kind]), weight: number($('mepWeight').value) };
+        if ($('mepWorkResponsible').value || originalWorkResponsible)
+            value.responsibleId = $('mepWorkResponsible').value || null;
         if (!value.network || !value.zone || !Number.isFinite(value.weight) || value.weight <= 0 || value.weight > 1e9 || value.quantityMode === 'manual' && (!Number.isFinite(value.plannedQuantity) || value.plannedQuantity <= 0 || value.plannedQuantity > 1e9))
             throw Error('Renseignez le réseau, la zone et des quantités / poids strictement positifs.');
         return { mep: value, room: value.zone };
@@ -3266,7 +3474,7 @@ function createMepUI(ports) {
         const fragment = document.createElement('div');
         fragment.className = 'mep-selection';
         const m = el.mep, blocks = (el.blockers || []).filter(active);
-        fragment.innerHTML = `${m ? `<p class="mep-caption"><strong>${(0, model_js_1.escapeHtml)(m.network)}</strong>${m.subnetwork ? ' / ' + (0, model_js_1.escapeHtml)(m.subnetwork) : ''} · ${(0, model_js_1.escapeHtml)(m.zone)}<br>${m.quantityMode === 'estimate' ? 'Estimation manuelle' : (0, mep_calculations_js_1.plannedQuantity)(el, state()) > 0 ? `${(0, model_js_1.num)((0, mep_calculations_js_1.executedQuantity)(el, state()), 3)} / ${(0, model_js_1.num)((0, mep_calculations_js_1.plannedQuantity)(el, state()), 3)} ${(0, model_js_1.escapeHtml)((0, mep_calculations_js_1.mepUnit)(el))}` : 'Échelle / quantité à définir'} · ${(0, model_js_1.num)((0, mep_calculations_js_1.mepPercent)(el), 1)} %${(0, mep_calculations_js_1.isBlocking)(el) ? ' · <strong class="mep-warning">Progression bloquée</strong>' : ''}</p>` : ''}${m && el.kind === 'line' && (0, bridge_js_1.canChangeStatus)([el], 'progress') ? '<div class="mep-selection-actions mep-portion-actions"><button class="terrain-text-button" data-mep-portion-add>Marquer une portion réalisée</button><button class="terrain-text-button" data-mep-portion-remove>Corriger une portion réalisée</button></div>' : ''}<div class="mep-selection-actions"><button class="terrain-text-button" data-mep-work-actions>${blocks.length ? blocks.length + ' blocage(s) actif(s)' : 'Points bloquants'}</button>${bridge_js_1.boot.permissions.edit ? (m ? '<button class="terrain-text-button" data-mep-add-blocker>Signaler un blocage</button>' : '<button class="terrain-text-button" data-edit-element>Préparer le réseau MEP</button>') : ''}</div>`;
+        fragment.innerHTML = `${m ? `<p class="mep-caption"><strong>${(0, model_js_1.escapeHtml)(m.network)}</strong>${m.subnetwork ? ' / ' + (0, model_js_1.escapeHtml)(m.subnetwork) : ''} · ${(0, model_js_1.escapeHtml)(m.zone)}<br>${m.quantityMode === 'estimate' ? 'Estimation manuelle' : (0, mep_calculations_js_1.plannedQuantity)(el, state()) > 0 ? `${(0, model_js_1.num)((0, mep_calculations_js_1.executedQuantity)(el, state()), 3)} / ${(0, model_js_1.num)((0, mep_calculations_js_1.plannedQuantity)(el, state()), 3)} ${(0, model_js_1.escapeHtml)((0, mep_calculations_js_1.mepUnit)(el))}` : 'Échelle / quantité à définir'} · ${(0, model_js_1.num)((0, mep_calculations_js_1.mepPercent)(el), 1)} %${(0, mep_calculations_js_1.isBlocking)(el) ? ' · <strong class="mep-warning">Progression bloquée</strong>' : ''}</p>` : ''}${m && el.kind === 'line' && (0, bridge_js_1.canChangeStatus)([el], 'progress') ? '<div class="mep-selection-actions mep-portion-actions"><button class="terrain-text-button" data-mep-portion-add>Marquer une portion réalisée</button><button class="terrain-text-button" data-mep-portion-remove>Corriger une portion réalisée</button></div>' : ''}<div class="mep-selection-actions"><button class="terrain-text-button" data-mep-work-actions>${blocks.length ? blocks.length + ' blocage(s) actif(s)' : 'Points bloquants'}</button>${bridge_js_1.boot.permissions.edit ? (m ? (realGroup(el.lotId) ? '<button class="terrain-text-button" data-mep-add-blocker>Signaler un blocage</button>' : '<button class="terrain-text-button" data-edit-element>Choisir un lot pour ce réseau</button>') : '<button class="terrain-text-button" data-edit-element>Préparer le réseau MEP</button>') : ''}</div>`;
         root.append(fragment);
     }
     function actionRows() {
@@ -3307,6 +3515,10 @@ function createMepUI(ports) {
             return;
         if (!id && !el.mep) {
             ports.toast('Ouvrez « Modifier » et renseignez le réseau technique ainsi que la zone avant de signaler un blocage MEP.');
+            return;
+        }
+        if (!id && !realGroup(el.lotId)) {
+            ports.toast('Ce réseau est rattaché à une entreprise sans lot précis. Dans « Modifier », choisissez un lot du chantier avant de créer ce blocage.');
             return;
         }
         if (!preserve) {
@@ -3473,6 +3685,10 @@ function createMepUI(ports) {
             return;
         }
         const old = (el.blockers || []).find(b => b.id === blockerId);
+        if (!old && !realGroup(el.lotId)) {
+            ports.toast('Choisissez d’abord un lot du chantier dans la fiche de l’ouvrage.');
+            return;
+        }
         const blocker = { id: old?.id || crypto.randomUUID(), point: blockerPoint, description, photoRefs: [...photoRefs], companyId, responsibleId: $('mepBlockerPerson').value || null, dueDate: $('mepBlockerDue').value || null, openedAt: old?.openedAt || new Date().toISOString(), status: $('mepBlockerStatus').value, blocksProgress: $('mepBlocksProgress').checked, priority: $('mepBlockerPriority').value };
         if ((el.status === 'checked' || el.status === 'installed') && blocker.blocksProgress && active(blocker)) {
             ports.toast('Cet ouvrage est terminé ou contrôlé. Repassez-le en cours avant de déclarer une progression bloquée, ou signalez une réserve non bloquante.');
@@ -3485,7 +3701,7 @@ function createMepUI(ports) {
     }
     function effectivePlans() {
         const previous = projectSnapshot?.plans?.find(plan => plan.id === state().currentDoc);
-        const local = { ...bridge_js_1.boot.plan, id: state().currentDoc, document: state(), updatedAt: state().history?.at(-1)?.time || previous?.updatedAt || bridge_js_1.boot.plan.updatedAt || null };
+        const local = { ...previous, ...bridge_js_1.boot.plan, id: state().currentDoc, document: state(), updatedAt: state().history?.at(-1)?.time || previous?.updatedAt || bridge_js_1.boot.plan.updatedAt || null };
         const others = projectSnapshot?.plans?.filter(plan => plan.id !== local.id) || [];
         return [...others, local];
     }
@@ -3494,6 +3710,45 @@ function createMepUI(ports) {
             (!dashboardFilters.updatedAfter || (plan.updatedAt || '').slice(0, 10) >= dashboardFilters.updatedAfter) && (!dashboardFilters.updatedBefore || (plan.updatedAt || '').slice(0, 10) <= dashboardFilters.updatedBefore));
     }
     const calcFilters = () => ({ building: dashboardFilters.building, level: dashboardFilters.level, discipline: dashboardFilters.discipline, zone: dashboardFilters.zone, lotId: dashboardFilters.lotId, networkKey: dashboardFilters.network, dateFrom: dashboardFilters.updatedAfter, dateTo: dashboardFilters.updatedBefore });
+    const exportFilters = () => ({ ...calcFilters(), openOnly: Boolean($('mepOpenOnlyExport').checked) });
+    function activityHtml(el, plan) {
+        const activity = (0, mep_audit_js_1.workActivity)(state(), plan, el, projectSnapshot?.history || []), timestamp = Date.parse(activity?.updatedAt || '');
+        const date = Number.isFinite(timestamp) ? `<time datetime="${(0, model_js_1.escapeHtml)(activity.updatedAt)}" title="${(0, model_js_1.escapeHtml)(activity.updatedAt)}">${(0, model_js_1.escapeHtml)(new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp)))}</time>` : '<span>Non renseignée</span>';
+        return `${date}${activity?.authorName ? `<small>${(0, model_js_1.escapeHtml)(activity.authorName)}</small>` : ''}${activity?.pending ? '<small class="mep-local-activity">Enregistré sur cet appareil · à synchroniser</small>' : ''}`;
+    }
+    function quantityHtml(el, document, type) {
+        if (el.mep.quantityMode === 'estimate')
+            return '<span class="mep-estimate">Estimation manuelle</span>';
+        const planned = (0, mep_calculations_js_1.plannedQuantity)(el, document);
+        if (!(planned > 0))
+            return '<span class="mep-muted">Quantité à définir</span>';
+        const q = type === 'planned' ? planned : type === 'verified' ? (el.status === 'checked' ? planned : 0) : (0, mep_calculations_js_1.executedQuantity)(el, document);
+        return `${(0, model_js_1.num)(q, 3)} <span class="mep-unit">${(0, model_js_1.escapeHtml)((0, mep_calculations_js_1.mepUnit)(el))}</span>`;
+    }
+    function workAction(el, plan) {
+        return plan.id === state().currentDoc && ports.locateWork ? `<button class="terrain-button mep-locate-work" data-mep-locate-work="${(0, model_js_1.escapeHtml)(el.id)}">Voir sur le plan</button>` : `<small class="mep-open-plan-hint">À consulter depuis Plans${plan.id !== state().currentDoc ? ' · ' + (0, model_js_1.escapeHtml)(plan.name) : ''}</small>`;
+    }
+    function renderWorkTable(rows) {
+        const visible = rows.slice(0, workRowsLimit);
+        $('mepWorksCount').textContent = `${visible.length} / ${rows.length} tronçon(s) affiché(s) · statut, responsable et mise à jour propres à chaque ouvrage`;
+        $('mepMoreWorks').hidden = visible.length >= rows.length;
+        if (!rows.length) {
+            $('mepProjectTable').innerHTML = '<div class="mep-empty"><strong>Aucun tronçon dans ce périmètre</strong><p>Modifiez les filtres pour retrouver vos réseaux. Pour commencer un suivi, activez « Réseau technique MEP » dans la fiche d’un ouvrage.</p></div>';
+            return;
+        }
+        const presentation = ({ el, plan, document }) => ({ el, plan, document, status: (0, exports.workStatus)(el), responsible: (0, mep_audit_js_1.responsibleLabel)(el, bridge_js_1.boot.people || [], (0, model_js_1.lotFor)(el.lotId).company), activity: activityHtml(el, plan), planned: quantityHtml(el, document, 'planned'), executed: quantityHtml(el, document, 'executed'), verified: quantityHtml(el, document, 'verified'), percent: (0, model_js_1.num)((0, mep_calculations_js_1.mepPercent)(el), 1) + ' %', action: workAction(el, plan) });
+        const workRows = visible.map(presentation);
+        const table = `<div class="mep-table-scroll mep-desktop-works" tabindex="0" role="region" aria-label="Tableau détaillé des tronçons MEP"><table class="mep-work-table"><caption class="sr-only">Tronçons, quantités, avancement, responsable et dernière mise à jour</caption><thead><tr><th scope="col">Tronçon / réseau</th><th scope="col">Statut</th><th scope="col">Prévu</th><th scope="col">Réalisé</th><th scope="col">Vérifié</th><th scope="col">Responsable</th><th scope="col">Dernière mise à jour</th><th scope="col">Action</th></tr></thead><tbody>${workRows.map(row => `<tr><td><strong>${(0, model_js_1.escapeHtml)(row.el.reference || row.el.name)}</strong><span>${(0, model_js_1.escapeHtml)(row.el.name)}</span><small>${(0, model_js_1.escapeHtml)(row.el.mep.network)}${row.el.mep.subnetwork ? ' / ' + (0, model_js_1.escapeHtml)(row.el.mep.subnetwork) : ''}<br>${(0, model_js_1.escapeHtml)(row.plan.building || 'Sans bâtiment')} · ${(0, model_js_1.escapeHtml)(row.plan.level || 'Niveau non renseigné')} · ${(0, model_js_1.escapeHtml)(row.el.mep.zone)}<br>${(0, model_js_1.escapeHtml)((0, model_js_1.lotFor)(row.el.lotId).company)} · ${(0, model_js_1.escapeHtml)((0, model_js_1.lotFor)(row.el.lotId).name)}</small></td><td><span class="mep-work-status ${(0, mep_calculations_js_1.isBlocking)(row.el) ? 'is-blocked' : row.el.status}">${(0, model_js_1.escapeHtml)(row.status)}</span></td><td>${row.planned}</td><td><strong>${row.executed}</strong><small>${row.percent}</small></td><td>${row.verified}</td><td>${(0, model_js_1.escapeHtml)(row.responsible)}</td><td>${row.activity}</td><td>${row.action}</td></tr>`).join('')}</tbody></table></div>`;
+        const cards = `<div class="mep-mobile-works" aria-label="Tronçons MEP en fiches">${workRows.map(row => `<article class="mep-work-card"><header><div><span class="mep-work-reference">${(0, model_js_1.escapeHtml)(row.el.reference || 'Tronçon')}</span><h4>${(0, model_js_1.escapeHtml)(row.el.name)}</h4></div><span class="mep-work-status ${(0, mep_calculations_js_1.isBlocking)(row.el) ? 'is-blocked' : row.el.status}">${(0, model_js_1.escapeHtml)(row.status)}</span></header><p class="mep-work-location"><strong>${(0, model_js_1.escapeHtml)(row.el.mep.network)}</strong>${row.el.mep.subnetwork ? ' / ' + (0, model_js_1.escapeHtml)(row.el.mep.subnetwork) : ''}<br>${(0, model_js_1.escapeHtml)(row.plan.building || 'Sans bâtiment')} · ${(0, model_js_1.escapeHtml)(row.plan.level || 'Niveau non renseigné')} · ${(0, model_js_1.escapeHtml)(row.el.mep.zone)}<br>${(0, model_js_1.escapeHtml)((0, model_js_1.lotFor)(row.el.lotId).company)} · ${(0, model_js_1.escapeHtml)((0, model_js_1.lotFor)(row.el.lotId).name)}</p><dl class="mep-work-quantities"><div><dt>Prévu</dt><dd>${row.planned}</dd></div><div><dt>Réalisé</dt><dd>${row.executed}<small>${row.percent}</small></dd></div><div><dt>Vérifié</dt><dd>${row.verified}</dd></div></dl><dl class="mep-work-ownership"><div><dt>Responsable</dt><dd>${(0, model_js_1.escapeHtml)(row.responsible)}</dd></div><div><dt>Dernière mise à jour</dt><dd>${row.activity}</dd></div></dl>${row.action}</article>`).join('')}</div>`;
+        $('mepProjectTable').innerHTML = table + cards;
+    }
+    function renderExportScope(physical) {
+        const openOnly = $('mepOpenOnlyExport').checked, count = openOnly ? physical.openBlockers.length : physical.blockers.length;
+        $('mepExportScope').hidden = !bridge_js_1.boot.permissions.export;
+        $('mepExportScopeHelp').textContent = openOnly ? 'L’export contient les ouvrages concernés et leurs points non résolus. Le tableau à l’écran reste inchangé.' : 'Tous les points sont inclus, y compris les points résolus et clos. Le tableau à l’écran reste inchangé.';
+        $('mepExportScopeCount').textContent = openOnly && !count ? 'Aucun point ouvert dans ce périmètre. Ajustez les filtres ou choisissez tous les points.' : `${count} point(s) dans le périmètre de l’export`;
+        document.querySelectorAll('[data-mep-export]').forEach(button => { button.disabled = openOnly && !count; button.hidden = !bridge_js_1.boot.permissions.export; });
+    }
     function renderProject() {
         const plans = effectivePlans(), rows = filteredProjectRows();
         const all = plans.flatMap(plan => plan.document.elements.filter(el => el.mep));
@@ -3526,8 +3781,10 @@ function createMepUI(ports) {
         const blockers = rows.flatMap(({ el }) => el.blockers || []), opened = blockers.filter(active).length;
         $('mepProjectStatus').textContent = projectBusy ? 'Actualisation du chantier…' : projectError ? projectError : projectSnapshot ? `${plans.length} plan(s) · relevé du ${new Date(projectSnapshot.generatedAt || Date.now()).toLocaleString('fr-FR')}${projectSnapshot.truncated ? ' · résultat incomplet, limitez le périmètre' : ''}` : 'Plan courant uniquement · chargez le chantier pour consolider les autres plans';
         $('mepProjectMetrics').innerHTML = `<div><span>Avancement déclaré / vérifié</span><strong>${percent === null ? '—' : (0, model_js_1.num)(percent, 1) + ' %'} / ${physical.checkedPercent === null ? '—' : (0, model_js_1.num)(physical.checkedPercent, 1) + ' %'}</strong><small>${(0, model_js_1.escapeHtml)(physical.method)}${physical.unmeasurable ? ' · ' + physical.unmeasurable + ' tronçon(s) sans quantité fiable exclus du total' : ''}</small></div><div><span>Blocages ouverts</span><strong>${opened}</strong><small>${blockers.filter(b => b.status === 'closed').length} vérifiés / clos</small></div><div><span>Tronçons</span><strong>${rows.length}</strong><small>${rows.filter(({ el }) => el.mep.quantityMode === 'estimate').length} estimation(s) manuelle(s)</small></div>`;
-        $('mepProjectTable').innerHTML = groups.size ? `<div class="mep-table-scroll" tabindex="0" role="region" aria-label="Avancement physique des réseaux"><table><thead><tr><th>Bâtiment / réseau / entreprise</th><th>Prévu</th><th>Réalisé</th><th>Vérifié</th><th>Déclaré</th><th>Blocages / retards</th></tr></thead><tbody>${[...groups.values()].map(g => `<tr><td><strong>${(0, model_js_1.escapeHtml)(g.network)}</strong><small>${(0, model_js_1.escapeHtml)(g.building)} · ${(0, model_js_1.escapeHtml)(g.lot.company)} · ${(0, model_js_1.escapeHtml)(g.lot.name)}${g.estimate ? '<br>Estimation manuelle' : ''}</small></td><td>${g.estimate ? '—' : (0, model_js_1.num)(g.planned, 3) + ' ' + (0, model_js_1.escapeHtml)(g.unit)}</td><td>${g.estimate ? '—' : (0, model_js_1.num)(g.executed, 3) + ' ' + (0, model_js_1.escapeHtml)(g.unit)}</td><td>${g.estimate ? '—' : (0, model_js_1.num)(g.verified, 3) + ' ' + (0, model_js_1.escapeHtml)(g.unit)}</td><td>${!g.estimate && !g.planned ? '—' : (0, model_js_1.num)(g.estimate ? g.weighted / g.weight : g.executed / g.planned * 100, 1) + ' %'}</td><td>${g.blocks} / ${g.late}</td></tr>`).join('')}</tbody></table></div>` : '<p class="mep-empty">Aucun réseau MEP ne correspond à ces filtres. Renseignez « Réseau technique MEP » dans la fiche d’un ouvrage.</p>';
-        $('mepProjectDetails').innerHTML = rows.map(({ plan, el, document }) => `<article class="mep-troncon"><strong>${(0, model_js_1.escapeHtml)(el.reference)} · ${(0, model_js_1.escapeHtml)(el.name)}</strong><span>${(0, model_js_1.escapeHtml)(plan.name)} · ${(0, model_js_1.escapeHtml)(plan.building || 'Sans bâtiment')} · ${(0, model_js_1.escapeHtml)(el.mep.zone)}</span><span>${el.mep.quantityMode === 'estimate' ? 'Estimation manuelle' : (0, model_js_1.num)((0, mep_calculations_js_1.executedQuantity)(el, document), 3) + ' / ' + (0, model_js_1.num)((0, mep_calculations_js_1.plannedQuantity)(el, document), 3) + ' ' + (0, model_js_1.escapeHtml)((0, mep_calculations_js_1.mepUnit)(el))} · ${(0, model_js_1.num)((0, mep_calculations_js_1.mepPercent)(el), 1)} % · ${el.status === 'checked' ? 'Vérifié' : 'Déclaré'}${(0, mep_calculations_js_1.isBlocking)(el) ? ' · Progression bloquée' : ''}</span></article>`).join('');
+        $('mepNetworkSummary').innerHTML = groups.size ? `<div class="mep-table-scroll" tabindex="0" role="region" aria-label="Avancement physique des réseaux"><table><thead><tr><th>Bâtiment / réseau / entreprise</th><th>Prévu</th><th>Réalisé</th><th>Vérifié</th><th>Déclaré</th><th>Blocages / retards</th></tr></thead><tbody>${[...groups.values()].map(g => `<tr><td><strong>${(0, model_js_1.escapeHtml)(g.network)}</strong><small>${(0, model_js_1.escapeHtml)(g.building)} · ${(0, model_js_1.escapeHtml)(g.lot.company)} · ${(0, model_js_1.escapeHtml)(g.lot.name)}${g.estimate ? '<br>Estimation manuelle' : ''}</small></td><td>${g.estimate ? '—' : (0, model_js_1.num)(g.planned, 3) + ' ' + (0, model_js_1.escapeHtml)(g.unit)}</td><td>${g.estimate ? '—' : (0, model_js_1.num)(g.executed, 3) + ' ' + (0, model_js_1.escapeHtml)(g.unit)}</td><td>${g.estimate ? '—' : (0, model_js_1.num)(g.verified, 3) + ' ' + (0, model_js_1.escapeHtml)(g.unit)}</td><td>${!g.estimate && !g.planned ? '—' : (0, model_js_1.num)(g.estimate ? g.weighted / g.weight : g.executed / g.planned * 100, 1) + ' %'}</td><td>${g.blocks} / ${g.late}</td></tr>`).join('')}</tbody></table></div>` : '<p class="mep-empty">Aucun réseau MEP ne correspond à ces filtres. Renseignez « Réseau technique MEP » dans la fiche d’un ouvrage.</p>';
+        renderWorkTable(rows);
+        renderExportScope(physical);
+        $('mepProjectDetails').textContent = 'La dernière mise à jour est celle du tronçon, avec son auteur quand l’historique le permet. Une saisie non synchronisée reste identifiée sur cet appareil. La clôture d’un blocage ne contrôle pas automatiquement l’ouvrage.';
         $('mepProjectBlockers').innerHTML = physical.blockers.length ? physical.blockers.map(({ plan, element: el, blocker: b }) => `<article class="mep-action-row"><div><strong>${(0, model_js_1.escapeHtml)(exports.BLOCKER_STATUSES[b.status])}${b.blocksProgress && active(b) ? ' · Bloquant' : ''}</strong><p>${(0, model_js_1.escapeHtml)(b.description)}</p><small>${(0, model_js_1.escapeHtml)(plan.name)} · ${(0, model_js_1.escapeHtml)(plan.building || 'Sans bâtiment')} · ${(0, model_js_1.escapeHtml)(el.mep.zone)} · ${(0, model_js_1.escapeHtml)(el.mep.network)}<br>${(0, model_js_1.escapeHtml)(model_js_1.LOTS.find(lot => lot.companyId === b.companyId)?.company || (0, model_js_1.lotFor)(el.lotId).company)}${b.dueDate ? ' · Échéance ' + (0, model_js_1.escapeHtml)(b.dueDate) : ''}</small></div>${plan.id === state().currentDoc ? `<button class="terrain-button" data-mep-edit-blocker="${(0, model_js_1.escapeHtml)(b.id)}" data-mep-work="${(0, model_js_1.escapeHtml)(el.id)}">Ouvrir / traiter</button>` : '<small>Ouvrez ce PDF depuis Plans pour traiter ce point.</small>'}</article>`).join('') : '<p class="mep-empty">Aucun point bloquant sur les réseaux de ce périmètre.</p>';
         const notifications = (projectSnapshot?.notifications || []).filter(n => !n.readAt && !n.read_at);
         $('mepNotifications').innerHTML = notifications.length ? `<h3>Actions qui vous concernent</h3>${notifications.map(n => `<article class="mep-troncon"><strong>${(0, model_js_1.escapeHtml)(n.title || 'Point bloquant affecté')}</strong><span>${(0, model_js_1.escapeHtml)(n.body || n.message || 'Une action MEP vous est affectée.')}</span></article>`).join('')}<button class="terrain-button" data-mep-mark-notifications>Marquer ces alertes comme lues</button>` : '';
@@ -3561,7 +3818,7 @@ function createMepUI(ports) {
         busy.textContent = 'Préparation de l’export…';
         try {
             const tools = await Promise.resolve().then(() => require('./mep-export.js')), fn = { xlsx: tools.exportMepWorkbook, csv: tools.exportMepCsv, pdf: tools.exportMepPdf }[kind];
-            await fn(state(), projectSnapshot, calcFilters());
+            await fn(state(), projectSnapshot, exportFilters());
             busy.textContent = 'Export prêt.';
         }
         catch (error) {
@@ -3603,6 +3860,21 @@ function createMepUI(ports) {
             void openBlocker(state().elements.find(el => el.id === blockerElementId), blockerId, true);
             return true;
         }
+        if (button.hasAttribute('data-mep-more-works')) {
+            workRowsLimit += 40;
+            renderProject();
+            return true;
+        }
+        if (button.dataset.mepLocateWork) {
+            const el = state().elements.find(item => item.id === button.dataset.mepLocateWork);
+            if (el && ports.locateWork) {
+                network = '';
+                discipline = '';
+                onlyBlocked = false;
+                void Promise.resolve(ports.locateWork(el)).catch(error => ports.toast(error.message));
+            }
+            return true;
+        }
         if (button.hasAttribute('data-mep-reload')) {
             void loadProject();
             return true;
@@ -3639,6 +3911,9 @@ function createMepUI(ports) {
         }
         return false;
     }
+    $('elementCompany').addEventListener('change', () => { scopeFormLots($('elementCompany').value, null); renderWorkPeople(); $('elementLot').dispatchEvent(new Event('change', { bubbles: true })); });
+    $('elementLot').addEventListener('change', () => renderWorkPeople());
+    $('mepOpenOnlyExport').addEventListener('change', () => renderExportScope((0, mep_calculations_js_1.summarizeMep)(effectivePlans(), calcFilters())));
     $('mepEnabled').addEventListener('change', formMode);
     $('mepQuantityMode').addEventListener('change', formMode);
     $('mepDisciplineFilter').addEventListener('change', () => { const chosen = $('mepDisciplineFilter').value; let previous = ''; try {
@@ -3655,7 +3930,7 @@ function createMepUI(ports) {
     $('mepPickPhotos').addEventListener('click', pickPhotos);
     const dashboardIds = { mepBuildingFilter: 'building', mepLevelFilter: 'level', mepProjectDiscipline: 'discipline', mepZoneFilter: 'zone', mepLotFilter: 'lotId', mepProjectNetworkFilter: 'network', mepUpdatedAfter: 'updatedAfter', mepUpdatedBefore: 'updatedBefore' };
     for (const [id, key] of Object.entries(dashboardIds))
-        $(id).addEventListener('change', () => { dashboardFilters[key] = $(id).value; renderProject(); });
+        $(id).addEventListener('change', () => { dashboardFilters[key] = $(id).value; workRowsLimit = 40; renderProject(); });
     $('mepCompareDates').addEventListener('click', () => {
         const from = $('mepCompareFrom').value, to = $('mepCompareTo').value;
         const history = projectSnapshot?.history || [];
@@ -3685,7 +3960,7 @@ function createMepUI(ports) {
         else if (placing) {
             stopPosition();
             void openBlocker(state().elements.find(el => el.id === blockerElementId), blockerId, true);
-        } }, get placing() { return placing || Boolean(portionMode); }, get snapshot() { return projectSnapshot; }, get filters() { return { ...dashboardFilters }; },
+        } }, get placing() { return placing || Boolean(portionMode); }, get snapshot() { return projectSnapshot; }, get filters() { return { ...dashboardFilters }; }, get exportFilters() { return exportFilters(); },
         render() { renderFilters(); renderSelection(); document.querySelectorAll('[data-mep-export]').forEach(button => button.hidden = !bridge_js_1.boot.permissions.export); if ($('mepActionsDialog').open)
             renderActions(); if (document.body.dataset.view === 'mep')
             renderProject(); },
@@ -3826,7 +4101,7 @@ function summary(state, docId, page) {
         sum[key] += row[key]; return sum; }, { contract: 0, realized: 0, validated: 0, billed: 0, proposal: 0 });
     return { ...totals, rows, elements, percent: totals.contract ? totals.realized / totals.contract * 100 : 0, checkedCount: elements.filter(el => el.status === 'checked').length };
 }
-function initialState() { return { version: 1, documents: [{ ...bridge_js_1.boot.plan, source: bridge_js_1.boot.pdfSource, pages: bridge_js_1.boot.plan.pages || 1 }], currentDoc: bridge_js_1.boot.plan.id, currentPage: 1, ...bridge_js_1.boot.document, history: bridge_js_1.boot.history || [], undo: [] }; }
+function initialState() { return { version: 1, documents: [{ ...bridge_js_1.boot.plan, source: bridge_js_1.boot.pdfSource, pages: bridge_js_1.boot.plan.pages || 1 }], currentDoc: bridge_js_1.boot.plan.id, currentPage: 1, ...bridge_js_1.boot.document, history: bridge_js_1.boot.history || [], elementActivity: bridge_js_1.boot.elementActivity || {}, undo: [] }; }
 exports.loadState = initialState;
 
 };
@@ -4399,6 +4674,7 @@ exports.renderTracking = renderTracking;
 exports.renderHistory = renderHistory;
 const mep_calculations_js_1 = require("./mep-calculations.js");
 const icons_js_1 = require("./icons.js");
+const mep_audit_js_1 = require("./mep-audit.js");
 const model_js_1 = require("./model.js");
 const dimensions_js_1 = require("./dimensions.js");
 const dimension_view_js_1 = require("./dimension-view.js");
@@ -4463,7 +4739,7 @@ function renderTracking(root, state, docId, page) {
     root.innerHTML = `<header class="section-header"><div><h2>Du terrain à la situation de travaux</h2><p>${(0, model_js_1.escapeHtml)(doc.name)} · Montants HT du suivi, à examiner avant facturation.</p></div><select id="trackingPage" aria-label="Niveau du tableau">${Array.from({ length: doc.pages }, (_, i) => `<option value="${i + 1}" ${page === i + 1 ? 'selected' : ''}>${(0, model_js_1.documentPageName)(doc, i + 1)}</option>`).join('')}</select></header>${s.rows.some(row => row.count || row.billed) ? `<div class="table-scroll" tabindex="0" aria-label="Tableau financier défilant"><table><thead><tr><th>LOT / ENTREPRISE</th><th>RÉFÉRENCE</th><th>RÉALISÉ</th><th>CONTRÔLÉ</th><th>MARCHÉ HT</th><th>RÉALISÉ HT</th><th>VALIDÉ HT</th><th>DÉJÀ FACTURÉ HT</th><th>À PROPOSER HT</th></tr></thead><tbody>${s.rows.filter(r => r.count || r.billed).map(row => `<tr><td><strong>${(0, model_js_1.escapeHtml)(row.lot.name)}</strong><span class="table-company">${(0, model_js_1.escapeHtml)(row.lot.company)}</span></td><td>${(0, model_js_1.escapeHtml)(row.referenceLabel)}</td><td><div class="table-progress"><strong>${(0, model_js_1.num)(row.percent, 0)} %</strong><div class="progress-track"><span style="width:${row.percent}%"></span></div></div></td><td>${(0, model_js_1.num)(row.checkedPercent, 0)} %</td><td>${(0, model_js_1.money)(row.contract)}</td><td>${(0, model_js_1.money)(row.realized)}</td><td>${(0, model_js_1.money)(row.validated)}</td><td><input class="amount-input" data-billed="${(0, model_js_1.escapeHtml)(row.lot.id)}" type="number" min="0" max="1000000000" step="0.01" value="${row.billed}" aria-label="Déjà facturé ${(0, model_js_1.escapeHtml)(row.lot.name)}, en euros HT">${row.overbilled ? '<span class="money-warning">Dépasse le montant contrôlé</span>' : ''}</td><td class="money-green">${(0, model_js_1.money)(row.proposal)}</td></tr>`).join('')}<tr class="totals"><td colspan="4">Total du niveau affiché</td><td>${(0, model_js_1.money)(s.contract)}</td><td>${(0, model_js_1.money)(s.realized)}</td><td>${(0, model_js_1.money)(s.validated)}</td><td>${(0, model_js_1.money)(s.billed)}</td><td class="money-green">${(0, model_js_1.money)(s.proposal)}</td></tr></tbody></table></div>` : `<div class="table-empty"><h3>Aucun ouvrage sur cette page</h3><p>Ajoutez vos premiers repères sur le plan.<br>Le tableau se remplira à partir de leurs quantités et de leurs prix.</p><button class="button primary" data-view="plan">Revenir au plan${(0, icons_js_1.icon)('arrow')}</button></div>`}<div class="tracking-explainer"><div><strong>${(0, icons_js_1.icon)('chart')}Réalisé</strong><p>Quantité × avancement × prix unitaire. En cours utilise le pourcentage saisi (50 % par défaut). Les pourcentages sont pondérés par valeur HT, sans additionner des mètres et des mètres carrés.</p></div><div><strong>${(0, icons_js_1.icon)('checkCircle')}Validé</strong><p>Seuls les ouvrages marqués Contrôlé sont retenus. Vous gardez la main sur la validation du travail réalisé.</p></div><div><strong>${(0, icons_js_1.icon)('file')}À proposer</strong><p>Montant validé moins le déjà facturé, avec un minimum de zéro. L’export Excel est un instantané ; aucune facture n’est émise.</p></div></div>`;
 }
 function renderHistory(root, state) {
-    root.innerHTML = `<header class="section-header"><div><h2>Chaque avancée laisse une trace</h2><p>Les modifications de ce plan, de la plus récente à la plus ancienne.</p></div><button class="button secondary" data-undo ${state.undo.length ? '' : 'disabled'}>${(0, icons_js_1.icon)('undo')}Annuler la dernière action</button></header>${state.history.length ? `<div class="history-list">${state.history.slice().reverse().map(event => `<article class="history-entry"><i>${(0, icons_js_1.icon)(event.icon || 'checkCircle')}</i><div><strong>${(0, model_js_1.escapeHtml)(event.title)}</strong><p>${(0, model_js_1.escapeHtml)(event.detail)}</p>${event.authorName ? `<small>${(0, model_js_1.escapeHtml)(event.authorName)}</small>` : ''}</div><time datetime="${(0, model_js_1.escapeHtml)(event.time)}">${new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' }).format(new Date(event.time))}</time></article>`).join('')}</div>` : '<div class="history-empty"><i>' + (0, icons_js_1.icon)('history') + '</i><h3>Le prochain geste sera le premier.</h3><p>Changez l’état d’un ouvrage sur le plan.<br>Vous retrouverez ici la modification et pourrez l’annuler.</p><button class="button primary" data-view="plan">Explorer le plan' + (0, icons_js_1.icon)('arrow') + '</button></div>'}`;
+    root.innerHTML = `<header class="section-header"><div><h2>Chaque avancée laisse une trace</h2><p>Les modifications de ce plan, de la plus récente à la plus ancienne.</p></div><button class="button secondary" data-undo ${state.undo.length ? '' : 'disabled'}>${(0, icons_js_1.icon)('undo')}Annuler la dernière action</button></header>${state.history.length ? `<div class="history-list">${state.history.slice().reverse().map(event => `<article class="history-entry"><i>${(0, icons_js_1.icon)(event.icon || 'checkCircle')}</i><div><strong>${(0, model_js_1.escapeHtml)(event.title)}</strong><p>${(0, model_js_1.escapeHtml)(event.detail)}</p><small>${(0, model_js_1.escapeHtml)((0, mep_audit_js_1.eventAuthor)(event))}${event.pending ? ' · En attente de synchronisation' : ''}</small></div><time datetime="${(0, model_js_1.escapeHtml)(event.time)}">${new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' }).format(new Date(event.time))}</time></article>`).join('')}</div>` : '<div class="history-empty"><i>' + (0, icons_js_1.icon)('history') + '</i><h3>Le prochain geste sera le premier.</h3><p>Changez l’état d’un ouvrage sur le plan.<br>Vous retrouverez ici la modification et pourrez l’annuler.</p><button class="button primary" data-view="plan">Explorer le plan' + (0, icons_js_1.icon)('arrow') + '</button></div>'}`;
 }
 
 };function R(n){n=n.replace(/^.\//,'');if(!C[n]){if(!M[n])throw Error('Unknown editor module '+n);const m={exports:{}};C[n]=m;M[n](R,m.exports,m);}return C[n].exports;}R('app.js');</script>
