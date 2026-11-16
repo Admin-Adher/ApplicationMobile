@@ -11,6 +11,34 @@ function ports(overrides: Partial<ProgressSessionPorts> = {}) {
     newId:() => 'operation-1',owned:() => true,...overrides };
 }
 describe('PDF progress integration',() => {
+  it('preserves only the server-confirmed lot catalogue for offline preparation',async()=>{
+    let cached:string|null=null;
+    const p=ports({cacheRead:async()=>cached,cacheWrite:async value=>{cached=value;},read:async()=>({...document(),assignableLotIds:['lot-confirmed','lot-confirmed',42,null,'']})});
+    const session=new ProgressSession(p);await session.open();expect(session.assignableLotIds).toEqual(['lot-confirmed']);
+    const offline=new ProgressSession({...p,online:()=>false});await offline.open();expect(offline.assignableLotIds).toEqual(['lot-confirmed']);
+    const unknown=new ProgressSession(ports());await unknown.open();expect(unknown.assignableLotIds).toEqual([]);
+    p.read=async()=>({...document(),assignableLotIds:[]});await session.refresh();expect(session.assignableLotIds).toEqual([]);
+  });
+  it('keeps per-work authors and client dates durable offline, then replaces them with server activity',async()=>{
+    let cached:string|null=null,pending:ProgressOperation[]=[];
+    const p=ports({actor:{id:'actor-a',name:'Sofia'},now:()=> '2026-11-16T10:00:00Z',cacheRead:async()=>cached,cacheWrite:async value=>{cached=value;},pending:async()=>pending,enqueue:async op=>{pending.push(op);}});
+    const session=new ProgressSession(p);await session.open();
+    const next=document();next.elements[0].status='progress';next.elements[0].progressPercent=30;
+    await session.save({...next,activity:{title:'Avancement mis à jour',detail:'30 %'}});
+    expect(session.elementActivity['work-1']).toMatchObject({time:'2026-11-16T10:00:00Z',author:'Sofia',pending:true});
+    expect(session.history.at(-1)).toMatchObject({author:'Sofia',title:'Avancement mis à jour',pending:true});
+    const offline=new ProgressSession({...p,online:()=>false});await offline.open();
+    expect(offline.elementActivity['work-1']).toMatchObject({author:'Sofia',pending:true});
+    pending=[];p.read=async()=>({...next,history:[{author:'Sofia',time:'2026-11-16T10:01:00Z'}],elementActivity:{'work-1':{time:'2026-11-16T10:01:00Z',author:'Sofia',userId:'actor-a'}}});
+    const online=new ProgressSession(p);await online.open();
+    expect(online.elementActivity['work-1']).toEqual({time:'2026-11-16T10:01:00Z',author:'Sofia',userId:'actor-a'});
+  });
+  it('never creates audit history for a rejected local enqueue',async()=>{
+    const session=new ProgressSession(ports({enqueue:async()=>{throw Error('disk full');}}));await session.open();
+    const next=document();next.elements[0].status='installed';
+    await expect(session.save(next)).rejects.toThrow('disk full');
+    expect(session.elementActivity).toEqual({});expect(session.history).toEqual([]);
+  });
   it('supports legacy PDF plans while excluding image and DXF viewers',() => {
     expect(canTrackPdfPlan({uri:'btmedia:legacy-plan'})).toBe(true);
     expect(canTrackPdfPlan({uri:'btmedia:pdf',file_type:'application/pdf'})).toBe(true);

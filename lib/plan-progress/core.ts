@@ -25,7 +25,7 @@ export type MepMetadata = {
   discipline: 'plumbing' | 'hvac' | 'cfo' | 'cfa' | 'sprinkler' | 'other';
   network: string; subnetwork: string; zone: string;
   quantityMode: 'drawing' | 'manual' | 'estimate'; plannedQuantity: number | null;
-  unit: 'm' | 'u' | 'm²' | 'm³'; weight: number;
+  unit: 'm' | 'u' | 'm²' | 'm³'; weight: number; responsibleId?: string | null;
 };
 export type MepBlocker = {
   id: string; point: { x: number; y: number }; description: string; photoRefs: string[];
@@ -38,12 +38,13 @@ const positiveMeasure = (n: unknown): n is number => typeof n === 'number' && Nu
 /** Local references remain durable offline; the host resolves them before RPC. */
 export function validateMepElement(el: Record<string, unknown>) {
   const m = el.mep;
-  if (m != null && (!record(m) || Object.keys(m).some(k => !['discipline','network','subnetwork','zone','quantityMode','plannedQuantity','unit','weight'].includes(k)) ||
+  if (m != null && (!record(m) || Object.keys(m).some(k => !['discipline','network','subnetwork','zone','quantityMode','plannedQuantity','unit','weight','responsibleId'].includes(k)) ||
     !['plumbing','hvac','cfo','cfa','sprinkler','other'].includes(String(m.discipline)) ||
     ['network','subnetwork','zone'].some(k => typeof m[k] !== 'string' || String(m[k]).length > 120) || !String(m.network).trim() ||
     !['drawing','manual','estimate'].includes(String(m.quantityMode)) || !['m','u','m²','m³'].includes(String(m.unit)) || !positiveMeasure(m.weight) ||
     !Object.prototype.hasOwnProperty.call(m,'plannedQuantity') || (m.plannedQuantity !== null && !positiveMeasure(m.plannedQuantity)) ||
     (m.quantityMode === 'manual' && m.plannedQuantity === null) ||
+    (m.responsibleId !== undefined && m.responsibleId !== null && (typeof m.responsibleId !== 'string' || !uuid.test(m.responsibleId))) ||
     (m.quantityMode === 'drawing' && m.unit !== ({point:'u',line:'m',area:'m²'} as Record<string,string>)[String(el.kind)]))) throw new Error('Réseau MEP invalide.');
   if (el.room != null && (typeof el.room !== 'string' || el.room.length > 120)) throw new Error('Local invalide.');
   if (el.executedRanges != null) {
@@ -75,6 +76,21 @@ export function validateMepElement(el: Record<string, unknown>) {
       !['normal','high','critical'].includes(String(b.priority)) ||
       !(record(m) && typeof m.zone === 'string' && m.zone.trim() || typeof el.room === 'string' && el.room.trim())) throw new Error('Point bloquant invalide.');
     ids.add(b.id);
+  }
+}
+/** New classifications and new blocker markers need an actual chantier lot.
+ * Reading or treating a legacy generic-company work remains supported.
+ */
+export function validateMepTransition(previous: ProgressDocument,next: ProgressDocument): void {
+  const oldById=new Map(previous.elements.map(el=>[el.id,el]));
+  for(const el of next.elements) {
+    const old=oldById.get(el.id);
+    const newMep=el.mep!=null && old?.mep==null;
+    const oldBlockers=new Set(Array.isArray(old?.blockers)?old.blockers.map((b:any)=>b?.id):[]);
+    const newBlocker=Array.isArray(el.blockers)&&el.blockers.some((b:any)=>!oldBlockers.has(b?.id));
+    if(!newMep&&!newBlocker)continue;
+    let group:unknown;try{group=JSON.parse(String(el.lotId));}catch{throw new Error('Choisissez un véritable lot du chantier pour ce réseau MEP.');}
+    if(!Array.isArray(group)||group.length!==2||typeof group[1]!=='string'||!group[1].trim())throw new Error('Choisissez un véritable lot du chantier pour ce réseau MEP.');
   }
 }
 export function readProgress(value: unknown): ProgressDocument {
@@ -143,9 +159,11 @@ export function progressRpc(operation: ProgressOperation) {
 export function progressScope(userId: string, orgId: string, planId: string, sourceRef: string) {
   return 'bt-plan-progress-v1:' + JSON.stringify([userId, orgId, planId, sourceRef]);
 }
-export function progressGroups(companies: { id: string; name: string; color?: string }[], lots: { id: string; name: string; companyId?: string | null }[]) {
+export function progressGroups(companies: { id: string; name: string; color?: string }[], lots: { id: string; name: string; companyId?: string | null; chantierId?: string | null }[],chantierId?: string) {
   return companies.flatMap(company => {
-    const assigned = lots.filter(lot => lot.companyId === company.id);
+    // Shared chantier lots are intentionally not owned by one company. The pair
+    // [executing company, real lot] records the explicit assignment on the work.
+    const assigned = lots.filter(lot => (!lot.companyId || lot.companyId === company.id) && (!chantierId || !lot.chantierId || lot.chantierId === chantierId));
     return (assigned.length ? assigned : [{ id: null, name: 'Ouvrages' }]).map(lot => ({
       id: JSON.stringify([company.id, lot.id]), name: lot.name, company: company.name,
       color: company.color, companyId: company.id, icon: 'building', unit: 'u', kind: 'point', price: 0,

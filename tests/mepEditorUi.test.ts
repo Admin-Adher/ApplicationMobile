@@ -11,6 +11,7 @@ class Control {
   get innerHTML(){return this.html;}
   set innerHTML(value:string){this.html=value;const selected=/<option value="([^"]*)" selected/.exec(value),first=/<option value="([^"]*)"/.exec(value);if(selected||first)this.value=(selected||first)![1];}
   addEventListener(type:string,handler:Function){this.events[type]=handler;}
+  dispatchEvent(event:any){this.events[event.type]?.(event);return true;}
   setAttribute(key:string,value:string){this.attributes.set(key,value);}
   querySelectorAll(){return this.controls;}
   querySelector(){return this.submit;}
@@ -26,23 +27,28 @@ class ControlPlaceholder{disabled=false;}
 function setup(permissions={edit:true,editOwn:false,export:true},ownResponsible=true){
   const controls=new Map<string,Control>();
   const $=(id:string)=>{if(!controls.has(id))controls.set(id,new Control());return controls.get(id)!;};
-  const work:any={id:'a',docId:'plan',page:1,lotId:'["company",null]',kind:'line',points:[{x:100,y:100},{x:300,y:200}],reference:'EAU-001',name:'Eau froide local 105R',status:'progress',progressPercent:30,price:0,room:'105R',mep:{discipline:'plumbing',network:'Eau froide',subnetwork:'Distribution',zone:'105R',quantityMode:'manual',plannedQuantity:100,unit:'m',weight:1},blockers:[]};
+  const work:any={id:'a',docId:'plan',page:1,lotId:'["company","lot-a"]',kind:'line',points:[{x:100,y:100},{x:300,y:200}],reference:'EAU-001',name:'Eau froide local 105R',status:'progress',progressPercent:30,price:0,room:'105R',mep:{discipline:'plumbing',network:'Eau froide',subnetwork:'Distribution',zone:'105R',quantityMode:'manual',plannedQuantity:100,unit:'m',weight:1},blockers:[]};
+  const groups:any[]=[{id:work.lotId,companyId:'company',company:'Entreprise test',name:'Plomberie'}];
   const doc:any={elements:[work],calibrations:{'plan:1':.1},billed:{},currentDoc:'plan',currentPage:1,history:[]};
   const boot:any={permissions,userId:'user',companyId:'company',people:[{id:'user',name:'Responsable test',companyId:'company'}],plan:{id:'plan',name:'Plan test',building:'Bâtiment A'},groups:[]};
-  const state:any={photoResult:{refs:['btlocal://11111111-1111-4111-8111-111111111111']},photoError:null,positioning:false,writes:[],toasts:[],requests:[]};
-  const context:any={exports:{},module:{exports:{}},console,Intl,Date,JSON,Number,Map,Set,crypto:{randomUUID},window:{BT_BOOT:boot},document:{getElementById:$,querySelectorAll:()=>[],createElement:()=>new Control(),body:{dataset:{view:'plan'}}}};
+  const state:any={photoResult:{refs:['btlocal://11111111-1111-4111-8111-111111111111']},photoError:null,positioning:false,writes:[],toasts:[],requests:[],exports:[],located:[],projectSnapshot:{plans:[],history:[],generatedAt:'2026-11-17T10:00:00.000Z'}};
+  const exportButtons=[new Control(),new Control(),new Control()];
+  const context:any={exports:{},module:{exports:{}},console,Intl,Date,JSON,Number,Map,Set,Event:class{constructor(public type:string,public options?:unknown){}},crypto:{randomUUID},window:{BT_BOOT:boot},document:{getElementById:$,querySelectorAll:(selector:string)=>selector==='[data-mep-export]'?exportButtons:[],createElement:()=>new Control(),body:{dataset:{view:'plan'}}}};
   const calc:any={};runInNewContext(ts.transpileModule(readFileSync('lib/plan-progress/editor/mep-calculations.js','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:calc,require:()=>({progressWeight:(el:any)=>el.status==='todo'?0:['installed','checked'].includes(el.status)?1:(el.progressPercent??50)/100}),Date,Map,Set,Number,JSON});
-  const request=async(type:string,payload:any)=>{state.requests.push({type,payload});if(type==='pickMepPhotos'){if(state.photoError)throw state.photoError;return state.photoResult;}if(type==='resolveMepPhotos')return {urls:[]};return {};};
+  const audit:any={};runInNewContext(ts.transpileModule(readFileSync('lib/plan-progress/editor/mep-audit.js','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports:audit,Date,JSON});
+  const request=async(type:string,payload:any)=>{state.requests.push({type,payload});if(type==='pickMepPhotos'){if(state.photoError)throw state.photoError;return state.photoResult;}if(type==='resolveMepPhotos')return {urls:[]};if(type==='projectMep')return state.projectSnapshot;return {};};
   const canChangeStatus=(els:any[],status:string)=>boot.permissions.edit||boot.permissions.editOwn&&status!=='checked'&&els.every(el=>el.status!=='checked'&&JSON.parse(el.lotId)[0]===boot.companyId);
-  context.require=(name:string)=>name==='./bridge.js'?{boot,request,canChangeStatus}:name==='./model.js'?{LOTS:[{id:work.lotId,companyId:'company',company:'Entreprise test',name:'Plomberie'}],lotFor:()=>({id:work.lotId,companyId:'company',company:'Entreprise test',name:'Plomberie'}),escapeHtml:(v:any)=>String(v??'').replace(/[<>&"]/g,(c:string)=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]!)),num:(n:number)=>String(n)}:name==='./mep-calculations.js'?calc:{};
+  const captureExport=async(_doc:any,_snapshot:any,filters:any)=>state.exports.push(filters);
+  context.require=(name:string)=>name==='./bridge.js'?{boot,request,canChangeStatus}:name==='./model.js'?{LOTS:groups,lotFor:(id:string)=>groups.find(g=>g.id===id)||{company:'Entreprise test',name:'Lot à réaffecter'},escapeHtml:(v:any)=>String(v??'').replace(/[<>&"]/g,(c:string)=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]!)),num:(n:number)=>String(n)}:name==='./mep-calculations.js'?calc:name==='./mep-audit.js'?audit:name==='./mep-export.js'?{exportMepWorkbook:captureExport,exportMepCsv:captureExport,exportMepPdf:captureExport}:{};
   runInNewContext(ts.transpileModule(readFileSync('lib/plan-progress/editor/mep-ui.js','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
   $('mepBlockerStatus').options=['open','assigned','in_progress','resolved','closed'].map(value=>({value,disabled:false}));
   $('mepBlockerForm').controls=['mepBlockerDescription','mepBlockerCompany','mepBlockerPerson','mepBlockerDue','mepBlockerStatus','mepBlockerPriority','mepBlocksProgress'].map($);
-  const api=context.exports.createMepUI({getState:()=>doc,getSelected:()=>new Set(['a']),record:(title:string,detail:string,mutate:Function)=>{state.writes.push({title,detail});mutate();},toast:(value:string)=>state.toasts.push(value),render:()=>{},setView:(view:string)=>context.document.body.dataset.view=view,isBusy:()=>false,clearSelection:()=>{},beginPositioning:()=>state.positioning=true,endPositioning:()=>state.positioning=false,beginPortion:()=>state.positioning=true,endPortion:()=>state.positioning=false});
+  $('elementLot').value=work.lotId;
+  const api=context.exports.createMepUI({getState:()=>doc,getSelected:()=>new Set(['a']),record:(title:string,detail:string,mutate:Function)=>{state.writes.push({title,detail});mutate();},toast:(value:string)=>state.toasts.push(value),render:()=>{},setView:(view:string)=>context.document.body.dataset.view=view,isBusy:()=>false,clearSelection:()=>{},locateWork:(el:any)=>state.located.push(el.id),beginPositioning:()=>state.positioning=true,endPositioning:()=>state.positioning=false,beginPortion:()=>state.positioning=true,endPortion:()=>state.positioning=false});
   const button=(attribute:string,dataset={})=>({hasAttribute:(name:string)=>name===attribute,dataset});
   const blocker=(status='open')=>({id:randomUUID(),point:{x:130,y:170},description:'Support en attente',photoRefs:['btmedia://22222222-2222-4222-8222-222222222222'],companyId:'company',responsibleId:ownResponsible?'user':'other',dueDate:'2026-11-20',openedAt:'2026-11-16T09:00:00.000Z',status,blocksProgress:true,priority:'normal'});
   const settle=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
-  return {$,doc,work,boot,state,api,button,blocker,settle};
+  return {$,doc,work,boot,state,api,button,blocker,settle,groups,exportButtons};
 }
 
 describe('shared MEP editor behavior',()=>{
@@ -127,6 +133,66 @@ describe('shared MEP editor behavior',()=>{
     const q=setup();q.work.points=[{x:0,y:0},{x:1000,y:0}];q.work.status='todo';q.work.progressPercent=null;q.work.blockers=[q.blocker()];const overlay:any=q.$('planOverlay');overlay.getScreenCTM=()=>({a:1,b:0,inverse:()=>({})});overlay.viewBox={baseVal:{height:700}};overlay.createSVGPoint=()=>({x:0,y:0,matrixTransform(){return {x:this.x,y:this.y};}});
     q.api.handleClick(q.button('data-mep-portion-add'));q.api.handlePlanClick({clientX:0,clientY:0});q.api.handlePlanClick({clientX:1000,clientY:0});q.api.handleClick(q.button('data-mep-portion-apply'));
     expect(q.state.writes).toHaveLength(0);expect(q.state.toasts.at(-1)).toContain('bloquant');expect(q.work.status).toBe('todo');
+  });
+  it('scopes real lots and responsible people to the chosen company',()=>{
+    const q=setup();q.groups.push({id:'["other-company","lot-b"]',companyId:'other-company',company:'Autre entreprise',name:'CVC'});
+    q.boot.people.push({id:'other-person',name:'Responsable autre entreprise',companyId:'other-company'});
+    q.api.setElement(q.work);expect(q.$('elementLot').innerHTML).toContain('Plomberie');expect(q.$('elementLot').innerHTML).not.toContain('CVC');
+    expect(q.$('mepWorkResponsible').innerHTML).toContain('Responsable test');expect(q.$('mepWorkResponsible').innerHTML).not.toContain('Responsable autre entreprise');
+    q.$('mepWorkResponsible').value='user';expect(q.api.readElement('line').mep.responsibleId).toBe('user');
+    q.$('elementCompany').value='other-company';q.$('elementCompany').events.change();
+    expect(q.$('elementLot').value).toBe('["other-company","lot-b"]');expect(q.$('elementLot').innerHTML).not.toContain('Plomberie');
+    expect(q.$('mepWorkResponsible').value).toBe('');expect(q.$('mepWorkResponsible').innerHTML).toContain('Responsable autre entreprise');expect(q.$('mepWorkResponsible').innerHTML).not.toContain('Responsable test');
+  });
+  it('retains an unchanged unavailable responsible person without silently clearing the assignment',()=>{
+    const q=setup();q.work.mep.responsibleId='unavailable';q.api.setElement(q.work);
+    expect(q.$('mepWorkResponsible').value).toBe('unavailable');expect(q.$('mepWorkResponsible').innerHTML).toContain('précédemment affecté');
+    expect(q.api.readElement('line').mep.responsibleId).toBe('unavailable');
+    q.$('mepWorkResponsible').value='';expect(q.api.readElement('line').mep.responsibleId).toBeNull();
+  });
+  it('refuses a newly assigned responsible person from another company',()=>{
+    const q=setup();q.boot.people.push({id:'wrong-company',name:'Membre autre entreprise',companyId:'other'});q.api.setElement(q.work);q.$('mepWorkResponsible').value='wrong-company';
+    expect(()=>q.api.readElement('line')).toThrow('entreprise affectée');
+  });
+  it('requires a real lot for a new network while preserving a legacy generic selection and treatment',async()=>{
+    const q=setup();const generic={id:'["company",null]',companyId:'company',company:'Entreprise test',name:'Ouvrages'};q.groups.push(generic);q.work.lotId=generic.id;
+    q.api.setElement(q.work);expect(q.$('elementLot').value).toBe(generic.id);expect(q.api.readElement('line').mep.network).toBe('Eau froide');expect(q.$('mepLotGuidance').hidden).toBe(false);
+    q.api.handleClick(q.button('data-mep-add-blocker'));await q.settle();expect(q.$('mepBlockerDialog').open).toBe(false);expect(q.state.toasts.at(-1)).toContain('sans lot précis');
+    q.api.setElement({kind:'line'});q.$('elementLot').value=generic.id;q.api.setUnscaled();q.$('mepNetwork').value='Nouveau réseau';q.$('mepZone').value='Zone A';q.$('mepPlanned').value='10';
+    expect(()=>q.api.readElement('line')).toThrow('lot réel');
+    const block=q.blocker();q.work.blockers=[block];q.api.handleClick(q.button('',{mepEditBlocker:block.id,mepWork:'a'}));await q.settle();q.$('mepBlockerStatus').value='resolved';q.$('mepBlockerForm').events.submit({preventDefault(){}});
+    expect(q.work.blockers[0].status).toBe('resolved');
+  });
+  it('guides setup when no real lot exists instead of presenting a dead end',()=>{
+    const q=setup();q.groups.splice(0,1,{id:'["company",null]',companyId:'company',company:'Entreprise test',name:'Ouvrages'});q.$('elementLot').value=q.groups[0].id;q.api.setElement({kind:'line'});q.api.setUnscaled();
+    expect(q.$('mepLotGuidance').textContent).toContain('Terrain → Équipes → Gestion des lots');expect(q.$('mepLotGuidance').textContent).toContain('Rouvrez ensuite ce plan');
+  });
+  it('renders true work status, assigned person and element-specific activity in desktop and mobile presentations',async()=>{
+    const q=setup();q.work.mep.responsibleId='user';q.work.blockers=[q.blocker()];q.doc.elementActivity={a:{updatedAt:'2026-11-16T10:00:00.000Z',authorName:'Auteur du tronçon',userId:'writer-a'}};
+    q.doc.history=[{time:'2027-01-01T18:00:00.000Z',authorName:'Auteur autre ouvrage',changes:[{target:'elements',key:'other-work',after:{note:'Autre saisie'}}]}];
+    q.api.handleClick(q.button('data-mep-project'));await q.settle();const html=q.$('mepProjectTable').innerHTML;
+    expect(html).toContain('mep-desktop-works');expect(html).toContain('mep-mobile-works');expect(html).toContain('En cours · Bloqué');expect(html).toContain('Responsable test');expect(html).toContain('2026-11-16T10:00:00.000Z');expect(html).toContain('Auteur du tronçon');expect(html).not.toContain('2027-01-01');expect(html).not.toContain('Auteur autre ouvrage');
+    expect(html).toContain('Voir sur le plan');
+  });
+  it('uses the company as responsible fallback and labels missing activity without inventing a date',async()=>{
+    const q=setup();q.api.handleClick(q.button('data-mep-project'));await q.settle();const html=q.$('mepProjectTable').innerHTML;
+    expect(html).toContain('Entreprise test');expect(html).toContain('Non renseignée');expect(html).not.toContain('<time');
+  });
+  it('sends open-only scope to the export without changing dashboard quantities or metrics',async()=>{
+    const q=setup();q.work.blockers=[q.blocker(),q.blocker('closed')];q.api.handleClick(q.button('data-mep-project'));await q.settle();
+    const metrics=q.$('mepProjectMetrics').innerHTML,document=JSON.stringify(q.doc);q.$('mepOpenOnlyExport').checked=true;q.$('mepOpenOnlyExport').events.change();
+    expect(q.$('mepExportScopeHelp').textContent).toContain('ouvrages concernés');expect(q.$('mepExportScopeCount').textContent).toContain('1 point');expect(q.api.exportFilters.openOnly).toBe(true);
+    expect(q.$('mepProjectMetrics').innerHTML).toBe(metrics);expect(JSON.stringify(q.doc)).toBe(document);
+    q.api.handleClick(q.button('',{mepExport:'xlsx'}));await q.settle();expect(q.state.exports).toHaveLength(1);expect(q.state.exports[0].openOnly).toBe(true);
+  });
+  it('makes an empty open-only export scope explicit and disables export actions',async()=>{
+    const q=setup();q.work.blockers=[q.blocker('closed')];q.api.handleClick(q.button('data-mep-project'));await q.settle();q.$('mepOpenOnlyExport').checked=true;q.$('mepOpenOnlyExport').events.change();
+    expect(q.$('mepExportScopeCount').textContent).toContain('Aucun point ouvert');expect(q.exportButtons.every(button=>button.disabled)).toBe(true);
+    q.$('mepOpenOnlyExport').checked=false;q.$('mepOpenOnlyExport').events.change();expect(q.exportButtons.every(button=>!button.disabled)).toBe(true);
+  });
+  it('clears presentation filters before locating a filtered work on its plan',async()=>{
+    const q=setup();q.$('mepDisciplineFilter').value='hvac';q.$('mepNetworkFilter').value='unmatched';q.$('mepOnlyBlocked').checked=true;q.$('mepFiltersForm').events.submit({preventDefault(){}});expect(q.api.matches(q.work)).toBe(false);
+    q.api.handleClick(q.button('',{mepLocateWork:'a'}));await q.settle();expect(q.api.matches(q.work)).toBe(true);expect(q.state.located).toEqual(['a']);
   });
 });
 

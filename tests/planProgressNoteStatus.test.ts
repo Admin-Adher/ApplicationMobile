@@ -20,6 +20,7 @@ function editor() {
   runInNewContext(`
     let state={elements:[{id:'a',name:'A',reference:'A-1',status:'todo',note:''},{id:'b',name:'B',reference:'B-1',status:'todo',note:''}],calibrations:{},billed:{},undo:[],history:[]};
     let durableDocument=JSON.stringify({elements:state.elements,calibrations:state.calibrations,billed:state.billed});
+    let durableHistory=JSON.stringify(state.history),durableActivity='{}';
     let selected=new Set(['a']),saving=false,noteSave=null,changingStatus=false,unconfirmed=false,pendingNote=null;
     const geometry={active:false};
     const sameDocument=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
@@ -30,7 +31,7 @@ function editor() {
       snapshot:()=>JSON.parse(JSON.stringify({state,saving,unconfirmed})),
     });
   `, {
-    api, inputs, crypto: { randomUUID },
+    api, inputs, crypto: { randomUUID }, boot:{userId:'user-a',people:[{id:'user-a',name:'Chef de chantier'}]},
     $: (id: string) => inputs[id],
     document: { body: { setAttribute: (name: string) => attributes.add(name), removeAttribute: (name: string) => attributes.delete(name) } },
     request: (_type: string, payload: unknown) => new Promise((resolve, reject) => writes.push({ payload: JSON.parse(JSON.stringify(payload)), resolve, reject })),

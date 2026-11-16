@@ -80,6 +80,7 @@ export default function PlanProgressScreen() {
       } as ProgressOperation));
     const session = new ProgressSession({
       planId: plan.id, sourceRef: source, owned, online: () => latest.current.network.isOnline, newId: () => Crypto.randomUUID(),
+      actor:{id:user.id,name:user.name||'Utilisateur de cet appareil'},
       cacheRead: () => AsyncStorage.getItem(key),
       cacheWrite: value => owned() ? AsyncStorage.setItem(key,value) : Promise.reject(new Error('Compte modifié.')),
       pending,
@@ -106,7 +107,7 @@ export default function PlanProgressScreen() {
       if (!owned()) return;
       const groups = progressGroups(app.companies.filter(company => (!company.organizationId || company.organizationId === user.organizationId) &&
         (!project?.companyIds?.length || project.companyIds.includes(company.id))),
-        app.lots.filter(lot => !lot.chantierId || lot.chantierId === plan.chantierId));
+        app.lots.filter(lot => session.assignableLotIds.includes(lot.id) && (!lot.chantierId || lot.chantierId === plan.chantierId)),plan.chantierId);
       const nonce = Crypto.randomUUID();
       bridge.current = { nonce, receive: async message => {
         if (!owned()) throw new Error('La session a changé. Rouvrez le plan.');
@@ -127,7 +128,7 @@ export default function PlanProgressScreen() {
         if (message.type === 'closeError') { setClosing(false); Alert.alert('Avancement',String(message.payload?.message ?? 'Enregistrement en cours.')); return {}; }
         if (message.type === 'save') {
           await session.save(message.payload);
-          return { text: 'Enregistré sur cet appareil · synchronisation en attente' };
+          return { text: 'Enregistré sur cet appareil · synchronisation en attente',history:session.history,elementActivity:session.elementActivity };
         }
         if (message.type === 'reload') return await session.refresh() ?? {};
         if(message.type==='projectMep'){
@@ -170,7 +171,7 @@ export default function PlanProgressScreen() {
       } };
       const drawingPreference = await AsyncStorage.getItem(drawingKey).catch(() => null);
       if (!owned()) return;
-      setHtml(editorHtml(template, { nonce, document, drawingPreference, history: session.history, plan: { id: plan.id, name: plan.name, pages: plan.pdfPageCount ?? 1,building:plan.building||'',level:plan.level||'',revision:plan.revisionCode||'' },people:auth.users.map(p=>({id:p.id,name:p.name,companyId:p.companyId})),
+      setHtml(editorHtml(template, { nonce, document, drawingPreference, history: session.history, elementActivity:session.elementActivity, plan: { id: plan.id, name: plan.name, pages: plan.pdfPageCount ?? 1,building:plan.building||'',level:plan.level||'',revision:plan.revisionCode||'' },people:auth.users.map(p=>({id:p.id,name:p.name,companyId:p.companyId})),
         projectName: project?.name ?? 'Chantier', groups, companyId: user.companyId,userId:user.id, permissions: JSON.parse(permissions), pdfSource, pdfjs,
         syncText: (await pending()).length ? 'Modifications en attente de synchronisation' : session.fresh ? 'Suivi chargé · synchronisé' : 'Données locales · actualisation à la connexion' }));
     })().catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'Impossible de charger l’avancement.'); });
