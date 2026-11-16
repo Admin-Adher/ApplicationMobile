@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { randomUUID } from 'node:crypto';
 import ts from 'typescript';
+import {mepTransitionProblem} from '../lib/plan-progress/editor/mep-transition';
 import { describe, expect, it } from 'vitest';
 
 function bridge(native: boolean) {
@@ -18,10 +19,17 @@ function bridge(native: boolean) {
   const document = { addEventListener:(name: string,fn: (value: unknown) => void) => listeners.set('document:'+name,fn) };
   const exports: any = {};
   const source = ts.transpileModule(readFileSync('lib/plan-progress/editor/bridge.js','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2020,module:ts.ModuleKind.CommonJS}}).outputText;
-  runInNewContext(source,{window,document,exports,crypto:{randomUUID},setTimeout,clearTimeout,Event:class{type: string;constructor(type: string){this.type=type;}}});
+  runInNewContext(source,{window,document,exports,require:()=>({mepTransitionProblem}),crypto:{randomUUID},setTimeout,clearTimeout,Event:class{type: string;constructor(type: string){this.type=type;}}});
   return {api:exports,sent,parent,dispatched,receive:(surface: string,data: unknown,source?: unknown) => listeners.get(surface+':message')!({data,source})};
 }
 describe('shared PDF progress transport',() => {
+  it('disables undo that erases a traced blocker even for a full editor',()=>{
+    const {api}=bridge(false);api.boot.permissions.edit=true;api.boot.permissions.delete=true;
+    const work={id:'a',blockers:[{id:'block',status:'open'}]};
+    expect(api.canUndo({elements:[work],undo:[{snapshot:JSON.stringify({elements:[]})}]})).toBe(false);
+    expect(api.canUndo({elements:[work],undo:[{snapshot:JSON.stringify({elements:[{id:'a',blockers:[]}]})}]})).toBe(false);
+    expect(api.canUndo({elements:[work],undo:[{snapshot:JSON.stringify({elements:[{...work,note:'ancienne'}]})}]})).toBe(true);
+  });
   it('accepts close requests only from the owning host so notes can be flushed before exit',() => {
     const b=bridge(false);const message={channel:'bt-plan-progress',nonce:'private-channel',type:'closeEditor'};
     b.receive('window',message,{});expect(b.dispatched).toEqual([]);

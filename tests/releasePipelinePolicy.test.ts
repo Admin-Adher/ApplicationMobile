@@ -13,6 +13,12 @@ const securityGates = workflow('security-gates.yml');
 const releaseChain = workflow('build-apk.yml');
 
 describe('release pipeline policy', () => {
+  it('can release web-only changes without publishing the shared editor as an automatic mobile OTA',()=>{
+    const start=releaseChain.indexOf('  publish-ota:'),block=releaseChain.slice(start,releaseChain.indexOf('    steps:',start));
+    expect(block).toContain("!contains(github.event.head_commit.message, '[web-only]')");
+    expect(block).toContain('needs: [gates, detect-changes]');
+    expect(block).toContain('inputs.force_ota');
+  });
   it('keeps a single canonical definition of a publishable commit', () => {
     // Il existait deux contrats : un portail « leger » dans la chaine Android
     // et ce workflow « complet » sur les PR. Un commit pouvait donc etre publie

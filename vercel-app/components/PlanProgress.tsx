@@ -15,7 +15,7 @@ import {validateMepReportHtml} from '../../lib/plan-progress/print-contract';
 
 type Props = {
   owner: string; userId: string; organizationId: string; companyId?: string;
-  plan: { id: string; name: string; uri: string; pdf_page_count?: number; chantier_id?: string; building?:string;level?:string;revision_code?:string };
+  plan: { id: string; name: string; uri: string; pdf_page_count?: number; chantier_id?: string; building?:string;mepBuilding?:string;level?:string;revision_code?:string };
   people?: {id:string;name?:string;companyId?:string;company_id?:string}[];
   availablePlans?: {id:string;name:string;uri:string;file_type?:string;chantier_id?:string;pdf_page_count?:number;building?:string;level?:string;revision_code?:string}[];
   projectName: string; resolvedUri: string;
@@ -25,6 +25,8 @@ type Props = {
   pendingCount: number; syncError: boolean;
   enqueue: (operation: ProgressOperation) => Promise<void>;
   onClose: () => void;
+  initialMepAction?: {workId:string;blockerId:string} | null;
+  onOpenMepAction?: (target:{planId:string;workId:string;blockerId:string})=>void;
 };
 export default function PlanProgress(props: Props) {
   const dialog = useRef<HTMLDialogElement>(null);
@@ -53,6 +55,7 @@ export default function PlanProgress(props: Props) {
     const pending = async () => (await listWebOperations(captured.owner)).filter(row => row.kind === 'plan_progress' && row.payload.planId === captured.plan.id && row.payload.sourceRef === captured.plan.uri).map(row => row.payload as unknown as ProgressOperation);
     const session = new ProgressSession({ planId: props.plan.id, sourceRef: props.plan.uri, owned, online: () => navigator.onLine,
       actor:{id:captured.userId,name:captured.people?.find(person=>person.id===captured.userId)?.name||'Utilisateur de cet appareil'},
+      mepContext:{requireBuilding:true,building:captured.plan.mepBuilding??captured.plan.building},
       newId: () => crypto.randomUUID(), pending,
       cacheRead: async () => localStorage.getItem(key),
       cacheWrite: async value => { if (owned()) localStorage.setItem(key,value); },
@@ -87,6 +90,11 @@ export default function PlanProgress(props: Props) {
         else if(message.type==='projectMep'){
           if(!navigator.onLine){const cached=localStorage.getItem(projectKey);if(!cached)throw Error('Ouvrez la synthèse en ligne avant de la consulter hors connexion.');payload={...JSON.parse(cached),offline:true};}
           else {payload=await readSupabase(signal=>supabaseBrowser.rpc('read_project_mep',{p_plan_id:captured.plan.id,p_source_ref:captured.plan.uri}).abortSignal(signal),{signal:startup.signal});if(!owned())return;try{localStorage.setItem(projectKey,JSON.stringify(payload));}catch{}}
+        }
+        else if(message.type==='openMepAction'){
+          const target=message.payload;
+          if(!latest.current.onOpenMepAction||typeof target?.workId!=='string'||typeof target?.blockerId!=='string'||!latest.current.availablePlans?.some(p=>p.id===target.planId&&p.chantier_id===captured.plan.chantier_id&&canTrackPdfPlan(p)))throw Error('Ce plan n’est plus accessible. Actualisez le chantier.');
+          latest.current.onOpenMepAction({planId:target.planId,workId:target.workId,blockerId:target.blockerId});
         }
         else if(message.type==='markMepNotificationsRead'){payload=await readSupabase(signal=>supabaseBrowser.rpc('mark_mep_notifications_read',{p_plan_id:captured.plan.id,p_source_ref:captured.plan.uri}).abortSignal(signal),{signal:startup.signal,retries:0});}
         else if(message.type==='mepLayerPlans'){
@@ -144,7 +152,7 @@ export default function PlanProgress(props: Props) {
       let drawingPreference: string | null = null;
       try { drawingPreference = localStorage.getItem(drawingKey); } catch {}
       setHtml(editorHtml(template,{ nonce:nonce.current,document,drawingPreference,history:session.history,elementActivity:session.elementActivity,groups,companyId:props.companyId,userId:props.userId,permissions:props.permissions,
-        plan:{ id:props.plan.id,name:props.plan.name,pages:props.plan.pdf_page_count ?? 1,building:props.plan.building||'',level:props.plan.level||'',revision:props.plan.revision_code||'' },people:(props.people||[]).map(p=>({id:p.id,name:p.name||p.id,companyId:p.companyId||p.company_id})),projectName:props.projectName,pdfSource,pdfjs:{ moduleSource,workerSource },
+        plan:{ id:props.plan.id,name:props.plan.name,pages:props.plan.pdf_page_count ?? 1,building:props.plan.building||'',mepBuilding:props.plan.mepBuilding??props.plan.building??'',level:props.plan.level||'',revision:props.plan.revision_code||'' },initialMepAction:props.initialMepAction,canOpenMepAction:Boolean(props.onOpenMepAction),people:(props.people||[]).map(p=>({id:p.id,name:p.name||p.id,companyId:p.companyId||p.company_id})),projectName:props.projectName,pdfSource,pdfjs:{ moduleSource,workerSource },
         syncText:(await pending()).length ? 'Modifications en attente de synchronisation' : session.fresh ? 'Suivi chargé · synchronisé' : 'Données locales · actualisation à la connexion' }));
     })().catch(cause => { if (active) setError(cause instanceof Error ? cause.message : 'Impossible de charger l’avancement.'); });
     return () => { active = false; startup.abort(); window.removeEventListener('message',receive); };

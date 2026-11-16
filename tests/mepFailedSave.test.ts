@@ -2,6 +2,7 @@ import {readFileSync} from 'node:fs';
 import {runInNewContext} from 'node:vm';
 import {randomUUID} from 'node:crypto';
 import ts from 'typescript';
+import {mepTransitionProblem} from '../lib/plan-progress/editor/mep-transition';
 import {describe,expect,it} from 'vitest';
 
 // Use the actual editor save/rollback functions, not a parallel implementation.
@@ -28,7 +29,7 @@ function editor(){
       activity:()=>audit.workActivity(state,{id:'plan-1'},state.elements[0]),
     });
   `,{
-    api,audit,crypto:{randomUUID},
+    api,audit,mepTransitionProblem,crypto:{randomUUID},
     boot:{userId:'local-user',people:[{id:'local-user',name:'Auteur local'}]},
     $:(id:string)=>inputs[id],document:{body:{setAttribute:(name:string)=>attributes.add(name),removeAttribute:(name:string)=>attributes.delete(name)}},
     request:(_type:string,payload:unknown)=>new Promise((resolve,reject)=>writes.push({payload:JSON.parse(JSON.stringify(payload)),resolve,reject})),

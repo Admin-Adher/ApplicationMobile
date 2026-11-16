@@ -103,3 +103,12 @@
  .mep-works-heading{align-items:flex-start;flex-direction:column;gap:8px}
 }
 @media(prefers-reduced-motion:reduce){.mep-work-card,.mep-work-status{transition:none}}
+
+/* Context and the next useful action stay together, including on small phones. */
+.mep-step-help,.mep-form-error{padding:12px 14px;border:1px solid var(--line);border-radius:6px;font-size:14px;line-height:1.6;overflow-wrap:anywhere}
+.mep-step-help{background:#f3f7fc;color:#354d68}.mep-form-error{background:#fff2ef;color:#94352c;border-color:#e9b9b1}
+.mep-notification{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding:18px 0;border-top:1px solid var(--line);min-width:0}
+.mep-notification>div{min-width:0;flex:1}.mep-notification h4{margin:10px 0 6px;font-size:16px;line-height:1.45;overflow-wrap:anywhere}
+.mep-notification p{margin:6px 0;font-size:14px;line-height:1.6;overflow-wrap:anywhere}.mep-notification .mep-caption{font-size:13px;color:var(--muted)}
+.mep-notification>.terrain-button{min-height:48px;flex:none;white-space:normal}.mep-notification button:focus-visible{outline:3px solid #5c96dd;outline-offset:3px}
+@media(max-width:639px){.mep-notification{flex-direction:column;gap:10px}.mep-notification>.terrain-button{width:100%}.mep-step-help,.mep-form-error{padding:10px 12px}}

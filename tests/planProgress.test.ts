@@ -11,6 +11,18 @@ function ports(overrides: Partial<ProgressSessionPorts> = {}) {
     newId:() => 'operation-1',owned:() => true,...overrides };
 }
 describe('PDF progress integration',() => {
+    it('rejects destructive marker changes, premature closure and missing building before durable enqueue',async()=>{
+      const base:any=document();base.elements[0].lotId='["company-1","lot-1"]';base.elements[0].mep={discipline:'plumbing',network:'EF',subnetwork:'',zone:'105R',quantityMode:'manual',plannedQuantity:100,unit:'m',weight:1};
+      base.elements[0].blockers=[{id:'11111111-1111-4111-8111-111111111111',point:{x:10,y:10},description:'Support',photoRefs:['btmedia://22222222-2222-4222-8222-222222222222'],companyId:'company-1',responsibleId:null,dueDate:null,openedAt:'2026-11-16T10:00:00Z',status:'open',blocksProgress:true,priority:'normal'}];
+      for(const kind of ['delete-work','delete-blocker','close','missing-building']){
+        const p=ports({read:async()=>base,mepContext:{requireBuilding:true,building:kind==='missing-building'?'':'A'}}),session=new ProgressSession(p);await session.open();
+        const next=structuredClone(base);if(kind==='delete-work')next.elements=[];if(kind==='delete-blocker')next.elements[0].blockers=[];if(kind==='close')next.elements[0].blockers[0].status='closed';if(kind==='missing-building')next.elements[0].blockers[0].description='Nouveau constat';
+        await expect(session.save(next),kind).rejects.toThrow();expect(p.enqueue,kind).not.toHaveBeenCalled();expect(session.document.elements).toEqual(base.elements);
+      }
+      const resolved=structuredClone(base);resolved.elements[0].blockers[0].status='resolved';
+      const p=ports({read:async()=>resolved,mepContext:{requireBuilding:true,building:'A'}}),session=new ProgressSession(p);await session.open();
+      const next=structuredClone(resolved);next.elements[0].blockers[0].status='closed';await session.save(next);expect(p.enqueue).toHaveBeenCalledOnce();
+    });
   it('preserves only the server-confirmed lot catalogue for offline preparation',async()=>{
     let cached:string|null=null;
     const p=ports({cacheRead:async()=>cached,cacheWrite:async value=>{cached=value;},read:async()=>({...document(),assignableLotIds:['lot-confirmed','lot-confirmed',42,null,'']})});

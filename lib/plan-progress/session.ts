@@ -12,6 +12,7 @@ export type ProgressSessionPorts = {
   online?: () => boolean;
   actor?: { id: string; name: string };
   now?: () => string;
+  mepContext?: {requireBuilding?:boolean;building?:string};
 };
 /** Host-owned session. The embedded editor never receives a Supabase client or token. */
 export class ProgressSession {
@@ -55,7 +56,7 @@ export class ProgressSession {
     if (this.busy || !this.ports.owned()) throw new Error('Enregistrement déjà en cours ou session modifiée.');
     const next = readProgress(value);
     if (next.elements.some(el => el.docId !== this.ports.planId)) throw new Error('Le plan de l’ouvrage a changé.');
-    validateMepTransition(this.document,next);
+    validateMepTransition(this.document,next,this.ports.mepContext);
     const changes = progressDiff(this.document, next);
     if (!changes.length) return;
     if (changes.length > 500 || JSON.stringify(changes).length > 1_000_000) throw new Error('Modification trop volumineuse.');

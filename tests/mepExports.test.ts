@@ -24,6 +24,20 @@ function state(elements=[work()]){return {documents:[{id:'p1',name:'Plomberie <R
 function blocker(overrides:any={}){return {id:'b1',point:{x:300,y:100},description:'Attente réservations béton',photoRefs:['btmedia://a'],companyId:'c1',responsibleId:'u1',openedAt:'2026-11-14T10:00:00Z',dueDate:'2026-11-15',status:'open',blocksProgress:true,priority:'high',...overrides};}
 
 describe('MEP exports',()=>{
+  it.each([true,false])('labels history completeness honestly in the actual workbook (truncated=%s)',async(historyTruncated)=>{
+    const {api,sent}=exportsApi(),s=state(),snapshot={plans:[{id:'p1',document:s}],history:[],historyTruncated};
+    await api.exportMepWorkbook(s,snapshot,{});const book=XLSX.read(sent[0].payload.base64,{type:'base64'});
+    const method=XLSX.utils.sheet_to_json<any[]>(book.Sheets['Méthode MEP'],{header:1}),history=XLSX.utils.sheet_to_json<any[]>(book.Sheets['Historique MEP'],{header:1});
+    expect(method.find(row=>row[0]==='Limite atteinte')?.[1]).toBe(historyTruncated?'Oui — historique partiel':'Non');
+    expect(String(history[0][0]).includes('HISTORIQUE PARTIEL')).toBe(historyTruncated);expect(book.Sheets['Réseaux MEP'].O2.v).toBe(30);
+  });
+  it('uses pending local update dates for every export scope without changing remote plans',()=>{
+    const {api}=exportsApi(),s:any=state();s.history=[{planId:'p1',time:'2026-11-17T12:00:00Z',pending:true}];
+    const snapshot={plans:[{id:'p1',updatedAt:'2026-11-16T10:00:00Z',document:s},{id:'p2',updatedAt:'2026-11-16T10:00:00Z',document:{...s,elements:[work({id:'w2',docId:'p2'})]}}]};
+    expect(api.mepExportRows(s,snapshot,{dateFrom:'2026-11-17'}).works.map((r:any)=>r.el.id)).toEqual(['w1']);
+    expect(api.mepExportRows(s,snapshot,{dateTo:'2026-11-16'}).works.map((r:any)=>r.el.id)).toEqual(['w2']);
+    expect(snapshot.plans[0].updatedAt).toBe('2026-11-16T10:00:00Z');
+  });
   it('exports 30m executed out of 100m without using the financial price',()=>{
     const {api}=exportsApi();const result=api.mepExportRows(state(),null,{});
     expect(result.works[0]).toMatchObject({planned:100,executed:30,percent:.3,validated:0,unit:'m'});
