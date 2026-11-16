@@ -1,8 +1,8 @@
 \set ON_ERROR_STOP on
 begin;
 create function pg_temp.mep_assert(v boolean,label text) returns void language plpgsql as $$ begin if v is distinct from true then raise exception 'MEP assertion failed: %',label; end if; end $$;
-create function pg_temp.mep_error(statement text,expected text) returns void language plpgsql as $$
-declare actual text; begin begin execute statement; exception when others then get stacked diagnostics actual=returned_sqlstate; if actual=expected then return; end if; raise exception 'Expected %, got %: %',expected,actual,sqlerrm; end; raise exception 'Expected failure: %',statement; end $$;
+create function pg_temp.mep_error(statement text,expected text,expected_message text default null) returns void language plpgsql as $$
+declare actual text; begin begin execute statement; exception when others then get stacked diagnostics actual=returned_sqlstate; if actual=expected and (expected_message is null or position(expected_message in sqlerrm)>0) then return; end if; raise exception 'Expected % / %, got %: %',expected,expected_message,actual,sqlerrm; end; raise exception 'Expected failure: %',statement; end $$;
 reset role;
 alter table public.site_plans add column if not exists building text;
 alter table public.site_plans add column if not exists name text;
@@ -31,6 +31,23 @@ select pg_temp.mep_assert(jsonb_array_length(public.read_project_mep('mep-plan-a
 select pg_temp.mep_assert(jsonb_array_length(public.read_project_mep('mep-plan-a','btmedia:plan-a')->'notifications')=1,'assigned recipient notification');
 select pg_temp.mep_assert(public.read_plan_progress('mep-plan-a','btmedia:plan-a')->'history'->0 ? 'author','author retained');
 select public.apply_plan_progress(gen_random_uuid(),'mep-plan-a','btmedia:plan-a','[{"target":"elements","key":"mep-work-a","before":{"executedRanges":null},"after":{"executedRanges":[[0,0.2],[0.8,0.9]]}}]');
+-- Every candidate below is internally coherent: it must fail for the active
+-- blocking obstacle, never for stale CAS fields or inconsistent drawn portions.
+do $$ declare candidate text; changes jsonb; before_fields jsonb; after_fields jsonb; work jsonb;
+begin
+  before_fields:='{"status":"progress","progressPercent":30,"executedRanges":[[0,0.2],[0.8,0.9]]}';
+  foreach candidate in array array['installed','checked','progress'] loop
+    after_fields:=jsonb_build_object('status',candidate,'progressPercent',case when candidate='progress' then '100'::jsonb else 'null'::jsonb end,'executedRanges','[[0,1]]'::jsonb);
+    changes:=jsonb_build_array(jsonb_build_object('target','elements','key','mep-work-a','before',before_fields,'after',after_fields));
+    perform pg_temp.mep_error(format('select public.apply_plan_progress(gen_random_uuid(),%L,%L,%L)','mep-plan-a','btmedia:plan-a',changes),'22023','blocage actif');
+  end loop;
+  work:=public.read_plan_progress('mep-plan-a','btmedia:plan-a')->'elements'->0;
+  work:=jsonb_set(jsonb_set(work,'{id}','"mep-work-nonblocking"'),'{blockers,0,id}','"82000000-0000-4000-8000-000000000099"');
+  work:=jsonb_set(work,'{blockers,0,blocksProgress}','false');
+  work:=work||'{"status":"installed","progressPercent":null,"executedRanges":[[0,1]]}'::jsonb;
+  perform public.apply_plan_progress(gen_random_uuid(),'mep-plan-a','btmedia:plan-a',jsonb_build_array(jsonb_build_object('target','elements','key','mep-work-nonblocking','before',null,'after',work)));
+  perform pg_temp.mep_assert(exists(select 1 from jsonb_array_elements(public.read_plan_progress('mep-plan-a','btmedia:plan-a')->'elements') e where e->>'id'='mep-work-nonblocking' and e->>'status'='installed'),'an ordinary non-blocking reserve never prevents completion');
+end $$;
 select pg_temp.mep_error($q$select public.apply_plan_progress(gen_random_uuid(),'mep-plan-a','btmedia:plan-a','[{"target":"elements","key":"mep-work-a","before":{"executedRanges":[[0,0.2],[0.8,0.9]]},"after":{"executedRanges":[[0,0.4],[0.3,0.5]]}}]')$q$,'22023');
 select pg_temp.mep_error($q$select public.apply_plan_progress(gen_random_uuid(),'mep-plan-a','btmedia:plan-a','[{"target":"elements","key":"mep-work-a","before":{"executedRanges":[[0,0.2],[0.8,0.9]]},"after":{"executedRanges":[[0,0.4]]}}]')$q$,'22023');
 select pg_temp.mep_error($q$select public.read_project_mep('mep-plan-b','btmedia:plan-b')$q$,'42501');
@@ -78,6 +95,9 @@ begin
   result:=jsonb_build_array(jsonb_build_object('target','elements','key','mep-work-a','before',jsonb_build_object('blockers',b),'after',jsonb_build_object('blockers',changed)));
   perform public.apply_plan_progress(op,'mep-plan-a','btmedia:plan-a',result);
   perform pg_temp.mep_assert(public.apply_plan_progress(op,'mep-plan-a','btmedia:plan-a',result)->>'replayed'='true','retry idempotent');
+  perform public.apply_plan_progress(gen_random_uuid(),'mep-plan-a','btmedia:plan-a','[{"target":"elements","key":"mep-work-a","before":{"status":"progress","progressPercent":30,"executedRanges":[[0,0.2],[0.8,0.9]]},"after":{"status":"installed","progressPercent":null,"executedRanges":[[0,1]]}}]');
+  perform pg_temp.mep_assert(public.read_plan_progress('mep-plan-a','btmedia:plan-a')->'elements'->0->>'status'='installed','installation succeeds as soon as the blocking obstacle is resolved');
+  perform public.apply_plan_progress(gen_random_uuid(),'mep-plan-a','btmedia:plan-a','[{"target":"elements","key":"mep-work-a","before":{"status":"installed","progressPercent":null,"executedRanges":[[0,1]]},"after":{"status":"progress","progressPercent":30,"executedRanges":[[0,0.2],[0.8,0.9]]}}]');
   b:=changed;changed:=jsonb_set(b,'{0,status}','"closed"');
   perform public.apply_plan_progress(gen_random_uuid(),'mep-plan-a','btmedia:plan-a',jsonb_build_array(jsonb_build_object('target','elements','key','mep-work-a','before',jsonb_build_object('blockers',b),'after',jsonb_build_object('blockers',changed))));
 end $$;

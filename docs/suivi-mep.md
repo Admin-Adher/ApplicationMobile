@@ -99,7 +99,7 @@ Les scénarios d'acceptation sont suivis ainsi :
 - **T6** : contrôler les filtres, les unités séparées et la pondération de la synthèse chantier ; le jeu de données fictif ne prouve pas les temps de réponse d'un grand chantier réel.
 - **T7** : vérifier la séparation par référence de fichier et l'absence de report automatique des coordonnées ; une campagne de changement d'indice métier réel reste distincte de la recette fictive.
 
-Avant publication des nouveaux clients, appliquer `supabase/migrations/20261116154432_mep_network_progress.sql` après les migrations du suivi de plans existantes. Elle étend les validations du RPC partagé, la lecture consolidée et les notifications internes ; les tables restent RPC-only. Ne pas publier le client contre une base qui refuserait encore les nouveaux champs.
+Avant publication des nouveaux clients, appliquer `supabase/migrations/20261116154432_mep_network_progress.sql` après les migrations du suivi de plans existantes. Elle étend les validations du RPC partagé, la lecture consolidée et les notifications internes ; les tables restent RPC-only. Appliquer ensuite `20261116155431_mep_blocking_completion_guard.sql` : le serveur refuse Terminé, Contrôlé ou un réalisé à 100 % tant qu’un point réellement bloquant reste actif. Les réserves non bloquantes ne bloquent pas la fin des travaux. Ne pas publier le client contre une base qui refuserait encore les nouveaux champs.
 
 Contrôles de préparation :
 

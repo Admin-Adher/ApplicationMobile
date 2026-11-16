@@ -183,6 +183,9 @@ jobs:
       - name: Apply MEP networks and blockers
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261116154432_mep_network_progress.sql
 
+      - name: Prevent MEP completion while a blocking obstacle remains active
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261116155431_mep_blocking_completion_guard.sql
+
       - name: Verify PDF progress isolation, permissions, concurrency and idempotency
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/plan_progress.sql
 
