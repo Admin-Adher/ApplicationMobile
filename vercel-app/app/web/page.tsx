@@ -22,6 +22,8 @@ import { publishWhenCurrent, createWorkspaceReadQueue, workspaceTablesForTab, sa
 import { boundedRead, readSupabase } from '@/lib/bounded-read';
 import { supabaseBrowser } from '@/lib/supabase-browser';
 import { canTrackPdfPlan, progressRpc, type ProgressOperation } from '../../../lib/plan-progress/core';
+import {prepareMepPhotoOperation,hasLocalMepPhotos} from '../../../lib/plan-progress/media-refs';
+import {uploadMepWebPhoto} from '@/lib/mep-photos';
 const PlanProgress = dynamic(() => import('@/components/PlanProgress'), { ssr: false, loading: () => <div className={styles.loadingBlock} role="status">Chargement de l’outil…</div> });
 import { dmChannelIdByUserIds } from '../../../lib/directMessageId';
 import {
@@ -6169,8 +6171,9 @@ function BuildTrackWebWorkspace() {
       return;
     }
     if (operation.kind === 'plan_progress') {
-      const payload = operation.payload as unknown as ProgressOperation;
+      let payload = operation.payload as unknown as ProgressOperation;
       if (typeof payload.id !== 'string' || typeof payload.planId !== 'string' || typeof payload.sourceRef !== 'string' || !Array.isArray(payload.changes)) throw new Error('Modification d’avancement invalide.');
+      if(hasLocalMepPhotos(payload)){payload=await prepareMepPhotoOperation(payload,ref=>uploadMepWebPhoto(operation.owner,ref,assertOwner));await assertOwner();await saveWebOperation({...operation,payload:payload as unknown as Record<string,unknown>});}
       const { data: result, error } = await supabaseBrowser.rpc('apply_plan_progress', progressRpc(payload));
       if (error) throw error;
       if (result?.applied !== true) throw new Error('Enregistrement d’avancement non confirmé.');
@@ -7661,7 +7664,7 @@ function BuildTrackWebWorkspace() {
                 authUserId={authUser?.id ?? ''}
                 progressContext={profile?.organization_id && outboxOwner ? {
                   owner: outboxOwner, userId: authUser?.id ?? '', organizationId: profile.organization_id,
-                  companyId: profile.company_id, lots: data.lots,
+                  companyId: profile.company_id, lots: data.lots,people:data.profiles.filter(p=>!p.membership_status||p.membership_status==='active').map(p=>({id:p.id,name:p.name||p.id,company_id:p.company_id})),
                   permissions: { edit: canCreate(profile) && canEdit(profile), editOwn: resolveWebPermissions(profile).canEditOwn, delete: canDelete(profile), export: canExport(profile) },
                   pendingCount: outbox.rows.filter(row => row.kind === 'plan_progress' && row.payload.planId === selectedPlan?.id && row.payload.sourceRef === selectedPlan?.uri).length,
                   syncError: outbox.rows.some(row => row.kind === 'plan_progress' && row.payload.planId === selectedPlan?.id && row.payload.sourceRef === selectedPlan?.uri && row.error),
@@ -11861,6 +11864,16 @@ function PlansView({
         ) : null}
         compactDetail={isCompactPlanView && mobilePlanOpen}
       />
+        {progressOpen && selectedPlan && progressContext ? <PlanProgress
+          {...progressContext} plan={{...selectedPlan,building:getPlanBuildingName(selectedPlan),level:getPlanLevelName(selectedPlan)}} resolvedUri={selectedPlanResolvedUri ?? ''}
+          availablePlans={plans.filter((p:any)=>p.chantier_id===selectedPlan.chantier_id).map((p:any)=>({...p,building:getPlanBuildingName(p),level:getPlanLevelName(p)}))}
+          projectName={projects.find((row: any) => row.id === selectedPlan.chantier_id)?.name ?? 'Chantier'}
+          companies={companies.filter((row: any) => (!row.organization_id || row.organization_id === progressContext.organizationId) && (() => {
+            const ids = projects.find((project: any) => project.id === selectedPlan.chantier_id)?.company_ids;
+            return !Array.isArray(ids) || ids.length === 0 || ids.includes(row.id);
+          })())}
+          lots={(progressContext.lots ?? []).filter((row: any) => !row.chantier_id || row.chantier_id === selectedPlan.chantier_id)}
+          onClose={() => { setProgressOpen(false); if (isCompactPlanView && selectedPlan) planWorkspace.openDetail(); }} /> : null}
       {planWorkspace.showList && (
       <section className={`${styles.panel} ${styles.plansListPanel}`} data-prw-panel data-prw-plan-nav>
         <div className={styles.buildingRailHeaderWeb} data-prw-plan-nav-header>
@@ -12091,15 +12104,7 @@ function PlansView({
             }}
           />
         ) : null}
-        {progressOpen && selectedPlan && progressContext ? <PlanProgress
-          {...progressContext} plan={selectedPlan} resolvedUri={selectedPlanResolvedUri ?? ''}
-          projectName={projects.find((row: any) => row.id === selectedPlan.chantier_id)?.name ?? 'Chantier'}
-          companies={companies.filter((row: any) => (!row.organization_id || row.organization_id === progressContext.organizationId) && (() => {
-            const ids = projects.find((project: any) => project.id === selectedPlan.chantier_id)?.company_ids;
-            return !Array.isArray(ids) || ids.length === 0 || ids.includes(row.id);
-          })())}
-          lots={(progressContext.lots ?? []).filter((row: any) => !row.chantier_id || row.chantier_id === selectedPlan.chantier_id)}
-          onClose={() => setProgressOpen(false)} /> : null}
+
         {selectedPlan ? (
           <>
             <div className={`${styles.sectionHeader} ${styles.planPreviewHeader}`} data-prw-plan-preview-header>

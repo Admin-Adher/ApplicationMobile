@@ -1,0 +1,68 @@
+/* MEP extends the existing plan-first controls, without a second drawing mode. */
+.mep-element-fields{border:1px solid var(--line);border-radius:8px;padding:12px;margin:16px 0;background:#f8fafd;min-width:0}
+.mep-element-fields legend{font-size:14px;font-weight:700;color:var(--ink);padding:0 5px}
+.mep-checkbox{display:flex;gap:12px;align-items:center;min-height:48px;font-size:14px;line-height:1.45;padding:4px 0}
+.mep-checkbox input{width:24px;height:24px;flex:none;accent-color:var(--brand)}
+.mep-field-pair{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;margin:12px 0}
+.mep-field-pair label,.mep-dashboard-filters label,.mep-compare-dates label{font-size:13px;line-height:1.5;min-width:0;display:flex;flex-direction:column;gap:6px;color:var(--muted)}
+.mep-field-pair .input,.mep-dashboard-filters .input{width:100%;min-width:0}
+.mep-selection{border-top:1px solid var(--line);margin-top:10px;padding-top:8px;min-width:0}
+.mep-caption{font-size:13px;line-height:1.5;margin:0 0 4px;overflow-wrap:anywhere;color:var(--muted)}
+.mep-selection-actions{display:flex;gap:8px;flex-wrap:wrap}.mep-selection-actions>button{flex:1;white-space:normal;border:1px solid var(--line)}
+.mep-warning{color:#a0322b}.mep-marker{cursor:pointer;outline:none}.mep-marker:focus-visible circle{stroke:#003582;stroke-width:6}.mep-marker text{font-family:Arial,sans-serif;font-weight:700;fill:white;text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.mep-marker.closed{opacity:.6}.mep-selection .mep-warning{font-weight:700}
+.mep-position-toolbar{display:flex;gap:12px;align-items:center;justify-content:space-between;padding:8px 12px;border-bottom:1px solid var(--line);font-size:14px;line-height:1.4;flex:none;background:#fff4dd;color:#674115}
+.mep-position-toolbar strong{min-width:0}.mep-position-toolbar button{flex:none}
+.is-mep-positioning .plan-header,.is-mep-positioning .terrain-tools,.is-mep-positioning .inspector{display:none!important}
+.is-mep-positioning .plan-layout{grid-template-columns:minmax(0,1fr)!important}
+.is-mep-positioning #planOverlay{cursor:crosshair}
+.mep-menu-actions{display:grid;gap:8px;border-top:1px solid var(--line);padding-top:16px;margin-top:16px}
+.mep-actions-dialog{max-width:720px}.mep-action-row{border:1px solid var(--line);border-radius:8px;padding:14px;margin:10px 0;display:flex;gap:12px;align-items:center;min-width:0}
+.mep-action-row>div{min-width:0;flex:1}.mep-action-row p{white-space:pre-wrap;overflow-wrap:anywhere;font-size:14px;line-height:1.5;margin:8px 0}.mep-action-row small{font-size:12px;line-height:1.5;color:var(--muted);overflow-wrap:anywhere;display:block}.mep-action-row strong{font-size:14px}.mep-action-row button{flex:none;white-space:normal}
+.mep-blocker-photos{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.mep-blocker-photos figure{margin:0;min-width:0}.mep-blocker-photos img{display:block;width:100%;max-height:180px;object-fit:contain;background:#eef2f7;border-radius:6px}.mep-blocker-photos figcaption{font-size:12px;color:var(--muted);line-height:1.5;padding:4px}
+.mep-view{padding:16px 0;min-width:0;max-width:100%}.mep-view>p{font-size:13px;line-height:1.5;color:var(--muted)}
+.mep-dashboard-filters{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:20px 0}.mep-dashboard-filters .input{font-size:16px;min-height:48px}
+.mep-project-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.mep-project-metrics>div{border:1px solid var(--line);padding:16px;border-radius:8px;display:flex;flex-direction:column;gap:6px;min-width:0}.mep-project-metrics span{font-size:13px;color:var(--muted)}.mep-project-metrics strong{font-size:28px;line-height:1.25}.mep-project-metrics small{font-size:12px;color:var(--muted);line-height:1.5}
+.mep-table-scroll{overflow:auto;max-width:100%;border:1px solid var(--line);border-radius:8px;background:white}.mep-table-scroll table{border-collapse:collapse;width:100%;min-width:680px}.mep-table-scroll th{font-size:12px;line-height:1.5;text-align:left;background:#f3f6fa;padding:12px}.mep-table-scroll td{padding:12px;font-size:14px;border-top:1px solid var(--line);white-space:nowrap}.mep-table-scroll td:first-child{white-space:normal;min-width:200px;max-width:360px;overflow-wrap:anywhere}.mep-table-scroll small{display:block;font-size:12px;line-height:1.5;color:var(--muted);margin-top:4px}
+.mep-export-actions{display:flex;flex-wrap:wrap;gap:8px;margin:16px 0;align-items:center}.mep-export-actions button{white-space:normal;min-height:48px;font-size:14px}.mep-export-actions [role=status]{flex-basis:100%;font-size:13px;line-height:1.5}
+.mep-detail-list{border:1px solid var(--line);border-radius:8px;padding:0 12px;margin:14px 0;background:#fff}.mep-detail-list>summary{min-height:48px;padding:12px 0;font-size:14px;font-weight:600;cursor:pointer;line-height:1.5}.mep-troncon{padding:12px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:5px;overflow-wrap:anywhere;font-size:13px;line-height:1.5}.mep-troncon span{color:var(--muted)}.mep-empty{padding:16px;font-size:14px;line-height:1.6;background:#f4f7fb;border:1px solid var(--line);border-radius:8px}.mep-compare-dates{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-end;margin:12px 0}.mep-compare-dates>label{flex:1;min-width:120px}.mep-compare-dates .input{min-height:48px;font-size:16px}
+#mepComparison{font-size:13px;line-height:1.6}
+.mep-network-hidden{display:none!important}
+@media(max-width:740px){
+ .mep-dashboard-filters{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.mep-project-metrics{grid-template-columns:1fr;gap:8px}.mep-project-metrics>div{display:grid;grid-template-columns:1fr auto;padding:12px;gap:5px 10px}.mep-project-metrics small{grid-column:1/-1}.mep-project-metrics strong{font-size:23px}.mep-view{padding-top:8px}.mep-view .section-header{display:block}.mep-view .section-header button{width:100%;margin-top:12px}.mep-view .section-header h2{font-size:23px;line-height:1.3;overflow-wrap:anywhere}.mep-view .section-header p{font-size:14px;line-height:1.5}
+ .mep-action-row{flex-direction:column;align-items:stretch}.mep-action-row button{width:100%}.mep-selection{padding-top:6px;margin-top:6px}.mep-caption{font-size:12px;line-height:1.4}.mep-selection-actions{gap:6px}.mep-selection-actions>button{font-size:12px;min-height:44px;padding:6px}
+ .mep-position-toolbar{padding:6px 8px;font-size:12px;gap:6px}.mep-position-toolbar button{font-size:12px;padding:6px;min-height:44px}
+ .terrain-mode .terrain-tools #mepToolsButton{font-size:12px;min-height:44px;padding:8px;white-space:nowrap}.mep-field-pair{gap:8px}.mep-export-actions>button{flex:1 1 120px}
+}
+@media(max-width:370px){.mep-dashboard-filters{grid-template-columns:1fr}.mep-field-pair{grid-template-columns:1fr}.mep-checkbox{font-size:13px}.mep-action-row{padding:10px}.mep-blocker-photos{grid-template-columns:1fr}}
+@media(min-width:540px) and (max-height:500px){.is-mep-positioning .topbar{display:none!important}.mep-selection{display:none}.mep-position-toolbar strong{font-size:12px}.mep-position-toolbar button{min-height:44px}.terrain-mode .terrain-tools #mepToolsButton{min-height:44px}}
+
+.mep-plan-legend{display:flex;flex-direction:column;gap:10px;font-size:12px;color:var(--muted);line-height:1.5;margin:14px 0}.mep-plan-legend>span{display:flex;align-items:center;gap:10px}.mep-plan-legend b{width:30px;flex:none}.mep-legend-built{height:5px;background:#3775bb;border-radius:3px}.mep-legend-todo{border-top:3px dashed #8291a3}.mep-plan-legend .mep-legend-blocked{width:22px;height:22px;background:#b43b32;color:#fff;display:grid;place-items:center;border-radius:50%}
+
+/* Physical progress has its own summary; legacy financial cards remain in their tab. */
+.terrain-mode[data-view=mep] :is(.page-heading,.metrics,.tabs,.app-footer){display:none}
+.terrain-mode[data-view=mep] main{padding-top:8px;max-width:1500px;margin:0 auto;width:100%}
+.mep-view>.section-header{padding-left:0;padding-right:0}
+#elementDialog>.modal-top,#mepBlockerDialog>.modal-top{position:sticky;z-index:3;background:white;padding-block:8px;margin-top:-8px;box-shadow:0 5px 0 white}
+#elementDialog>.modal-top{top:-28px}#mepBlockerDialog>.modal-top{top:-20px}
+@media(max-width:1100px) and (min-height:331px){
+ .terrain-mode[data-view=plan] .plan-panel{flex:1;min-height:0}
+ .terrain-mode:not(.has-work-selection):not(.is-drawing)[data-view=plan] .inspector{display:none}
+ .terrain-mode:not(.has-work-selection):not(.is-drawing)[data-view=plan] .plan-layout{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:740px){
+ .terrain-mode:not(.is-drawing) .terrain-tools{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;padding:4px 6px}
+ .terrain-mode:not(.is-drawing) .terrain-tools>.terrain-button{min-width:0;min-height:44px;padding:6px 3px;font-size:12px;line-height:1.2;gap:0}
+ .terrain-mode:not(.is-drawing) .terrain-tools>.terrain-button>svg,.terrain-mode:not(.is-drawing) .terrain-tools>.terrain-button>i{display:none}
+ .terrain-mode .terrain-tools #mepToolsButton{white-space:normal;line-height:1.2;padding:6px 3px;font-size:12px}
+ .terrain-mode .terrain-tools #finishMultiSelection{grid-column:1/-1}
+ .terrain-mode[data-view=mep] main{padding:8px 12px 12px}
+ .mep-view{display:flex;flex-direction:column}
+ .mep-view>*{order:2}
+ .mep-view>.section-header,.mep-view>#mepProjectStatus{order:0}
+ .mep-view>#mepProjectMetrics{order:1}
+ #elementDialog>.modal-top{top:-22px}#mepBlockerDialog>.modal-top{top:-16px}
+}
+
+.mep-portion-toolbar{flex:none;background:#f3f7fc;border-bottom:1px solid var(--line);padding:10px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px}.mep-portion-toolbar>div{min-width:0}.mep-portion-toolbar strong{display:block;font-size:15px;line-height:1.4}.mep-portion-toolbar p{font-size:13px;line-height:1.4;margin:3px 0 0;color:var(--muted)}.mep-portion-controls{display:flex;gap:8px;flex-wrap:wrap;flex:none}.mep-portion-controls button{min-height:48px;font-size:13px}.mep-portion-toolbar button{white-space:normal}.is-mep-portion #mepPortionLayer text{paint-order:stroke;stroke:white;stroke-width:2}
+@media(max-width:740px){.mep-portion-toolbar{padding:6px 8px;display:block}.mep-portion-toolbar strong{font-size:13px}.mep-portion-toolbar p{font-size:12px;margin:2px 0 6px}.mep-portion-controls{display:grid;grid-template-columns:64px 86px minmax(0,1fr);gap:6px}.mep-portion-controls button{font-size:12px;min-height:48px;padding:6px}.is-mep-portion .topbar{display:none!important}}

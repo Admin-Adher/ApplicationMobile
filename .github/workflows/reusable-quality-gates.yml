@@ -180,8 +180,14 @@ jobs:
       - name: Apply precise progress compatibility
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261112181124_precise_plan_progress.sql
 
+      - name: Apply MEP networks and blockers
+        run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261116143014_mep_network_progress.sql
+
       - name: Verify PDF progress isolation, permissions, concurrency and idempotency
         run: psql -v ON_ERROR_STOP=1 -f supabase/tests/plan_progress.sql
+
+      - name: Verify MEP calculations, assignments, evidence and isolation
+        run: psql -v ON_ERROR_STOP=1 -f supabase/tests/mep_progress.sql
 
       - name: Apply atomic checklist checkbox updates
         run: psql -v ON_ERROR_STOP=1 -f supabase/migrations/20261112153505_checklist_item_updates.sql

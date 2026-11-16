@@ -21,6 +21,62 @@ const canonical = (value: unknown): unknown => Array.isArray(value) ? value.map(
   ? Object.fromEntries(Object.keys(value).sort().map(key => [key,canonical((value as Record<string,unknown>)[key])])) : value ?? null;
 const equal = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
 const record = (value: unknown): value is Record<string, unknown> => Boolean(value && typeof value === 'object' && !Array.isArray(value));
+export type MepMetadata = {
+  discipline: 'plumbing' | 'hvac' | 'cfo' | 'cfa' | 'sprinkler' | 'other';
+  network: string; subnetwork: string; zone: string;
+  quantityMode: 'drawing' | 'manual' | 'estimate'; plannedQuantity: number | null;
+  unit: 'm' | 'u' | 'm²' | 'm³'; weight: number;
+};
+export type MepBlocker = {
+  id: string; point: { x: number; y: number }; description: string; photoRefs: string[];
+  companyId: string; responsibleId: string | null; dueDate: string | null; openedAt: string;
+  status: 'open' | 'assigned' | 'in_progress' | 'resolved' | 'closed';
+  blocksProgress: boolean; priority: 'normal' | 'high' | 'critical';
+};
+const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const positiveMeasure = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n > 0 && n <= 1e9;
+/** Local references remain durable offline; the host resolves them before RPC. */
+export function validateMepElement(el: Record<string, unknown>) {
+  const m = el.mep;
+  if (m != null && (!record(m) || Object.keys(m).some(k => !['discipline','network','subnetwork','zone','quantityMode','plannedQuantity','unit','weight'].includes(k)) ||
+    !['plumbing','hvac','cfo','cfa','sprinkler','other'].includes(String(m.discipline)) ||
+    ['network','subnetwork','zone'].some(k => typeof m[k] !== 'string' || String(m[k]).length > 120) || !String(m.network).trim() ||
+    !['drawing','manual','estimate'].includes(String(m.quantityMode)) || !['m','u','m²','m³'].includes(String(m.unit)) || !positiveMeasure(m.weight) ||
+    !Object.prototype.hasOwnProperty.call(m,'plannedQuantity') || (m.plannedQuantity !== null && !positiveMeasure(m.plannedQuantity)) ||
+    (m.quantityMode === 'manual' && m.plannedQuantity === null) ||
+    (m.quantityMode === 'drawing' && m.unit !== ({point:'u',line:'m',area:'m²'} as Record<string,string>)[String(el.kind)]))) throw new Error('Réseau MEP invalide.');
+  if (el.room != null && (typeof el.room !== 'string' || el.room.length > 120)) throw new Error('Local invalide.');
+  if (el.executedRanges != null) {
+    if (el.kind !== 'line' || !record(m) || !Array.isArray(el.executedRanges) || el.executedRanges.length > 100) throw new Error('Portions exécutées invalides.');
+    let end=0,sum=0;
+    for(const range of el.executedRanges) {
+      if(!Array.isArray(range) || range.length!==2 || range.some(n=>typeof n!=='number'||!Number.isFinite(n)) || range[0]<end || range[0]<0 || range[1]>1 || range[0]>=range[1]) throw new Error('Portions exécutées invalides.');
+      sum+=range[1]-range[0];end=range[1];
+    }
+    const expected=el.status==='todo'?0:el.status==='progress'?Number(el.progressPercent??50)/100:1;
+    if(Math.abs(sum-expected)>1e-8 || el.progressPercent!=null && el.status!=='progress' && Math.abs(Number(el.progressPercent)/100-expected)>1e-8) throw new Error('Le pourcentage doit correspondre aux portions exécutées.');
+  }
+  if (el.blockers === undefined) return;
+  if (!Array.isArray(el.blockers) || el.blockers.length > 100) throw new Error('Points bloquants invalides.');
+  if(el.blockers.length&&!record(m))throw new Error('Conservez le réseau MEP des points bloquants, y compris clos.');
+  const ids = new Set<string>();
+  for (const b of el.blockers) {
+    if (!record(b) || Object.keys(b).some(k => !['id','point','description','photoRefs','companyId','responsibleId','dueDate','openedAt','status','blocksProgress','priority'].includes(k)) ||
+      typeof b.id !== 'string' || !uuid.test(b.id) || ids.has(b.id) || !record(b.point) ||
+      typeof b.point.x !== 'number' || !Number.isFinite(b.point.x) || b.point.x < 0 || b.point.x > 1000 ||
+      typeof b.point.y !== 'number' || !Number.isFinite(b.point.y) || b.point.y < 0 || b.point.y > 100000 ||
+      typeof b.description !== 'string' || !b.description.trim() || b.description.length > 4000 ||
+      !Array.isArray(b.photoRefs) || b.photoRefs.length < 1 || b.photoRefs.length > 10 || new Set(b.photoRefs).size !== b.photoRefs.length || b.photoRefs.some((ref: unknown) => typeof ref !== 'string' || !/^(?:btmedia|btlocal):\/\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(ref)) ||
+      typeof b.companyId !== 'string' || !b.companyId || b.companyId.length > 600 ||
+      (b.responsibleId !== null && (typeof b.responsibleId !== 'string' || !uuid.test(b.responsibleId))) ||
+      (b.dueDate !== null && (typeof b.dueDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(b.dueDate) || !Number.isFinite(Date.parse(b.dueDate)) || new Date(b.dueDate).toISOString().slice(0,10) !== b.dueDate)) ||
+      typeof b.openedAt !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(b.openedAt) || !Number.isFinite(Date.parse(b.openedAt)) ||
+      !['open','assigned','in_progress','resolved','closed'].includes(String(b.status)) || typeof b.blocksProgress !== 'boolean' ||
+      !['normal','high','critical'].includes(String(b.priority)) ||
+      !(record(m) && typeof m.zone === 'string' && m.zone.trim() || typeof el.room === 'string' && el.room.trim())) throw new Error('Point bloquant invalide.');
+    ids.add(b.id);
+  }
+}
 export function readProgress(value: unknown): ProgressDocument {
   if (!record(value) || !Array.isArray(value.elements) || !record(value.calibrations) || !record(value.billed)) throw new Error('Données d’avancement invalides.');
   const ids = new Set<string>();
@@ -33,6 +89,7 @@ export function readProgress(value: unknown): ProgressDocument {
       el.points.some(point => !record(point) || typeof point.x !== 'number' || typeof point.y !== 'number' || !Number.isFinite(point.x) || !Number.isFinite(point.y) || point.x < 0 || point.x > 1000 || point.y < 0 || point.y > 100000) ||
       (el.progressPercent != null && (typeof el.progressPercent !== 'number' || !Number.isFinite(el.progressPercent) || el.progressPercent < 0 || el.progressPercent > 100)) ||
       (el.price !== undefined && (typeof el.price !== 'number' || !Number.isFinite(el.price) || el.price < 0 || el.price > 1_000_000))) throw new Error('Ouvrage d’avancement invalide.');
+    validateMepElement(el);
     ids.add(el.id);
     let group: unknown;
     try { group = JSON.parse(el.lotId); } catch { throw new Error('Entreprise d’avancement invalide.'); }
