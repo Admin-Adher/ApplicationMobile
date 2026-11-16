@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import { randomUUID } from 'node:crypto';
 import ts from 'typescript';
+import {mepTransitionProblem} from '../lib/plan-progress/editor/mep-transition';
 import { describe, expect, it } from 'vitest';
 
 // Exercise the real editor's save/status functions with manually acknowledged
@@ -31,7 +32,7 @@ function editor() {
       snapshot:()=>JSON.parse(JSON.stringify({state,saving,unconfirmed})),
     });
   `, {
-    api, inputs, crypto: { randomUUID }, boot:{userId:'user-a',people:[{id:'user-a',name:'Chef de chantier'}]},
+    api, inputs,mepTransitionProblem, crypto: { randomUUID }, boot:{userId:'user-a',people:[{id:'user-a',name:'Chef de chantier'}]},
     $: (id: string) => inputs[id],
     document: { body: { setAttribute: (name: string) => attributes.add(name), removeAttribute: (name: string) => attributes.delete(name) } },
     request: (_type: string, payload: unknown) => new Promise((resolve, reject) => writes.push({ payload: JSON.parse(JSON.stringify(payload)), resolve, reject })),

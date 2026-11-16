@@ -11187,6 +11187,7 @@ function PlansView({
   const [migrateRevisionReserves, setMigrateRevisionReserves] = useState(true);
   const [planActionsOpen, setPlanActionsOpen] = useState(false);
   const [progressOpen, setProgressOpen] = useState(false);
+  const [progressAction,setProgressAction] = useState<{planId:string;workId:string;blockerId:string}|null>(null);
   const [pinCreateMode, setPinCreateMode] = useState(false);
   const [cachedPlanPreview, setCachedPlanPreview] = useState<{
     ownerId: string;
@@ -11538,7 +11539,8 @@ function PlansView({
     setFocusedPlanReserveId(null);
     setPinPlacementPreview(null);
     setPlanActionsOpen(false);
-    setProgressOpen(false);
+    setProgressOpen(progressAction?.planId===selectedPlan?.id);
+    if(progressAction?.planId!==selectedPlan?.id)setProgressAction(null);
     setPinCreateMode(false);
   }, [selectedPlan?.id]);
   useEffect(() => {
@@ -11865,7 +11867,9 @@ function PlansView({
         compactDetail={isCompactPlanView && mobilePlanOpen}
       />
         {progressOpen && selectedPlan && progressContext ? <PlanProgress
-          {...progressContext} plan={{...selectedPlan,building:getPlanBuildingName(selectedPlan),level:getPlanLevelName(selectedPlan)}} resolvedUri={selectedPlanResolvedUri ?? ''}
+          key={selectedPlan.id} {...progressContext} plan={{...selectedPlan,building:getPlanBuildingName(selectedPlan),mepBuilding:selectedPlan.building||'',level:getPlanLevelName(selectedPlan)}} resolvedUri={selectedPlanResolvedUri ?? ''}
+          initialMepAction={progressAction?.planId===selectedPlan.id?progressAction:null}
+          onOpenMepAction={target=>{setProgressAction(target);setSelectedPlanId(target.planId);}}
           availablePlans={plans.filter((p:any)=>p.chantier_id===selectedPlan.chantier_id).map((p:any)=>({...p,building:getPlanBuildingName(p),level:getPlanLevelName(p)}))}
           projectName={projects.find((row: any) => row.id === selectedPlan.chantier_id)?.name ?? 'Chantier'}
           companies={companies.filter((row: any) => (!row.organization_id || row.organization_id === progressContext.organizationId) && (() => {
@@ -11873,7 +11877,7 @@ function PlansView({
             return !Array.isArray(ids) || ids.length === 0 || ids.includes(row.id);
           })())}
           lots={(progressContext.lots ?? []).filter((row: any) => !row.chantier_id || row.chantier_id === selectedPlan.chantier_id)}
-          onClose={() => { setProgressOpen(false); if (isCompactPlanView && selectedPlan) planWorkspace.openDetail(); }} /> : null}
+          onClose={() => { setProgressAction(null);setProgressOpen(false); if (isCompactPlanView && selectedPlan) planWorkspace.openDetail(); }} /> : null}
       {planWorkspace.showList && (
       <section className={`${styles.panel} ${styles.plansListPanel}`} data-prw-panel data-prw-plan-nav>
         <div className={styles.buildingRailHeaderWeb} data-prw-plan-nav-header>
@@ -12114,7 +12118,7 @@ function PlansView({
                 <span>{[getPlanBuildingName(selectedPlan), getPlanLevelName(selectedPlan), selectedPlan.revision_code].filter(Boolean).join(' · ')}</span>
               </div>
               <div className={styles.planHeaderActions} data-prw-plan-actions>
-                {progressContext && canTrackPdfPlan(selectedPlan) ? <button type="button" className={styles.planActionPrimary} onClick={() => setProgressOpen(true)}><span>Avancement</span></button> : null}
+                {progressContext && canTrackPdfPlan(selectedPlan) ? <button type="button" className={styles.planActionPrimary} onClick={() => {setProgressAction(null);setProgressOpen(true);}}><span>Avancement</span></button> : null}
                 {planCanExport ? (
                   <button
                     type="button"

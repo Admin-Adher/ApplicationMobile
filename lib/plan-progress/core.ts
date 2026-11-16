@@ -1,3 +1,4 @@
+import {mepTransitionProblem} from './editor/mep-transition';
 /** Shared wire contract. Coordinates use the PDF viewport normalised to 1000 units. */
 export type ProgressDocument = {
   elements: Record<string, unknown>[];
@@ -81,7 +82,8 @@ export function validateMepElement(el: Record<string, unknown>) {
 /** New classifications and new blocker markers need an actual chantier lot.
  * Reading or treating a legacy generic-company work remains supported.
  */
-export function validateMepTransition(previous: ProgressDocument,next: ProgressDocument): void {
+export function validateMepTransition(previous: ProgressDocument,next: ProgressDocument,context?: {requireBuilding?:boolean;building?:string}): void {
+  const problem=mepTransitionProblem(previous,next,context);if(problem)throw new Error(problem);
   const oldById=new Map(previous.elements.map(el=>[el.id,el]));
   for(const el of next.elements) {
     const old=oldById.get(el.id);

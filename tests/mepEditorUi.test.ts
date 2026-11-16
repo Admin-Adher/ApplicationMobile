@@ -39,12 +39,14 @@ function setup(permissions={edit:true,editOwn:false,export:true},ownResponsible=
   const request=async(type:string,payload:any)=>{state.requests.push({type,payload});if(type==='pickMepPhotos'){if(state.photoError)throw state.photoError;return state.photoResult;}if(type==='resolveMepPhotos')return {urls:[]};if(type==='projectMep')return state.projectSnapshot;return {};};
   const canChangeStatus=(els:any[],status:string)=>boot.permissions.edit||boot.permissions.editOwn&&status!=='checked'&&els.every(el=>el.status!=='checked'&&JSON.parse(el.lotId)[0]===boot.companyId);
   const captureExport=async(_doc:any,_snapshot:any,filters:any)=>state.exports.push(filters);
-  context.require=(name:string)=>name==='./bridge.js'?{boot,request,canChangeStatus}:name==='./model.js'?{LOTS:groups,lotFor:(id:string)=>groups.find(g=>g.id===id)||{company:'Entreprise test',name:'Lot à réaffecter'},escapeHtml:(v:any)=>String(v??'').replace(/[<>&"]/g,(c:string)=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]!)),num:(n:number)=>String(n)}:name==='./mep-calculations.js'?calc:name==='./mep-audit.js'?audit:name==='./mep-export.js'?{exportMepWorkbook:captureExport,exportMepCsv:captureExport,exportMepPdf:captureExport}:{};
+  const shared:Record<string,any>={};
+  for(const name of ['mep-transition.js','mep-plan-scope.js','mep-notifications.js']){const exports:any={};runInNewContext(ts.transpileModule(readFileSync('lib/plan-progress/editor/'+name,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,{exports,Date,JSON,Map,Set});shared['./'+name]=exports;}
+  context.require=(name:string)=>name in shared?shared[name]:name==='./bridge.js'?{boot,request,canChangeStatus}:name==='./model.js'?{LOTS:groups,lotFor:(id:string)=>groups.find(g=>g.id===id)||{company:'Entreprise test',name:'Lot à réaffecter'},escapeHtml:(v:any)=>String(v??'').replace(/[<>&"]/g,(c:string)=>({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'}[c]!)),num:(n:number)=>String(n)}:name==='./mep-calculations.js'?calc:name==='./mep-audit.js'?audit:name==='./mep-export.js'?{exportMepWorkbook:captureExport,exportMepCsv:captureExport,exportMepPdf:captureExport}:{};
   runInNewContext(ts.transpileModule(readFileSync('lib/plan-progress/editor/mep-ui.js','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,context);
   $('mepBlockerStatus').options=['open','assigned','in_progress','resolved','closed'].map(value=>({value,disabled:false}));
   $('mepBlockerForm').controls=['mepBlockerDescription','mepBlockerCompany','mepBlockerPerson','mepBlockerDue','mepBlockerStatus','mepBlockerPriority','mepBlocksProgress'].map($);
   $('elementLot').value=work.lotId;
-  const api=context.exports.createMepUI({getState:()=>doc,getSelected:()=>new Set(['a']),record:(title:string,detail:string,mutate:Function)=>{state.writes.push({title,detail});mutate();},toast:(value:string)=>state.toasts.push(value),render:()=>{},setView:(view:string)=>context.document.body.dataset.view=view,isBusy:()=>false,clearSelection:()=>{},locateWork:(el:any)=>state.located.push(el.id),beginPositioning:()=>state.positioning=true,endPositioning:()=>state.positioning=false,beginPortion:()=>state.positioning=true,endPortion:()=>state.positioning=false});
+  const api=context.exports.createMepUI({getState:()=>doc,getSelected:()=>new Set(['a']),record:(title:string,detail:string,mutate:Function)=>{state.writes.push({title,detail});mutate();},toast:(value:string)=>state.toasts.push(value),render:()=>{},setView:(view:string)=>context.document.body.dataset.view=view,isBusy:()=>false,clearSelection:()=>{},locateWork:async(el:any)=>{if(state.locateError)throw state.locateError;state.located.push(el.id);doc.currentDoc=el.docId;doc.currentPage=el.page;},beginPositioning:()=>state.positioning=true,endPositioning:()=>state.positioning=false,beginPortion:()=>state.positioning=true,endPortion:()=>state.positioning=false});
   const button=(attribute:string,dataset={})=>({hasAttribute:(name:string)=>name===attribute,dataset});
   const blocker=(status='open')=>({id:randomUUID(),point:{x:130,y:170},description:'Support en attente',photoRefs:['btmedia://22222222-2222-4222-8222-222222222222'],companyId:'company',responsibleId:ownResponsible?'user':'other',dueDate:'2026-11-20',openedAt:'2026-11-16T09:00:00.000Z',status,blocksProgress:true,priority:'normal'});
   const settle=async()=>{for(let i=0;i<8;i++)await Promise.resolve();};
@@ -52,6 +54,56 @@ function setup(permissions={edit:true,editOwn:false,export:true},ownResponsible=
 }
 
 describe('shared MEP editor behavior',()=>{
+  it('navigates to the work page before accepting a new blocker position',async()=>{
+    const q=setup(),b=q.blocker();q.work.page=2;q.work.blockers=[b];
+    await q.api.openMarker(b.id,q.work.id);q.api.handleClick(q.button('data-mep-position'));
+    expect(q.api.placing).toBe(true);await q.settle();expect(q.doc.currentPage).toBe(2);expect(q.state.positioning).toBe(true);
+    const svg:any=q.$('planOverlay');svg.getScreenCTM=()=>({inverse:()=>({})});svg.viewBox={baseVal:{height:700}};svg.createSVGPoint=()=>({matrixTransform:()=>({x:500,y:200})});
+    q.api.handlePlanClick({clientX:500,clientY:200});await q.settle();q.$('mepBlockerForm').events.submit({preventDefault(){}});
+    expect(q.work.blockers[0].point).toEqual({x:500,y:200});expect(q.work.page).toBe(2);
+  });
+  it('keeps the marker unchanged if loading its page fails or the user leaves its page',async()=>{
+    const q=setup(),b=q.blocker();q.work.page=2;q.work.blockers=[b];await q.api.openMarker(b.id,q.work.id);q.state.locateError=Error('PDF indisponible');
+    q.api.handleClick(q.button('data-mep-position'));await q.settle();expect(q.api.placing).toBe(false);expect(q.$('mepBlockerDialog').open).toBe(true);expect(q.work.blockers[0].point).toEqual(b.point);
+    q.state.locateError=null;q.api.handleClick(q.button('data-mep-position'));await q.settle();q.doc.currentPage=1;
+    const svg:any=q.$('planOverlay');svg.getScreenCTM=()=>({inverse:()=>({})});svg.viewBox={baseVal:{height:700}};svg.createSVGPoint=()=>({matrixTransform:()=>({x:500,y:200})});
+    q.api.handlePlanClick({clientX:500,clientY:200});expect(q.api.placing).toBe(false);expect(q.state.writes).toHaveLength(0);expect(q.state.toasts.at(-1)).toContain('page a changé');
+  });
+  it('requires a saved resolution before closure without discarding the form',async()=>{
+    const q=setup(),b=q.blocker();q.work.blockers=[b];await q.api.openMarker(b.id,q.work.id);
+    expect(q.$('mepBlockerStatus').options.find(o=>o.value==='closed').disabled).toBe(true);
+    q.$('mepBlockerStatus').value='closed';q.$('mepBlockerForm').events.submit({preventDefault(){}});
+    expect(q.state.writes).toHaveLength(0);expect(q.$('mepBlockerDialog').open).toBe(true);expect(q.$('mepBlockerError').textContent).toContain('Résolu');
+    q.$('mepBlockerStatus').value='resolved';q.$('mepBlockerForm').events.submit({preventDefault(){}});await q.api.openMarker(b.id,q.work.id);
+    expect(q.$('mepBlockerStatus').options.find(o=>o.value==='closed').disabled).toBe(false);
+    q.$('mepBlockerStatus').value='closed';q.$('mepBlockerForm').events.submit({preventDefault(){}});expect(q.work.blockers[0].status).toBe('closed');
+  });
+  it('requires the actual building, not its display fallback, before adding or editing a marker',async()=>{
+    const q=setup();q.boot.plan.mepBuilding='';q.api.handleClick(q.button('data-mep-add-blocker'));await q.settle();
+    expect(q.$('mepBlockerDialog').open).toBe(false);expect(q.state.toasts.at(-1)).toContain('bâtiment');
+    const b=q.blocker();q.work.blockers=[b];await q.api.openMarker(b.id,q.work.id);q.$('mepBlockerDescription').value='Saisie à conserver';q.$('mepBlockerForm').events.submit({preventDefault(){}});
+    expect(q.state.writes).toHaveLength(0);expect(q.$('mepBlockerError').hidden).toBe(false);expect(q.$('mepBlockerDescription').value).toBe('Saisie à conserver');
+  });
+  it('filters company independently from lot and passes the same scope to exports',async()=>{
+    const q=setup();q.groups.push({id:'["company","lot-b"]',companyId:'company',company:'Entreprise test',name:'CVC'},{id:'["other","lot-a"]',companyId:'other',company:'Autre entreprise',name:'Plomberie'});
+    q.doc.elements.push({...structuredClone(q.work),id:'b',reference:'CVC-002',lotId:'["company","lot-b"]'},{...structuredClone(q.work),id:'c',reference:'AUTRE-003',lotId:'["other","lot-a"]'});
+    q.api.handleClick(q.button('data-mep-project'));await q.settle();q.$('mepCompanyFilter').value='company';q.$('mepCompanyFilter').events.change();
+    expect(q.$('mepProjectTable').innerHTML).toContain('CVC-002');expect(q.$('mepProjectTable').innerHTML).not.toContain('AUTRE-003');
+    q.$('mepLotFilter').value='lot-b';q.$('mepLotFilter').events.change();q.api.handleClick(q.button('',{mepExport:'xlsx'}));await q.settle();expect(q.state.exports[0]).toMatchObject({companyId:'company',lotId:'lot-b'});
+    q.$('mepCompanyFilter').value='other';q.$('mepCompanyFilter').events.change();expect(q.api.filters.lotId).toBe('');expect(q.$('mepProjectTable').innerHTML).toContain('AUTRE-003');
+    q.$('mepCompanyFilter').value='';q.$('mepCompanyFilter').events.change();q.$('mepLotFilter').value='lot-a';q.$('mepLotFilter').events.change();
+    expect(q.$('mepProjectTable').innerHTML).toContain('EAU-001');expect(q.$('mepProjectTable').innerHTML).toContain('AUTRE-003');expect(q.$('mepProjectTable').innerHTML).not.toContain('CVC-002');
+  });
+  it('opens contextual unread actions on the exact work and forwards cross-plan navigation',async()=>{
+    const q=setup(),b=q.blocker();q.work.page=2;q.work.blockers=[b];q.boot.canOpenMepAction=true;
+    const other={...structuredClone(q.work),id:'other-work',docId:'other-plan',reference:'CVC-AUTRE',blockers:[q.blocker()]};
+    q.state.projectSnapshot.plans=[{id:'other-plan',name:'Autre PDF',document:{elements:[other]}}];q.state.projectSnapshot.notifications=[{id:'n',planId:'plan',blockerId:b.id},{id:'duplicate',planId:'plan',blockerId:b.id},{id:'other',planId:'other-plan',blockerId:other.blockers[0].id}];
+    q.api.handleClick(q.button('data-mep-project'));await q.settle();const html=q.$('mepNotifications').innerHTML;
+    expect(html).toContain('Support en attente');expect(html).toContain('page 2');expect(html.match(/data-mep-open-action/g)).toHaveLength(2);
+    await q.api.openActionTarget({workId:q.work.id,blockerId:b.id});expect(q.doc.currentPage).toBe(2);expect(q.$('mepBlockerDialog').open).toBe(true);q.$('mepBlockerDialog').close();
+    await q.api.openActionTarget({workId:'wrong',blockerId:b.id});expect(q.$('mepBlockerDialog').open).toBe(false);
+    q.api.handleClick(q.button('',{mepOpenAction:other.blockers[0].id,mepPlan:'other-plan'}));await q.settle();expect(q.state.requests.at(-1)).toEqual({type:'openMepAction',payload:{planId:'other-plan',workId:'other-work',blockerId:other.blockers[0].id}});
+  });
   it('preserves a legacy work without adding a new null MEP field',()=>{
     const q=setup();q.api.setElement({kind:'line',room:'105R'});
     expect(q.api.readElement('line')).toEqual({room:'105R'});
@@ -85,7 +137,7 @@ describe('shared MEP editor behavior',()=>{
   it('places a blocker at the selected PDF coordinates and saves photo intent through the durable port',async()=>{
     const q=setup();q.api.handleClick(q.button('data-mep-add-blocker'));await q.settle();
     q.$('mepBlockerDescription').value='Gaine traversée par la structure';q.$('mepBlockerCompany').value='company';q.$('mepBlockerPerson').value='user';q.$('mepBlockerStatus').value='open';q.$('mepBlockerPriority').value='high';
-    q.api.handleClick(q.button('data-mep-position'));expect(q.state.positioning).toBe(true);
+    q.api.handleClick(q.button('data-mep-position'));await q.settle();expect(q.state.positioning).toBe(true);
     const overlay:any=q.$('planOverlay');overlay.getScreenCTM=()=>({inverse:()=>({})});overlay.viewBox={baseVal:{height:700}};overlay.createSVGPoint=()=>({x:0,y:0,matrixTransform(){return {x:this.x/2,y:this.y/2};}});
     expect(q.api.handlePlanClick({clientX:380,clientY:460})).toBe(true);await q.settle();expect(q.state.positioning).toBe(false);
     await q.$('mepPickPhotos').events.click();q.$('mepBlockerForm').events.submit({preventDefault(){}});
