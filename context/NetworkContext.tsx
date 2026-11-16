@@ -22,6 +22,8 @@ import { recoverRejectedOprWrite } from '@/lib/oprQueueRecovery';
 import { recoverRejectedTimeEntryWrite } from '@/lib/timeEntryQueueRecovery';
 import { useAuth } from '@/context/AuthContext';
 import { progressReplayBarrier } from '@/lib/plan-progress/replay-order';
+import {prepareMepPhotoOperation,hasLocalMepPhotos} from '@/lib/plan-progress/media-refs';
+import {uploadMepNativePhoto} from '@/lib/plan-progress/native-photos';
 import { queryClient } from '@/lib/queryClient';
 import { queryKeys } from '@/lib/queryKeys';
 import { RESERVES_CACHE_KEY, VISITES_CACHE_KEY } from '@/lib/cacheKeys';
@@ -849,6 +851,7 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
   const { user, isLoading: isAuthLoading } = useAuth();
   const userId = user?.id;
   const userOrganizationId = user?.organizationId ?? null;
+  const mepPhotoOwnerRef=useRef('');mepPhotoOwnerRef.current=userId&&userOrganizationId?userId+':'+userOrganizationId:'';
   const recoveryUserName = user?.name ?? user?.email ?? null;
   const offlineQueueKey = OFFLINE_QUEUE_PREFIX + (userId ?? 'anon');
   const offlineQueueBackupKey = OFFLINE_QUEUE_BACKUP_PREFIX + (userId ?? 'anon');
@@ -2127,6 +2130,14 @@ export function NetworkProvider({ children }: { children: React.ReactNode }) {
           }
           let args = { ...(op.rpc.args ?? {}) };
           let retryRpcOp = op;
+
+          if(op.rpc.fn==='apply_plan_progress'&&hasLocalMepPhotos({id:args.p_operation_id,planId:args.p_plan_id,sourceRef:args.p_source_ref,changes:args.p_changes})){
+            const owner=userId+':'+userOrganizationId;
+            const owned=()=>{if(passSignal?.aborted||!userId||!userOrganizationId||mepPhotoOwnerRef.current!==owner)throw Error('Synchronisation MEP interrompue : compte changé.');};
+            const prepared=await prepareMepPhotoOperation({id:args.p_operation_id,planId:args.p_plan_id,sourceRef:args.p_source_ref,changes:args.p_changes},ref=>uploadMepNativePhoto(owner,ref,owned));
+            owned();args={...args,p_changes:prepared.changes};retryRpcOp={...op,rpc:{...op.rpc,args}};retryOpForCatch=retryRpcOp;
+            const next=queueRef.current.map(item=>item.id===op.id?retryRpcOp:item);queueRef.current=next;setQueue(next);await writeQueueStrict(next);owned();
+          }
 
           if (op.rpc.fn === 'apply_terrain_patch' && args.p_table === 'visites') {
             // Persist uploaded replacements before dispatch. Replays must keep the

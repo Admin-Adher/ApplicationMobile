@@ -2,6 +2,7 @@
 
 import { supabaseBrowser } from './supabase-browser';
 import { boundedRead } from './bounded-read';
+import {supabaseUrl,supabaseAnonKey} from './supabase-public-config';
 
 type CachedMediaUrl = { url: string; expiresAt: number };
 
@@ -324,6 +325,7 @@ export async function uploadRegisteredWebFile(
   bucket: 'photos' | 'documents',
   file: File,
   prefix: string,
+  options?:{signal?:AbortSignal;expectedUserId?:string},
 ) {
   const safe = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 120);
   const filename = `${safe(prefix)}_${Date.now()}_${safe(file.name || 'upload')}`;
@@ -331,9 +333,12 @@ export async function uploadRegisteredWebFile(
   const { data } = await supabaseBrowser.auth.getSession();
   const token = data.session?.access_token;
   if (!token) throw new Error('Session requise pour téléverser un fichier.');
+  if(options?.expectedUserId&&data.session?.user.id!==options.expectedUserId)throw Error('Le compte a changé avant l’envoi de la photo.');
+  options?.signal?.throwIfAborted();
 
   const reservationResponse = await fetch('/api/storage/presign', {
     method: 'POST',
+    signal:options?.signal,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,
@@ -355,10 +360,16 @@ export async function uploadRegisteredWebFile(
     if (!reservation.uploadUrl) throw new Error('URL de téléversement R2 absente.');
     const upload = await fetch(reservation.uploadUrl, {
       method: 'PUT',
+      signal:options?.signal,
       headers: { 'Content-Type': contentType },
       body: file,
     });
     if (!upload.ok) throw Object.assign(new Error(`Téléversement R2 impossible (HTTP ${upload.status}).`), { status: upload.status });
+  } else if(options?.signal){
+    const path=String(reservation.objectKey).split('/').map(encodeURIComponent).join('/');
+    const target=String(reservation.bucket??bucket);if(target!==bucket)throw Error('Destination du média invalide.');
+    const response=await fetch(supabaseUrl+'/storage/v1/object/'+encodeURIComponent(target)+'/'+path,{method:'POST',signal:options.signal,headers:{Authorization:'Bearer '+token,apikey:supabaseAnonKey,'Content-Type':contentType,'x-upsert':'false'},body:file});
+    if(!response.ok)throw Error('Téléversement privé impossible (HTTP '+response.status+').');await response.arrayBuffer();
   } else {
     const { error } = await supabaseBrowser.storage
       .from(String(reservation.bucket ?? bucket))
@@ -368,6 +379,7 @@ export async function uploadRegisteredWebFile(
 
   const completeResponse = await fetch('/api/storage/complete', {
     method: 'POST',
+    signal:options?.signal,
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`,

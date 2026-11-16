@@ -1,0 +1,9 @@
+.mep-layer-dialog{width:min(540px,calc(100vw - 24px));max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto;overscroll-behavior:contain}
+.mep-layer-dialog p{line-height:1.5}.mep-layer-dialog #mepLayerStatus{margin:12px 0;line-height:1.5;color:var(--muted);overflow-wrap:anywhere}
+.mep-layer-dialog #mepLayerStatus[role=alert]{color:#a12d2d}.mep-layer-dialog select,.mep-layer-dialog input,.mep-layer-dialog button,.mep-layer-dialog summary{min-height:44px}
+.mep-layer-dialog select{max-width:100%}.mep-layer-dialog input[type=range]{width:100%;accent-color:var(--brand)}
+.mep-layer-dialog details{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}.mep-layer-dialog summary{display:flex;align-items:center;font-weight:600;cursor:pointer}
+.mep-layer-alignment{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}.mep-layer-alignment label{display:grid;gap:6px;min-width:0;line-height:1.4}.mep-layer-alignment input{min-width:0;width:100%}
+.mep-layer-actions{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.mep-layer-actions button{flex:1;min-width:110px;white-space:normal}.mep-layer-dialog>button:last-child{margin-top:16px}
+.mep-reference-layer{pointer-events:none;mix-blend-mode:multiply;user-select:none}
+@media(max-width:370px){.mep-layer-dialog{padding:16px}.mep-layer-alignment{gap:8px}.mep-layer-dialog h2{font-size:21px}}

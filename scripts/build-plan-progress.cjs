@@ -18,7 +18,7 @@ for (const name of fs.readdirSync(source).filter(name => name.endsWith('.js')).s
   definitions.push(`M[${JSON.stringify(name)}]=function(require,exports,module){${code}\n};`);
 }
 const xlsx = read(require.resolve('xlsx/dist/xlsx.full.min.js'));
-const css = ['styles.css','terrain.css','single-plan.css','integration.css'].map(name => read(path.join(source,name))).join('\n');
+const css = ['styles.css','terrain.css','single-plan.css','integration.css','mep.css','plan-layers.css'].map(name => read(path.join(source,name))).join('\n');
 const runtime = `const M={},C={};${definitions.join('\n')}function R(n){n=n.replace(/^.\\//,'');if(!C[n]){if(!M[n])throw Error('Unknown editor module '+n);const m={exports:{}};C[n]=m;M[n](R,m.exports,m);}return C[n].exports;}R('app.js');`;
 const inline = value => value.replace(/<\/script/gi, '<\\/script');
 const html = read(path.join(source,'shell.html')).replace('<!-- BUILDTRACK_STYLE -->', () => `<style>${css}</style>`)
